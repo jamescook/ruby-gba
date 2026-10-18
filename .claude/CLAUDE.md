@@ -91,8 +91,10 @@ loads it up front, because a test playing in a Ractor cannot load it.
 
 It is **required, not optional**: if it can't build or load, the emulator-backed tests **fail
 loudly** rather than skipping — `require_emulator!` (in `EmulatorSupport`) raises. The runs
-they skip on are the native and JavaScript lowerings', which are there to test the game as C or
-as JavaScript and not the cartridge; the GBA lowering's run plays them every time. Building it
+they skip on are the native, JavaScript and Game Boy Color lowerings', which are there to test the
+game as C, as JavaScript or as a Color cartridge and not the Advance's cartridge; the GBA
+lowering's run plays them every time. The emulator plays Game Boy Color cartridges too (libmgba
+has both consoles), and reads back their picture, sprites and sound the same way. Building it
 needs a C compiler and a system libmgba (`brew install mgba` / `apt install libmgba-dev`).
 
 ## Running Tests
@@ -103,7 +105,10 @@ emulator, each test given a core of its own, and a test that reaches state the w
 shares reported rather than tolerated — see "Ractors" in `.claude/rules/testing.md`: fix what
 it reports, never work around it), then the native lowering's (every game built as C and
 checked against the interpreter on every frame, in several processes), then the JavaScript
-lowering's (every game built as JavaScript, played by node and checked the same way). It ends
+lowering's (every game built as JavaScript, played by node and checked the same way), then the
+Game Boy Color lowering's (every game built as a Color cartridge, played in the emulator and
+checked against the interpreter after every pass; a game the Color cannot play skips saying
+why). It ends
 with a line for each and fails if any did. It needs zig 0.17 (`mise use zig@0.17.0`) and node
 18 or later as well as the emulator.
 
@@ -114,25 +119,28 @@ rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # on
 rake test:lowering:gba                                          # the GBA lowering's run alone (takes TEST= too)
 rake test:lowering:native                                       # the native lowering's run alone (takes TEST= too)
 rake test:lowering:js                                           # the JavaScript lowering's run alone (takes TEST= too)
+rake test:lowering:gbc                                          # the Game Boy Color lowering's run alone (takes TEST= too)
 rake test:playthroughs                                          # one module's tests: every file in test/ruby_gba/playthroughs/
 ```
 
 **Which run a change needs:** a change inside one lowering — the ARM the GBA lowering emits,
-the C the native lowering writes, the JavaScript runtime — can only break that lowering's run,
+the C the native lowering writes, the JavaScript runtime, the SM83 the Game Boy Color lowering
+emits — can only break that lowering's run,
 so its own task is enough while working. The native lowering's statements are the JavaScript
-lowering's too (see `Backends::JS`), so a change to them wants both those runs. A change to anything both read — the DSL, the IR, the interpreter (the
+lowering's and the Game Boy Color lowering's too (see `Backends::JS`, `Backends::GBC`), so a
+change to them wants all three of those runs. A change to anything both read — the DSL, the IR, the interpreter (the
 answer key both are checked against, so never a narrow change), the build checks — wants
 `rake test`.
 
 **Every test plays on every lowering**, with nothing written to say so: a test makes its player
 with `game_player` (the interpreter on the GBA run, the game as C on the native one, the game as
-JavaScript on the JavaScript one), and a test that reaches for the emulator skips itself on the
-native and JavaScript runs. A test that does not pass on all of them fails `rake test`. The one
+JavaScript on the JavaScript one, the Color cartridge on the Game Boy Color one), and a test that
+reaches for the Advance's cartridge in the emulator skips itself on the other runs. A test that does not pass on all of them fails `rake test`. The one
 exception is a test of one lowering's own output, which lives in a folder that lowering owns and
 is played by its run alone: `test/ruby_gba/ir/backends/gba/`, the cartridge-reading
 `diagnostics/` and `playthroughs/` for the GBA lowering, `test/ruby_gba/ir/backends/native/`
-for the native one and `test/ruby_gba/ir/backends/js/` for the JavaScript one
-(`TestSuites::LOWERING_FOLDERS` in `test/support/suites.rb`). `.claude/rules/testing.md` has the
+for the native one, `test/ruby_gba/ir/backends/js/` for the JavaScript one and
+`test/ruby_gba/ir/backends/gbc/` for the Game Boy Color one (`TestSuites::LOWERING_FOLDERS` in `test/support/suites.rb`). `.claude/rules/testing.md` has the
 details.
 
 The test tree mirrors the code's directories: a test of a file in `lib/ruby_gba/audio/`
@@ -302,9 +310,9 @@ this design allows for but doesn't have yet — see the register-convention comm
 
 Keep the IR **target-agnostic**: `IR::Node` describes *what the program does*, not how one machine runs it. ARM/GBA is the current lowering backend, but nothing in the node model assumes it — another backend (e.g. JavaScript) could lower the same tree. Put target-specific detail in the lowering pass, never in the IR core — and that includes code comments: don't frame the IR around GBA/ARM.
 
-**Backends** consume the IR and live under `IR::Backends`, named for the platform they target (the ROM backend is `GBA`, not `Arm` — the target is the whole platform, not just the CPU). `Backends::Reference` runs the IR in Ruby (the headless test oracle — named for its role as the answer key, not for the language, since every backend here happens to be written in Ruby); `Backends::GBA` lowers it to a ROM; `Backends::Native` writes it as C; `Backends::JS` prints the native lowering's statements as JavaScript, for a web page (`ruby-gba build --format=web`, `ruby-gba preview`) and for node in the tests. All honor `IR::Int32`'s signed-32-bit semantics — that shared contract is what keeps them agreeing.
+**Backends** consume the IR and live under `IR::Backends`, named for the platform they target (the ROM backend is `GBA`, not `Arm` — the target is the whole platform, not just the CPU). `Backends::Reference` runs the IR in Ruby (the headless test oracle — named for its role as the answer key, not for the language, since every backend here happens to be written in Ruby); `Backends::GBA` lowers it to a ROM; `Backends::Native` writes it as C; `Backends::JS` prints the native lowering's statements as JavaScript, for a web page (`ruby-gba build --format=web`, `ruby-gba preview`) and for node in the tests; `Backends::GBC` lowers it to SM83 code and a Game Boy Color cartridge (`ruby-gba build --format=gbc`), for a game that says it is for that console too (`consoles: %i[gba gbc]`). What the Color does with each verb — works, shown differently with a warning, or refused — is `Console::GBCFeatures`, written out for the reader in `.claude/dsl/game-boy-color.md`. All honor `IR::Int32`'s signed-32-bit semantics — that shared contract is what keeps them agreeing.
 
-**Cross-backend rule:** a hardware feature (sound, tiles, sprites, paged modes…) isn't *done* until it works on every backend — the GBA lowering, the native lowering (`Backends::Native`, the game as C, built by zig into a desktop program), the JavaScript lowering (`Backends::JS`, whose runtime is the native one's written again in JavaScript) **and** the Ruby interpreter. `rake test` holds it to that: every test plays on every lowering, so a feature one of them lacks fails the run (see the comment atop `IR::Backends`). The moment a feature is on the radar, write down each backend's slice as its own piece of work — even before the details are known — so it can't be forgotten while you're heads-down on the feature elsewhere. Don't lean on this principle to remember; record it.
+**Cross-backend rule:** a hardware feature (sound, tiles, sprites, paged modes…) isn't *done* until it works on every backend — the GBA lowering, the native lowering (`Backends::Native`, the game as C, built by zig into a desktop program), the JavaScript lowering (`Backends::JS`, whose runtime is the native one's written again in JavaScript), the Game Boy Color lowering (`Backends::GBC`, where "works" may also be a stated answer from `Console::GBCFeatures`: shown differently with a warning, or refused in plain words) **and** the Ruby interpreter. `rake test` holds it to that: every test plays on every lowering, so a feature one of them lacks fails the run (see the comment atop `IR::Backends`). The moment a feature is on the radar, write down each backend's slice as its own piece of work — even before the details are known — so it can't be forgotten while you're heads-down on the feature elsewhere. Don't lean on this principle to remember; record it.
 
 **Conformance-fixture obligation:** a new IR feature (a `Node::CATEGORY` kind or a `binop` operator) isn't done until it's added to the kitchen-sink fixture in `test/conformance_fixture.rb`. That one program is run through every backend by `test/ruby_gba/ir/test_cross_backend_conformance.rb` — on the native run it is built as C and checked against the interpreter, and on the JavaScript run as JavaScript — and a backend missing a feature the fixture uses hits its "unsupported" branch and fails. The coverage test asserts the fixture touches every kind/operator, so a forgotten feature fails loudly — but only if you added it to the fixture. Hardware-only kinds (`raw` and `read_scanline` today) are exempt via `HARDWARE_ONLY_KINDS` and kept in an uncalled func. This guards *coverage*; the differential test (behavioral *agreement*) is separate.
 

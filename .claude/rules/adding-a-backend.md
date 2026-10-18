@@ -19,13 +19,38 @@ guardrails) and either runs it or writes it out as something else that runs. It 
 IR does not say: the IR is target-neutral, and a backend never reaches back into the DSL or the
 builder.
 
-There are four today:
+There are five today:
 
 - `Backends::Reference` runs the tree in Ruby. **It is the answer key**: what a program means is
   what Reference does with it. It is named for that role, not for its language.
 - `Backends::GBA` lowers the tree to ARM and a cartridge.
 - `Backends::Native` writes the tree out as C, built by zig into a desktop program.
 - `Backends::JS` writes the tree out as JavaScript, for a web page, and for node in the tests.
+- `Backends::GBC` lowers the tree to SM83 code and a Game Boy Color cartridge (MBC5).
+
+## A second console
+
+The Game Boy Color is the first backend for a console other than the Advance, and it showed what
+a console of its own needs beyond a lowering:
+
+- **A description** (`Console::Description`, `Console.described(:gbc)`): its screen size, what it
+  can blend, and the rest a game or the interpreter asks of a console. A game says which consoles
+  it is for (`consoles: %i[gba gbc]`) and reads `screen_width` and `screen_height` rather than
+  writing 240 and 160. The interpreter plays the game as that console, so the answer key and the
+  cartridge agree about what the console cannot do (a fade the Color does not blend is walked
+  colour by colour, `IR::Fading`).
+- **An answer for every verb** (`Console::GBCFeatures`): it works, it is shown differently and
+  the build says so with a warning, or it is refused in plain words. The guardrail check
+  (`Checks::ColorAnswers`) gives those answers at build time, and `.claude/dsl/game-boy-color.md`
+  is generated from the same table (`tools/gbc_answers.rb`), so the docs cannot drift from it.
+- **Its own cartridge, emulator reading and profiler** (`Cartridge::GBCROM`,
+  `Diagnostics::GBCProfiler`): the Advance's never learn about it.
+
+`GBC::Lowering < Native::Lowering` starts from the native statements like the JavaScript one,
+and swaps in its own picture and sound (`GBC::Picture`, `GBC::Sound`), since the Color draws
+with tiles and sprites alone; `GBC::Compiler` turns the statements into SM83 code and its runtime
+is written in SM83 through the Ruby assembler (`GBC::SM83`). The comment atop `Backends::GBC`
+says the rest.
 
 ## Start from the native lowering's statements
 
@@ -125,13 +150,13 @@ Each of these is what Reference does; check the line before relying on it.
 
 ## Joining the test runs
 
-`rake test` plays the suite once for each lowering; a new one is a fourth run.
+`rake test` plays the suite once for each lowering; a new one is a fifth run.
 `RubyGBA::Testing` (lib/ruby_gba/testing/) is where that is decided, and it is the same code a
 game's own suite uses:
 
 - `Testing::Lowering::NAMES` lists the lowerings and `RUBY_GBA_LOWERING` picks one.
 - `RubyGBA::Testing#game_player` hands a test the player for the run: Reference on the GBA run,
-  the checked player on the native and JavaScript ones (`Testing.player_class`). A new lowering
+  the checked player on the native, JavaScript and Game Boy Color ones (`Testing.player_class`). A new lowering
   adds its checked player there, and to `Lowering::CHECKED`.
 - `Testing::TestTask` says how a run is started (the native and JavaScript ones in several
   processes, never in Ractors, since they start programs); `Testing::RakeTasks` makes `rake test` and a
@@ -143,7 +168,8 @@ game's own suite uses:
   cartridge skips on every run but the GBA one), `Testing::Pictures` and `test/mixed_sound.rb`
   (on a checked run they compare the lowered game instead of the cartridge), and the process
   runner `Testing::TestTask` starts such a run with. A lowering adds its own skip
-  (`skip_on_native`, `skip_on_js`), and its test folder to `TestSuites::LOWERING_FOLDERS`.
+  (`skip_on_native`, `skip_on_js`, `skip_on_gbc`), and its test folder to
+  `TestSuites::LOWERING_FOLDERS`.
 - **Reuse the native checked run.** `Native::HeadlessRun` reads a program that prints
   runtime/rg_headless.c's lines, and `Native::CheckedRun` compares it with the interpreter; a
   windowless program of the new lowering that prints the same lines is read and checked by

@@ -89,7 +89,7 @@ moment a file moves.
 require "test_helper"
 
 class TestThing < Minitest::Test
-  def test_it_does_the_thing   # played on every lowering (see "Three lowerings" below)
+  def test_it_does_the_thing   # played on every lowering (see "Four lowerings" below)
     ...
   end
 end
@@ -111,7 +111,7 @@ Narrower helpers stay **opt-in**, so their names appear only where used:
 `include Differential`, `include CostArith`, `include RubyGBA::IR::Build`.
 
 Running them. **The suite is `rake test`** — every lowering's run, one after the other (see
-"Three lowerings" below). `TEST=` names one file, `TESTOPTS=` one test:
+"Four lowerings" below). `TEST=` names one file, `TESTOPTS=` one test:
 
 ```bash
 rake test                                                       # the suite, on every lowering
@@ -120,6 +120,7 @@ rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # on
 rake test:lowering:gba                                          # the GBA lowering's run alone (TEST= too)
 rake test:lowering:native                                       # the native lowering's run alone (TEST= too)
 rake test:lowering:js                                           # the JavaScript lowering's run alone (TEST= too)
+rake test:lowering:gbc                                          # the Game Boy Color lowering's run alone (TEST= too)
 rake test:playthroughs                                          # one module: every test in test/ruby_gba/playthroughs/
 bundle exec ruby -Itest test/ruby_gba/dsl/test_thing.rb         # one file, no rake (plain minitest)
 ```
@@ -226,15 +227,28 @@ pixels — see `test/ruby_gba/builder/test_blit_clipping.rb` (`assert_same_pixel
 and the two `*_at_the_left_edge` tests in
 `test/ruby_gba/dsl/test_sprite_mover.rb` as the worked examples.
 
-## Three lowerings
+## Four lowerings
 
 **Every test plays on every lowering, with nothing written to say so.** `rake test` plays the
 suite once for each (`test/support/suites.rb`): the GBA lowering's run — the interpreter, with the
 cartridge checked in the emulator — then the native lowering's — the game built as C
 (`Backends::Native`), checked against the interpreter on every frame — and then the JavaScript
 lowering's — the game built as JavaScript (`Backends::JS`) and played by node, checked the same
-way. A test that does not pass on all three fails the run, so a new feature is not done until
-every lowering has it. It needs zig 0.17 and node 18 or later as well as the emulator.
+way — and last the Game Boy Color lowering's — the game built as a Color cartridge
+(`Backends::GBC`), played in the emulator and checked against the interpreter after every pass. A
+test that does not pass on all four fails the run, so a new feature is not done until every
+lowering has it. It needs zig 0.17 and node 18 or later as well as the emulator.
+
+**The Game Boy Color run skips what the Color answers no to.** Its player (`GBCCheckedPlayer`,
+`GBC::CheckedRun`) compares variables, lists, the picture, sprites and save memory with the
+interpreter's — playing the interpreter as a Color, so a fade or a turned background the Color
+shows differently is checked as the Color shows it. A game the Color cannot play is a skip that
+says why, never a failure: one laid out for the Advance's larger screen that draws, a verb the
+Color refuses (`Console::GBCFeatures`), a part it does not make yet (`GBC::Lowering::NOT_LOWERED_YET`),
+or a call its run cannot answer (`GBC::HeadlessRun::CannotAnswer`). They are counted by reason at
+the end like the others'. `skip_on_gbc` is its own skip and `test/ruby_gba/ir/backends/gbc/` its
+own folder; a game built for both consoles (`consoles: %i[gba gbc]`) is played there as a Color
+game, as `examples/pong.rb` and `examples/pacman.rb` are.
 
 **The JavaScript run is the native run's twin.** Its game is the native lowering's statements
 printed as JavaScript, its windowless program prints what the native one prints, and its player
@@ -253,7 +267,8 @@ alone: `test/ruby_gba/ir/backends/gba/` (the ARM it emits), `test/ruby_gba/diagn
 `test/ruby_gba/playthroughs/` (a finished cartridge read back, or driven, in the emulator) for the
 GBA lowering, `test/ruby_gba/ir/backends/native/` (the C it writes) for the native one, and
 `test/ruby_gba/ir/backends/js/` (the JavaScript it writes, and the page that plays it) for the
-JavaScript one. The list is `TestSuites::LOWERING_FOLDERS`, which the Rakefile and the tests both
+JavaScript one, and `test/ruby_gba/ir/backends/gbc/` (the SM83 code it emits, the Color
+cartridge, its saves and its profiler) for the Game Boy Color one. The list is `TestSuites::LOWERING_FOLDERS`, which the Rakefile and the tests both
 read. Anywhere else, a test is about the game, and plays on every lowering.
 
 **A test makes its player with `game_player`**, never `Reference.new`, when the question is what
