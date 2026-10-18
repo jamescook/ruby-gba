@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "stringio"
 
 # A game built for a browser, told which of its lines only the console can run. The steps a
 # browser can run are said nothing about, so the finding is a list of exactly the lines in the
@@ -42,5 +43,15 @@ class TestIRGuardrailWebPortability < Minitest::Test
 
   def test_a_program_of_portable_steps_is_quiet
     assert_empty findings_of(program(screen(:bitmap), set(:x, 1), fill_rect(0, 0, 8, 8, :red), halt))
+  end
+
+  def test_the_web_build_stops_at_a_console_only_step_and_says_where
+    said = StringIO.new
+    error = assert_raises(Guardrails::ValidationError) do
+      RubyGBA::IR::Backends::JS.new.refuse_console_only_steps!(mixed_program, said)
+    end
+
+    assert_match(/raw instructions/, error.message)
+    assert_match(/2 problems about this game/, said.string)
   end
 end

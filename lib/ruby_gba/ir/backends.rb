@@ -6,6 +6,7 @@ require_relative "backends/sprite_cut"
 require_relative "backends/reference"
 require_relative "backends/gba"
 require_relative "backends/native"
+require_relative "backends/js"
 
 module RubyGBA
   module IR
@@ -27,10 +28,11 @@ module RubyGBA
     # reading as "the Ruby one" in a project where every backend is written in Ruby.
     #
     # EVERY BACKEND IS FIRST-CLASS. `rake test` plays the suite once for each lowering — GBA (the
-    # cartridge) and Native (the game as a desktop program) — and checks each against Reference,
-    # so a feature is not done until it works on all three: a test that one of them cannot pass
-    # fails the run. A test of one lowering's own output (the ARM it emits, the C it writes) lives
-    # in that lowering's own test folder and is played by its run alone. (IR::Portability's
+    # cartridge), Native (the game as a desktop program) and JS (the game as a web page) — and
+    # checks each against Reference, so a feature is not done until it works on all four: a test
+    # that one of them cannot pass fails the run. A test of one lowering's own output (the ARM it
+    # emits, the C it writes, the JavaScript it prints) lives in that lowering's own test folder
+    # and is played by its run alone. (IR::Portability's
     # "tier" is a different thing: which kinds of node can run anywhere at all.)
     module Backends
     end
