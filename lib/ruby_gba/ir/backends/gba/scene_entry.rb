@@ -20,8 +20,8 @@ module RubyGBA
         # note another part kept: after a scene with nothing of its own, and after a change to
         # a screen of another kind.
         class SceneEntry
-          # The notes, one per kind of thing a scene puts up as it takes over, and one for whose
-          # pass of its own is over (see #emit_return_on_arrival_pass).
+          # The notes, one per kind of thing a scene puts up as it takes over, and one for which
+          # scene ran last (see #emit_return_on_arrival_pass).
           MARKERS = { scenery: :_scene_scenery, art: :_scene_art, pass: :_scene_pass }.freeze
 
           def initialize(emitter:, primitives:)
@@ -69,26 +69,40 @@ module RubyGBA
           def emit_clear_used_markers
             emit_clear_marker(:scenery) if scenery_by_scene?
             emit_clear_marker(:art) if @layout.screen.scene_art?
+          end
+
+          # The same at power-on, and the note of which scene ran last as well: none has yet.
+          # That one is not cleared for a screen of another kind, since a scene arriving on one
+          # was still handed over to.
+          def emit_clear_markers_at_power_on
+            emit_clear_used_markers
             emit_clear_marker(:pass) if handover.any_loads_first?
           end
 
-          # END THE PASS A SCENE THAT LOADS FIRST TAKES OVER ON, once its pictures are up, by
+          # END THE PASS A SCENE THAT LOADS FIRST IS HANDED OVER ON, once its pictures are up, by
           # returning from its routine before its own work: the copy has that pass to itself (see
-          # IR::SceneHandover::Arrival#loads_first?). The note says whose pass it was, so the
-          # next pass finds its own number and goes on into the scene's work.
+          # IR::SceneHandover::Arrival#loads_first?). The note says which scene ran last, so the
+          # next pass finds its own number and goes on into the scene's work. A note of nobody's
+          # is power-on, where nothing handed over and the work starts on the first pass.
           #
-          # Every other scene says nobody's, so a scene that comes back after it has its pass
-          # again. That is one store a frame, and only in a game where some scene loads first.
+          # Every other scene writes its own number there, so a scene that comes back after it
+          # is handed over to again. That is one store a frame, and only in a game where some
+          # scene loads first.
           def emit_return_on_arrival_pass(scene)
+            number = scene_number(scene)
             unless handover.arrival(scene).loads_first?
-              emit_clear_marker(:pass) if handover.any_loads_first?
+              emit_note_ran_last(number) if handover.any_loads_first?
               return
             end
 
-            number = scene_number(scene)
             emit_unless_holds(MARKERS.fetch(:pass), number) do
-              @primitives.store_word_immediate(number, @primitives.var_addr(MARKERS.fetch(:pass)))
+              at_power_on = @emitter.gensym
+              @emitter.emit(ASM.cmp_imm(ACC, 0)) # the note, still in hand from the compare
+              @emitter.emit_branch(:bcond, at_power_on, cond: :eq)
+              emit_note_ran_last(number)
               @emitter.emit(ASM.pop(15)) # pop {pc}: return, as the routine's own end does
+              @emitter.place_label(at_power_on)
+              emit_note_ran_last(number)
             end
           end
 
@@ -107,6 +121,11 @@ module RubyGBA
 
           # The number +scene+'s notes hold, counting from 1 in the order scenes are first met.
           def scene_number(scene) = (@numbers[scene] ||= @numbers.size + 1)
+
+          # Write +number+ as the scene that ran last.
+          def emit_note_ran_last(number)
+            @primitives.store_word_immediate(number, @primitives.var_addr(MARKERS.fetch(:pass)))
+          end
 
           def scenery_by_scene? = @layout.screen.picture.scenery.any? { |bg| handover.on_arrival?(bg) }
 

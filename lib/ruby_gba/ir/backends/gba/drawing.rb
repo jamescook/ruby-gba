@@ -68,7 +68,7 @@ module RubyGBA
           attr_reader :scene_entry
 
           # Say no scene's scenery or sprite pictures are up (see SceneEntry#emit_clear_used_markers).
-          def emit_clear_used_scene_markers = @scene_entry.emit_clear_used_markers
+          def emit_clear_used_scene_markers = @scene_entry.emit_clear_markers_at_power_on
 
           # The prepare-pass results this file reads, bundled into one record and handed
           # over through #layout= once every pass that decides them has run.

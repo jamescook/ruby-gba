@@ -499,18 +499,23 @@ module RubyGBA
 
           # The statements that run +scene+ for a pass. A scene taking over is remembered, so what
           # a scene does as it arrives — its screen, its scenery — happens on the frame it changes
-          # and not again while it stays. A scene that loads first has that pass to itself for its
-          # pictures, and its routine runs from the pass after (see
-          # IR::SceneHandover::Arrival#loads_first?).
+          # and not again while it stays. A scene that loads first and is handed over to has that
+          # pass to itself for its pictures, and its routine runs from the pass after; the scene up
+          # at power-on, which nothing handed over to, runs on the first pass all the same (see
+          # IR::SceneHandover::Arrival#loads_first?). Before any scene, the note holds -1.
           def scene_call_statements(scene)
             current = @names.own("scene")
             number = C::Int.new(@scenes.fetch(scene))
             work = [C::Eval.new(C::Call.new(function: routine(scene)))]
             arriving = [C::Assign.new(current, number), *scene_arrival(scene)]
             taking_over = call("rg_ne", current, number)
-            return [C::If.new(condition: taking_over, body: arriving, otherwise: work)] if @handover.arrival(scene).loads_first?
+            return [C::If.new(condition: taking_over, body: arriving), *work] unless @handover.arrival(scene).loads_first?
 
-            [C::If.new(condition: taking_over, body: arriving), *work]
+            at_power_on = local_name("at_power_on")
+            [C::If.new(condition: taking_over,
+                       body: [C::Local.new(name: at_power_on, value: call("rg_eq", current, C::Int.new(-1))),
+                              *arriving, C::If.new(condition: at_power_on, body: work)],
+                       otherwise: work)]
           end
 
           def lower_halt(_node) = [eval_call("rg_halt")]

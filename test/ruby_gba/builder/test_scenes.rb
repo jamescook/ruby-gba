@@ -193,12 +193,12 @@ class TestScenes < Minitest::Test
   # A title that hands over on its third pass to :play, on a tiled screen. :play has a sprite
   # of its own, whose picture is copied into video memory as it takes over, and notes the
   # pass it first ran on.
-  private def handing_over(loads_first:)
+  private def handing_over(loads_first:, first: 0)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
       image(:block, "#" => :red) { "########\n" * 8 }
-      state = var :state, 0
+      state = var :state, first
       step = var :step, 0
       began = var :began, -1
       scene(:title) { (step == 2).then { state.set! 1 } }
@@ -234,6 +234,19 @@ class TestScenes < Minitest::Test
     v = assert_emulator_loads_rom(rom, frames: 12, vars: rom.var_addresses)
 
     assert_equal 4, v.var(:began)
+  end
+
+  # Up at power-on, nothing handed over to :play, and its copy is part of starting up: a game
+  # counting frames from power-on has no hand-over it could move to make up a pass.
+  def test_a_scene_that_loads_first_and_is_up_at_power_on_starts_its_work_on_the_first_pass
+    assert_equal 0, game_player.run(handing_over(loads_first: true, first: 1), frames: 4)[:began]
+  end
+
+  def test_the_console_starts_a_scene_that_loads_first_and_is_up_at_power_on_on_the_first_pass
+    rom = assemble_rom(handing_over(loads_first: true, first: 1), name: "SCNPOWER")
+    v = assert_emulator_loads_rom(rom, frames: 8, vars: rom.var_addresses)
+
+    assert_equal 0, v.var(:began)
   end
 
   def test_loads_first_that_is_not_true_or_false_is_a_friendly_error

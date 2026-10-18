@@ -63,7 +63,11 @@ module RubyGBA
       # for, the copy has that pass to itself and the work starts on the next, so the work
       # begins the same number of passes after a hand-over whatever the scene holds: always
       # exactly one. What else the game loop does on that pass, outside the scene, still runs.
-      # In a program with no game loop there is no pass after, so the scene starts at once.
+      # It is a HAND-OVER's pass: the scene up at power-on was handed over to by nobody, and
+      # its copy is part of starting up, so its work starts on the first pass as it would
+      # without the word — a game counting frames from power-on has no hand-over it could
+      # move to make up a pass. In a program with no game loop there is no pass after, so the
+      # scene starts at once.
       Arrival = Data.define(:scene, :screen, :mode, :scenery, :map_choices, :painted_tiles, :painted_pictures,
                             :takes_down_scenery, :takes_down_art, :loads_first) do
         def takes_down_scenery? = takes_down_scenery

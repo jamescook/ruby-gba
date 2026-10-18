@@ -1235,9 +1235,11 @@ module RubyGBA
           node.clauses.each do |clause_value, target|
             next unless value == clause_value
 
-            # A scene that loads first has the pass it takes over on to itself for its
-            # pictures (see IR::SceneHandover::Arrival#loads_first?).
-            next if take_over(target) && @handover.arrival(target).loads_first?
+            # A scene that loads first, handed over to, has the pass it takes over on to itself
+            # for its pictures; the scene up at power-on was handed over to by nobody (see
+            # IR::SceneHandover::Arrival#loads_first?).
+            handed_over = !@scene.nil?
+            next if take_over(target) && handed_over && @handover.arrival(target).loads_first?
 
             call_func(target)
           end
