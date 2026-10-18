@@ -91,30 +91,20 @@ module RubyGBA
         [label, passed ? :passed : :failed, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started]
       end
 
-      # Each lowering's run is a TestTask, which says how a run for that lowering is played.
+      # Each lowering's run is a TestTask, which says how a run for that lowering is played: one for
+      # each of Lowering::NAMES, so a new lowering is a row there and not a task written here.
       def define_lowering_tasks
         namespace :test do
           namespace :lowering do
-            TestTask.new(:gba) do |t|
-              t.libs = libs.dup
-              t.test_files = files(:gba)
-              t.description = "Run the tests on the GBA lowering: the game on the interpreter (one file with TEST=)"
-            end
-
-            TestTask.new(:native) do |t|
-              t.lowering = :native
-              t.libs = libs.dup
-              t.test_files = files(:native)
-              t.description = "Run the tests on the native lowering: the game built as C, checked against " \
-                              "the interpreter (needs zig; one file with TEST=)"
-            end
-
-            TestTask.new(:js) do |t|
-              t.lowering = :js
-              t.libs = libs.dup
-              t.test_files = files(:js)
-              t.description = "Run the tests on the JavaScript lowering: the game built as JavaScript, checked " \
-                              "against the interpreter (needs node; one file with TEST=)"
+            Lowering::NAMES.each do |lowering|
+              TestTask.new(lowering) do |t|
+                t.lowering = lowering
+                t.libs = libs.dup
+                t.test_files = files(lowering)
+                needs = Lowering::NEEDS[lowering]&.then { |tool| "needs #{tool}; " }
+                t.description = "Run the tests on the #{Lowering::TITLES.fetch(lowering)} lowering: " \
+                                "#{Lowering::RUNS.fetch(lowering)} (#{needs}one file with TEST=)"
+              end
             end
           end
         end

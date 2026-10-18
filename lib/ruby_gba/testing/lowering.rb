@@ -27,6 +27,14 @@ module RubyGBA
       # programs, so it is played in processes rather than Ractors.
       CHECKED = %i[native js].freeze
 
+      # What `rake -T` says each lowering's run does, and what it needs besides Ruby.
+      RUNS = {
+        gba: "the game on the interpreter",
+        native: "the game built as C, checked against the interpreter",
+        js: "the game built as JavaScript, checked against the interpreter"
+      }.freeze
+      NEEDS = { native: "zig", js: "node" }.freeze
+
       module_function
 
       # The lowering +env+ says, refusing one there is not.
