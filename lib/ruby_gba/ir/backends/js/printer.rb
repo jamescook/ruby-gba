@@ -50,8 +50,16 @@ module RubyGBA
           # one way to play every game, whether it waits for frames or not.
           MAIN = "rg_game_main"
 
-          def initialize
+          # +data+ is where a big table's numbers go: :inline, in the file as base64, or :separate, in
+          # a data file of their own (#data_file), which the runtime fetches and hands to
+          # rg_data_fill before the game's first frame.
+          def initialize(data: :inline)
+            raise ArgumentError, "data is :inline or :separate, not #{data.inspect}" unless %i[inline separate].include?(data)
+
             @out = +""
+            @data = data
+            @payload = +"".b
+            @fills = []
           end
 
           # The whole file: +items+ is the top level, in the order it is to appear.
@@ -61,8 +69,23 @@ module RubyGBA
             @lists = items.grep(C::ListStorage).to_set { |list| list.name.text }
             @waiting = waiting_functions
             items.each { |item| print_top(item) }
+            print_data_fill unless @fills.empty?
             @out
           end
+
+          # THE DATA FILE, with the data separate: a fingerprint of what it holds (DATA_STAMP_BYTES
+          # of its SHA-256), then every big table's bytes one after another. The file's script
+          # holds the same fingerprint and refuses a data file without it, so a data file left
+          # from another build of the game is said to be one rather than played as this one's.
+          # Nil with the data inline, and for a game with no table big enough to go there, which
+          # then fetches nothing.
+          def data_file
+            return nil if @fills.empty?
+
+            stamp + @payload
+          end
+
+          DATA_STAMP_BYTES = 8
 
           private
 
@@ -144,6 +167,8 @@ module RubyGBA
             values = item.values
             if values.empty?
               line(0, "const #{item.name.text} = new #{type}(1);")
+            elsif values.size > MOST_WRITTEN_AS_NUMBERS && @data == :separate
+              print_table_in_data_file(item.name.text, type, values)
             elsif values.size > MOST_WRITTEN_AS_NUMBERS
               print_table_as_base64(item.name.text, type, values)
             else
@@ -163,6 +188,24 @@ module RubyGBA
             [bytes].pack("m76").each_line { |row| @out << row }
             line(0, "`);")
           end
+
+          # A table whose bytes are in the data file: empty until rg_data_fill puts them in, which is
+          # before anything reads it, since no frame is played until the data is in.
+          def print_table_in_data_file(name, type, values)
+            values.each { |value| integer(value) } # refuses one that is not a 32-bit whole number
+            @fills << "#{name} = rg_table_from_bytes(#{type}, bytes, #{@payload.bytesize + DATA_STAMP_BYTES}, #{values.size});"
+            @payload << values.pack(PACKING.fetch(type))
+            line(0, "let #{name} = null;")
+          end
+
+          def print_data_fill
+            line(0, "const RG_DATA_STAMP = #{string(stamp.unpack1('H*'))};")
+            line(0, "function rg_data_fill(bytes) {")
+            @fills.each { |fill| line(1, fill) }
+            line(0, "}")
+          end
+
+          def stamp = Digest::SHA256.digest(@payload)[0, DATA_STAMP_BYTES]
 
           def print_list_storage(item)
             line(0, "const #{item.name.text} = rg_list_new(#{integer(item.capacity)}, #{integer(item.width)}, " \

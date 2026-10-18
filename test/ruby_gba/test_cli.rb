@@ -396,6 +396,31 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # --data separate writes a game's big tables to a data file beside what it builds; left alone,
+  # they stay in the one file.
+  def test_format_web_writes_big_tables_to_a_data_file_when_asked
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "tabled.rb"), <<~RUBY)
+        RubyGBA.game "TABLED" do
+          screen :bitmap
+          places = table :places, (0...300).map { |i| i % 200 }, width: :half
+          n = var :n, 0
+          game_loop do
+            n.add! 1
+            draw_rect_at places[n], 20, 4, 4, :green
+          end
+        end
+      RUBY
+      out, status = cli("build", "tabled.rb", "--format", "web", dir: dir)
+      assert status.success?, out
+      refute File.exist?(File.join(dir, "tabled.data")), "the data stays in the page unless asked"
+
+      out, status = cli("build", "tabled.rb", "--format", "web", "--js", "module", "--data", "separate", dir: dir)
+      assert status.success?, out
+      assert File.exist?(File.join(dir, "tabled.data")), "the big table goes beside the module"
+    end
+  end
+
   # A computer there is no build for is refused before anything is built, in the command's own
   # words for the ones there are.
   def test_format_native_rejects_an_unknown_target

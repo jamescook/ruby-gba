@@ -22,10 +22,15 @@ module RubyGBA
         # author about a console-only step before a web build is Guardrails::Checks::WebPortability.
         class Lowering < Native::Lowering
           # The program as one JavaScript file's text: the game alone, with no runtime (see
-          # JS#bundle for a program that runs).
-          def source
+          # JS#factory for a program that runs).
+          def source = written.first
+
+          # The text and, with +data+ :separate, the data file its big tables are in (nil with them
+          # :inline, in the text). See Printer#data_file.
+          def written(data: :inline)
             refuse_unlowered_kinds!
-            Printer.new.print_file(top_level)
+            printer = Printer.new(data: data)
+            [printer.print_file(top_level), printer.data_file]
           end
 
           private

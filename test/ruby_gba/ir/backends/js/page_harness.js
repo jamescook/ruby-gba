@@ -25,7 +25,8 @@
  *   check ID / uncheck ID   the page's checkbox of that id ticked or cleared (each starts as the
  *                       page's HTML says, ticked where it is written "checked")
  *   play N              N of the browser's frames, each a console frame after the one before, so
- *                       the page plays one frame of the game on each; none come while hidden
+ *                       the page plays one frame of the game on each; none come while hidden. A
+ *                       file the page fetches (from beside it) arrives before the first of them.
  *   picture [ID]        prints "picture" and every pixel last put on the canvas of that id
  *                       ("screen" unless named), as the console's fifteen-bit colours
  *   js CODE             runs CODE in the page, and prints "js" and what it comes to, if anything:
@@ -53,6 +54,7 @@ const FRAME_MS = 1000 * 280896 / 2 ** 24;
  * (type="module"), which a browser runs once the whole page is read, importing what it names from
  * beside the page. */
 const html = fs.readFileSync(process.argv[2], "utf8");
+const page_dir = path.dirname(path.resolve(process.argv[2]));
 const found_script = html.match(/<script( type="module")?>\n([\s\S]*)<\/script>/);
 const is_module = Boolean(found_script[1]);
 const script = found_script[2];
@@ -138,6 +140,13 @@ const browser = {
   navigator: { getGamepads: () => pads.slice() },
   performance: { now: () => now },
   requestAnimationFrame: (callback) => { waiting.push(callback); },
+  /* A web server holding the files beside the page: a name, or a file: URL to one of them. */
+  fetch: async (url) => {
+    const name = String(url).startsWith("file:") ? new URL(String(url)).pathname : path.resolve(page_dir, String(url));
+    if (!fs.existsSync(name)) return { ok: false, status: 404, statusText: "Not Found" };
+    const bytes = fs.readFileSync(name);
+    return { ok: true, status: 200, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) };
+  },
   localStorage: { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) },
 };
 for (const [name, value] of Object.entries(browser)) {
@@ -228,6 +237,8 @@ async function main() {
     vm.runInThisContext(script);
     page_read();
   }
+  /* Whatever the page fetched has arrived, as it would long before a person pressed anything. */
+  await new Promise((resolve) => setTimeout(resolve, 20));
   steps();
 }
 

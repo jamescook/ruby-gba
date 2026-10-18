@@ -100,6 +100,9 @@ module RubyGBA
                       "that puts createGame on window.RubyGBA)"
     option :global, banner: "NAME",
                     desc: "With --js=script, the name on window.RubyGBA the game is put under (the file's own name)"
+    option :data, default: "inline", enum: %w[inline separate],
+                  desc: "With --format=web, where the game's big tables go: inline (in the one file, which opens " \
+                        "from a disk) or separate (a .data file beside it, fetched when the game starts; serve it)"
     def build(game_file)
       case options[:format]
       when "game" then build_cartridge(game_file)
@@ -400,13 +403,14 @@ module RubyGBA
       path = options[:output] ||
              File.join(File.dirname(File.expand_path(game_file)), game.default_filename.delete_suffix(".gba") + WEB_OUTPUTS.fetch(js))
       web = RubyGBA::IR::Backends::JS.new
+      data = options[:data].to_sym
       case js
-      when "module" then web.build_module(game, path, settings: given_settings)
+      when "module" then web.build_module(game, path, settings: given_settings, data: data)
       when "script" then web.build_script(game, path, name: options[:global] || File.basename(path, ".*"),
-                                                      settings: given_settings)
+                                                      settings: given_settings, data: data)
       else
         page = options[:page] ? File.expand_path(options[:page]) : RubyGBA::IR::Backends::JS::Page::DEFAULT
-        web.build_page(game, path, settings: given_settings, page: page)
+        web.build_page(game, path, settings: given_settings, page: page, data: data)
       end
       say "Built #{path}"
     rescue RubyGBA::IR::Backends::JS::LoweringError, RubyGBA::IR::Guardrails::ValidationError => e
