@@ -135,6 +135,21 @@ module RubyGBA
           path
         end
 
+        # +game+ as a CLASSIC SCRIPT, written to +path+ (game.js), for a page that loads it with a
+        # plain <script src>: it puts createGame and the game's title on window.RubyGBA under
+        # +name+ — the file's own name unless told — beside any other game's, and leaves nothing
+        # else in the page's global scope. The page then calls RubyGBA.<name>.createGame.
+        def build_script(game, path, name: File.basename(path, ".*"), settings: {}, err: $stderr)
+          refuse_folder!(path)
+          program = checked_program(game, settings: settings, err: err)
+          File.write(path, [WRITTEN_BY, "(function () {\n\"use strict\";\n", factory(program, title: game.title),
+                            "const root = typeof globalThis === \"undefined\" ? window : globalThis;\n",
+                            "root.RubyGBA = root.RubyGBA || {};\n",
+                            "root.RubyGBA[#{JSON.generate(name.to_s)}] = { createGame, title: #{JSON.generate(game.title.to_s)} };\n",
+                            "})();\n"].join)
+          path
+        end
+
         private
 
         def runtime_files(names) = names.map { |name| File.read(File.join(RUNTIME_DIR, name), encoding: Encoding::UTF_8) }

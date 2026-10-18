@@ -40,4 +40,26 @@ class TestJSOutputs < Minitest::Test
     assert_same_picture walked_on_the_page, pictures_in(lines).first, "of the module's game after ten frames holding right"
     assert_includes lines, "js PAGE <&>,true"
   end
+
+  # The classic script puts createGame and the title on window.RubyGBA under the name it is given
+  # (the file's own name unless told), beside any other game's, and leaves nothing else behind.
+  # A page loads it with a script tag; here it is written into the page, which runs it the same.
+  def test_the_classic_script_puts_create_game_on_a_global
+    walker = built("walker.js") { |path| JS.new.build_script(walking_game, path, err: nil) }
+    ticker = built("t.js") { |path| JS.new.build_script(ticking_game, path, name: "ticker", err: nil) }
+    html = <<~HTML
+      <!doctype html>
+      <canvas id="one" width="240" height="160"></canvas>
+      <script>
+      #{walker}
+      #{ticker}
+      window.games = [RubyGBA.walker.createGame({ canvas: document.getElementById("one") })];
+      window.facts = [RubyGBA.walker.title, RubyGBA.ticker.title, typeof createGame, typeof page_create];
+      </script>
+    HTML
+    lines = played_page(["down ArrowRight", "play 10", "picture one", 'js facts.join(",")'], html: html)
+
+    assert_same_picture walked_on_the_page, pictures_in(lines).first, "of the script's game after ten frames holding right"
+    assert_includes lines, "js PAGE <&>,TICKING,undefined,undefined"
+  end
 end

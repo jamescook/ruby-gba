@@ -94,9 +94,12 @@ module RubyGBA
                     desc: "With --format=native, build for another computer: windows, linux or linux-arm"
     option :page, banner: "TEMPLATE",
                   desc: "With --format=web, write the page from this .html.erb template; it must have <%= game %>"
-    option :js, default: "page", enum: %w[page module],
-                desc: "With --format=web, what to write: page (one HTML page that plays the game) or module " \
-                      "(an ES module exporting createGame, for a page of your own)"
+    option :js, default: "page", enum: %w[page module script],
+                desc: "With --format=web, what to write: page (one HTML page that plays the game), module " \
+                      "(an ES module exporting createGame, for a page of your own) or script (a classic script " \
+                      "that puts createGame on window.RubyGBA)"
+    option :global, banner: "NAME",
+                    desc: "With --js=script, the name on window.RubyGBA the game is put under (the file's own name)"
     def build(game_file)
       case options[:format]
       when "game" then build_cartridge(game_file)
@@ -386,7 +389,7 @@ module RubyGBA
     end
 
     # What --js names, and the ending of the file each is written to.
-    WEB_OUTPUTS = { "page" => ".html", "module" => ".mjs" }.freeze
+    WEB_OUTPUTS = { "page" => ".html", "module" => ".mjs", "script" => ".js" }.freeze
 
     # The "web" format: the game as one web page that plays it in a browser, or with --js the game
     # alone as JavaScript for a page of the author's own. Written beside the game file, named like
@@ -397,8 +400,10 @@ module RubyGBA
       path = options[:output] ||
              File.join(File.dirname(File.expand_path(game_file)), game.default_filename.delete_suffix(".gba") + WEB_OUTPUTS.fetch(js))
       web = RubyGBA::IR::Backends::JS.new
-      if js == "module"
-        web.build_module(game, path, settings: given_settings)
+      case js
+      when "module" then web.build_module(game, path, settings: given_settings)
+      when "script" then web.build_script(game, path, name: options[:global] || File.basename(path, ".*"),
+                                                      settings: given_settings)
       else
         page = options[:page] ? File.expand_path(options[:page]) : RubyGBA::IR::Backends::JS::Page::DEFAULT
         web.build_page(game, path, settings: given_settings, page: page)

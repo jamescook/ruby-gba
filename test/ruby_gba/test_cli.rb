@@ -383,6 +383,13 @@ class TestCLI < Minitest::Test
       assert_match(/export default createGame;/, File.read(File.join(dir, "demo.mjs"), encoding: Encoding::UTF_8))
       refute File.exist?(File.join(dir, "demo.html")), "the module is written in place of the page"
 
+      out, status = cli("build", "demo.rb", "--format", "web", "--js", "script", dir: dir)
+      assert status.success?, out
+      assert_match(/RubyGBA\["demo"\] = \{ createGame/, File.read(File.join(dir, "demo.js"), encoding: Encoding::UTF_8))
+      out, status = cli("build", "demo.rb", "--format", "web", "--js", "script", "--global", "starter", dir: dir)
+      assert status.success?, out
+      assert_match(/RubyGBA\["starter"\] = \{ createGame/, File.read(File.join(dir, "demo.js"), encoding: Encoding::UTF_8))
+
       out, status = cli("build", "demo.rb", "--format", "web", "--js", "wasm", dir: dir)
       refute status.success?, "an unknown kind of JavaScript should fail"
       assert_match(/page, module/, out)
