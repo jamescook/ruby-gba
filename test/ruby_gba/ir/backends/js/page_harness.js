@@ -5,7 +5,9 @@
  * callbacks, a document that can be hidden behind another tab, a sound device that can be paused,
  * and storage that keeps the save. test_js_page.rb drives it, so what runs is the page's own
  * driver and not the windowless one. Of the page's parts the script looks for by id, only those
- * the page's HTML has are there to find.
+ * the page's HTML has are there to find — and, as in a browser, which reads a page from the top
+ * and runs a script where it meets it, only those above the script while the script first runs.
+ * The rest are there once the page has loaded, which the document then says (DOMContentLoaded).
  *
  * The page is named on the command line. Each line read from the input is one step:
  *
@@ -43,7 +45,9 @@ const FRAME_MS = 1000 * 280896 / 2 ** 24;
 
 const html = fs.readFileSync(process.argv[2], "utf8");
 const script = html.match(/<script>\n([\s\S]*)<\/script>/)[1];
-const ids = new Set(Array.from(html.replace(script, "").matchAll(/\bid="([^"]+)"/g), (found) => found[1]));
+const ids_in = (text) => new Set(Array.from(text.matchAll(/\bid="([^"]+)"/g), (found) => found[1]));
+const at_script = html.indexOf(script);
+let ids = ids_in(html.slice(0, at_script));
 
 /* Who is listening for what: the window's own, the document's, and each element's. */
 function listening() {
@@ -83,6 +87,7 @@ const document = {
   ...listening(),
   hidden: false,
   visibilityState: "visible",
+  readyState: "loading",
   fullscreenElement: null,
   getElementById: (id) => (ids.has(id) && elements[id]) || null,
   hasFocus: () => focused,
@@ -174,6 +179,10 @@ function state() {
 }
 
 vm.runInNewContext(script, vm.createContext(page));
+/* The rest of the page read in: every part there, and the document says it has loaded. */
+ids = new Set([...ids, ...ids_in(html.slice(at_script + script.length))]);
+document.readyState = "interactive";
+tell(document, "DOMContentLoaded");
 
 const printed = [];
 for (const line of fs.readFileSync(0, "utf8").split("\n")) {
