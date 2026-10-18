@@ -318,8 +318,8 @@ module RubyGBA
         reaches, rect = inside ? [:inside, inside] : [:outside, outside]
         refuse_fade_area_shape!(reaches, rect)
         x, y, w, h = rect
-        left, right = [x, x + w].map { |edge| edge.clamp(0, Console::Hardware::SCREEN_WIDTH) }
-        top, bottom = [y, y + h].map { |edge| edge.clamp(0, Console::Hardware::SCREEN_HEIGHT) }
+        left, right = [x, x + w].map { |edge| edge.clamp(0, console.screen_width) }
+        top, bottom = [y, y + h].map { |edge| edge.clamp(0, console.screen_height) }
         empty = left >= right || top >= bottom
         [reaches, empty ? [0, 0, 0, 0] : [left, top, right, bottom]]
       end
@@ -445,7 +445,7 @@ module RubyGBA
 
         refuse_second_spotlight!
         refuse_spotlight_off_tiles!
-        at ||= [Console::Hardware::SCREEN_WIDTH / 2, Console::Hardware::SCREEN_HEIGHT / 2]
+        at ||= console.middle
         refuse_spotlight_with_no_radius! if said && radius.nil?
         radius ||= Spotlights::LARGEST
         dark ||= said ? Spotlights::DARK_UNSAID : 0
@@ -695,7 +695,7 @@ module RubyGBA
       # A ROW'S TWO EDGES, held to the screen, from what a shape gave back: a half width either
       # side of the light's middle (never less than nothing), or [left, right] as they are.
       def light_edges(light, edges)
-        screen = Console::Hardware::SCREEN_WIDTH
+        screen = console.screen_width
         number = ->(edge) { edge.is_a?(Integer) || edge.is_a?(DSL::Value) }
         if edges.is_a?(Array) && edges.length == 2 && edges.all?(&number)
           left, right = edges
@@ -890,8 +890,9 @@ module RubyGBA
       end
 
       def validate_coords!(x, y)
-        raise ArgumentError, "x=#{x} is outside the screen. Use an x from 0 to #{SCREEN_WIDTH - 1}." unless (0...SCREEN_WIDTH).cover?(x)
-        raise ArgumentError, "y=#{y} is outside the screen. Use a y from 0 to #{SCREEN_HEIGHT - 1}." unless (0...SCREEN_HEIGHT).cover?(y)
+        width, height = console.screen_size
+        raise ArgumentError, "x=#{x} is outside the screen. Use an x from 0 to #{width - 1}." unless (0...width).cover?(x)
+        raise ArgumentError, "y=#{y} is outside the screen. Use a y from 0 to #{height - 1}." unless (0...height).cover?(y)
       end
     end
   end

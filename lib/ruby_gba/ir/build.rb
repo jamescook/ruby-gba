@@ -36,8 +36,9 @@ module RubyGBA
 
       # --- program root ---
 
-      def program(*statements)
-        Nodes.build(:program, children: statements)
+      # +console+ is the console the program is built for, the Advance unless said.
+      def program(*statements, console: nil)
+        Nodes.build(:program, children: statements, console: console)
       end
 
       # A font the program declares for itself. Draws nothing; it is there to be named by
@@ -680,9 +681,10 @@ module RubyGBA
                                         around_x: x, around_y: y)
       end
 
-      # Where a picture turns around when nothing says otherwise. Read off the screen's own
-      # size rather than written out, so it is the middle of whatever screen a backend draws.
-      MIDDLE_OF_THE_SCREEN = [Screen::WIDTH / 2, Screen::HEIGHT / 2].freeze
+      # Where a picture turns around when nothing says otherwise: the middle of the Advance's
+      # screen. A build says the middle of the screen it is for (Console::Description#middle);
+      # this is for a tree made by hand, which is the Advance's.
+      MIDDLE_OF_THE_SCREEN = Console::ADVANCE.middle.freeze
 
       # Show the named background scrolled to the offset (+x+, +y+) in pixels — the
       # top-left of the visible window over the map. x/y are value operands (variables

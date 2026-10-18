@@ -33,8 +33,9 @@ module RubyGBA
       #   enemy.below_bottom?.then { enemy.respawn }    # an enemy fell off the bottom
       #
       # "Off an edge" means FULLY past it — nothing of the rectangle still shows there —
-      # so a thing sliding half off a side isn't off_screen? yet. The screen is the
-      # 240x160 display (see {IR::Screen}); a rectangle's right/bottom read one past its
+      # so a thing sliding half off a side isn't off_screen? yet. The screen is the one the
+      # game is being built for (see {Builder#console}), asked of +collision_builder+, which
+      # everything mixing this in answers; a rectangle's right/bottom read one past its
       # last pixel (see {Box}), so the edge tests below are written to match.
 
       # Fully past the left edge: the right side has crossed x = 0.
@@ -44,7 +45,7 @@ module RubyGBA
 
       # Fully past the right edge: the left side has reached the screen's width.
       def off_right?
-        left >= IR::Screen::WIDTH
+        left >= collision_builder.console.screen_width
       end
 
       # Fully past the top edge: the bottom has crossed y = 0.
@@ -54,7 +55,7 @@ module RubyGBA
 
       # Fully past the bottom edge: the top has reached the screen's height.
       def below_bottom?
-        top >= IR::Screen::HEIGHT
+        top >= collision_builder.console.screen_height
       end
 
       # Fully off the screen past ANY edge — nothing of it shows.

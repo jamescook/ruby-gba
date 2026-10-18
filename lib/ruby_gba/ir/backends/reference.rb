@@ -259,6 +259,7 @@ module RubyGBA
           @stopped_at_budget = false
           @over_budget = false
           @uses_frames = false # set once the program reaches its first vblank (advance_frame)
+          size_screen_for(node)
           collect_definitions(node)
           start_mixer_clock(node)
           @save.use_memory!(SaveLayout.memory_of(node))
@@ -308,6 +309,21 @@ module RubyGBA
         ensure
           @save.restore_power # a cut is for one run, so the next run turns the console on again
         end
+
+        # The screen is the one the program was built for (Program#described_console): a game laid
+        # out on a smaller console's screen is drawn on that screen here too. A tree made by hand
+        # with no program at its root is the Advance's.
+        def size_screen_for(node)
+          return unless node.kind == :program
+
+          width, height = node.described_console.screen_size
+          return if [@screen.width, @screen.height] == [width, height]
+
+          @screen = Framebuffer.new(width: width, height: height)
+        end
+
+        # A picture the size of the screen, for painting part of the scene onto by itself.
+        def framebuffer_like_screen(fill:) = Framebuffer.new(width: @screen.width, height: @screen.height, fill: fill)
 
         # The picture, painted up to date first if a repaint is owed (see #request_repaint).
         def screen
@@ -924,7 +940,7 @@ module RubyGBA
         def work_out_shade
           return unless @shade
 
-          spans = Array.new(Framebuffer::HEIGHT) do |row|
+          spans = Array.new(@screen.height) do |row|
             @vars[@shade.row] = row
             @shade.children.each { |child| exec(child) } # what the light works out once a row, before its edges
             [eval_value(@shade.left), eval_value(@shade.right)]
@@ -2039,7 +2055,7 @@ module RubyGBA
         # the picture through the blocks. Whatever blend is in force for it applies as it
         # is laid, the same as when it is painted straight on.
         def paint_scenery_in_blocks(bg)
-          sheet = Framebuffer.new(fill: nil)
+          sheet = framebuffer_like_screen(fill: nil)
           drawing_into(sheet) { paint_background_window(bg, @block) }
           width = @screen.width
           wide = block_width_across(bg)
@@ -2429,7 +2445,7 @@ module RubyGBA
         # so this is the clean picture we restore under a moving object each frame.
         def scene_framebuffer
           @scene_fb ||= begin
-            fb = Framebuffer.new(fill: 0) # 0 = the backdrop the empty parts of the scene show
+            fb = framebuffer_like_screen(fill: 0) # 0 = the backdrop the empty parts of the scene show
             drawing_into(fb) { showing_scenery.each { |bg| stamp_background(bg) } }
             fb
           end
@@ -2448,7 +2464,7 @@ module RubyGBA
             # ...and where a tall patch came round onto the other end of the screen (see
             # TurnedBox), which is the same patch a whole count of lines up or down.
             [-TurnedBox::LINES, TurnedBox::LINES].each do |round|
-              restore_patch(scene, rx, ry + round, w, h) if ry + round < Screen::HEIGHT && ry + round + h > 0
+              restore_patch(scene, rx, ry + round, w, h) if ry + round < @screen.height && ry + round + h > 0
             end
           else
             restore_patch(scene, x, y, bmp.width, bmp.height)
@@ -2519,7 +2535,7 @@ module RubyGBA
           # than the screen, and walking its rows to throw them away is work that grows with
           # how close you stand — so the walk starts on the first row that shows and stops
           # after the last, which is what lets a height be what perspective says it is.
-          rows = [[-top, 0].max, [height, Screen::HEIGHT - top].min].then { |a, z| a...z }
+          rows = [[-top, 0].max, [height, @screen.height - top].min].then { |a, z| a...z }
 
           rows.each do |row|
             source = ((row * step) >> FIXED).clamp(0, bmp.height - 1)
@@ -2567,7 +2583,7 @@ module RubyGBA
         # patch, the row of the screen]. +top+ is where the patch's first row stands, +w+ and
         # +h+ the picture's size, and +scales+ whether the sprite's size ever changes.
         def turned_rows_shown(top, w, h, scales)
-          TurnedBox.rows_shown(top, h * 2, Affine.rows_reached(w, h, scales: scales), Screen::HEIGHT)
+          TurnedBox.rows_shown(top, h * 2, Affine.rows_reached(w, h, scales: scales), @screen.height)
         end
 
         # Does this object's size ever change? One that only turns reaches less of its patch.

@@ -96,6 +96,7 @@ module RubyGBA
     # @param progress [RubyGBA::Messages::Progress] what a build says it is doing (see {#progress})
     # @param settings [Hash] what this build was told, read by the game with `setting` (see {Settings})
     def initialize(options: Cartridge::Options.new, progress: Messages::Progress.silent, settings: {})
+      @console = Console.described(options.console)
       @frame_sync = options.frame_sync
       @save_memory = options.save_memory # kilobytes the game named, or nil to let its records decide
       @settings = settings.to_h.transform_keys(&:to_sym)
@@ -182,7 +183,8 @@ module RubyGBA
       # lowers to a ROM. Each statement attaches to the container on top of the
       # stack — the program root, or an open control-flow block (a loop, an if, a
       # func body) while its block runs.
-      @program = Build.program
+      # A program built for the Advance says nothing, as one made by hand says nothing.
+      @program = Build.program(console: @console.name == Console::DEFAULT ? nil : @console.name)
       @container_stack = [@program]
       @shown_while = []        # the conditions open right here, for a declaration that is only presented under them
 
@@ -196,6 +198,10 @@ module RubyGBA
     # The IR tree built so far (the whole program). Lets tests assert the DSL
     # constructs the right tree without lowering it to a ROM.
     attr_reader :program
+
+    # The console this game is being built for (a Console::Description): the screen the DSL
+    # lays things out on, clamps them to and checks them against.
+    attr_reader :console
 
     # WHAT THIS BUILD SAYS IT IS DOING, for whoever is doing real work while it runs.
     #
@@ -1180,7 +1186,7 @@ module RubyGBA
       write = Build.if_(changed,
                         Build.affine_background(name, angle: Build.var_ref(background.angle),
                                                       scale: Build.var_ref(background.scale),
-                                                      around: background.pivot),
+                                                      around: background.pivot || @console.middle),
                         Build.set(told_angle, Build.var_ref(background.angle)),
                         Build.set(told_size, Build.var_ref(background.scale)))
 

@@ -93,11 +93,12 @@ module RubyGBA
   # for the stack is one the game's variables, lists and code cannot have.
   def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: true,
                  fast_code: true, out: $stdout, err: $stderr, progress: Messages::Progress.silent,
-                 profile: false, settings: {}, save_memory: nil, stack_room: nil, &block)
-    # The five that say how the game is built travel as one value from here on (see
+                 profile: false, settings: {}, save_memory: nil, stack_room: nil, console: Console::DEFAULT, &block)
+    # The six that say how the game is built travel as one value from here on (see
     # {Cartridge::Options}), checked now so a setting that cannot be right stops the build first.
     options = Cartridge::Options.new(frame_sync: frame_sync, fast_cartridge: fast_cartridge,
-                                     fast_code: fast_code, save_memory: save_memory, stack_room: stack_room)
+                                     fast_code: fast_code, save_memory: save_memory, stack_room: stack_room,
+                                     console: console)
     # Settle where this build prints BEFORE anything is read or checked, so a caller
     # that named somewhere the build cannot write is told on every build rather than on
     # the one build that finally has a warning to give (see {Messages::BuildOutput}).

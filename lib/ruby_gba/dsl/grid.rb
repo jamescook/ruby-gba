@@ -97,8 +97,9 @@ module RubyGBA
       # would put its far cells off the edge, where they'd silently never show (the
       # black-screen footgun). Catch it here, in plain terms, as the board is built.
       def fits_on_screen!
-        overrun!("wide", @cols, @cell, @cols * @cell, IR::Screen::WIDTH) if @cols * @cell > IR::Screen::WIDTH
-        overrun!("tall", @rows, @cell, @rows * @cell, IR::Screen::HEIGHT) if @rows * @cell > IR::Screen::HEIGHT
+        width, height = @builder.console.screen_size
+        overrun!("wide", @cols, @cell, @cols * @cell, width) if @cols * @cell > width
+        overrun!("tall", @rows, @cell, @rows * @cell, height) if @rows * @cell > height
       end
 
       def overrun!(axis, count, cell, extent, screen)

@@ -311,7 +311,7 @@ module RubyGBA
         return columns_of(within, verb) if within
         return [@inside_area[0], @inside_area[2]] if @inside_area
 
-        [0, IR::Screen::WIDTH]
+        [0, console.screen_width]
       end
 
       def columns_of(within, verb)

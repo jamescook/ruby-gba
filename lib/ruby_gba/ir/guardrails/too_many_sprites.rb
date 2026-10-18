@@ -29,13 +29,12 @@ module RubyGBA
           NAME = :too_many_sprites
           PLAIN_NAME = "more sprites than the console has places for"
 
-          MOST = Console::Hardware::MAX_SPRITES
-
           def detect(program)
             sprites = Stacking.objects_in_draw_order(program)
-            return [] if sprites.size <= MOST
+            most = program.described_console.sprites
+            return [] if sprites.size <= most
 
-            [Finding.new(check: NAME, severity: :error, node: sprites[MOST], message: message(sprites))]
+            [Finding.new(check: NAME, severity: :error, node: sprites[most], message: message(sprites, most))]
           end
 
           # Why the sprites are refused, or nil when they fit.
@@ -45,11 +44,11 @@ module RubyGBA
 
           private
 
-          def message(sprites)
+          def message(sprites, most)
             letters, rest = sprites.partition { |node| node.declared.nil? }
             pooled, declared = rest.partition { |node| SpriteWords.pool?(node) }
             shares = [letters_sentence(letters), *pool_sentences(pooled), declared_sentence(declared)].compact
-            "This game has #{sprites.size} sprites. The console has places for #{MOST}, and each " \
+            "This game has #{sprites.size} sprites. The console has places for #{most}, and each " \
               "sprite takes one for the whole game, in every scene. #{shares.join(' ')} " \
               "To fix this, use fewer sprites.#{letters_hint(letters)}#{pool_hint(pooled)}"
           end

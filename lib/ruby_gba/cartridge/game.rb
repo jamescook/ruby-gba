@@ -113,10 +113,11 @@ module RubyGBA
                       progress: progress, profile: profile, settings: settings, **@options.to_h, &@block)
       end
 
-      # A friendly output filename from the title: "BIRD" -> "bird.gba".
+      # A friendly output filename from the title, ending as the console's cartridges do:
+      # "BIRD" -> "bird.gba".
       def default_filename
         base = @title.to_s.downcase.gsub(/[^a-z0-9]+/, "_").gsub(/\A_+|_+\z/, "")
-        "#{base.empty? ? 'game' : base}.gba"
+        "#{base.empty? ? 'game' : base}#{Console.described(@options.console).extension}"
       end
 
       # Build this game and write the .gba beside the file that calls this — but only

@@ -2,18 +2,16 @@
 
 module RubyGBA
   module IR
-    # The screen a program draws to: its size in pixels. Like Int32 and the button
-    # vocabulary, this is a cross-backend contract — the logical display every
-    # backend renders — so it lives in the IR core rather than being re-stated by
-    # each one. The console's interpreter sizes its framebuffer from here, the
-    # console's hardware constants derive from here, and another backend (a browser
-    # canvas, say) would size itself from here too. One source of truth.
+    # The Advance's screen, in pixels: what a program built for the Advance draws to, and what
+    # the backends that only ever draw the Advance's picture (the native and JavaScript ones)
+    # size themselves from.
     #
-    # The dimensions are the Game Boy Advance's bitmap-mode screen; a program that
-    # writes a pixel at (5, 5) means this screen, whichever backend runs it.
+    # A program carries the console it was built for, and whatever reads its screen asks that
+    # (Program#described_console), since a program built for a smaller console draws to a
+    # smaller screen. These two are for what has no program to ask.
     module Screen
-      WIDTH  = 240
-      HEIGHT = 160
+      WIDTH  = Console::ADVANCE.screen_width
+      HEIGHT = Console::ADVANCE.screen_height
     end
   end
 end

@@ -115,7 +115,7 @@ module RubyGBA
       # the row's half width, which #work_out_half_width puts in HALF first.
       def shade_node(builder, light)
         half = builder.var(HALF, 0)
-        screen = Console::Hardware::SCREEN_WIDTH
+        screen = builder.console.screen_width
         left = (light.x - half).clamp(0, screen)
         right = (light.x + half).clamp(0, screen)
 

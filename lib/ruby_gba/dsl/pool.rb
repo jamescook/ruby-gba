@@ -798,6 +798,9 @@ module RubyGBA
           @index = index # a Value: the loop's current slot
         end
 
+        # The build this pool belongs to, which {Bounds} asks for the screen.
+        def collision_builder = @pool.builder
+
         # Draw this instance with another list of colours, or one of several picked by a
         # number, or its own again — what a sprite's `draw_with` does, for one instance.
         def draw_with(which, showing: nil)
@@ -886,8 +889,9 @@ module RubyGBA
         # per-instance counterpart to {Sprite#clamp_to_screen}. Clamps its x/y in place.
         def clamp_to_screen
           hit_x, hit_y, hit_w, hit_h = require_box!
-          field(:x).clamp!(-hit_x, IR::Screen::WIDTH - hit_x - hit_w)
-          field(:y).clamp!(-hit_y, IR::Screen::HEIGHT - hit_y - hit_h)
+          width, height = collision_builder.console.screen_size
+          field(:x).clamp!(-hit_x, width - hit_x - hit_w)
+          field(:y).clamp!(-hit_y, height - hit_y - hit_h)
           self
         end
 

@@ -23,11 +23,15 @@ module RubyGBA
       # @param x, y, w, h [Integer, Symbol, Value] corner and size, each an operand
       #   the expression DSL understands
       def initialize(builder, x, y, w, h)
+        @builder = builder
         @x = coerce(builder, x)
         @y = coerce(builder, y)
         @w = coerce(builder, w)
         @h = coerce(builder, h)
       end
+
+      # The build these coordinates belong to, which {Bounds} asks for the screen.
+      def collision_builder = @builder
 
       # The right edge (x + w), as an expression Value.
       def right

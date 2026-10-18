@@ -21,17 +21,16 @@ module RubyGBA
           NAME = :off_screen_draw
           PLAIN_NAME = "drawing off the screen"
 
-          SCREEN_W = Screen::WIDTH
-          SCREEN_H = Screen::HEIGHT
-
-          # Warn for every draw whose fully-known footprint misses the screen.
+          # Warn for every draw whose fully-known footprint misses the screen of the console the
+          # program was built for.
           def detect(program)
             bitmaps = index_bitmaps(program)
+            screen = program.described_console.screen_size
             program.each.filter_map do |node|
               bounds = constant_bounds(node, bitmaps)
-              next unless bounds && entirely_off_screen?(*bounds)
+              next unless bounds && entirely_off_screen?(bounds, screen)
 
-              Finding.new(check: NAME, severity: :warning, message: message(node, bounds),
+              Finding.new(check: NAME, severity: :warning, message: message(node, bounds, screen),
                           node: node)
             end
           end
@@ -96,17 +95,17 @@ module RubyGBA
             end
           end
 
-          # The screen is the box [0, SCREEN_W) x [0, SCREEN_H). A footprint misses
-          # it entirely when it's fully left of, right of, above, or below that box.
-          def entirely_off_screen?(x, y, w, h)
-            x + w <= 0 || x >= SCREEN_W || y + h <= 0 || y >= SCREEN_H
+          # The screen is the box [0, width) x [0, height). A footprint misses it entirely
+          # when it's fully left of, right of, above, or below that box.
+          def entirely_off_screen?((x, y, w, h), (width, height))
+            x + w <= 0 || x >= width || y + h <= 0 || y >= height
           end
 
-          def message(node, bounds)
+          def message(node, bounds, (width, height))
             x, y, w, h = bounds
             "#{describe(node)} at (#{x}, #{y}), sized #{w}x#{h}, is fully off the " \
-              "#{SCREEN_W}x#{SCREEN_H} screen, so nothing shows. The screen runs from " \
-              "(0, 0) at the top-left to (#{SCREEN_W - 1}, #{SCREEN_H - 1}) at the " \
+              "#{width}x#{height} screen, so nothing shows. The screen runs from " \
+              "(0, 0) at the top-left to (#{width - 1}, #{height - 1}) at the " \
               "bottom-right. To fix this, make sure that the position is on the screen. " \
               "A swapped x and y is a common cause."
           end

@@ -833,10 +833,17 @@ module RubyGBA
         operands button: :option
       end
 
+      # The whole program. +console+ names the console it was built for (see
+      # Console::Description), whose screen the game was laid out on and checked against; a
+      # program that does not say is the Advance's.
       class Program
         include Node
         kind :program
         category :root
+        operands console: :name
+
+        # What the console this program was built for can do: its screen, buttons, sprites.
+        def described_console = Console.described(console)
       end
 
       # A FONT THE PROGRAM DECLARED, the same way a declared picture is a node: it draws

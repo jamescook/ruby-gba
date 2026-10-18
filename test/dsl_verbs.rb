@@ -5,7 +5,7 @@
 # console's answer for every verb (test_gbc_features.rb).
 module DslVerbs
   # The DSL verbs are the public methods the concern modules mix into Builder…
-  CONCERNS = RubyGBA::Builder.included_modules.select { |m| m.name&.start_with?("RubyGBA::Builder::") }
+  CONCERNS = RubyGBA::Builder.included_modules.select { |m| m.name&.start_with?("RubyGBA::Builder::") }.freeze
 
   # …plus these verbs defined on Builder itself (the rest of its public methods are
   # framework: program, finalize_program, record_*, the Condition bookkeeping).

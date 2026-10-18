@@ -210,8 +210,9 @@ module RubyGBA
       # self. (It keeps the sprite's collision box on screen; a transparent margin around
       # the art may still slide off, which is what you want.)
       def clamp_to_screen
-        x.clamp!(-@hit_x, IR::Screen::WIDTH - @hit_x - @hit_w)
-        y.clamp!(-@hit_y, IR::Screen::HEIGHT - @hit_y - @hit_h)
+        width, height = @builder.console.screen_size
+        x.clamp!(-@hit_x, width - @hit_x - @hit_w)
+        y.clamp!(-@hit_y, height - @hit_y - @hit_h)
         self
       end
       alias stay_on_screen clamp_to_screen
@@ -228,8 +229,8 @@ module RubyGBA
       # pixels unless you gave it one — so a picture with a transparent margin still
       # LOOKS centred, which a naive half-the-width would not manage.
       def center_on_screen
-        move_to((IR::Screen::WIDTH - @hit_w) / 2 - @hit_x,
-                (IR::Screen::HEIGHT - @hit_h) / 2 - @hit_y)
+        width, height = @builder.console.screen_size
+        move_to(((width - @hit_w) / 2) - @hit_x, ((height - @hit_h) / 2) - @hit_y)
       end
 
       # Turn the sprite to face a direction, swapping to that pose in place (no move).

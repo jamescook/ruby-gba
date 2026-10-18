@@ -657,7 +657,8 @@ module RubyGBA
       # Builder#finalize_background_affine) so the console never shows a half-turned frame.
       def record_affine_write
         angle_var, scale_var = affine_vars
-        node = record(Build.affine_background(@name, angle: Build.var_ref(angle_var), scale: Build.var_ref(scale_var)))
+        node = record(Build.affine_background(@name, angle: Build.var_ref(angle_var), scale: Build.var_ref(scale_var),
+                                                     around: @builder.console.middle))
         @builder.record_inline_affine_node(node)
       end
 

@@ -24,9 +24,6 @@ module RubyGBA
           NAME = :sprite_cleared_each_frame
           PLAIN_NAME = "a sprite cleared every frame"
 
-          SCREEN_W = Screen::WIDTH
-          SCREEN_H = Screen::HEIGHT
-
           # Ops only a sprite's repaint emits — the tell that a sprite lives in a loop.
           SPRITE_OPS = %i[save_region restore_region].freeze
 
@@ -40,6 +37,7 @@ module RubyGBA
 
           def detect(program)
             funcs = FrameReach.index_funcs(program)
+            screen = program.described_console.screen_size
             FrameReach.loops(program).filter_map do |loop_node|
               steady = FrameReach.per_frame_statements(loop_node, funcs)
               next unless steady.any? { |node| SPRITE_OPS.include?(node.kind) }
@@ -47,7 +45,7 @@ module RubyGBA
               # Blame the clear rather than the loop. The fix is to delete this one
               # line and paint the field before the loop instead — and the steady walk
               # follows calls, so the clear may well sit in a scene some way from here.
-              clear = steady.find { |node| full_screen_clear?(node) }
+              clear = steady.find { |node| full_screen_clear?(node, screen) }
               next unless clear
 
               Finding.new(check: NAME, severity: :warning, message: PROBLEM, node: clear)
@@ -57,11 +55,11 @@ module RubyGBA
           private
 
           # A whole-screen wipe: a `clear_screen`, or a fill that covers the display.
-          def full_screen_clear?(node)
+          def full_screen_clear?(node, (width, height))
             return true if node.kind == :clear_screen
             return false unless %i[fill_rect dma_fill_rect].include?(node.kind)
 
-            node.w.to_i >= SCREEN_W && node.h.to_i >= SCREEN_H
+            node.w.to_i >= width && node.h.to_i >= height
           end
         end
       end
