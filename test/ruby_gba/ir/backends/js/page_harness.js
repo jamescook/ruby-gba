@@ -22,6 +22,8 @@
  *   blur / focus        the window losing the keyboard to another, and getting it back
  *   hide / show         the page's tab hidden behind another, and shown again
  *   click ID            the page's element of that id clicked
+ *   check ID / uncheck ID   the page's checkbox of that id ticked or cleared (each starts as the
+ *                       page's HTML says, ticked where it is written "checked")
  *   play N              N of the browser's frames, each a console frame after the one before, so
  *                       the page plays one frame of the game on each; none come while hidden
  *   picture             prints "picture" and every pixel last put on the canvas, as the
@@ -70,10 +72,11 @@ let kept = 0;
 let focused = process.argv[3] !== "unfocused";
 
 function element(id) {
-  return { id, textContent: "", hidden: id === "said", ...listening() };
+  const checked = new RegExp(`<input[^>]*\\bid="${id}"[^>]*\\bchecked\\b|<input[^>]*\\bchecked\\b[^>]*\\bid="${id}"`).test(html);
+  return { id, textContent: "", hidden: id === "said", checked, ...listening() };
 }
 
-const elements = Object.fromEntries(["said", "controller", "fullscreen"].map((id) => [id, element(id)]));
+const elements = Object.fromEntries(["said", "controller", "fullscreen", "pause"].map((id) => [id, element(id)]));
 elements.screen = {
   ...element("screen"),
   getContext: () => ({
@@ -195,6 +198,7 @@ for (const line of fs.readFileSync(0, "utf8").split("\n")) {
   else if (step === "hide") visible(false);
   else if (step === "show") visible(true);
   else if (step === "click") { tell(elements[what], "click"); tell(page, "pointerdown"); }
+  else if (step === "check" || step === "uncheck") { elements[what].checked = step === "check"; tell(elements[what], "change"); }
   else if (step === "play") play(Number(what));
   else if (step === "picture") printed.push(`picture ${picture()}`);
   else if (step === "text") printed.push(text(what));

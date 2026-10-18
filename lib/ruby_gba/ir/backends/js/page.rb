@@ -22,8 +22,11 @@ module RubyGBA
         #   keys        which key is which button
         #   controller  where the page says whether a controller is in use
         #   fullscreen  a button that fills the screen with the game (the F key does too)
+        #   pause       a checkbox, ticked, for pausing the game while another window has the
+        #               keyboard; write your own <input type="checkbox" id="pause"> without
+        #               `checked` to start with it off, and a page without one pauses
         #   message     where a game that stops, or a page waiting for a click, says so
-        #   extras      keys, controller, fullscreen and message together, in that order
+        #   extras      keys, controller, fullscreen, pause and message together, in that order
         #
         # The script finds the pieces it fills in by their id, and a page without one of them plays
         # the same, with nothing said there.
@@ -51,10 +54,11 @@ module RubyGBA
             HTML
             controller = '<p id="controller"></p>'
             fullscreen = '<button id="fullscreen" type="button">Full screen</button>'
+            pause = '<label><input type="checkbox" id="pause" checked> Pause when another window is in front</label>'
             message = '<p id="said" hidden></p>'
             { title: CGI.escapeHTML(title.to_s), style: style(scale), game: game(script), keys: keys,
-              controller: controller, fullscreen: fullscreen, message: message,
-              extras: [keys, controller, fullscreen, message].join("\n") }
+              controller: controller, fullscreen: fullscreen, pause: pause, message: message,
+              extras: [keys, controller, fullscreen, pause, message].join("\n") }
           end
 
           def game(script)

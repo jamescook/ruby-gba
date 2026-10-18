@@ -163,9 +163,10 @@ class TestJSPage < Minitest::Test
 
   # A page in a frame on another site starts without the keyboard, and a key pressed then goes to
   # the other page: so until it has the keyboard it says to click the game, and once it has it,
-  # it says nothing. Losing the keyboard again lets go of every key, which may come up elsewhere.
+  # it says nothing. Losing the keyboard again lets go of every key, which may come up elsewhere —
+  # seen here with the pause turned off, so the game plays on to show it.
   def test_a_page_without_the_keyboard_says_to_click_and_lets_go_of_keys_when_it_loses_it
-    lines = played_page(["play 1", "text said", "focus", "down ArrowRight", "play 3", "text said", "blur",
+    lines = played_page(["uncheck pause", "play 1", "text said", "focus", "down ArrowRight", "play 3", "text said", "blur",
                          "play 5", "picture"], focused: false)
     interpreter = Reference.new.input_each_frame { |frame| (3..5).cover?(frame) ? [:right] : [] }
                            .run(walking_game.program, frames: 9)
@@ -181,6 +182,56 @@ class TestJSPage < Minitest::Test
                          "down KeyF meta", "state"])
 
     assert_equal %w[screen none screen screen], lines.grep(/\Astate /).map { |line| line[/fullscreen=(\S+)/, 1] }
+  end
+
+  # The square moves a pixel every frame, so the picture says how many frames were played.
+  private def ticking_game
+    RubyGBA.game "TICKING" do
+      screen :bitmap
+      x = var :x, 0
+      game_loop do
+        x.add! 1
+        clear_screen :black
+        draw_rect_at x, 20, 4, 4, :green
+      end
+    end
+  end
+
+  # +steps+ played on the ticking game's page end on the picture the same page shows after
+  # +frames+ of the browser's frames with nothing else happening — so exactly +frames+ were played —
+  # and the sound device read at each "state" is in +sound+.
+  private def assert_plays_frames(frames, steps, sound, template: nil, focused: true)
+    lines = played_page(steps, ticking_game, template: template, focused: focused)
+    undisturbed = pictures_in(played_page(["play #{frames}", "picture"], ticking_game, template: template)).last
+
+    assert_same_picture undisturbed, pictures_in(lines).last, "after #{frames} frames played"
+    assert_equal sound, lines.grep(/\Astate /).map { |line| line[/audio=(\S+)/, 1] }
+  end
+
+  # A page that loses the keyboard to another window pauses — no frames played, the sound
+  # suspended — and plays on when it has the keyboard again: a player who looks away does not
+  # come back to a game that went on without them.
+  def test_a_page_that_loses_the_keyboard_pauses_until_it_has_it_again
+    assert_plays_frames(5, ["down KeyQ", "play 3", "blur", "play 10", "state", "focus", "play 2", "state", "picture"],
+                        %w[suspended running])
+  end
+
+  # The checkbox under the game turns the pause off, and on again.
+  def test_the_checkbox_under_the_game_turns_the_pause_off
+    assert_plays_frames(15, ["down KeyQ", "uncheck pause", "play 3", "blur", "play 10", "state", "focus", "play 2", "picture"],
+                        %w[running])
+    assert_plays_frames(5, ["uncheck pause", "check pause", "play 3", "blur", "play 10", "focus", "play 2", "picture"], [])
+  end
+
+  # The template decides how the pause starts: a page without the checkbox pauses, a checkbox
+  # written without `checked` starts with it off, and a page that opens without the keyboard
+  # waits for it before it plays a frame.
+  def test_the_template_decides_whether_the_page_pauses
+    away = ["play 3", "blur", "play 10", "focus", "play 2", "picture"]
+
+    assert_plays_frames(5, away, [], template: "<%= game %>")
+    assert_plays_frames(15, away, [], template: "<%= game %>\n<input type=\"checkbox\" id=\"pause\">")
+    assert_plays_frames(2, ["play 10", "focus", "play 2", "picture"], [], focused: false)
   end
 
   # +steps+ hold right from the page's start to frame 10 and take two pictures, at frames 10 and
@@ -201,7 +252,7 @@ class TestJSPage < Minitest::Test
   private def assert_same_picture(want, got, moment)
     differ = want.each_index.reject { |i| want[i] == got[i] }
     first = differ.first
-    assert_empty differ, "the page's picture #{moment} differs from the interpreter's at #{differ.size} pixels, " \
+    assert_empty differ, "the page's picture #{moment} differs from the one expected at #{differ.size} pixels, " \
                          "first at (#{first.to_i % 240}, #{first.to_i / 240})"
   end
 
