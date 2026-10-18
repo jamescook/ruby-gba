@@ -77,14 +77,15 @@ module RubyGBA
       # having there: does the game as C draw what the interpreter draws? So the same line plays the
       # program as C with the same buttons held and compares it with the interpreter on every frame,
       # every variable and the sound log with the picture (see CheckedPlayer, which is what comes
-      # back). The frames the console would have needed mean nothing there.
+      # back). The frames the console would have needed mean nothing there. A JavaScript run asks
+      # the same of the game as JavaScript.
       def assert_backends_agree(program, frames: 4, name: "DIFF", console_frames: nil, keys: [])
         each = frames.is_a?(Integer) ? [frames] : frames.to_a
         if console_frames && each.size > 1
           raise ArgumentError, "console_frames: gives the console's frame count for one frame. " \
                                "This check asks for #{each.size} frames. Give one frame, or leave out console_frames:."
         end
-        return CheckedPlayer.new.hold(*keys).run(program, frames: each.max) if Testing.native?
+        return Testing.player_class.new.hold(*keys).run(program, frames: each.max) if Testing.checked?
 
         each.each do |frame|
           oracle, console, ran = backend_pictures(program, frames: frame, name: name,
@@ -108,9 +109,10 @@ module RubyGBA
       # ON A NATIVE RUN the second picture is the game as C's, after the same frames with the same
       # buttons held, so every test written as "the two pictures agree" asks it of the lowering the
       # run is for. The C is checked against the interpreter on every frame on the way there
-      # (CheckedPlayer), and the frames the console would have needed mean nothing.
+      # (CheckedPlayer), and the frames the console would have needed mean nothing. On a JavaScript
+      # run it is the game as JavaScript's, the same way.
       def backend_pictures(program, frames: 4, name: "DIFF", console_frames: nil, keys: [])
-        return native_pictures(program, frames, keys) if Testing.native?
+        return lowered_pictures(program, frames, keys) if Testing.checked?
 
         played = console_frames || console_frames_for(program, frames)
         console, passes = console_picture(program, played, name, keys)
@@ -168,8 +170,8 @@ module RubyGBA
       # changes what is being compared. The emulator counts arrivals at the loop's own first
       # instruction instead, so nothing is added to the program.
       #
-      # A comparison with the console is a check of the cartridge, so a native run never asks for
-      # one: #backend_pictures hands it the game as C's picture instead.
+      # A comparison with the console is a check of the cartridge, so a native or JavaScript run
+      # never asks for one: #backend_pictures hands it the lowered game's picture instead.
       def console_picture(program, console_frames, name, keys)
         Diagnostics::Emulator.load!
         mask = keys.sum { |key| KEY_BITS.fetch(key) }
@@ -180,9 +182,10 @@ module RubyGBA
         [verifier.frame_gba, verifier.passes]
       end
 
-      # The interpreter's picture and the game as C's after +frames+ frames, with +keys+ held.
-      def native_pictures(program, frames, keys)
-        native = CheckedPlayer.new.hold(*keys).run(program, frames: frames).screen.shown
+      # The interpreter's picture and the game as C's (or as JavaScript's) after +frames+ frames,
+      # with +keys+ held.
+      def lowered_pictures(program, frames, keys)
+        native = Testing.player_class.new.hold(*keys).run(program, frames: frames).screen.shown
         oracle = IR::Backends::Reference.new.hold(*keys).run(program, frames: frames).screen.shown
         [oracle, native, frames]
       end

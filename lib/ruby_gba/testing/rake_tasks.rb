@@ -15,11 +15,12 @@ module RubyGBA
     #     t.test_files = FileList["test/**/test_*.rb"]   # the default
     #   end
     #
-    # That defines three tasks:
+    # That defines four tasks:
     #
     #   rake test                    every lowering, one after the other, ending with a line each
     #   rake test:lowering:gba       the game on the interpreter, which the cartridge is checked against
     #   rake test:lowering:native    the game built as C, checked against the interpreter (needs zig)
+    #   rake test:lowering:js        the game built as JavaScript, checked the same way (needs node)
     #
     # Each takes TEST= for one file, and `rake test` plays it on each lowering whose run loads it.
     #
@@ -37,7 +38,7 @@ module RubyGBA
     # but the task it is asked for.
     class RakeTasks < Rake::TaskLib
       # What `rake test` calls each lowering's run in the lines it ends with, in the order it plays them.
-      LABELS = { gba: "GBA lowering", native: "native lowering" }.freeze
+      LABELS = { gba: "GBA lowering", native: "native lowering", js: "JS lowering" }.freeze
       OUTCOMES = { passed: "passed", failed: "FAILED", not_played: "does not play this file" }.freeze
 
       # The test files; the folders a test file can require from by bare name (the game's own code
@@ -105,6 +106,14 @@ module RubyGBA
               t.test_files = files(:native)
               t.description = "Run the tests on the native lowering: the game built as C, checked against " \
                               "the interpreter (needs zig; one file with TEST=)"
+            end
+
+            TestTask.new(:js) do |t|
+              t.lowering = :js
+              t.libs = libs.dup
+              t.test_files = files(:js)
+              t.description = "Run the tests on the JavaScript lowering: the game built as JavaScript, checked " \
+                              "against the interpreter (needs node; one file with TEST=)"
             end
           end
         end

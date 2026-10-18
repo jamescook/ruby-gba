@@ -47,9 +47,10 @@ class TestCrossBackendConformance < Minitest::Test
            "the fixture should sync-then-halt cleanly, not run out the step budget"
   end
 
-  # The lowering this run is for plays the fixture too: on a native run, the game built as C,
-  # checked against the interpreter on every frame. The fixture's console-only kinds sit in a
-  # routine nothing calls, so a lowering that cannot write them still has nothing to refuse.
+  # The lowering this run is for plays the fixture too: on a native run the game built as C, on a
+  # JavaScript run the game built as JavaScript, each checked against the interpreter on every
+  # frame. The fixture's console-only kinds sit in a routine nothing calls, so a lowering that
+  # cannot write them still has nothing to refuse.
   def test_the_lowering_under_test_plays_the_whole_fixture
     game_player.run(ConformanceFixture.program, max_steps: 10_000)
   end

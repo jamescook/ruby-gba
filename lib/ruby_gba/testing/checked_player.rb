@@ -13,5 +13,15 @@ module RubyGBA
         raise Minitest::Assertion, e.message
       end
     end
+
+    # The same, on the JavaScript lowering's run: the game played as JavaScript under node
+    # (JS::CheckedRun), checked against the interpreter on every frame by the same check.
+    class JSCheckedPlayer < IR::Backends::JS::CheckedRun
+      def run(program, max_steps: nil, frames: nil)
+        super
+      rescue Disagreement => e
+        raise Minitest::Assertion, e.message
+      end
+    end
   end
 end

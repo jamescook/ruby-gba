@@ -81,11 +81,13 @@ end
 
 # EVERY LOWERING, ONE AFTER THE OTHER, by the library's own rake tasks — the ones a game's suite
 # defines the same way (RubyGBA::Testing::RakeTasks says what each does). `rake test` plays the
-# GBA lowering's run (the interpreter, with the cartridge checked in the emulator) and then the
+# GBA lowering's run (the interpreter, with the cartridge checked in the emulator), then the
 # native lowering's (the game built as C, checked against the interpreter, in several processes),
-# and ends with a line for each. `rake test:lowering:gba` and `rake test:lowering:native` play
-# one. TEST= names one file, played by each lowering whose run loads it (a file in one lowering's
-# own folder is played by that one alone; see TestSuites::LOWERING_FOLDERS).
+# then the JavaScript lowering's (the game built as JavaScript and played by node, checked the same
+# way), and ends with a line for each. `rake test:lowering:gba`, `rake test:lowering:native` and
+# `rake test:lowering:js` play one. TEST= names one file, played by each lowering whose run loads
+# it (a file in one lowering's own folder is played by that one alone; see
+# TestSuites::LOWERING_FOLDERS).
 RubyGBA::Testing::RakeTasks.new do |t|
   # SDL=1 also builds and runs the desktop program, with its window (TestSuites::DESKTOP_TEST).
   t.test_files = TestSuites.all_files(desktop: ENV["SDL"] == "1")
@@ -93,12 +95,13 @@ RubyGBA::Testing::RakeTasks.new do |t|
 end
 
 # What this repository's runs need besides: a whole run waits for any other on the machine, the
-# emulator is built for both (on the native run the cartridge's own sound, in the emulator, is the
-# answer key for the sound the desktop build makes: test/sound_comparison.rb), and a run with
-# COVERAGE=1 starts its report afresh.
+# emulator is built for every run (on the native and JavaScript runs a few tests ask the cartridge
+# itself as the answer key — the sound the desktop build makes, test/sound_comparison.rb, and the
+# jukebox's voices), and a run with COVERAGE=1 starts its report afresh.
 task test: :suite_lock
 task "test:lowering:gba" => %i[suite_lock compile_emulator clear_coverage]
 task "test:lowering:native" => %i[suite_lock compile_emulator]
+task "test:lowering:js" => %i[suite_lock compile_emulator]
 
 namespace :test do
   # The emulator gem has its OWN test suite (its C extension + probe, tested in isolation) —

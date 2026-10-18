@@ -12,17 +12,19 @@
 # and FileList reads a constant of rake's that a Ractor may not.
 module TestSuites
   NATIVE_DIR = "test/ruby_gba/ir/backends/native"
+  JS_DIR = "test/ruby_gba/ir/backends/js"
 
   # THE FOLDERS THAT BELONG TO ONE LOWERING. A test there is about that lowering's own output —
   # the ARM a cartridge is made of, the cartridge played in the emulator, the C the native
   # lowering writes — and the other lowering's run never loads it. Every test outside them is
   # about the game, and every lowering's run loads it. Each folder mirrors a part of lib that is
   # that lowering's alone: the GBA backend; the diagnostics, which read back a finished
-  # cartridge; the playthroughs, which drive one in the emulator; and the native backend.
+  # cartridge; the playthroughs, which drive one in the emulator; the native backend; and the
+  # JavaScript backend.
   LOWERING_FOLDERS = Ractor.make_shareable({
                                              gba: ["test/ruby_gba/ir/backends/gba", "test/ruby_gba/diagnostics",
                                                    "test/ruby_gba/playthroughs"],
-                                             native: [NATIVE_DIR]
+                                             native: [NATIVE_DIR], js: [JS_DIR]
                                            })
 
   # The test of the program a player runs, with its window. It builds with SDL, whose first build

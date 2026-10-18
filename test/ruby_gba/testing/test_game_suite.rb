@@ -4,7 +4,7 @@ require "test_helper"
 require "open3"
 require "tmpdir"
 
-# A GAME IN A REPOSITORY OF ITS OWN runs its tests on either lowering, or both, with nothing
+# A GAME IN A REPOSITORY OF ITS OWN runs its tests on any lowering, or all of them, with nothing
 # but the library and the emulator gem: test/fixtures/game_suite is such a game's Rakefile and
 # its test files, and each case here runs its rake from that folder. Its load path is the two
 # gems' folders and nothing else (RUBYLIB, so the test processes rake starts have it too, as a
@@ -49,9 +49,10 @@ class TestGameSuite < Minitest::Test
     out, passed, lowerings = rake("test")
 
     assert passed, "the game's rake test failed:\n#{out}"
-    assert_equal %w[gba native], lowerings
+    assert_equal %w[gba js native], lowerings
     assert_match(/^GBA lowering\s+passed/, out)
     assert_match(/^native lowering\s+passed/, out)
+    assert_match(/^JS lowering\s+passed/, out)
   end
 
   # The native lowering's run alone, its tests played in several processes rather than Ractors.
@@ -65,17 +66,19 @@ class TestGameSuite < Minitest::Test
 
   # An interpreter made to draw one pixel differently fails the game's tests on each run, as
   # failed assertions and not as errors in the library: on the native run the game as C differs
-  # from it at a frame, and on the GBA lowering's run the cartridge does, at the pixel named.
+  # from it at a frame, on the JavaScript run the game as JavaScript does, and on the GBA
+  # lowering's run the cartridge does, at the pixel named.
   def test_a_disagreement_fails_the_games_test_on_each_run
     out, passed, = rake("test", env: { "GAME_SUITE_DISAGREE" => "1" })
 
     refute passed
     assert_match(/^GBA lowering\s+FAILED/, out)
     assert_match(/^native lowering\s+FAILED/, out)
+    assert_match(/^JS lowering\s+FAILED/, out)
     assert_match(/disagree at frame 1: the picture differs/, out)
     assert_match(/the backends drew different screens: 1 of 38400 pixels differ/, out)
     assert_match(/\(  0,  0\)/, out)
-    assert_equal %w[0 0], out.scan(/(\d+) errors/).flatten, "each run's tests failed, and none stopped with an error"
+    assert_equal %w[0 0 0], out.scan(/(\d+) errors/).flatten, "each run's tests failed, and none stopped with an error"
   end
 
   WALKING = "test_holding_right_walks_the_walker"

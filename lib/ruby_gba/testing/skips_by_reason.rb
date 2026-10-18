@@ -2,7 +2,8 @@
 
 module RubyGBA
   module Testing
-    # WHAT A NATIVE RUN DID NOT PLAY, said at the end of the run: its skips counted by reason.
+    # WHAT A NATIVE OR JAVASCRIPT RUN DID NOT PLAY, said at the end of the run: its skips counted
+    # by reason.
     #
     # A test the native lowering cannot play skips itself there, and says why (see
     # Testing#skip_on_native). What a skip can do is pile up unseen: minitest prints one letter
@@ -25,7 +26,7 @@ module RubyGBA
       def report
         return if @reasons.empty?
 
-        @io.puts "\nSkipped on this native run, by reason:"
+        @io.puts "\nSkipped on this #{Testing.lowering == :js ? "JavaScript" : "native"} run, by reason:"
         @reasons.sort_by { |reason, count| [-count, reason] }.each { |reason, count| @io.puts format("%5d  %s", count, reason) }
       end
     end

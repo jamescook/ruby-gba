@@ -15,7 +15,7 @@ class TestPictures < Minitest::Test
   # A GAME WITHOUT THE EMULATOR GEM gets a failed test that says what to put in its Gemfile, not an
   # error from inside the library with a backtrace through it.
   def test_without_the_emulator_the_check_fails_saying_what_to_add
-    skip "the native run checks the game as C, which needs no emulator" if RubyGBA::Testing.native?
+    skip "the native and JavaScript runs check the lowered game, which needs no emulator" if RubyGBA::Testing.checked?
 
     advice = RubyGBA::Diagnostics::Emulator.send(:missing_advice, "cannot load such file -- ruby_gba_emulator",
                                                  bundled: false)
