@@ -31,7 +31,13 @@ module RubyGBA
                               buttons: %i[a b select start right left up down r l].freeze, sprites: 128,
                               backgrounds: 4, turning_backgrounds: 1, list_colors: 16, extension: ".gba")
 
-    DESCRIPTIONS = Ractor.make_shareable({ gba: ADVANCE })
+    # The Game Boy Color: a smaller screen, eight buttons, forty sprites, one background, and lists
+    # of four colours. What each verb does on it is Console::GBCFeatures's to say.
+    COLOR = Description.new(name: :gbc, title: "Game Boy Color", screen_width: 160, screen_height: 144,
+                            buttons: %i[a b select start right left up down].freeze, sprites: 40,
+                            backgrounds: 1, turning_backgrounds: 0, list_colors: 4, extension: ".gbc")
+
+    DESCRIPTIONS = Ractor.make_shareable({ gba: ADVANCE, gbc: COLOR })
 
     # The console a game is built for when it does not say.
     DEFAULT = :gba

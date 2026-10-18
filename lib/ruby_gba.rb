@@ -106,6 +106,9 @@ module RubyGBA
     out = output.out
     err = output.err
 
+    # Measuring is the Advance's: it is what chooses the Advance's quick memory, which a Game Boy
+    # Color does not have.
+    profile = false unless options.console == Console::DEFAULT
     if profile == true
       return build_measured(title, code: code, maker: maker, validate: validate, out: out, err: err,
                             progress: progress, settings: settings, **options.to_h, &block)
@@ -163,6 +166,10 @@ module RubyGBA
       end
     end
 
+    # A cartridge for another console is made by that console's lowering, from the same checked
+    # tree (see IR::Backends::GBC).
+    return build_for_console(program, title, options, progress) unless options.console == Console::DEFAULT
+
     # The DSL built an IR tree as the block ran. Turn it into a ROM in two steps,
     # both behind this single call so building stays one operation: lower the tree
     # to machine code, then assemble that code into a cartridge. Lowering names its
@@ -218,6 +225,15 @@ module RubyGBA
     # file this build opened for itself. A stream the caller opened is left alone.
     output&.close
   end
+
+  # THE CARTRIDGE FOR A CONSOLE OTHER THAN THE ADVANCE: the Game Boy Color's, today, made from the
+  # checked tree by IR::Backends::GBC. Measuring, quick memory and the ROM validation are the
+  # Advance's and are not asked for.
+  def self.build_for_console(program, title, options, progress)
+    progress.step("lowering for the #{Console.described(options.console).title}")
+    IR::Backends::GBC.new.build(program, title: title)
+  end
+  private_class_method :build_for_console
 
   # BUILD IT, RUN IT, BUILD IT AGAIN — which is how the build knows what a game spends its
   # frames on instead of guessing.

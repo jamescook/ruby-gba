@@ -55,6 +55,8 @@ module RubyGBA
                       "that paints with more is refused, naming them. `screen :rotozoom` degrades: " \
                       "the turning layer is shown as a plain one, never turned or resized."),
         setting: works,
+        screen_width: works("160 on a Game Boy Color."),
+        screen_height: works("144 on a Game Boy Color."),
         wait_vblank: works,
         halt: works,
         debug_halt: degrades("the game stops there, as `halt` does; the cartridge is not cut short."),

@@ -44,14 +44,14 @@ module RubyGBA
 
           # A comparison, by what rt_cmp32 leaves in A (0 equal, 1 less, 2 greater): the number to
           # compare A with, and whether the comparison holds when they are equal (:z) or not (:nz).
-          COMPARISONS = {
+          COMPARISONS = Ractor.make_shareable({
             "rg_lt" => [1, :z], "rg_le" => [2, :nz], "rg_gt" => [2, :z],
             "rg_ge" => [1, :nz], "rg_eq" => [0, :z], "rg_ne" => [0, :nz]
-          }.freeze
+          })
 
           # Each C type a table can keep its numbers in: bytes a number, and whether it is signed.
-          TYPES = { "int8_t" => [1, true], "uint8_t" => [1, false], "int16_t" => [2, true],
-                    "uint16_t" => [2, false], "int32_t" => [4, true], "char" => [1, false] }.freeze
+          TYPES = Ractor.make_shareable({ "int8_t" => [1, true], "uint8_t" => [1, false], "int16_t" => [2, true],
+                    "uint16_t" => [2, false], "int32_t" => [4, true], "char" => [1, false] })
 
           class Error < StandardError; end
 
@@ -449,8 +449,8 @@ module RubyGBA
             @asm.call(TABLE_READERS.fetch([size, signed]))
           end
 
-          TABLE_READERS = { [1, true] => "rt_read_int8", [1, false] => "rt_read_uint8", [2, true] => "rt_read_int16",
-                            [2, false] => "rt_read_uint16", [4, true] => "rt_read_int32" }.freeze
+          TABLE_READERS = Ractor.make_shareable({ [1, true] => "rt_read_int8", [1, false] => "rt_read_uint8", [2, true] => "rt_read_int16",
+                            [2, false] => "rt_read_uint16", [4, true] => "rt_read_int32" })
 
           # A call. A routine of the game's is called through bank 0, which puts its bank in view; a
           # sum goes to the arithmetic; anything else to the runtime routine of the same name, with

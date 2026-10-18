@@ -21,6 +21,18 @@ module RubyGBA
         rotozoom: MODE_2 | BG2_ENABLE, # one background that turns and resizes, and no scrolling ones
       }.freeze
 
+      # HOW BIG THE SCREEN IS, in pixels: 240 across and 160 down on a Game Boy Advance, 160 and
+      # 144 on a Game Boy Color. A game written for both lays itself out from these rather than
+      # from numbers for one screen, so the same block builds for either (see `consoles:` on
+      # `RubyGBA.game`):
+      #
+      #   paddle_x = screen_width - 12
+      #   draw_text "PONG", :center, screen_height / 4, :white
+      def screen_width = console.screen_width
+
+      # See #screen_width.
+      def screen_height = console.screen_height
+
       # Choose what kind of screen you're drawing on.
       #
       # @param mode [Symbol, Integer] a friendly name or raw REG_DISPCNT value

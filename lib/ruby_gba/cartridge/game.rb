@@ -18,13 +18,18 @@ module RubyGBA
       # the same cartridge, reads its lowering half.
       attr_reader :title, :code, :maker, :options
 
+      # The consoles the game is for, by name (see Console::DESCRIPTIONS): the Advance alone
+      # unless the game says more. A game built for one it is not for is refused.
+      attr_reader :consoles
+
       # +options+ is part of what the cartridge is — how much save memory it has, how quickly
       # it reads — so like +code+ it is said where the game is named.
-      def initialize(title, code: nil, maker: nil, block:, options: Options.new)
+      def initialize(title, code: nil, maker: nil, block:, options: Options.new, consoles: [Console::DEFAULT])
         @title = title
         @code = code
         @maker = maker
         @options = options
+        @consoles = refuse_unknown_consoles!(consoles)
         @block = shareable_if_possible(block)
         freeze
       end
@@ -87,8 +92,11 @@ module RubyGBA
       # +settings+ are what this build is told, read by the game with `setting` — which floors,
       # which screen it boots on. A test builds a variant by passing a value here, and nothing
       # anybody else is building changes. Remembered per set of settings.
-      def program(settings: {})
-        evaluated(settings).program
+      #
+      # +console+ is the console it is built for, the Advance unless said: the game reads that
+      # console's screen as its block runs (`screen_width`), so the tree is that console's.
+      def program(settings: {}, console: Console::DEFAULT)
+        evaluated(settings, refuse_console_not_for!(console)).program
       end
 
       # The finished ROM. Where the build prints is injectable, so a test (or the CLI) captures
@@ -107,17 +115,21 @@ module RubyGBA
       # moment the automatic one cannot reach.
       #
       # +settings+ are what this build is told, as for #program.
+      #
+      # +console+ is the console the cartridge is for: a Game Boy Advance cartridge
+      # (Cartridge::ROM) unless the game is also for another and that one is named.
       def build_rom(out: $stdout, err: $stderr, validate: true, progress: Messages::Progress.silent,
-                    profile: true, settings: {})
+                    profile: true, settings: {}, console: Console::DEFAULT)
+        options = @options.with(console: refuse_console_not_for!(console))
         RubyGBA.build(@title, code: @code, maker: @maker, validate: validate, out: out, err: err,
-                      progress: progress, profile: profile, settings: settings, **@options.to_h, &@block)
+                      progress: progress, profile: profile, settings: settings, **options.to_h, &@block)
       end
 
       # A friendly output filename from the title, ending as the console's cartridges do:
-      # "BIRD" -> "bird.gba".
-      def default_filename
+      # "BIRD" -> "bird.gba", and for a Game Boy Color "bird.gbc".
+      def default_filename(console: @options.console)
         base = @title.to_s.downcase.gsub(/[^a-z0-9]+/, "_").gsub(/\A_+|_+\z/, "")
-        "#{base.empty? ? 'game' : base}#{Console.described(@options.console).extension}"
+        "#{base.empty? ? 'game' : base}#{Console.described(console).extension}"
       end
 
       # Build this game and write the .gba beside the file that calls this — but only
@@ -151,9 +163,31 @@ module RubyGBA
       # it can cross to another core at all. Each core that asks runs the block once and
       # keeps the answer; running a block is cheap next to lowering it, and a core that
       # never asks pays nothing.
-      def evaluated(settings)
+      def evaluated(settings, console = Console::DEFAULT)
         seen = (Ractor.current[:ruby_gba_evaluated_games] ||= {})
-        seen[[self, settings]] ||= EvaluatedGame.new(@block, options: @options, settings: settings)
+        seen[[self, settings, console]] ||= EvaluatedGame.new(@block, options: @options.with(console: console),
+                                                                      settings: settings)
+      end
+
+      def refuse_unknown_consoles!(consoles)
+        named = Array(consoles).map(&:to_sym)
+        named.each { |name| Console.described(name) }
+        raise ArgumentError, "consoles: names no console. Leave it out for the Game Boy Advance alone." if named.empty?
+
+        named.freeze
+      end
+
+      # +console+, when the game is for it; a plain refusal when it is not.
+      def refuse_console_not_for!(console)
+        console = console.to_sym
+        return console if @consoles.include?(console)
+
+        described = Console.described(console)
+        raise ArgumentError, "#{@title} is written for the #{@consoles.map { |name| Console.described(name).title }.join(' and ')}, " \
+                             "not the #{described.title}. A #{described.title} has a #{described.screen_width}×" \
+                             "#{described.screen_height} screen. To build it for one, lay the game out from " \
+                             "`screen_width` and `screen_height` rather than numbers for one screen, and say " \
+                             "`consoles: %i[#{(@consoles + [console]).join(' ')}]` where the game is named."
       end
 
       # Is +path+ the very script Ruby was told to run? Compared as full paths so a
@@ -197,15 +231,18 @@ module RubyGBA
     #
     # +frame_sync+, +fast_cartridge+, +fast_code+, +save_memory+ and +stack_room+ say how it is
     # built, the same five {RubyGBA.build} takes; see {Cartridge::Options}.
+    #
+    # +consoles+ are the consoles the game is for (see Console::DESCRIPTIONS): the Game Boy Advance
+    # alone unless it says more, `consoles: %i[gba gbc]` for the Advance and the Game Boy Color.
     def game(title, code: nil, maker: nil, frame_sync: :auto, fast_cartridge: true, fast_code: true,
-             save_memory: nil, stack_room: nil, &block)
+             save_memory: nil, stack_room: nil, consoles: [Console::DEFAULT], &block)
       unless block
         raise ArgumentError, %(RubyGBA.game needs a block: RubyGBA.game("NAME") { ... })
       end
 
       options = Cartridge::Options.new(frame_sync: frame_sync, fast_cartridge: fast_cartridge,
                                        fast_code: fast_code, save_memory: save_memory, stack_room: stack_room)
-      handle = Cartridge::Game.new(title, code: code, maker: maker, block: block, options: options)
+      handle = Cartridge::Game.new(title, code: code, maker: maker, block: block, options: options, consoles: consoles)
       Ractor.current[:ruby_gba_registered_games] = registered_games + [handle]
       handle
     end

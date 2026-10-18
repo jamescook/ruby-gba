@@ -173,17 +173,24 @@ module RubyGBA
 
           # --- sums ---
 
+          # Each of them, written out as source rather than made from a block: a method made from a
+          # block carries the block's surroundings, and Ruby will not let another Ractor call one —
+          # so a cartridge built on another core stopped at its first sum.
           ALU.each do |name, number|
-            define_method(name) do |operand|
-              case operand_kind(operand)
-              when :reg8 then emit(0x80 | (number << 3) | REG8.fetch(operand))
-              when :at
-                raise Error, "#{name} reads only (HL) from memory" unless operand == [:hl]
+            class_eval <<~SUM, __FILE__, __LINE__ + 1
+              def #{name}(operand) = alu(#{number}, :#{name}, operand)
+            SUM
+          end
 
-                emit(0x80 | (number << 3) | AT_HL)
-              when :number then emit(0xC6 | (number << 3), byte(operand))
-              else raise Error, "there is no #{name} #{operand.inspect}"
-              end
+          def alu(number, name, operand)
+            case operand_kind(operand)
+            when :reg8 then emit(0x80 | (number << 3) | REG8.fetch(operand))
+            when :at
+              raise Error, "#{name} reads only (HL) from memory" unless operand == [:hl]
+
+              emit(0x80 | (number << 3) | AT_HL)
+            when :number then emit(0xC6 | (number << 3), byte(operand))
+            else raise Error, "there is no #{name} #{operand.inspect}"
             end
           end
 
@@ -193,14 +200,20 @@ module RubyGBA
           # HL += +pair+.
           def add_hl(pair) = emit(0x09 | (PAIRS.fetch(pair) << 4))
 
-          SINGLES.each { |name, opcode| define_method(name) { emit(opcode) } }
+          SINGLES.each do |name, opcode|
+            class_eval <<~SINGLE, __FILE__, __LINE__ + 1
+              def #{name} = emit(#{opcode})
+            SINGLE
+          end
 
           def stop = emit(0x10, 0x00)
 
           # --- shifts and bits (the 0xCB instructions) ---
 
           SHIFTS.each do |name, number|
-            define_method(name) { |operand| emit(0xCB, (number << 3) | reg_or_hl(operand)) }
+            class_eval <<~SHIFT, __FILE__, __LINE__ + 1
+              def #{name}(operand) = emit(0xCB, #{number << 3} | reg_or_hl(operand))
+            SHIFT
           end
 
           def bit(number, operand) = emit(0xCB, 0x40 | (bit_number(number) << 3) | reg_or_hl(operand))
