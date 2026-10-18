@@ -180,7 +180,7 @@ The game is written out as C and compiled with [zig](https://ziglang.org) (insta
 
 ### Playing in a browser
 
-A game can also be built as one web page that plays it in a browser — the picture in a canvas, the window's keys as the console's buttons, the sound through the browser, and saves kept by the browser between visits. The page holds everything it needs, so it opens from a disk or any web server:
+A game can also be built as one web page that plays it in a browser — the picture in a canvas, the window's keys or a controller as the console's buttons, the sound through the browser, and saves kept by the browser between visits. The page holds everything it needs, so it opens from a disk or any web server:
 
 ```bash
 ruby-gba build examples/pong.rb --format=web   # pong.html, beside the game

@@ -38,6 +38,7 @@ module RubyGBA
               <canvas id="screen" width="#{Screen::WIDTH}" height="#{Screen::HEIGHT}"></canvas>
               <p>Arrows move. <kbd>X</kbd> is A, <kbd>Z</kbd> is B, <kbd>Enter</kbd> is Start, <kbd>Backspace</kbd> is
               Select, <kbd>A</kbd> and <kbd>S</kbd> are L and R. Press a key or click to hear the sound.</p>
+              <p id="controller"></p>
               <p id="said" hidden></p>
               <script>
               #{script.gsub('</script', '<\/script')}

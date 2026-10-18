@@ -7,10 +7,17 @@
  * The script is named on the command line. Each line read from the input is one step:
  *
  *   down KEY / up KEY   a key going down or coming up, by the browser's name for it (ArrowRight)
+ *   pad connect         a controller plugged in, laid out the standard way (the browser's
+ *                       "standard" mapping), which the page is told of
+ *   pad disconnect      ...and taken out again
+ *   pad press N / pad release N   its button N going down or coming up, by the standard
+ *                       layout's numbering (0 the bottom face button, 12 to 15 the d-pad)
+ *   pad stick X Y       its left stick pushed to X, Y, each from -1 to 1
  *   play N              N of the browser's frames, each a console frame after the one before, so
  *                       the page plays one frame of the game on each
  *   picture             prints "picture" and every pixel last put on the canvas, as the
  *                       console's fifteen-bit colours
+ *   text ID             prints "text ID" and the words in the page's element of that id now
  *
  * At the end it prints "said" and the words the page showed under the canvas, if it showed any.
  */
@@ -27,6 +34,7 @@ const stored = new Map();
 let now = 0;
 let shown = null;
 const said = { textContent: "", hidden: true };
+const note = { textContent: "", hidden: false };
 
 const canvas = {
   getContext: () => ({
@@ -35,9 +43,18 @@ const canvas = {
   }),
 };
 
+/* The one controller there can be, in the browser's own shape for one. */
+const pads = [null, null, null, null];
+const controller = {
+  id: "Stand-in Controller (STANDARD GAMEPAD)", index: 0, mapping: "standard", connected: true,
+  buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })),
+  axes: [0, 0, 0, 0],
+};
+
 const page = {
   window: null,
-  document: { getElementById: (id) => ({ screen: canvas, said })[id] || null },
+  document: { getElementById: (id) => ({ screen: canvas, said, controller: note })[id] || null },
+  navigator: { getGamepads: () => pads.slice() },
   performance: { now: () => now },
   atob, btoa, console,
 };
@@ -46,8 +63,25 @@ page.addEventListener = (type, listener) => { (listeners[type] ||= []).push(list
 page.requestAnimationFrame = (callback) => { waiting.push(callback); };
 page.localStorage = { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) };
 
-function press(type, code) {
-  for (const listener of listeners[type] || []) listener({ code, preventDefault() {} });
+function press(type, code, more = {}) {
+  for (const listener of listeners[type] || []) listener({ code, preventDefault() {}, ...more });
+}
+
+function pad(action, a, b) {
+  if (action === "connect") {
+    pads[0] = controller;
+    press("gamepadconnected", undefined, { gamepad: controller });
+  } else if (action === "disconnect") {
+    pads[0] = null;
+    press("gamepaddisconnected", undefined, { gamepad: controller });
+  } else if (action === "press" || action === "release") {
+    controller.buttons[Number(a)] = { pressed: action === "press", value: action === "press" ? 1 : 0 };
+  } else if (action === "stick") {
+    controller.axes[0] = Number(a);
+    controller.axes[1] = Number(b);
+  } else {
+    throw new Error(`page_harness: no pad step called ${action}`);
+  }
 }
 
 function play(frames) {
@@ -70,11 +104,13 @@ vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"), vm.createContext(pa
 
 const printed = [];
 for (const line of fs.readFileSync(0, "utf8").split("\n")) {
-  const [step, what] = line.trim().split(" ");
+  const [step, what, ...rest] = line.trim().split(" ");
   if (step === "down") press("keydown", what);
   else if (step === "up") press("keyup", what);
+  else if (step === "pad") pad(what, ...rest);
   else if (step === "play") play(Number(what));
   else if (step === "picture") printed.push(`picture ${picture()}`);
+  else if (step === "text") printed.push(`text ${what} ${page.document.getElementById(what).textContent}`);
   else if (step) throw new Error(`page_harness: no step called ${step}`);
 }
 if (!said.hidden) printed.push(`said ${said.textContent}`);
