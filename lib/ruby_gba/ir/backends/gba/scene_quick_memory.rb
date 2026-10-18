@@ -178,7 +178,7 @@ module RubyGBA
               owners[scene] << scene
               mark.call(bodies[scene] ? callees_of(bodies[scene]) : [], scene, Set.new)
             end
-            irq_bodies(program).each { |body| mark.call(callees_of(body), :irq, Set.new) }
+            TopOfQuickMemory.interrupt_bodies(program).each { |body| mark.call(callees_of(body), :irq, Set.new) }
             owners[Placement::FRAME_ROUTINE] << :frame
             owners[Placement::IRQ_ROUTINE] << :irq
             # What the build made for a scene is that scene's, or the frame's for one no scene

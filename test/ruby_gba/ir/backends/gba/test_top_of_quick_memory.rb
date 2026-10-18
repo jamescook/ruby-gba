@@ -92,4 +92,51 @@ class TestTopOfQuickMemory < Minitest::Test
     assert_operator v.passes, :>, 0
     assert_equal (1..DEEP).sum * v.passes, v.var(:total)
   end
+
+  # --- what a timer's handler calls ---
+
+  # A TIMER'S HANDLER RUNS ON THE CONSOLE'S OWN INTERRUPT STACK, which ends where the game's stack
+  # begins (see TopOfQuickMemory). A plain call costs four bytes there.
+  PLAIN_CALL_BYTES = 4
+  TICK_DEPTH = 40
+
+  # A program whose timer's handler calls a chain of +depth+ routines.
+  private def program_ticking(depth)
+    chain = (1..depth).map { |level| func(:"tick#{level}", level < depth ? call(:"tick#{level + 1}") : set(:n, 1)) }
+    program(*chain, timer_start(:beat, 60), on_timer(:beat, *(depth.zero? ? [set(:n, 1)] : [call(:tick1)])),
+            loop_(set(:m, 1)))
+  end
+
+  def test_a_handler_that_calls_nothing_leaves_the_game_stack_where_the_console_puts_it
+    assert_equal END_OF_QUICK - 256, Top.for(program_ticking(0)).stack_starts_at
+  end
+
+  def test_a_handler_that_calls_deep_starts_the_game_stack_lower_by_what_its_calls_need
+    assert_operator Top.for(program_ticking(TICK_DEPTH)).stack_starts_at, :<=,
+                    END_OF_QUICK - 256 - (TICK_DEPTH * PLAIN_CALL_BYTES)
+  end
+
+  # The game loop sits two routines deep, in a long counted loop, while a fast timer ticks: so its
+  # return addresses are at the top of its stack whenever the handler runs.
+  def test_a_handler_forty_routines_deep_leaves_the_game_running_on_the_console
+    rom = RubyGBA.build("TICKDEEP", out: StringIO.new, err: StringIO.new) do
+      var :hits, 0
+      passes = var :passes, 0
+      sum = var :sum, 0
+      (1..TICK_DEPTH).each do |level|
+        func(:"tick#{level}") { level == TICK_DEPTH ? add!(:hits, 1) : call(:"tick#{level + 1}") }
+      end
+      timer(:beat, per_second: 4000).on_tick { call :tick1 }
+      func(:inner) { repeat(3000) { |i| sum.set! sum + i } }
+      func(:outer) { call :inner }
+      game_loop do
+        call :outer
+        passes.add! 1
+      end
+    end
+    v = assert_emulator_loads_rom(rom, frames: 30, vars: rom.var_addresses)
+
+    assert_operator v.var(:passes), :>, 20, "the game loop kept finishing passes"
+    assert_operator v.var(:hits), :>, 1000, "the handler kept answering ticks"
+  end
 end

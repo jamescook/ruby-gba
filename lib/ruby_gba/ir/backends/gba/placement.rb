@@ -757,7 +757,7 @@ module RubyGBA
               name = node.kind == :loop ? FRAME_ROUTINE : (node.name if node.kind == :func)
               calls[name] = crossing_targets_in(node) if name
             end
-            calls[IRQ_ROUTINE] = irq_bodies(program).flat_map { |node| crossing_targets_in(node) }
+            calls[IRQ_ROUTINE] = TopOfQuickMemory.interrupt_bodies(program).flat_map { |node| crossing_targets_in(node) }
             # A block of the game loop made into one scene's routine holds its calls there, not in
             # the loop (see SceneQuickMemory#prepare_scene_loop_work), so they move from the one to
             # the other; the call to the routine itself is one the build made, counted below.
@@ -874,18 +874,6 @@ module RubyGBA
               gone_below += (load.instructions - 1) * 4 if reaches
               reaches
             end
-          end
-
-          # The trees the console runs on an announcement: every bending background's block
-          # and every timer's tick body. There is no one node standing for all of it the way
-          # a routine has one, so the pieces are gathered.
-          #
-          # A bend in a paced program is not among them: its block runs in the frame like
-          # ordinary code, into a table, and what the announcement then does is read one
-          # number out of it (see {BendForm}).
-          def irq_bodies(program)
-            kinds = BendForm.rows_per_scanline?(program) ? %i[scroll_rows on_timer] : %i[on_timer]
-            program.walk.select { |node| kinds.include?(node.kind) }
           end
 
           # What every frame runs, whatever it measured: the game loop, the routines placed
@@ -1041,7 +1029,7 @@ module RubyGBA
             case name
             # The first loop only, matching the one #register_frame_routine actually emits.
             when FRAME_ROUTINE then [program.walk.find { |node| node.kind == :loop }].compact
-            when IRQ_ROUTINE   then irq_bodies(program)
+            when IRQ_ROUTINE   then TopOfQuickMemory.interrupt_bodies(program)
             else program.walk.select { |node| node.kind == :func && node.name == name }
             end
           end

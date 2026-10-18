@@ -841,6 +841,10 @@ module RubyGBA
           # Fast ROM + prefetch, first, unless it's all raw or the caller asked to keep
           # the console's cautious power-on timing.
           emit_waitcnt_setup if @fast_cartridge && !raw_escape_hatch?(program)
+          # The game's stack, before anything is pushed on it, where a timer's handler or a bend
+          # worked out a line at a time calls routines, and so needs room under the interrupt
+          # stack (see TopOfQuickMemory).
+          emit(ASM.load_immediate(STACK, @top.stack_starts_at)) if @top.stack_moved?
           # A flash chip is told so before anything else touches save memory (see Save).
           @save.emit_wake_chip if @uses_save
           emit_copy_divide_routines_to_iwram # a no-op when neither routine was reserved
