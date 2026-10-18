@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "open3"
 
 # The seam between this library and the emulator it verifies ROMs on: which build gets loaded,
 # and what a reader is told when none can be.
@@ -10,8 +11,8 @@ require "test_helper"
 # there, every timestamp says it is current, and the only thing that knows is the loader.
 class TestEmulatorSeam < Minitest::Test
   # About how the emulator gets FOUND AND LOADED — which script Ruby was started with, what
-  # this Ruby was built for, what is already loaded. All facts about the process, so on the
-  # main Ractor. See test_helper.
+  # this Ruby was built for, what is already loaded. All facts about the process, and one test
+  # starts a process of its own, so on the main Ractor. See test_helper.
   runs_on_the_main_ractor!
 
   Emulator = RubyGBA::Diagnostics::Emulator
@@ -39,6 +40,20 @@ class TestEmulatorSeam < Minitest::Test
 
     assert(loaded.all? { |path| path.include?(RubyGBAEmulator::BUILT_FOR) },
            "a build in the checkout has to be under the Ruby that made it: #{loaded}")
+  end
+
+  # --- when it is loaded -------------------------------------------------------------------------
+
+  # Somebody who only builds cartridges never pays for the emulator, and a build that is out of
+  # date is only met by somebody who runs one. Asked in a process of its own, since this one has
+  # loaded the test helper, which does load it. It asks after the compiled half: a bundle reads
+  # the gem's version file to resolve, which is not loading the emulator.
+  def test_requiring_the_library_does_not_load_the_emulator
+    script = 'require "ruby_gba"; print defined?(RubyGBAEmulator::Core).inspect'
+    said, status = Open3.capture2e(RbConfig.ruby, "-I", RubyGBA.root.join("lib").to_s, "-e", script)
+
+    assert status.success?, said
+    assert_equal "nil", said
   end
 
   # --- what a reader is told ---------------------------------------------------------------------

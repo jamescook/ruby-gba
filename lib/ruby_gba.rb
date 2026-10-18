@@ -250,7 +250,7 @@ module RubyGBA
     # is where a missing one is settled (see {GameCode}), and both builds below have to
     # settle it the same way or the second would measure a different cartridge.
     built = ->(**how) { build(title, code: code, maker: maker, **{ out: out, err: err, **options }.merge(how), &block) }
-    return built.call(profile: false, progress: progress) unless Diagnostics::Emulator::FOUND
+    return built.call(profile: false, progress: progress) unless Diagnostics::Emulator.available?
 
     first = build_once_to_measure(built, err, progress)
     survey = play_each_scene(first, progress)

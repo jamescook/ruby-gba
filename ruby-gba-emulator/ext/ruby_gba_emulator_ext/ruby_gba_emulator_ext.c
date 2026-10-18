@@ -3771,6 +3771,13 @@ Init_ruby_gba_emulator_ext(void)
     /* RubyGBAEmulator module */
     mRubyGBAEmulator = rb_define_module("RubyGBAEmulator");
 
+    /* Which source this build came from, worked out by extconf.rb. The Ruby side compares it
+     * with the source beside it as it loads, so a checkout that pulled new code and did not
+     * rebuild is told so rather than handed a build that is missing what the Ruby asks for.
+     * Frozen, so a Ractor may read it. */
+    rb_define_const(mRubyGBAEmulator, "BUILT_FROM",
+                    rb_obj_freeze(rb_str_new_cstr(RUBY_GBA_EMULATOR_BUILT_FROM)));
+
     /* RubyGBAEmulator::Core class */
     cCore = rb_define_class_under(mRubyGBAEmulator, "Core", rb_cObject);
     rb_define_alloc_func(cCore, mgba_core_alloc);

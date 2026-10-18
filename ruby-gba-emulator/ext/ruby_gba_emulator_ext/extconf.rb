@@ -138,6 +138,14 @@ if (rcheevos_root = ENV["RUBY_GBA_EMULATOR_RCHEEVOS"])
   ]
 end
 
+# THE SOURCE THIS BUILD COMES FROM, compiled in as RubyGBAEmulator::BUILT_FROM so that loading
+# a checkout's build can tell whether somebody pulled new source since (see built_from.rb).
+# Added after every check above, which compile test programs of their own and need none of it.
+# The quotes are for the shell make hands the line to: it takes off the single ones and the
+# compiler is left with a C string.
+require_relative "../../lib/ruby_gba_emulator/built_from"
+$defs << %(-DRUBY_GBA_EMULATOR_BUILT_FROM='"#{RubyGBAEmulator.source_fingerprint(__dir__)}"')
+
 # BUILD INTO lib/ruby_gba_emulator/, which is what makes this an ordinary extension gem.
 #
 # The name given here is the require path AND where the built library is installed. It used to

@@ -11,8 +11,9 @@ module RubyGBA
     # The backend is the ruby-gba-emulator gem: a lean, headless libmgba probe. It is a gem of
     # its own rather than part of this one, because building a cartridge is pure Ruby and running
     # one is not — that half needs a C compiler and a system libmgba, and only somebody verifying
-    # or profiling a ROM needs it at all. So it is not a dependency of this gem; {load!} raises
-    # loudly when it is absent, rather than silently skipping verification.
+    # or profiling a ROM needs it at all. So it is not a dependency of this gem, nor loaded with
+    # it; {load!} loads it when it is first needed, and raises loudly when it is absent, rather
+    # than silently skipping verification.
     module Emulator
       module_function
 
@@ -26,41 +27,34 @@ module RubyGBA
       # sibling directory. Convenient, and it is the arrangement that hid the problem for years —
       # a vendored path always resolves, so nobody found out that nothing was ever building this
       # for anyone else.
-      # TRIED ONCE, WHEN THIS FILE LOADS, and remembered — rather than each time somebody
-      # asks. Asking for a file reads the list of places Ruby looks for one, and looking in
-      # the sibling checkout WRITES that list; both are globals, which a worker Ractor may
-      # not touch at all. Since several cartridges can now be verified at once on different
-      # cores, a load left until first use stopped every one of them.
       #
-      # It costs somebody who only builds cartridges the attempt and nothing else: the gem
-      # is absent, the attempt fails, and that is remembered too. Somebody who has it in
-      # their bundle wanted it.
-      FOUND = begin
+      # LOADED THE FIRST TIME SOMETHING NEEDS IT — a measured build, a cartridge verified, a
+      # picture compared — and never by `require "ruby_gba"`. Somebody who only builds cartridges
+      # pays nothing for it, and a checkout's build that is out of date (see the emulator gem's
+      # built_from.rb) stops only somebody who is about to run it.
+      #
+      # ON THE MAIN RACTOR. Asking for a file reads the list of places Ruby looks for one, and
+      # looking in the sibling checkout WRITES that list; both are globals, which a worker Ractor
+      # may not touch at all. The library starts no Ractors, so its own first use is always on
+      # the main one. A test suite that plays tests in Ractors loads it before they start, which
+      # ruby_gba/testing does.
+      #
+      # An emulator that is there but out of date raises the gem's own error, which says how to
+      # rebuild it. It is not a LoadError, so nothing below turns it into advice about a missing
+      # gem, and a measured build does not carry on without measuring.
+      def load!
+        return true if loaded?
+
         require "ruby_gba_emulator"
         true
       rescue LoadError
-        begin
-          checkout = RubyGBA.root.join("ruby-gba-emulator", "lib").to_s
-          if File.directory?(checkout)
-            $LOAD_PATH.unshift(checkout) unless $LOAD_PATH.include?(checkout)
-            require "ruby_gba_emulator"
-            true
-          else
-            false
-          end
-        rescue LoadError
-          false
-        end
+        load_from_checkout! # raises, saying what to do about it, when the checkout has none either
+        true
       end
 
-      # Make sure the emulator backend is here. Raises a clear, actionable error when it is
-      # not — it is required rather than optional, so a missing build is a real error and
-      # never a quiet skip.
-      def load!
-        return true if FOUND
-
-        load_from_checkout! # for the error it raises, which says what to do about it
-      end
+      # Whether the emulator is loaded already. A constant lookup rather than a flag, so a worker
+      # Ractor can ask it: the probe is the last thing the gem defines, after its checks passed.
+      def loaded? = !defined?(::RubyGBAEmulator::Probe).nil?
 
       # The sibling checkout, for a clone with no bundle. Raises with what to do about it.
       def load_from_checkout!
@@ -182,10 +176,11 @@ module RubyGBA
         RubyGBAEmulator::Screen
       end
 
-      # Whether the backend can be loaded. For the rare caller that legitimately
-      # degrades rather than fails — the standalone debug scripts. Emulator-backed
-      # tests must NOT use this to skip: the emulator is required, so a load failure
-      # there is a real error (see the module note).
+      # Whether the backend can be loaded, loading it if so. For the caller that legitimately
+      # degrades rather than fails — a measured build with no emulator to measure on, the
+      # standalone debug scripts. An emulator that is there but out of date still raises.
+      # Emulator-backed tests must NOT use this to skip: the emulator is required, so a load
+      # failure there is a real error (see the module note).
       def available?
         load!
         true

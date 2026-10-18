@@ -2,6 +2,7 @@
 
 require_relative "ruby_gba_emulator/version"
 require_relative "ruby_gba_emulator/built_for"
+require_relative "ruby_gba_emulator/built_from"
 
 # RubyGBAEmulator — a lean, headless libmgba binding for dev/test verification.
 #
@@ -35,8 +36,15 @@ end
 # putting that directory first means a Ruby finds its own build or none at all, rather than one
 # made by another Ruby that it will refuse to load. Taken as a gem there is no such directory,
 # and the require falls through to the copy RubyGems built per ABI.
+#
+# A checkout's build is also the one that can be out of date: its Ruby half changes the moment
+# new code is pulled, and its compiled half only when somebody builds. So that build is checked
+# against the source beside it before anything uses it (see built_from.rb). A gem's build comes
+# from the source it was installed with and is not checked.
 built = File.join(__dir__, RubyGBAEmulator::BUILT_FOR)
-$LOAD_PATH.unshift(built) if File.directory?(built) && !$LOAD_PATH.include?(built)
+checkout_build = File.directory?(built)
+$LOAD_PATH.unshift(built) if checkout_build && !$LOAD_PATH.include?(built)
 
 require "ruby_gba_emulator/ruby_gba_emulator_ext"
+RubyGBAEmulator.refuse_out_of_date_build! if checkout_build
 require_relative "ruby_gba_emulator/probe"

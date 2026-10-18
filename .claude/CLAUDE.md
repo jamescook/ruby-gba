@@ -80,7 +80,14 @@ has. Bundler does NOT build its extension though — it builds them for gem and 
 for a path one — so `rake compile_emulator` does that (a prerequisite of every test task;
 `rake test:emulator` builds and runs its own suite). That build is keyed on source files being
 newer, which cannot see a Ruby version change — after switching Ruby, run `rake clean` in
-`ruby-gba-emulator/`. The load error tells you which of the two you are looking at.
+`ruby-gba-emulator/`. The load error tells you which of the two you are looking at. A checkout's
+build also records the C source it came from, so a game that loads a checkout built before the
+last pull stops with `RubyGBAEmulator::OutOfDate` and how to rebuild, not an error deep in the
+profiler.
+
+`require "ruby_gba"` does not load the emulator. `Diagnostics::Emulator.load!` loads it the first
+time something needs it — a measured build, a verify, a picture check — and `ruby_gba/testing`
+loads it up front, because a test playing in a Ractor cannot load it.
 
 It is **required, not optional**: if it can't build or load, the emulator-backed tests **fail
 loudly** rather than skipping — `require_emulator!` (in `EmulatorSupport`) raises. The one run

@@ -39,6 +39,12 @@ module RubyGBA
     def self.lowering = LOWERING
     def self.native? = LOWERING == :native
 
+    # THE EMULATOR, IF THE GAME HAS IT, LOADED NOW rather than by the first test that wants it.
+    # A suite may play its tests in Ractors, and loading it writes globals only the main Ractor
+    # may touch (see Diagnostics::Emulator.load!). A game without it in its test group loses
+    # only the tests that play the cartridge, which say so when they run.
+    Diagnostics::Emulator.available?
+
     # What plays a game in this run: the interpreter on the GBA lowering's run, and on the native
     # lowering's the game built as C, driven through the same calls and checked against the
     # interpreter frame by frame (CheckedPlayer). +save+ is the save memory the game starts with,

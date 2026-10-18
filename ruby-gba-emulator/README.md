@@ -143,6 +143,10 @@ rake clean          # throw the build away — what to run after changing Ruby v
 Or `rake test:emulator` from the ruby-gba repo root, which delegates here. These tests are kept
 out of ruby-gba's main suite; its `rake test` does not run them.
 
+A build in a checkout records the C source it came from. If you pull new code and do not
+rebuild, loading the gem stops with `RubyGBAEmulator::OutOfDate`, which says to run
+`rake compile` here. A gem install is not checked: RubyGems builds it from the source it installs.
+
 ## rcheevos (RetroAchievements)
 
 The achievement evaluator is **compiled out** by default — a plain build links nothing but
