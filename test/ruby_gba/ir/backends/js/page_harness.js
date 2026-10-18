@@ -26,8 +26,10 @@
  *                       page's HTML says, ticked where it is written "checked")
  *   play N              N of the browser's frames, each a console frame after the one before, so
  *                       the page plays one frame of the game on each; none come while hidden
- *   picture             prints "picture" and every pixel last put on the canvas, as the
- *                       console's fifteen-bit colours
+ *   picture [ID]        prints "picture" and every pixel last put on the canvas of that id
+ *                       ("screen" unless named), as the console's fifteen-bit colours
+ *   js CODE             runs CODE in the page, and prints "js" and what it comes to, if anything:
+ *                       how a test reaches a game a page made with createGame (`games[0].pause()`)
  *   text ID             prints "text ID", then "hidden" if it is, then the words in the page's
  *                       element of that id now, or "text ID (none)" for a page without one
  *   state               prints "state" and what the browser holds now: the sound device
@@ -67,24 +69,26 @@ function tell(target, type, more = {}) {
 const waiting = [];
 const stored = new Map();
 let now = 0;
-let shown = null;
+const shown = {};
 let kept = 0;
 let focused = process.argv[3] !== "unfocused";
 
+/* Every element of the page, made the first time it is asked for: each can hold words, be hidden,
+ * be ticked, be listened to, and be drawn on as a canvas or fill the screen. */
+const elements = {};
 function element(id) {
+  if (elements[id]) return elements[id];
   const checked = new RegExp(`<input[^>]*\\bid="${id}"[^>]*\\bchecked\\b|<input[^>]*\\bchecked\\b[^>]*\\bid="${id}"`).test(html);
-  return { id, textContent: "", hidden: id === "said", checked, ...listening() };
+  elements[id] = {
+    id, textContent: "", hidden: id === "said", checked, ...listening(),
+    getContext: () => ({
+      createImageData: (width, height) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
+      putImageData: (image) => { shown[id] = Uint8ClampedArray.from(image.data); },
+    }),
+    requestFullscreen() { document.fullscreenElement = this; return Promise.resolve(); },
+  };
+  return elements[id];
 }
-
-const elements = Object.fromEntries(["said", "controller", "fullscreen", "pause"].map((id) => [id, element(id)]));
-elements.screen = {
-  ...element("screen"),
-  getContext: () => ({
-    createImageData: (width, height) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
-    putImageData: (image) => { shown = Uint8ClampedArray.from(image.data); },
-  }),
-  requestFullscreen() { document.fullscreenElement = this; return Promise.resolve(); },
-};
 
 const document = {
   ...listening(),
@@ -92,7 +96,7 @@ const document = {
   visibilityState: "visible",
   readyState: "loading",
   fullscreenElement: null,
-  getElementById: (id) => (ids.has(id) && elements[id]) || null,
+  getElementById: (id) => (ids.has(id) ? element(id) : null),
   hasFocus: () => focused,
   exitFullscreen() { document.fullscreenElement = null; return Promise.resolve(); },
 };
@@ -162,10 +166,12 @@ function play(frames) {
   }
 }
 
-function picture() {
+function picture(id = "screen") {
+  const pixels = shown[id];
+  if (!pixels) throw new Error(`page_harness: nothing was drawn on a canvas of id ${id}`);
   const colors = [];
-  for (let i = 0; i < shown.length; i += 4) {
-    colors.push((shown[i] >> 3) | ((shown[i + 1] >> 3) << 5) | ((shown[i + 2] >> 3) << 10));
+  for (let i = 0; i < pixels.length; i += 4) {
+    colors.push((pixels[i] >> 3) | ((pixels[i + 1] >> 3) << 5) | ((pixels[i + 2] >> 3) << 10));
   }
   return colors.join(",");
 }
@@ -181,7 +187,8 @@ function state() {
   return `state audio=${audio ? audio.state : "none"} fullscreen=${filling} kept=${kept}`;
 }
 
-vm.runInNewContext(script, vm.createContext(page));
+const context = vm.createContext(page);
+vm.runInContext(script, context);
 /* The rest of the page read in: every part there, and the document says it has loaded. */
 ids = new Set([...ids, ...ids_in(html.slice(at_script + script.length))]);
 document.readyState = "interactive";
@@ -197,13 +204,17 @@ for (const line of fs.readFileSync(0, "utf8").split("\n")) {
   else if (step === "focus") { focused = true; tell(page, "focus"); }
   else if (step === "hide") visible(false);
   else if (step === "show") visible(true);
-  else if (step === "click") { tell(elements[what], "click"); tell(page, "pointerdown"); }
-  else if (step === "check" || step === "uncheck") { elements[what].checked = step === "check"; tell(elements[what], "change"); }
+  else if (step === "click") { tell(element(what), "click"); tell(page, "pointerdown"); }
+  else if (step === "check" || step === "uncheck") { element(what).checked = step === "check"; tell(element(what), "change"); }
   else if (step === "play") play(Number(what));
-  else if (step === "picture") printed.push(`picture ${picture()}`);
+  else if (step === "picture") printed.push(`picture ${picture(what)}`);
+  else if (step === "js") {
+    const result = vm.runInContext(line.trim().slice(3), context);
+    if (result !== undefined) printed.push(`js ${result}`);
+  }
   else if (step === "text") printed.push(text(what));
   else if (step === "state") printed.push(state());
   else if (step) throw new Error(`page_harness: no step called ${step}`);
 }
-if (ids.has("said") && !elements.said.hidden) printed.push(`said ${elements.said.textContent}`);
+if (ids.has("said") && !element("said").hidden) printed.push(`said ${element("said").textContent}`);
 fs.writeSync(1, `${printed.join("\n")}\n`);

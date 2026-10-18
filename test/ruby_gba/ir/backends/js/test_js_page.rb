@@ -1,58 +1,15 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "open3"
-require "tmpdir"
+require "web_page"
 
 # A game built for the web is one page: the picture's canvas, the keys said in words, and the game
 # and its runtime in one script, with nothing fetched — so the page opens from a disk. Its script
-# is played here in node with a stand-in for the browser (page_harness.js), so what is checked is
-# the page's own driver: the keys it reads, the frames it plays and the picture it puts up.
+# is played here in node with a stand-in for the browser (WebPage), so what is checked is the
+# page's own driver: the keys it reads, the frames it plays and the picture it puts up.
 class TestJSPage < Minitest::Test
+  include WebPage
   JS = RubyGBA::IR::Backends::JS
-  HARNESS = File.join(__dir__, "page_harness.js")
-
-  # Right moves the square, a pixel a frame.
-  private def walking_game
-    RubyGBA.game "PAGE <&>" do
-      screen :bitmap
-      x = var :x, 0
-      game_loop do
-        held(:right).then { x.add! 1 }
-        clear_screen :black
-        draw_rect_at x, 20, 4, 4, :green
-      end
-    end
-  end
-
-  # +game+'s page, written by the default template or by one whose text is +template+.
-  private def built_page(game = walking_game, template: nil)
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "page.html")
-      options = {}
-      if template
-        options[:page] = File.join(dir, "page.html.erb")
-        File.write(options[:page], template)
-      end
-      JS.new.build_page(game, path, err: nil, **options)
-      File.read(path, encoding: Encoding::UTF_8)
-    end
-  end
-
-  # What the harness printed for +steps+ (one a line, see page_harness.js), played on +game+'s page.
-  # +focused+ false starts the window without the keyboard, as a page in a frame on another site.
-  private def played_page(steps, game = walking_game, template: nil, focused: true)
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "page.html")
-      File.write(path, built_page(game, template: template))
-      out, said, status = Open3.capture3("node", HARNESS, path, *("unfocused" unless focused),
-                                         stdin_data: steps.join("\n"))
-      assert status.success?, said
-      out.lines(chomp: true)
-    end
-  end
-
-  private def pictures_in(lines) = lines.grep(/\Apicture /).map { |line| line.split(" ", 2).last.split(",").map(&:to_i) }
 
   def test_the_page_holds_the_canvas_and_the_whole_game
     page = built_page
@@ -60,7 +17,7 @@ class TestJSPage < Minitest::Test
     assert_match(/<canvas id="screen" width="240" height="160">/, page)
     assert_match(/<title>PAGE &lt;&amp;&gt;<\/title>/, page, "the title is said as text, not as markup")
     assert_match(/function\* rg_game_main\(\)/, page)
-    assert_match(/function rg_driver_start\(\)/, page)
+    assert_match(/function createGame\(host\)/, page)
     refute_match(/<script src=/, page)
   end
 
@@ -184,19 +141,6 @@ class TestJSPage < Minitest::Test
     assert_equal %w[screen none screen screen], lines.grep(/\Astate /).map { |line| line[/fullscreen=(\S+)/, 1] }
   end
 
-  # The square moves a pixel every frame, so the picture says how many frames were played.
-  private def ticking_game
-    RubyGBA.game "TICKING" do
-      screen :bitmap
-      x = var :x, 0
-      game_loop do
-        x.add! 1
-        clear_screen :black
-        draw_rect_at x, 20, 4, 4, :green
-      end
-    end
-  end
-
   # +steps+ played on the ticking game's page end on the picture the same page shows after
   # +frames+ of the browser's frames with nothing else happening — so exactly +frames+ were played —
   # and the sound device read at each "state" is in +sound+.
@@ -245,15 +189,6 @@ class TestJSPage < Minitest::Test
     assert_same_picture interpreter.call(10).screen.shown, walked, "at frame 10"
     assert_same_picture interpreter.call(15).screen.shown, stood, "at frame 15"
     refute_equal walked, stood, "the square moved on the frame after the button was read"
-  end
-
-  # Two pictures the same, or a failure saying how many pixels differ and where the first is,
-  # rather than both screens in full.
-  private def assert_same_picture(want, got, moment)
-    differ = want.each_index.reject { |i| want[i] == got[i] }
-    first = differ.first
-    assert_empty differ, "the page's picture #{moment} differs from the one expected at #{differ.size} pixels, " \
-                         "first at (#{first.to_i % 240}, #{first.to_i / 240})"
   end
 
   # A game that goes wrong stops where it is, and the page says why under the picture.

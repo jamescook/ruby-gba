@@ -48,9 +48,12 @@ module RubyGBA
         RUNTIME_DIR = Ractor.make_shareable(File.expand_path("js/runtime", __dir__))
 
         # The runtime every program carries, in the order it is put together: the game's
-        # arithmetic first, then everything that keeps the game's state, then the driver.
+        # arithmetic first, then everything that keeps the game's state. A driver follows it:
+        # rg_headless.js for node, or rg_page.js inside createGame for a browser.
         RUNTIME = %w[rg_int32.js rg_runtime.js rg_list.js rg_screen.js rg_sound.js rg_mix.js rg_save.js].freeze
-        DRIVERS = Ractor.make_shareable({ headless: "rg_headless.js", page: "rg_page.js" })
+
+        # The first line of everything the backend writes.
+        WRITTEN_BY = "// Written by ruby-gba's JavaScript backend. Do not edit; build the game again.\n"
 
         # A game's program, checked exactly the way a cartridge build checks it, as the native
         # lowering checks one (Native#checked_program), so nothing the console would refuse is
@@ -79,23 +82,31 @@ module RubyGBA
           Lowering.new(program, title: title).source
         end
 
-        # The program and everything it runs on, as one script: the runtime, the game, and the
-        # +driver+ (:headless or :page), inside a function of their own so nothing leaks into
-        # whatever loads it.
-        def bundle(program, driver:, title: "ruby-gba")
-          game = lower(program, title: title)
-          runtime = (RUNTIME + [DRIVERS.fetch(driver)]).map do |file|
-            File.read(File.join(RUNTIME_DIR, file), encoding: Encoding::UTF_8)
-          end
-          ["// Written by ruby-gba's JavaScript backend. Do not edit; build the game again.\n",
-           "(function () {\n\"use strict\";\n", *runtime, game, "rg_driver_start();\n})();\n"].join
+        # THE GAME AS createGame(host): a function that makes the game afresh each time it is
+        # called — the runtime, the game and the browser's driver (runtime/rg_page.js, which says
+        # what +host+ may hold and what comes back) all inside it, so every game made has its own
+        # state and two never meet. It is the one thing every web output wraps: the page calls it
+        # (#page_script), and the module and the classic script hand it out. The text is the
+        # function's declaration alone; whatever wraps it says strict mode.
+        def factory(program, title: "ruby-gba")
+          ["function createGame(host) {\n", *runtime_files(RUNTIME + ["rg_page.js"]), lower(program, title: title),
+           "return page_create(host || {});\n}\n"].join
+        end
+
+        # The script the web build's own page carries: createGame, and the page's call of it
+        # (runtime/rg_mount.js), inside a function of their own so nothing leaks into the page.
+        def page_script(program, title: "ruby-gba")
+          [WRITTEN_BY, "(function () {\n\"use strict\";\n", factory(program, title: title),
+           *runtime_files(["rg_mount.js"]), "rg_mount_page(createGame);\n})();\n"].join
         end
 
         # The program built to run with no window (runtime/rg_headless.js), and the path to it,
         # which runs as a program on a machine with node. See that file for how it is run and
-        # what it prints: the same as the native lowering's headless program.
+        # what it prints: the same as the native lowering's headless program. One game a run, so
+        # it is not made through createGame.
         def build_headless(program)
-          write_program(bundle(program, driver: :headless))
+          write_program([WRITTEN_BY, "(function () {\n\"use strict\";\n", *runtime_files(RUNTIME + ["rg_headless.js"]),
+                         lower(program), "rg_driver_start();\n})();\n"].join)
         end
 
         # +game+ as ONE web page, written to +path+: the game checked as a cartridge build checks it,
@@ -108,12 +119,14 @@ module RubyGBA
           end
           raise LoweringError, "There is no page template at #{page}. Name an .html.erb file that exists." unless File.file?(page)
 
-          script = bundle(checked_program(game, settings: settings, err: err), driver: :page, title: game.title)
+          script = page_script(checked_program(game, settings: settings, err: err), title: game.title)
           File.write(path, Page.html(title: game.title, script: script, scale: scale, template: page))
           path
         end
 
         private
+
+        def runtime_files(names) = names.map { |name| File.read(File.join(RUNTIME_DIR, name), encoding: Encoding::UTF_8) }
 
         # The script on disk, in a folder named for what it holds so two programs never write over
         # each other, written under a name of its own and then renamed into place, so two tests
