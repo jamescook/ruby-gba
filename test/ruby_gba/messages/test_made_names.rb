@@ -20,6 +20,7 @@ class TestMadeNames < Minitest::Test
     buffered_digit_routine: { font: :tiny },
     scene_sprites: { scene: :playing },
     scene_sprites_shown: { scene: :playing },
+    scene_loop_work: { scene: :playing, number: 2 },
     still_sprites: {},
     see_through_amounts: { layer: :rays },
     pool_stacking: { pool: :guard },

@@ -96,6 +96,8 @@ module RubyGBA
         scene_sprites: Kind.new(spelling: "__sprites_scene_%{scene}", parts: { scene: ANY },
                                 words: ->(parts) { "moving the sprites of scene :#{parts[:scene]}" }),
         scene_sprites_shown: Kind.new(spelling: "__sprites_shown_%{scene}", parts: { scene: ANY }, words: nil),
+        scene_loop_work: Kind.new(spelling: "__loop_for_scene_%{scene}__%{number}", parts: { scene: ANY, number: "\\d+" },
+                                  words: ->(parts) { "the game loop's own work for scene :#{parts[:scene]}" }),
         still_sprites: Kind.new(spelling: "__still_objects", parts: {},
                                 words: ->(_) { "writing the sprites nothing moves" }),
         tile_run_tile: Kind.new(spelling: "__tile_run_%{run}__%{number}", parts: { run: ANY, number: "\\d+" },

@@ -262,6 +262,7 @@ module RubyGBA
         def routines_for_scenes
           (@scene_sprites || []).to_h { |group| [SpriteDrawing.sprites_routine(group.scene), group.scene] }
                                 .merge(@layer_blend.amount_routines)
+                                .merge(scene_loop_routines)
         end
 
         # The routines that bring a big map's view along (see #prepare_map_view_routines), by
@@ -717,10 +718,12 @@ module RubyGBA
         # to give addresses to before the program names any, nearest the base first (see
         # {Placement}#variables_kept_routines_want_nearer). +lists_to_roomy+ is that pass's as
         # well: collections the plan gave the quick memory's room away from (see
-        # {Placement}#choose_fast_funcs).
-        def lower(program, fast_funcs: nil, variables_first: [], lists_to_roomy: Set.new)
+        # {Placement}#choose_fast_funcs). +scene_blocks+ is too: whether the game loop's blocks
+        # for one scene are made that scene's routines (see SceneQuickMemory#prepare_scene_loop_work).
+        def lower(program, fast_funcs: nil, variables_first: [], lists_to_roomy: Set.new, scene_blocks: false)
           variables_first.each { |name| var_addr(name) }
           @lists_to_roomy = lists_to_roomy
+          @scene_blocks = scene_blocks
           @fast_funcs = fast_funcs || choose_fast_funcs(program)
           allocate_where_words # where each scene's own routines are, side by side, before any other variable
           # The throwaway measuring pass keeps the phase its caller named, since from the
@@ -769,6 +772,7 @@ module RubyGBA
             @functions.define_generated_func(name) { @layer_blend.emit_amounts_routine(name) }
           end
           prepare_map_view_routines(program)
+          prepare_scene_loop_work(program, outline: @scene_blocks) # the loop's work for one scene, as that scene's routine
           @scene_blend = @tiled ? @layer_blend.blend_control_by_scene(@modes) : {}
           # ...which is what decides whether a fade may use the display's blend at all, or
           # has to walk the color table instead to leave that layer alone (see IR::Fading).

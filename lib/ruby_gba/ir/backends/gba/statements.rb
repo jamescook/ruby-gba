@@ -121,7 +121,10 @@ module RubyGBA
             else
               skip = @emitter.gensym
               @emitter.emit_branch(:bcond, skip, cond: :eq) # zero => condition false => skip
-              node.children.each { |stmt| @lowering.statement(stmt) }
+              # A block of the game loop that runs for one scene alone is that scene's routine
+              # (see SceneQuickMemory#prepare_scene_loop_work), and only called from here.
+              routine = @placement.scene_loop_routine_for(node)
+              routine ? @placement.emit_call_func(routine) : node.children.each { |stmt| @lowering.statement(stmt) }
               @emitter.place_label(skip)
             end
           end

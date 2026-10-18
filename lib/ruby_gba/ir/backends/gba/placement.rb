@@ -199,18 +199,21 @@ module RubyGBA
             insisted = funcs_marked(program, true)
             return insisted if insisted.empty? && !@fast_code
 
-            probe = measure_routines(program)
-            chosen = choose_from_measurement(program, probe, insisted)
-            # MEASURED AGAIN FOR EACH COLLECTION THE PLAN GAVE THE ROOM AWAY FROM. A collection in
-            # the roomy memory is reached by another address, which can change the size of every
-            # routine that touches it, so the sizes the plan chose by are of the other layout. The
-            # moved ones stay moved, and only those left in the quick memory are weighed again,
-            # so this ends: each time round moves more, or stops.
-            until (more = @lists_left_out - @lists_to_roomy).empty?
-              @lists_to_roomy |= more
-              @measuring_after = :lists
-              probe = measure_routines(program)
-              chosen = choose_from_measurement(program, probe, insisted)
+            probe, chosen = measure_and_choose(program, insisted)
+            # MEASURED AGAIN WITH THE GAME LOOP'S WORK FOR EACH SCENE AS THAT SCENE'S ROUTINE, once
+            # the plan has split the room by scene (see SceneQuickMemory#prepare_scene_loop_work).
+            # Only then: in one set for the whole game the routines would buy nothing and cost a
+            # call every frame. Should the new layout not hold what the author insisted on, the
+            # one before did, so it is kept.
+            if swaps_quick_memory?
+              @scene_blocks = true
+              @measuring_after = :scene_blocks
+              begin
+                probe, chosen = measure_and_choose(program, insisted)
+              rescue QuickMemoryFull
+                @scene_blocks = false
+                probe, chosen = measure_and_choose(program, insisted)
+              end
             end
             first = probe
             nearer = variables_kept_routines_want_nearer(probe, chosen + routines_in_sets)
@@ -244,6 +247,25 @@ module RubyGBA
             chosen
           end
 
+          # Measure the program and choose from what was measured, and answer both.
+          #
+          # MEASURED AGAIN FOR EACH COLLECTION THE PLAN GAVE THE ROOM AWAY FROM. A collection in
+          # the roomy memory is reached by another address, which can change the size of every
+          # routine that touches it, so the sizes the plan chose by are of the other layout. The
+          # moved ones stay moved, and only those left in the quick memory are weighed again,
+          # so this ends: each time round moves more, or stops.
+          def measure_and_choose(program, insisted)
+            probe = measure_routines(program)
+            chosen = choose_from_measurement(program, probe, insisted)
+            until (more = @lists_left_out - @lists_to_roomy).empty?
+              @lists_to_roomy |= more
+              @measuring_after = :lists
+              probe = measure_routines(program)
+              chosen = choose_from_measurement(program, probe, insisted)
+            end
+            [probe, chosen]
+          end
+
           # Lower the program once with no routine moved, to learn how big each routine comes out
           # and how much memory is left. +variables_first+ are given their addresses before
           # anything else names a variable; the collections the plan moved so far are in the
@@ -253,7 +275,8 @@ module RubyGBA
             # shows its own progress rather than going quiet for as long as a lowering takes.
             @progress.step(measuring_phase_name)
             probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress)
-            probe.lower(program, fast_funcs: Set.new, variables_first: variables_first, lists_to_roomy: @lists_to_roomy)
+            probe.lower(program, fast_funcs: Set.new, variables_first: variables_first, lists_to_roomy: @lists_to_roomy,
+                                 scene_blocks: @scene_blocks)
             probe
           end
 
@@ -284,6 +307,7 @@ module RubyGBA
           # variables moved nearer — so a build that says the same words twice looks as if it ran
           # a phase twice by mistake.
           MEASURING_AFTER = { lists: "measuring again, collections moved out",
+                              scene_blocks: "measuring again, each scene's loop work its own routine",
                               variables: "measuring again, variables moved nearer" }.freeze
 
           def measuring_phase_name = MEASURING_AFTER.fetch(@measuring_after, "measuring the routines")
@@ -306,7 +330,7 @@ module RubyGBA
             # them.
             @scene_routines = probe.routines_for_scenes
             @routines_placed_with_frame = probe.map_view_routines
-            @crossing_targets = crossing_call_targets(program, probe.generated_calls_by_routine)
+            @crossing_targets = crossing_call_targets(program, probe.generated_calls_by_routine, probe.scene_loop_blocks)
             crossings = @crossing_targets.transform_values(&:size).tap { |counts| counts.default = 0 }
             loads = probe.number_loads_by_routine
             # What each routine could come to with every number built, and what a table then
@@ -728,13 +752,23 @@ module RubyGBA
           # routine it names, or nil for one that always stays in the cartridge.
           #
           # Answers, for each routine, the routine named by every call in it that COULD cross.
-          def crossing_call_targets(program, made_calls = {})
+          # +loop_blocks+ is each block of the game loop the measuring pass made into a scene's
+          # routine, by that routine's name.
+          def crossing_call_targets(program, made_calls = {}, loop_blocks = {})
             calls = Hash.new { |_, _| [] }
             program.walk.each do |node|
               name = node.kind == :loop ? FRAME_ROUTINE : (node.name if node.kind == :func)
               calls[name] = crossing_targets_in(node) if name
             end
             calls[IRQ_ROUTINE] = irq_bodies(program).flat_map { |node| crossing_targets_in(node) }
+            # A block of the game loop made into one scene's routine holds its calls there, not in
+            # the loop (see SceneQuickMemory#prepare_scene_loop_work), so they move from the one to
+            # the other; the call to the routine itself is one the build made, counted below.
+            loop_blocks.each do |name, node|
+              moved = node.children.flat_map { |child| crossing_targets_in(child) }
+              calls[name] = moved
+              moved.each { |target| calls[FRAME_ROUTINE].delete_at(calls[FRAME_ROUTINE].index(target)) }
+            end
             made_calls.each { |name, targets| calls[name] += targets }
             calls
           end

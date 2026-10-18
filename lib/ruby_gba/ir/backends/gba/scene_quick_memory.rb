@@ -91,6 +91,50 @@ module RubyGBA
           # The number of the set +name+ is copied in with, or nil for a routine in no set.
           def set_holding(name) = (@set_of_routine || {})[name]
 
+          # WHAT THE GAME LOOP DOES FOR ONE SCENE IS MADE A ROUTINE OF THAT SCENE'S. The loop's
+          # body holds the scene dispatch, so it is kept for the whole game, in every scene's room
+          # — and a block in it that runs only while one scene is up (a scene's map scrolled, its
+          # pool put in order, a game's own `(where == :play).then { … }`) held that room on
+          # every other scene too. Written as a routine of its own, called from where the block
+          # was, it is that scene's: it goes in the scene's set, and the loop keeps only the test
+          # and the call.
+          #
+          # ONLY A BLOCK WRITTEN STRAIGHT IN THE LOOP is made one. Inside a counted loop the count
+          # is kept in a register the routine would not see, and inside an `inside`, an `every` or
+          # an `after` the block is lowered with what those set up around it; a routine lowered
+          # on its own has none of that. A block holding the dispatch itself stays, since the swap
+          # must never run from a set. And only in a game whose quick memory is split by scene
+          # (+outline+, which Placement#choose_fast_funcs decides): anywhere else the call buys
+          # nothing and costs a few instructions every frame. Answers nothing; the routines are
+          # read back by #scene_loop_routine_for and #scene_loop_routines.
+          def prepare_scene_loop_work(program, outline:)
+            @scene_loop_work = {}.compare_by_identity
+            return unless outline
+
+            dispatch = quick_memory_dispatch(program) or return
+            by_value = dispatch.clauses.to_h
+            blocks = frame_body(program).children.select do |node|
+              !node.children.empty? && scene_tested_for(node, dispatch.var, by_value) &&
+                node.walk.none? { |part| part.equal?(dispatch) }
+            end
+            counts = Hash.new(0)
+            blocks.each do |node|
+              scene = scene_tested_for(node, dispatch.var, by_value)
+              routine = Messages::MadeNames.make(:scene_loop_work, scene: scene_name(scene), number: counts[scene] += 1)
+              @scene_loop_work[node] = [routine, scene]
+              @functions.define_generated_func(routine) { node.children.each { |stmt| @lowering.statement(stmt) } }
+            end
+          end
+
+          # The routine the block +node+ of the game loop was made into, or nil for any other node.
+          def scene_loop_routine_for(node) = (@scene_loop_work || {})[node]&.first
+
+          # Each such routine with the scene routine it works for, as #routines_for_scenes says it.
+          def scene_loop_routines = (@scene_loop_work || {}).values.to_h
+
+          # Each such routine with the block it was made from, for counting the calls inside it.
+          def scene_loop_blocks = (@scene_loop_work || {}).to_h { |node, (routine, _)| [routine, node] }
+
           private
 
           # THE GAME'S SCENE DISPATCH, if it has one this can swap at: a `case_var` written in

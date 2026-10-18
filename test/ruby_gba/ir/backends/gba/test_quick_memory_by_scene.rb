@@ -170,6 +170,98 @@ class TestQuickMemoryByScene < Minitest::Test
     builder.program
   end
 
+  # Two screens that each spend their frame in a routine of their own, and a game loop that does
+  # +extra+ additions of its own while play is up, written in the loop under a test of the
+  # scene. The game walks by itself: the title until frame 3, play until frame 9, then the
+  # title again.
+  private def loop_working_for_play(extra:, work: BIG)
+    builder = Builder.new
+    builder.instance_eval do
+      a = var :a, 0
+      b = var :b, 0
+      c = var :c, 0
+      t = var :t, 0
+      where = var :where, 0
+      func(:title_work) { work.times { a.add! 1 } }
+      func(:play_work) { work.times { b.add! 1 } }
+      scene(:title) { call :title_work }
+      scene(:play) { call :play_work }
+      game_loop do
+        t.add! 1
+        (t == 3).then { where.set! 1 }
+        (t == 9).then { where.set! 0 }
+        (where == 1).then { extra.times { c.add! 1 } }
+        case_var(:where) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # WHAT THE GAME LOOP DOES FOR ONE SCENE IS THAT SCENE'S, not the loop's: the loop is kept for
+  # the whole game, in every scene's room, so work written in it for play alone held room on the
+  # title too. It goes in play's own set, and the loop is the same size however much there is.
+  def test_the_game_loops_work_for_one_scene_goes_in_that_scenes_set
+    small = placement_of(loop_working_for_play(extra: 10))
+    large = placement_of(loop_working_for_play(extra: 400))
+    frame = GBA::Placement::FRAME_ROUTINE
+
+    assert_equal small.sizes.fetch(frame), large.sizes.fetch(frame), "the loop does not grow with play's work"
+    assert(large.scenes.fetch(:play).any? { |name| RubyGBA::Messages::MadeNames.read(name)&.first == :scene_loop_work },
+           "play keeps its loop work in its own set: #{large.scenes}")
+  end
+
+  # ...and the console plays it as the interpreter does, through the swap into play and back.
+  def test_the_game_loops_work_for_play_runs_across_both_swaps
+    program = loop_working_for_play(extra: 400)
+    [2, 4, 6, 10, 12].each { |f| assert_backends_agree(program, frames: f) }
+    rom = assemble_rom(program, name: "LOOPWORK")
+    v = assert_emulator_loads_rom(rom, frames: 30, vars: rom.var_addresses)
+
+    assert_equal 400 * 6, v.var(:c), "play's loop work ran on each of its six passes, whole"
+  end
+
+  # A GAME WHOSE ROUTINES ALL FIT KEEPS ITS LOOP AS IT WAS: a block for one scene made a routine
+  # pays a call every frame, and buys nothing where no scene's set is swapped in.
+  def test_a_game_whose_routines_all_fit_keeps_its_scene_blocks_in_the_loop
+    report = placement_of(loop_working_for_play(extra: 10, work: 100))
+
+    assert_empty report.scenes
+    assert_empty(report.sizes.keys.select { |name| RubyGBA::Messages::MadeNames.read(name)&.first == :scene_loop_work })
+  end
+
+  # A BLOCK FOR ONE SCENE INSIDE A COUNTED LOOP STAYS WHERE IT IS: the loop keeps its count in a
+  # register, and a routine called from inside it would read the count from where the register
+  # has not yet put it. What it adds up is what the interpreter adds up.
+  def test_a_scene_block_inside_a_counted_loop_reads_the_count
+    builder = Builder.new
+    builder.instance_eval do
+      a = var :a, 0
+      b = var :b, 0
+      c = var :c, 0
+      where = var :where, 1
+      func(:title_work) { BIG.times { a.add! 1 } }
+      func(:play_work) { BIG.times { b.add! 1 } }
+      scene(:title) { call :title_work }
+      scene(:play) { call :play_work }
+      game_loop do
+        repeat(5) { |i| (where == 1).then { c.add! i } }
+        case_var(:where) do
+          when_val 0, :title
+          when_val 1, :play
+        end
+      end
+    end
+    builder.finalize_program
+    rom = assemble_rom(builder.program, name: "COUNTED")
+    v = assert_emulator_loads_rom(rom, frames: 4, vars: rom.var_addresses, count_passes: true)
+
+    assert_equal (0 + 1 + 2 + 3 + 4) * v.passes, v.var(:c)
+  end
+
   # A title with a busy routine of its own, and a play screen with a map too big for the
   # console's grid that insists on a routine of about +adds+ additions in the quick memory.
   private def play_insisting_beside_its_map(adds:)
