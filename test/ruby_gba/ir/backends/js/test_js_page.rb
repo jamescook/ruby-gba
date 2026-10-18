@@ -14,7 +14,7 @@ class TestJSPage < Minitest::Test
   def test_the_page_holds_the_canvas_and_the_whole_game
     page = built_page
 
-    assert_match(/<canvas id="screen" width="240" height="160">/, page)
+    assert_match(/<canvas id="screen" width="240" height="160"/, page)
     assert_match(/<title>PAGE &lt;&amp;&gt;<\/title>/, page, "the title is said as text, not as markup")
     assert_match(/function\* rg_game_main\(\)/, page)
     assert_match(/function createGame\(host\)/, page)
@@ -83,6 +83,14 @@ class TestJSPage < Minitest::Test
     assert_includes built_page(template: template), '<main class="mine">'
     assert_includes played_page(steps, template: template), "text controller (none)"
     assert_walks_right_for_frames_two_to_eleven(steps, template: template)
+  end
+
+  # The canvas itself says its pixels stay square however big it is drawn — on the page and filling
+  # the screen — so a template that leaves the default look out does not get a blurred picture.
+  def test_the_canvas_keeps_square_pixels_without_the_default_look
+    canvas = built_page(template: "<%= game %>")[/<canvas [^>]*>/]
+
+    assert_match(/image-rendering: pixelated/, canvas)
   end
 
   # A template that never writes the game would make a page with no game on it, so the build

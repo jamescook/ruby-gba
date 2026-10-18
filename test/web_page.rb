@@ -42,8 +42,8 @@ module WebPage
       path = File.join(dir, "page.html")
       options = {}
       if template
-        options[:page] = File.join(dir, "page.html.erb")
-        File.write(options[:page], template)
+        options[:template] = File.join(dir, "page.html.erb")
+        File.write(options[:template], template)
       end
       RubyGBA::IR::Backends::JS.new.build_page(game, path, err: nil, **options)
       File.read(path, encoding: Encoding::UTF_8)

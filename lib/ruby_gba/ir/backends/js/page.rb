@@ -13,7 +13,7 @@ module RubyGBA
         # keyboard and any controller are the gamepad (runtime/rg_page.js says which is which).
         #
         # THE PAGE IS A TEMPLATE, page.html.erb unless the build names another (`ruby-gba build
-        # --format=web --page FILE`). A template is ERB, and it is handed these, each a piece of
+        # --format=web --template FILE`). A template is ERB, and it is handed these, each a piece of
         # finished HTML:
         #
         #   game        the canvas and the script: the one piece a page must have
@@ -32,6 +32,11 @@ module RubyGBA
         # the same, with nothing said there.
         module Page
           DEFAULT = Ractor.make_shareable(File.join(__dir__, "page.html.erb"))
+
+          # Every pixel of the console's picture drawn as a square however big the canvas is drawn,
+          # rather than smoothed into its neighbours. On the canvas itself, so no template loses
+          # it; crisp-edges first, for a browser that does not know pixelated.
+          SQUARE_PIXELS = "image-rendering: crisp-edges; image-rendering: pixelated"
 
           module_function
 
@@ -63,7 +68,7 @@ module RubyGBA
 
           def game(script)
             <<~HTML.chomp
-              <canvas id="screen" width="#{Screen::WIDTH}" height="#{Screen::HEIGHT}"></canvas>
+              <canvas id="screen" width="#{Screen::WIDTH}" height="#{Screen::HEIGHT}" style="#{SQUARE_PIXELS}"></canvas>
               <script>
               #{script.gsub('</script', '<\/script')}
               </script>
@@ -78,7 +83,7 @@ module RubyGBA
                        justify-content: center; gap: 12px; background: #111; color: #ccc;
                        font: 14px/1.4 system-ui, sans-serif; }
                 canvas { width: min(#{Screen::WIDTH * scale}px, 96vw); aspect-ratio: #{Screen::WIDTH} / #{Screen::HEIGHT};
-                         image-rendering: pixelated; image-rendering: crisp-edges; background: #000; }
+                         background: #000; }
                 canvas:fullscreen { width: 100vw; height: 100vh; object-fit: contain; }
                 p { margin: 0 16px; text-align: center; }
                 kbd { border: 1px solid #555; border-radius: 3px; padding: 0 4px; }

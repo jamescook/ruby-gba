@@ -120,15 +120,17 @@ module RubyGBA
 
         # +game+ as ONE web page, written to +path+: the game checked as a cartridge build checks it,
         # written as JavaScript, and put in a page which plays it in a canvas when opened. +scale+ is
-        # how many times the console's picture is enlarged, and +page+ the template the page is
+        # how many times the console's picture is enlarged, and +template+ the one the page is
         # written from (see Page for what one is handed).
-        def build_page(game, path, settings: {}, scale: 3, page: Page::DEFAULT, data: :inline, err: $stderr)
-          raise LoweringError, "There is no page template at #{page}. Name an .html.erb file that exists." unless File.file?(page)
+        def build_page(game, path, settings: {}, scale: 3, template: Page::DEFAULT, data: :inline, err: $stderr)
+          unless File.file?(template)
+            raise LoweringError, "There is no page template at #{template}. Name an .html.erb file that exists."
+          end
 
           write_output(game, path, settings: settings, data: data, err: err) do |text, data_file|
             script = WRITTEN_BY + in_own_function(data_beside_declaration(data_file, JSON.generate(data_file_name(path))),
                                                   text, *runtime_text(["rg_mount.js"]), "rg_mount_page(createGame);\n")
-            Page.html(title: game.title, script: script, scale: scale, template: page)
+            Page.html(title: game.title, script: script, scale: scale, template: template)
           end
         end
 

@@ -92,8 +92,8 @@ module RubyGBA
                  desc: "Tell the game a setting it reads with `setting` (for example --set floors=1)"
     option :target, banner: "COMPUTER",
                     desc: "With --format=native, build for another computer: windows, linux or linux-arm"
-    option :page, banner: "TEMPLATE",
-                  desc: "With --format=web, write the page from this .html.erb template; it must have <%= game %>"
+    option :template, banner: "FILE",
+                      desc: "With --format=web, write the page from this .html.erb template; it must have <%= game %>"
     option :js, default: "page", enum: %w[page module script],
                 desc: "With --format=web, what to write: page (one HTML page that plays the game), module " \
                       "(an ES module exporting createGame, for a page of your own) or script (a classic script " \
@@ -286,13 +286,13 @@ module RubyGBA
       as well before you ship it.
     TEXT
     option :port, type: :numeric, default: 8000, desc: "The port to serve the page on"
-    option :page, banner: "TEMPLATE", desc: "Write the page from this .html.erb template; it must have <%= game %>"
+    option :template, banner: "FILE", desc: "Write the page from this .html.erb template; it must have <%= game %>"
     option :set, type: :array, banner: "NAME=VALUE", default: [],
                  desc: "Tell the game a setting it reads with `setting` (for example --set floors=1)"
     def preview(game_file)
       raise Thor::Error, "I cannot find the game file #{game_file}." unless File.file?(game_file)
 
-      server = RubyGBA::IR::Backends::JS::Preview.new(game_file, settings: options[:set], page: options[:page],
+      server = RubyGBA::IR::Backends::JS::Preview.new(game_file, settings: options[:set], template: options[:template],
                                                                  port: options[:port])
       trap("INT") { server.stop }
       server.serve
@@ -409,8 +409,8 @@ module RubyGBA
       when "script" then web.build_script(game, path, name: options[:global] || File.basename(path, ".*"),
                                                       settings: given_settings, data: data)
       else
-        page = options[:page] ? File.expand_path(options[:page]) : RubyGBA::IR::Backends::JS::Page::DEFAULT
-        web.build_page(game, path, settings: given_settings, page: page, data: data)
+        template = options[:template] ? File.expand_path(options[:template]) : RubyGBA::IR::Backends::JS::Page::DEFAULT
+        web.build_page(game, path, settings: given_settings, template: template, data: data)
       end
       say "Built #{path}"
     rescue RubyGBA::IR::Backends::JS::LoweringError, RubyGBA::IR::Guardrails::ValidationError => e

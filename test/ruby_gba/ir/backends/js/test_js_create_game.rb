@@ -110,6 +110,23 @@ class TestJSCreateGame < Minitest::Test
     assert_includes lines, "js ruby-gba-save:KEEPER"
   end
 
+  # The handle reads the save memory as it stands and writes it — a page's own "export my save" and
+  # "import a save" — and refuses bytes that are not the size of the game's save memory.
+  def test_the_handle_reads_and_writes_the_save
+    game = RubyGBA.game "KEEPER" do
+      screen :bitmap
+      count = save_var :count, 0
+      game_loop { count.add! 1 }
+    end
+    html = page_of(game, %w[one], "window.games = [createGame({ canvas: #{canvas('one')}, storage: null })];")
+    lines = played_page(["play 3", "js window.first = games[0].readSave(); first.length > 0 && first.some((byte) => byte !== 0xFF)",
+                         "js games[0].writeSave(new Uint8Array(first.length).fill(7)); games[0].readSave().every((byte) => byte === 7)",
+                         "js try { games[0].writeSave(new Uint8Array(3)); 'kept' } catch (error) { error.message }"], html: html)
+
+    assert_equal ["js true", "js true"], lines.grep(/\Ajs /).first(2)
+    assert_match(/must be \d+ bytes/, lines.grep(/\Ajs /).last)
+  end
+
   # A click on a paused game makes the sound ready but keeps it waiting: it plays when the game does.
   def test_a_click_while_paused_keeps_the_sound_waiting
     html = page_of(ticking_game, %w[one], "window.games = [createGame({ canvas: #{canvas('one')} })];")

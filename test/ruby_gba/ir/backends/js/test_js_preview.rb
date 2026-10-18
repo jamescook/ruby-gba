@@ -21,8 +21,8 @@ class TestJSPreview < Minitest::Test
   end
 
   # Serves +file+ for the length of the block, which is handed a way to fetch the page.
-  private def serving(file, settings: [], page: nil)
-    preview = Preview.new(file, settings: settings, page: page, port: 0, out: StringIO.new)
+  private def serving(file, settings: [], template: nil)
+    preview = Preview.new(file, settings: settings, template: template, port: 0, out: StringIO.new)
     server = Thread.new { preview.serve }
     yield -> { Net::HTTP.get_response(URI(preview.url)) }
   ensure
@@ -74,7 +74,7 @@ class TestJSPreview < Minitest::Test
       File.write(file, game_source("TEMPLATED", :blue))
       template = File.join(dir, "mine.html.erb")
       File.write(template, "<!doctype html>\n<h1>Mine: <%= title %></h1>\n<%= game %>\n")
-      serving(file, page: template) do |fetch|
+      serving(file, template: template) do |fetch|
         assert_match(/<h1>Mine: TEMPLATED<\/h1>/, fetch.call.body.force_encoding(Encoding::UTF_8))
       end
     end
