@@ -21,8 +21,9 @@ module RubyGBA
         #   style       the default look: dark, the picture centred and enlarged
         #   keys        which key is which button
         #   controller  where the page says whether a controller is in use
-        #   message     where a game that stops says why
-        #   extras      keys, controller and message together, in that order
+        #   fullscreen  a button that fills the screen with the game (the F key does too)
+        #   message     where a game that stops, or a page waiting for a click, says so
+        #   extras      keys, controller, fullscreen and message together, in that order
         #
         # The script finds the pieces it fills in by their id, and a page without one of them plays
         # the same, with nothing said there.
@@ -45,12 +46,15 @@ module RubyGBA
           def pieces(title:, script:, scale:)
             keys = <<~HTML.chomp
               <p>Arrows move. <kbd>X</kbd> is A, <kbd>Z</kbd> is B, <kbd>Enter</kbd> is Start, <kbd>Backspace</kbd> is
-              Select, <kbd>A</kbd> and <kbd>S</kbd> are L and R. Press a key or click to hear the sound.</p>
+              Select, <kbd>A</kbd> and <kbd>S</kbd> are L and R, <kbd>F</kbd> fills the screen. Press a key or click
+              to hear the sound.</p>
             HTML
             controller = '<p id="controller"></p>'
+            fullscreen = '<button id="fullscreen" type="button">Full screen</button>'
             message = '<p id="said" hidden></p>'
             { title: CGI.escapeHTML(title.to_s), style: style(scale), game: game(script), keys: keys,
-              controller: controller, message: message, extras: [keys, controller, message].join("\n") }
+              controller: controller, fullscreen: fullscreen, message: message,
+              extras: [keys, controller, fullscreen, message].join("\n") }
           end
 
           def game(script)
@@ -71,8 +75,11 @@ module RubyGBA
                        font: 14px/1.4 system-ui, sans-serif; }
                 canvas { width: min(#{Screen::WIDTH * scale}px, 96vw); aspect-ratio: #{Screen::WIDTH} / #{Screen::HEIGHT};
                          image-rendering: pixelated; image-rendering: crisp-edges; background: #000; }
+                canvas:fullscreen { width: 100vw; height: 100vh; object-fit: contain; }
                 p { margin: 0 16px; text-align: center; }
                 kbd { border: 1px solid #555; border-radius: 3px; padding: 0 4px; }
+                button { font: inherit; color: inherit; background: #222; border: 1px solid #555; border-radius: 4px;
+                         padding: 4px 12px; cursor: pointer; }
               </style>
             HTML
           end

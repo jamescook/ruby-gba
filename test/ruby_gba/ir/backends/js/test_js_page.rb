@@ -40,11 +40,13 @@ class TestJSPage < Minitest::Test
   end
 
   # What the harness printed for +steps+ (one a line, see page_harness.js), played on +game+'s page.
-  private def played_page(steps, game = walking_game, template: nil)
+  # +focused+ false starts the window without the keyboard, as a page in a frame on another site.
+  private def played_page(steps, game = walking_game, template: nil, focused: true)
     Dir.mktmpdir do |dir|
       path = File.join(dir, "page.html")
       File.write(path, built_page(game, template: template))
-      out, said, status = Open3.capture3("node", HARNESS, path, stdin_data: steps.join("\n"))
+      out, said, status = Open3.capture3("node", HARNESS, path, *("unfocused" unless focused),
+                                         stdin_data: steps.join("\n"))
       assert status.success?, said
       out.lines(chomp: true)
     end
@@ -133,6 +135,52 @@ class TestJSPage < Minitest::Test
 
     assert_match(/does not write the game/, error.message)
     assert_includes error.message, "<%= game %>"
+  end
+
+  # A key pressed with Cmd, Ctrl or Alt is the browser's shortcut, not the game's button: the game
+  # does not see it, and the browser is left to do what it does with it.
+  def test_a_key_pressed_with_cmd_ctrl_or_alt_is_left_to_the_browser
+    %w[meta ctrl alt].each do |modifier|
+      lines = played_page(["down ArrowRight #{modifier}", "play 5", "picture", "state"])
+      interpreter = Reference.new.run(walking_game.program, frames: 5)
+
+      assert_same_picture interpreter.screen.shown, pictures_in(lines).first, "with #{modifier} held"
+      assert_equal ["state audio=running fullscreen=none kept=0"], lines.grep(/\Astate /), "the key with #{modifier} is the browser's"
+    end
+  end
+
+  # A tab put behind another pauses the sound and lets go of every key — a key let go while the
+  # page is hidden never reaches it, and would be held for ever — and shown again it plays on.
+  def test_a_hidden_tab_pauses_the_sound_and_lets_go_of_the_keys
+    lines = played_page(["down ArrowRight", "play 3", "hide", "state", "play 30", "show", "state", "play 5", "picture"])
+    interpreter = Reference.new.input_each_frame { |frame| (2..4).cover?(frame) ? [:right] : [] }
+                           .run(walking_game.program, frames: 8)
+
+    assert_equal ["state audio=suspended fullscreen=none kept=1", "state audio=running fullscreen=none kept=1"],
+                 lines.grep(/\Astate /)
+    assert_same_picture interpreter.screen.shown, pictures_in(lines).first, "after the tab came back"
+  end
+
+  # A page in a frame on another site starts without the keyboard, and a key pressed then goes to
+  # the other page: so until it has the keyboard it says to click the game, and once it has it,
+  # it says nothing. Losing the keyboard again lets go of every key, which may come up elsewhere.
+  def test_a_page_without_the_keyboard_says_to_click_and_lets_go_of_keys_when_it_loses_it
+    lines = played_page(["play 1", "text said", "focus", "down ArrowRight", "play 3", "text said", "blur",
+                         "play 5", "picture"], focused: false)
+    interpreter = Reference.new.input_each_frame { |frame| (3..5).cover?(frame) ? [:right] : [] }
+                           .run(walking_game.program, frames: 9)
+
+    assert_equal ["text said Click the game to play.", "text said hidden Click the game to play."], lines.grep(/\Atext said/)
+    assert_same_picture interpreter.screen.shown, pictures_in(lines).first, "after the keyboard went elsewhere"
+  end
+
+  # The button under the game and the F key fill the screen with the game, and the F key puts it
+  # back; F with Cmd, Ctrl or Alt stays the browser's.
+  def test_the_button_and_the_f_key_fill_the_screen_with_the_game
+    lines = played_page(["click fullscreen", "state", "down KeyF", "up KeyF", "state", "down KeyF", "up KeyF", "state",
+                         "down KeyF meta", "state"])
+
+    assert_equal %w[screen none screen screen], lines.grep(/\Astate /).map { |line| line[/fullscreen=(\S+)/, 1] }
   end
 
   # +steps+ hold right from the page's start to frame 10 and take two pictures, at frames 10 and

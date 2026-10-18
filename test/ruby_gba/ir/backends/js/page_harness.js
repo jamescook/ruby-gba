@@ -1,28 +1,38 @@
 /*
  * Plays a web page (runtime/rg_page.js and the game, in the page a template wrote) in node, with a
- * stand-in for each part of the browser it uses: a canvas that keeps the last picture put on it,
- * a window that hands out key presses and the browser's frame callbacks, and storage that keeps
- * the save. test_js_page.rb drives it, so what runs is the page's own driver and not the
- * windowless one. Of the page's parts the script looks for by id, only those the page's HTML has
- * are there to find.
+ * stand-in for each part of the browser it uses: a canvas that keeps the last picture put on it
+ * and can fill the screen, a window that hands out key presses, focus and the browser's frame
+ * callbacks, a document that can be hidden behind another tab, a sound device that can be paused,
+ * and storage that keeps the save. test_js_page.rb drives it, so what runs is the page's own
+ * driver and not the windowless one. Of the page's parts the script looks for by id, only those
+ * the page's HTML has are there to find.
  *
  * The page is named on the command line. Each line read from the input is one step:
  *
- *   down KEY / up KEY   a key going down or coming up, by the browser's name for it (ArrowRight)
+ *   down KEY [meta|ctrl|alt] / up KEY   a key going down, with Cmd, Ctrl or Alt held if named,
+ *                       or coming up, by the browser's name for it (ArrowRight)
  *   pad connect         a controller plugged in, laid out the standard way (the browser's
  *                       "standard" mapping), which the page is told of
  *   pad disconnect      ...and taken out again
  *   pad press N / pad release N   its button N going down or coming up, by the standard
  *                       layout's numbering (0 the bottom face button, 12 to 15 the d-pad)
  *   pad stick X Y       its left stick pushed to X, Y, each from -1 to 1
+ *   blur / focus        the window losing the keyboard to another, and getting it back
+ *   hide / show         the page's tab hidden behind another, and shown again
+ *   click ID            the page's element of that id clicked
  *   play N              N of the browser's frames, each a console frame after the one before, so
- *                       the page plays one frame of the game on each
+ *                       the page plays one frame of the game on each; none come while hidden
  *   picture             prints "picture" and every pixel last put on the canvas, as the
  *                       console's fifteen-bit colours
- *   text ID             prints "text ID" and the words in the page's element of that id now, or
- *                       "text ID (none)" for a page without one
+ *   text ID             prints "text ID", then "hidden" if it is, then the words in the page's
+ *                       element of that id now, or "text ID (none)" for a page without one
+ *   state               prints "state" and what the browser holds now: the sound device
+ *                       (none, running or suspended), what fills the screen (none or an id),
+ *                       and how many key presses the page kept from the browser
  *
- * At the end it prints "said" and the words the page showed under the canvas, if it showed any.
+ * Started with "unfocused" after the page, the window starts without the keyboard, as a page in
+ * a frame on another site does. At the end it prints "said" and the words the page showed under
+ * the canvas, if it showed any.
  */
 "use strict";
 
@@ -35,20 +45,59 @@ const html = fs.readFileSync(process.argv[2], "utf8");
 const script = html.match(/<script>\n([\s\S]*)<\/script>/)[1];
 const ids = new Set(Array.from(html.replace(script, "").matchAll(/\bid="([^"]+)"/g), (found) => found[1]));
 
-const listeners = {};
+/* Who is listening for what: the window's own, the document's, and each element's. */
+function listening() {
+  const heard = {};
+  return {
+    heard,
+    addEventListener(type, listener) { (heard[type] ||= []).push(listener); },
+  };
+}
+
+function tell(target, type, more = {}) {
+  for (const listener of target.heard[type] || []) listener({ preventDefault() { kept += 1; }, ...more });
+}
+
 const waiting = [];
 const stored = new Map();
 let now = 0;
 let shown = null;
-const said = { textContent: "", hidden: true };
-const note = { textContent: "", hidden: false };
+let kept = 0;
+let focused = process.argv[3] !== "unfocused";
 
-const canvas = {
+function element(id) {
+  return { id, textContent: "", hidden: id === "said", ...listening() };
+}
+
+const elements = Object.fromEntries(["said", "controller", "fullscreen"].map((id) => [id, element(id)]));
+elements.screen = {
+  ...element("screen"),
   getContext: () => ({
     createImageData: (width, height) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
     putImageData: (image) => { shown = Uint8ClampedArray.from(image.data); },
   }),
+  requestFullscreen() { document.fullscreenElement = this; return Promise.resolve(); },
 };
+
+const document = {
+  ...listening(),
+  hidden: false,
+  visibilityState: "visible",
+  fullscreenElement: null,
+  getElementById: (id) => (ids.has(id) && elements[id]) || null,
+  hasFocus: () => focused,
+  exitFullscreen() { document.fullscreenElement = null; return Promise.resolve(); },
+};
+
+/* The sound device: made on a page's first key press or click, as a browser allows. */
+let audio = null;
+class AudioContext {
+  constructor() { this.state = "running"; this.currentTime = 0; this.destination = {}; audio = this; }
+  resume() { this.state = "running"; return Promise.resolve(); }
+  suspend() { this.state = "suspended"; return Promise.resolve(); }
+  createBuffer(_channels, length) { return { getChannelData: () => new Float32Array(length) }; }
+  createBufferSource() { return { connect() {}, start() {} }; }
+}
 
 /* The one controller there can be, in the browser's own shape for one. */
 const pads = [null, null, null, null];
@@ -59,28 +108,28 @@ const controller = {
 };
 
 const page = {
-  window: null,
-  document: { getElementById: (id) => (ids.has(id) && { screen: canvas, said, controller: note }[id]) || null },
+  ...listening(),
+  document,
+  AudioContext,
   navigator: { getGamepads: () => pads.slice() },
   performance: { now: () => now },
   atob, btoa, console,
 };
 page.window = page;
-page.addEventListener = (type, listener) => { (listeners[type] ||= []).push(listener); };
 page.requestAnimationFrame = (callback) => { waiting.push(callback); };
 page.localStorage = { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) };
 
-function press(type, code, more = {}) {
-  for (const listener of listeners[type] || []) listener({ code, preventDefault() {}, ...more });
+function key(type, code, modifier) {
+  tell(page, type, { code, metaKey: modifier === "meta", ctrlKey: modifier === "ctrl", altKey: modifier === "alt" });
 }
 
 function pad(action, a, b) {
   if (action === "connect") {
     pads[0] = controller;
-    press("gamepadconnected", undefined, { gamepad: controller });
+    tell(page, "gamepadconnected", { gamepad: controller });
   } else if (action === "disconnect") {
     pads[0] = null;
-    press("gamepaddisconnected", undefined, { gamepad: controller });
+    tell(page, "gamepaddisconnected", { gamepad: controller });
   } else if (action === "press" || action === "release") {
     controller.buttons[Number(a)] = { pressed: action === "press", value: action === "press" ? 1 : 0 };
   } else if (action === "stick") {
@@ -91,10 +140,16 @@ function pad(action, a, b) {
   }
 }
 
+function visible(shown_now) {
+  document.hidden = !shown_now;
+  document.visibilityState = shown_now ? "visible" : "hidden";
+  tell(document, "visibilitychange");
+}
+
+/* A browser gives a hidden page no frames; the time still passes. */
 function play(frames) {
   for (let i = 0; i < frames; i++) {
-    const due = waiting.splice(0);
-    for (const callback of due) callback(now);
+    if (!document.hidden) for (const callback of waiting.splice(0)) callback(now);
     now += FRAME_MS;
   }
 }
@@ -107,18 +162,35 @@ function picture() {
   return colors.join(",");
 }
 
+function text(id) {
+  const found = document.getElementById(id);
+  if (!found) return `text ${id} (none)`;
+  return `text ${id} ${found.hidden ? "hidden " : ""}${found.textContent}`;
+}
+
+function state() {
+  const filling = document.fullscreenElement ? document.fullscreenElement.id : "none";
+  return `state audio=${audio ? audio.state : "none"} fullscreen=${filling} kept=${kept}`;
+}
+
 vm.runInNewContext(script, vm.createContext(page));
 
 const printed = [];
 for (const line of fs.readFileSync(0, "utf8").split("\n")) {
   const [step, what, ...rest] = line.trim().split(" ");
-  if (step === "down") press("keydown", what);
-  else if (step === "up") press("keyup", what);
+  if (step === "down") key("keydown", what, rest[0]);
+  else if (step === "up") key("keyup", what);
   else if (step === "pad") pad(what, ...rest);
+  else if (step === "blur") { focused = false; tell(page, "blur"); }
+  else if (step === "focus") { focused = true; tell(page, "focus"); }
+  else if (step === "hide") visible(false);
+  else if (step === "show") visible(true);
+  else if (step === "click") { tell(elements[what], "click"); tell(page, "pointerdown"); }
   else if (step === "play") play(Number(what));
   else if (step === "picture") printed.push(`picture ${picture()}`);
-  else if (step === "text") printed.push(`text ${what} ${page.document.getElementById(what)?.textContent ?? "(none)"}`);
+  else if (step === "text") printed.push(text(what));
+  else if (step === "state") printed.push(state());
   else if (step) throw new Error(`page_harness: no step called ${step}`);
 }
-if (ids.has("said") && !said.hidden) printed.push(`said ${said.textContent}`);
+if (ids.has("said") && !elements.said.hidden) printed.push(`said ${elements.said.textContent}`);
 fs.writeSync(1, `${printed.join("\n")}\n`);
