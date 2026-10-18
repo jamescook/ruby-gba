@@ -231,7 +231,7 @@ module RubyGBA
             @sprites = []
             @sound_log = SoundLog.new(program)
             @drawn_sprites = DrawnSprites.new(program)
-            play(Native.new.build_headless(program), frames || Reference::DEFAULT_FRAMES)
+            play(headless_program(program), frames || Reference::DEFAULT_FRAMES)
             self
           ensure
             @save.restore_power # a cut is for one run, as it is for the interpreter
@@ -300,6 +300,10 @@ module RubyGBA
           def respond_to_missing?(_name, _include_private = false) = false
 
           private
+
+          # The program a run plays: the game built as C with no window. JS::HeadlessRun plays the
+          # game as JavaScript instead, which prints the same lines, and builds that here.
+          def headless_program(program) = Native.new.build_headless(program)
 
           # What the program prints is read a line at a time, so the two big things it makes go
           # to files of their own, in a folder that lasts as long as the run: every moment's

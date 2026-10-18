@@ -40,17 +40,17 @@ module RubyGBA
           # same.
           def sounds_difference(want, got)
             at = (0...[want.size, got.size].max).find { |index| want[index] != got[index] }
-            at && "entry #{at} of the sound log: C has #{got[at].inspect}, Reference #{want[at].inspect}"
+            at && "entry #{at} of the sound log: #{lowered_side} has #{got[at].inspect}, Reference #{want[at].inspect}"
           end
 
           # The first frame's slice of mixed sound the two disagree on — the frame and the first
           # sample in it — or nil when they made the same bytes throughout.
           def mix_difference(want, got)
-            return "how many frames were mixed: the C mixed #{got.size}, Reference #{want.size}" if want.size != got.size
+            return "how many frames were mixed: the #{lowered_side} mixed #{got.size}, Reference #{want.size}" if want.size != got.size
 
             frame = want.each_index.find { |index| want[index] != got[index] } or return nil
             sample = (0...[want[frame].size, got[frame].size].max).find { |index| want[frame][index] != got[frame][index] }
-            "frame #{frame + 1} of the mix, sample #{sample}: C has #{got[frame][sample].inspect}, " \
+            "frame #{frame + 1} of the mix, sample #{sample}: #{lowered_side} has #{got[frame][sample].inspect}, " \
               "Reference #{want[frame][sample].inspect}"
           end
 
@@ -59,7 +59,7 @@ module RubyGBA
           def drops_difference(want, got)
             return nil if [want.dropped, want.music_held] == [got.dropped, got.music_held]
 
-            "the sounds lost to a full mixer: the C lost #{got.dropped} with the music holding at most " \
+            "the sounds lost to a full mixer: the #{lowered_side} lost #{got.dropped} with the music holding at most " \
               "#{got.music_held}, Reference #{want.dropped} with #{want.music_held}"
           end
 
@@ -71,7 +71,7 @@ module RubyGBA
             return nil if wanted == held
 
             at = (0...[wanted.bytesize, held.bytesize].max).find { |index| wanted.getbyte(index) != held.getbyte(index) }
-            format("save memory at 0x%<at>X: C has 0x%<got>02X, Reference 0x%<want>02X", at: at, got: held.getbyte(at) || 0,
+            format("save memory at 0x%<at>X: #{lowered_side} has 0x%<got>02X, Reference 0x%<want>02X", at: at, got: held.getbyte(at) || 0,
                                                                                       want: wanted.getbyte(at) || 0)
           end
 
@@ -79,8 +79,12 @@ module RubyGBA
           # when they drew the same ones in the same places showing the same pictures.
           def sprites_difference(want, got)
             at = (0...[want.size, got.size].max).find { |index| want[index] != got[index] }
-            at && "sprite #{at} of those drawn: C has #{sprite_in_words(got[at])}, Reference #{sprite_in_words(want[at])}"
+            at && "sprite #{at} of those drawn: #{lowered_side} has #{sprite_in_words(got[at])}, Reference #{sprite_in_words(want[at])}"
           end
+
+          # What these call the side being checked against the interpreter: the game as C. The
+          # JavaScript lowering, which is checked by the same words, calls it JS.
+          def lowered_side = "C"
 
           private
 
@@ -95,10 +99,10 @@ module RubyGBA
           # variable the interpreter wrote and the C never printed is a variable the lowering lost
           # track of, which comparing only what the C printed would never notice.
           def variable_differences(want, got)
-            unprinted = (want.keys - got.keys).map { |name| "#{name}: the C does not keep it" }
+            unprinted = (want.keys - got.keys).map { |name| "#{name}: the #{lowered_side} does not keep it" }
             wrong = got.filter_map do |name, value|
               expected = want.fetch(name, 0)
-              "#{name}: C has #{value}, Reference #{expected}" if expected != value
+              "#{name}: #{lowered_side} has #{value}, Reference #{expected}" if expected != value
             end
             unprinted + wrong
           end
@@ -109,7 +113,7 @@ module RubyGBA
             first = want.each_index.find { |i| want[i] != got[i] }
             differing = want.each_index.count { |i| want[i] != got[i] }
             "the pictures differ in #{differing} pixels, the first at (#{first % Screen::WIDTH}, #{first / Screen::WIDTH}): " \
-              "C shows #{format('%04x', got[first])}, Reference #{format('%04x', want[first])}"
+              "#{lowered_side} shows #{format('%04x', got[first])}, Reference #{format('%04x', want[first])}"
           end
 
           # The program's printed moments. A sound line belongs to the log as it grows, so each

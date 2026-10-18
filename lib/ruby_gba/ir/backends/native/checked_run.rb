@@ -54,7 +54,7 @@ module RubyGBA
           # it, and it holds what the game as C left in it once the run is over.
           def initialize(save: SaveImage.new)
             @save = save
-            @native = HeadlessRun.new(save: save)
+            @native = headless_run(save)
             @played = {}
             @held = []
             @native.input_each_frame { |frame| @played[frame] = buttons_for(frame) }
@@ -112,19 +112,19 @@ module RubyGBA
           def self.first_difference(want, got)
             if want.map(&:frame) != got.map(&:frame)
               return "how far the run went: the interpreter stopped after frame #{last_frame(want)}, " \
-                     "the C after frame #{last_frame(got)}"
+                     "the #{lowered_side} after frame #{last_frame(got)}"
             end
 
             want.zip(got).each do |reference, native|
               differences = variable_differences(reference.variables, native.variables)
               differences << "the picture differs" if reference.picture != native.picture
               if reference.sounds != native.sounds
-                differences << "the sound log holds #{native.sounds} entries in the C and #{reference.sounds} in Reference"
+                differences << "the sound log holds #{native.sounds} entries in the #{lowered_side} and #{reference.sounds} in Reference"
               end
               differences.concat([sprites_difference(reference.sprites, native.sprites)].compact)
               differences.concat(collections_differences(reference.collections, native.collections))
               if reference.sounding != native.sounding
-                differences << "the mixer sounds #{native.sounding.inspect} in the C and #{reference.sounding.inspect} in Reference"
+                differences << "the mixer sounds #{native.sounding.inspect} in the #{lowered_side} and #{reference.sounding.inspect} in Reference"
               end
               return "#{heading(reference.frame)}: #{differences.join('; ')}" if differences.any?
             end
@@ -136,14 +136,14 @@ module RubyGBA
           def self.collections_differences(want, got)
             lists = (want[:lists].keys | got[:lists].keys).filter_map do |name|
               mine, theirs = got[:lists][name], want[:lists][name]
-              "list :#{name}: C has #{mine.inspect}, Reference #{theirs.inspect}" if mine != theirs
+              "list :#{name}: #{lowered_side} has #{mine.inspect}, Reference #{theirs.inspect}" if mine != theirs
             end
             fields = (want[:pools].keys | got[:pools].keys).flat_map do |pool|
               mine, theirs = got[:pools].fetch(pool, {}), want[:pools].fetch(pool, {})
               (theirs.keys | mine.keys).filter_map do |field|
                 next if mine[field] == theirs[field]
 
-                "pool :#{pool} field :#{field}: C has #{mine[field].inspect}, Reference #{theirs[field].inspect}"
+                "pool :#{pool} field :#{field}: #{lowered_side} has #{mine[field].inspect}, Reference #{theirs[field].inspect}"
               end
             end
             lists + fields
@@ -153,6 +153,13 @@ module RubyGBA
           def self.last_frame(moments) = moments.map(&:frame).grep(Integer).max || 0
 
           private
+
+          # The run of the game this checks: the game as C with no window. JS::CheckedRun checks
+          # the game as JavaScript, by the same moments, and makes its own run here.
+          def headless_run(save) = HeadlessRun.new(save: save)
+
+          # What a disagreement calls the lowering it found.
+          def lowering_name = "the native lowering"
 
           # How many frames the interpreter plays in +max_steps+ steps: it stops a game on the
           # frame boundary after the budget runs out, so a run by budget is a run of that many
@@ -218,7 +225,7 @@ module RubyGBA
 
           # A picture that differs is played again with every pixel of every frame, to say where.
           def disagreement_message(difference, program, frames)
-            message = "the native lowering and the interpreter disagree at #{difference}"
+            message = "#{lowering_name} and the interpreter disagree at #{difference}"
             return message unless difference.include?("picture")
 
             want = reference_snapshots(program, frames: frames, buttons: @played, held: @held)
