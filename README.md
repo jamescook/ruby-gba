@@ -339,10 +339,10 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 
 - [ ] Tiled TMX import (maps bigger than the console's grid already work, from text or CSV)
 - [ ] More motion verbs — lerp / wrap / bounce / snap
-- [ ] Target-neutral draw layer (decouple draw intent from the framebuffer)
+- [x] Target-neutral draw layer (decouple draw intent from the framebuffer)
 - [ ] A layer shown only inside a box the game moves, and a light shaped by a sprite (the rest of the console's windows)
-- [ ] CLI `preview` — run a game in the browser (JS backend)
-- [ ] JS / `<canvas>` backend (web target + live preview)
+- [x] CLI `preview` — run a game in the browser (JS backend)
+- [x] JS / `<canvas>` backend (web target + live preview)
 - [ ] Terminal (TTY) and Game Boy Color backends
 
 ---
