@@ -227,6 +227,10 @@ class TestQuickMemoryByScene < Minitest::Test
   # Two routines of about 16K each: one fits, two do not.
   BIG = 1200
 
+  # Words of a list that leave room for the game loop and the save routines, and not for the
+  # music as well. Picked for the cartridge the build makes today.
+  CROWDING_PILE = 4350
+
   def test_each_scene_keeps_its_own_busy_routine_while_it_is_up
     report = placement_of(two_screens(adds: BIG))
 
@@ -347,6 +351,53 @@ class TestQuickMemoryByScene < Minitest::Test
     assert_includes report.scenes.fetch(:play), :play_work
     assert(report.scenes.fetch(:files).any? { |name| name.to_s.start_with?("__save_file__") },
            "the file screen keeps its save routines: #{report.scenes[:files]}")
+  end
+
+  # A file screen whose record insists on its save routines, and a play screen whose own routine,
+  # about +adds+ additions long, the build is free to place. The game plays a song, so the
+  # routine that plays the music is worth the quick memory once the game is measured, and a list
+  # of +pile+ words fills most of the room — the shape of a real game's build, where data takes
+  # most of the quick memory and the game loop and the music want much of the rest.
+  private def files_beside_growing_play(adds, pile: CROWDING_PILE)
+    RubyGBA.game("GROWING") do
+      enable_sound
+      b = var :b, 0
+      spin = var :spin, 0
+      hearts = var :hearts, 3
+      var :where, 0
+      heap = list :heap, capacity: pile, fast: true
+      files = save_data(:file, copies: 1, fast: true) { keep hearts }
+      song(:tune) do
+        tempo 240
+        voice(:melody) { 8.times { note :C4, :eighth; note :E4, :eighth } }
+        voice(:bass) { 8.times { note :C3, :quarter } }
+      end
+      play_song :tune
+      func(:play_work) { adds.times { b.add! 1 } }
+      scene(:files) { pressed(:a).then { files[0].save } }
+      scene(:play) { call :play_work }
+      game_loop do
+        heap.push 1
+        300.times { spin.add! 1 }
+        pressed(:start).then { set! :where, 1 }
+        case_var(:where) do
+          when_val 0, :files
+          when_val 1, :play
+        end
+      end
+    end
+  end
+
+  # HOWEVER PLAY GROWS, THE FILE SCREEN KEEPS WHAT ITS RECORD INSISTED ON, in the build that
+  # measured the game and in the one that did not.
+  def test_play_growing_never_takes_the_file_screens_save_routines
+    step = RubyGBA::Messages::MadeNames.make(:save_record, record: :file, piece: :step)
+    [100, 1500, 3000].product([false, true]).each do |adds, profile|
+      placement = files_beside_growing_play(adds).build_rom(out: StringIO.new, err: StringIO.new, profile: profile).built.placement
+      kept = placement.funcs + placement.scenes.fetch(:files, [])
+
+      assert_includes kept, step, "play at #{adds} additions, measured: #{profile}"
+    end
   end
 
   # A SCREEN WITH NOTHING OF ITS OWN LEAVES WHAT IS IN, and power-on puts in the first set a

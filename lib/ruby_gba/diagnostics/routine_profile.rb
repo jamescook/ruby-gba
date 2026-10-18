@@ -50,7 +50,7 @@ module RubyGBA
       # each routine. Empty for a game with no scenes, and for a profile saved before these
       # were kept. The added-up counts rank a routine by what it is worth over the whole game;
       # these say what it is worth to any ONE frame, which is what a scene's own share of the
-      # quick memory is chosen by (see #order_by_scene_work).
+      # quick memory is chosen by (see GBA::QuickMemoryPlan).
       attr_reader :scenes
 
       def initialize(work:, game: nil, measured_at: nil, busiest: nil, scenes: {})
@@ -153,21 +153,9 @@ module RubyGBA
       # +names+ ordered by what a frame was measured to spend in each, dearest first. A routine
       # the profile never saw goes last, in the order it was given — it is new since the
       # measuring, and nothing here can say what it costs.
-      def order_by_work(names) = order_measured_first(names) { |name| work.fetch(name) }
-
-      # +names+ ordered by the most a frame of any one scene was measured to spend in each,
-      # dearest first — the second order the scenes' shares of the quick memory are tried in
-      # (see GBA::SceneQuickMemory#choose_scene_sets). Added up over every scene, a routine two
-      # scenes run reads dearer than one scene's own busier routine, though a frame of either
-      # spends less in it. With no scene's counts, it is #order_by_work.
-      #
-      # A routine measured but in no scene's counts ranks at nothing, behind every scene's
-      # routines and ahead of the ones never measured. The game loop is one, and it is placed
-      # before anything this orders.
-      def order_by_scene_work(names)
-        return order_by_work(names) if scenes.empty?
-
-        order_measured_first(names) { |name| scenes.values.map { |counts| counts.fetch(name, 0) }.max }
+      def order_by_work(names)
+        measured, unmeasured = names.partition { |name| measured?(name) }
+        measured.sort_by { |name| [-work.fetch(name), name.to_s] } + unmeasured
       end
 
       # A routine has to do enough work to be worth the room. The same job WORTH_MOVING did for
@@ -185,12 +173,6 @@ module RubyGBA
       def worth_quick_memory?(name) = work.fetch(name, 0) >= WORTH_MOVING
 
       private
-
-      # +names+ the profile measured, dearest by the block first, then the rest as given.
-      def order_measured_first(names, &cost)
-        measured, unmeasured = names.partition { |name| measured?(name) }
-        measured.sort_by { |name| [-cost.call(name), name.to_s] } + unmeasured
-      end
 
       # Counts by routine, dearest first, as a saved profile keeps them.
       def counts_as_json(counts) = counts.sort_by { |_, n| -n }.to_h { |name, n| [name.to_s, n] }

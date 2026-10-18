@@ -9,7 +9,8 @@ module RubyGBA
         # The game loop's body is the single most valuable thing to keep in the console's
         # quick memory — it is where nearly all of a frame's time goes, and code there runs
         # about two and a half times faster than code fetched from the cartridge. The build
-        # offers it the memory first. When it does not FIT, the whole frame runs from the
+        # offers it the memory first, after only what the author insisted on (`fast: true`).
+        # When it does not FIT, the whole frame runs from the
         # cartridge, and the game is slower by that factor for a reason nothing else in a
         # build can show.
         #
@@ -25,9 +26,9 @@ module RubyGBA
         # word — put the thinking in a routine of its own, marked `fast: false` — and that is
         # what the message says.
         #
-        # The chooser records what it passed over (see Backends::GBA::Placement#place_by_frame_cost),
-        # so this only has to read it. A build with no chooser at all (`fast_code: false`)
-        # passes nothing over and says nothing.
+        # The chooser records what it passed over (see Backends::GBA::QuickMemoryPlan), so this
+        # only has to read it. A build with no chooser at all (`fast_code: false`) passes
+        # nothing over and says nothing.
         #
         # A LOOP LEFT OUT IS NOT ALWAYS A FRAME SLOWED, and a build that measured its game can
         # tell the two apart. The story above is a loop whose body holds the frame's work in
@@ -41,10 +42,11 @@ module RubyGBA
         # code did a real part of a frame's work, and it says how much, and in which scene: the
         # one whose frames do the most, which is the figure `rom.profile` prints for that scene
         # (see Diagnostics::RoutineProfile::Busiest). The loop may then have missed its place
-        # because costlier routines went first, so the advice names both ways out, a smaller
-        # loop or more room for it. Where nothing was measured the loop was offered the memory
-        # first and missed it on size alone, which is the case above, and nothing better is
-        # known than what that warning says.
+        # because costlier routines went first, or what the author insisted on, so the advice
+        # names both ways out, a smaller loop or more room for it. Where nothing was measured
+        # the loop was offered the memory first after what the author insisted on and missed it
+        # on size, which is the case above, and nothing better is known than what that warning
+        # says.
         class FrameFromCartridge
           NAME = :frame_from_cartridge
           PLAIN_NAME = "the game loop running from the cartridge"
@@ -96,7 +98,8 @@ module RubyGBA
             "So the loop's own code runs from the cartridge, #{SLOWER}. #{where} code is about " \
               "#{measured.percent.round}% of the work of a frame. To fix this, make the loop's body smaller: " \
               "move code that seldom runs into a `func` of its own, and mark it `fast: false`. Or give the " \
-              "loop more room: mark a routine that matters less `fast: false`."
+              "loop more room: mark a routine that matters less `fast: false`, or remove `fast: true` from a " \
+              "routine, a scene or a `save_data` record that matters less."
           end
 
           def kilobytes(bytes) = format("%.1fK", bytes / 1024.0)

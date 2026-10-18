@@ -199,9 +199,10 @@ module RubyGBA
             insisted = funcs_marked(program, true)
             return insisted if insisted.empty? && !@fast_code
 
-            probe = measure_routines(program)
+            first = measure_routines(program)
+            probe = first
             chosen = choose_from_measurement(program, probe, insisted)
-            nearer = variables_kept_routines_want_nearer(probe, chosen)
+            nearer = variables_kept_routines_want_nearer(probe, chosen + routines_in_sets)
             unless nearer.empty?
               # MEASURED AGAIN, with those variables where they are going to be. Moving a
               # variable changes the size of every routine that names it, and the choice
@@ -211,7 +212,16 @@ module RubyGBA
               # routine that uses one past the line.
               @measuring_again = true # the second time is said as such (see #measuring_phase_name)
               probe = measure_routines(program, variables_first: nearer)
-              chosen = choose_from_measurement(program, probe, insisted)
+              begin
+                chosen = choose_from_measurement(program, probe, insisted)
+              rescue QuickMemoryFull
+                # WHICH VARIABLES MOVED NEARER followed what the build picked, and that follows
+                # what the measuring run found — so a build that stopped here and not on the first
+                # measurement would stop on a measurement, which only what the author insisted on
+                # may do (see {QuickMemoryPlan}). The first layout fitted, so it is kept.
+                probe = first
+                chosen = choose_from_measurement(program, probe, insisted)
+              end
             end
             allocate_variables_where_measured(probe)
             chosen
@@ -287,60 +297,26 @@ module RubyGBA
             # Kept, because the emitter needs the line each routine's reads were drawn at.
             @table_effects = effects
             @call_charges = effects.transform_values(&:call_charge)
-            # Every allocation is rounded up to a whole word, so the gap the probe leaves is
-            # the gap there really is — there is no alignment slop to keep back for.
-            room = probe.iwram_free
-            @passed_over = []
-
-            chosen = Set.new
             ranked = @fast_code ? ranked_by_frame_cost(program, sizes) : []
             wanted = wanted_by_frame_cost(program, ranked, sizes)
-            saving, asked = insisted.partition { |name| save_record_insisting_on(name, insisted) }
-            begin
-              room = place_insisted_for_whole_game(program, wanted, sizes, room, chosen, insisted, saving, asked)
-            rescue QuickMemoryFull
-              # TWO WORDS THAT DO NOT FIT TOGETHER may each fit in the room of the one scene
-              # that runs it — play's routine and the file screen's save routines are never
-              # wanted at the same moment. Only when that fails too does the build stop.
-              split = choose_scene_sets(program, wanted, sizes, probe.iwram_free, insisted, chosen)
-              raise unless split
-
-              sizes = split.sizes
-              chosen = split.resident
-              @routine_sizes = sizes.merge(chosen.to_h { |name| [name, sizes[name] - bytes_given_back(name, chosen)] })
-              return chosen
-            end
-            place_by_frame_cost(ranked, wanted, sizes, room, chosen) if @fast_code
-            # WHAT ONE SET FOR THE WHOLE GAME LEFT OUT, a scene's own room may hold (see
-            # {SceneQuickMemory}). A game where everything fits is built as it always was.
-            if @fast_code && !@passed_over.empty?
-              split = choose_scene_sets(program, wanted, sizes, probe.iwram_free, insisted, chosen)
-              sizes, chosen = split.sizes, split.resident if split
-            end
+            dispatch = quick_memory_dispatch(program)
+            scenes = dispatch ? dispatch.clauses.map(&:last).uniq : []
+            owners = dispatch ? scene_owners(program, scenes, dispatch) : {}
+            # Every allocation is rounded up to a whole word, so the gap the probe leaves is
+            # the gap there really is — there is no alignment slop to keep back for.
+            plan = QuickMemoryPlan.choose(quick_memory_claims(program, wanted, insisted, sizes, owners, scenes),
+                                          room: probe.iwram_free,
+                                          dispatch: dispatch && QuickMemoryPlan::Dispatch.new(scenes: scenes, clauses: dispatch.clauses.size))
+            adopt_scene_sets(plan, dispatch, scenes, owners)
             # Kept for the report: what each routine came to, and what a reader will want to
-            # know afterwards is why theirs is not on the list. A routine that was kept is
-            # down as what it was charged in the end, its calls to its neighbours given back.
-            @routine_sizes = sizes.merge(chosen.to_h { |name| [name, sizes[name] - bytes_given_back(name, chosen)] })
-            chosen
-          end
-
-          # What the author insisted on, kept for the whole game: the routines they named
-          # first, then — for a game whose records insist — what every frame runs, then the
-          # records' save routines. Answers the room left; raises where one does not fit.
-          def place_insisted_for_whole_game(program, wanted, sizes, room, chosen, insisted, saving, asked)
-            room = place_insisted(program, asked, sizes, room, chosen, insisted)
-            # A RECORD'S WORD COMES AFTER WHAT EVERY FRAME RUNS. `save_data ..., fast: true`
-            # keeps the routines a save's passes run, and a save is a few passes now and then;
-            # the game loop and the routine that answers the display run on every frame. A
-            # word placed ahead of them took their room in a big game, so the whole game ran
-            # at the cartridge's speed to save at the quick memory's. Placed after them, the
-            # word takes its room from lesser routines, and where it cannot fit beside them
-            # the build says so (see #guard_insisted_fits!). Which of the two go first is what
-            # the build would have kept anyway: the interrupt routine of a game with no music
-            # and no fast timer does too little to be worth the room, and a build told not to
-            # choose (`fast_code: false`) keeps neither, so then nothing goes ahead.
-            room = place_what_fits(wanted & every_frame_routines, sizes, room, chosen) unless saving.empty?
-            place_insisted(program, saving, sizes, room, chosen, insisted)
+            # know afterwards is why theirs is not on the list.
+            @passed_over = plan.missed.map do |missed|
+              PassedOver.new(name: missed.name, bytes: missed.bytes, room: missed.room,
+                             measured: @routine_profile&.busiest_share_of(missed.name),
+                             scene: missed.scene && scene_name(missed.scene))
+            end
+            @routine_sizes = sizes.merge(plan.charged)
+            plan.resident
           end
 
           # The memory address a func runs from once the program is lowered — its place in
@@ -692,7 +668,7 @@ module RubyGBA
           #
           # Answers the routine each such call in +node+ names, one entry a call, because
           # which routine it is decides whether the call crosses in the end (see
-          # #bytes_given_back).
+          # {QuickMemoryPlan}, which gives back the charge of a call between neighbours).
           def crossing_targets_in(node)
             node.walk.flat_map do |child|
               case child.kind
@@ -733,28 +709,6 @@ module RubyGBA
             calls[IRQ_ROUTINE] = irq_bodies(program).flat_map { |node| crossing_targets_in(node) }
             made_calls.each { |name, targets| calls[name] += targets }
             calls
-          end
-
-          # A CALL BETWEEN TWO KEPT ROUTINES NEVER GREW, so what +name+ was charged for it
-          # comes back once both are in +chosen+. Every call is charged as though it crossed,
-          # because the charging starts before anything is chosen; but the kept routines are
-          # copied as one block and go on calling each other with the plain jump they were
-          # measured with. Keeping MORE routines can only turn more calls plain, never fewer,
-          # so nothing given back ever has to be taken away again.
-          def bytes_given_back(name, chosen)
-            @call_charges.fetch(name, 0) * @crossing_targets[name].count { |target| chosen.include?(target) }
-          end
-
-          # WHAT KEEPING +name+ ADDS to the room taken, with +chosen+ kept already: its own
-          # charge less its calls to them and to itself, less what each of THEM gets back for
-          # calling it. That is less than its size whenever it has neighbours — which is how
-          # a routine that looked too big for the room comes to fit.
-          def bytes_added_by(name, chosen, sizes)
-            beside = chosen | [name]
-            from_the_rest = chosen.sum do |other|
-              other == name ? 0 : @call_charges.fetch(other, 0) * @crossing_targets[other].count(name)
-            end
-            sizes[name] - bytes_given_back(name, beside) - from_the_rest
           end
 
           # +measured+ is each routine's size off the throwaway pass, and +crossings+ how many
@@ -803,7 +757,7 @@ module RubyGBA
           #   +saved+           the bytes that come off what it is charged
           #   +call_charge+     what it is still charged for one call that could cross, and
           #                     so what it is given back for one that does not
-          #                     (see #bytes_given_back)
+          #                     (see {QuickMemoryPlan})
           TableEffect = Data.define(:measured_bytes, :read_within, :saved, :call_charge)
 
           # +size+ is the routine with every number built, +loads+ the loads a table could
@@ -875,27 +829,61 @@ module RubyGBA
             program.walk.select { |node| kinds.include?(node.kind) }
           end
 
-          # The routines the author asked for by name, placed before anything the
-          # framework picked and not held to its share of the room. Answers what is left.
-          #
-          # A scene insisted on takes the routines the build made for it (its sprites, its
-          # see-through amounts) with it. +names+ are the ones placed now; +insisted+ is every
-          # one asked for, which an error reads to name a record.
-          def place_insisted(program, names, sizes, room, chosen, insisted)
-            movable = program.walk.select { |node| node.kind == :func && names.include?(node.name) }.map(&:name)
-            movable += scene_routines.filter_map { |routine, scene| routine if names.include?(scene) && sizes[routine] }
-            movable.each do |name|
-              adds = sizes[name] && bytes_added_by(name, chosen, sizes)
-              guard_insisted_fits!(name, adds, room, insisted, chosen)
-              chosen << name
-              room -= adds
-            end
-            room
-          end
-
           # What every frame runs, whatever it measured: the game loop, the routines placed
           # with it (see #beside_frame_routine), and the routine the console interrupts into.
           def every_frame_routines = [FRAME_ROUTINE, *routines_placed_with_frame, IRQ_ROUTINE]
+
+          # WHAT WANTS A PLACE IN THE QUICK MEMORY, said as plain numbers for {QuickMemoryPlan}:
+          # what the author insisted on, then what the build would pick, in its order. Each routine
+          # one scene alone runs may go in that scene's set (see {SceneQuickMemory}); a save
+          # record's routines go with the one scene that asks for its saves, though every pass of
+          # the game loop can reach them, since a save is written a piece a pass and finishes
+          # wherever it is. What every frame runs is marked, for the plan puts it first in a split:
+          # the game loop, the routine the console interrupts into, and the routine that brings a
+          # big map's view along — which goes into its scene's set where its background is a scene's.
+          def quick_memory_claims(program, wanted, insisted, sizes, owners, scenes)
+            only_scene = ->(name) { (who = owners[name]) && who.size == 1 && scenes.include?(who.first) ? who.first : nil }
+            asked = insisted_routines(program, insisted, sizes)
+            insisted_claims = asked.map do |name|
+              QuickMemoryPlan::Claim.new(name: name, bytes: sizes[name], insisted: insisted_words(name, insisted),
+                                         scene: only_scene.call(name) || asking_scene(name, owners, scenes),
+                                         calls: @crossing_targets[name], call_charge: @call_charges.fetch(name, 0))
+            end
+            every_frame = every_frame_routines
+            optional = wanted - asked
+            optional_claims = optional.each_with_index.map do |name, index|
+              # Name each routine the build may pick as it is handed over, in the words an author
+              # would use. It is the one place a build names the routines it is deciding between,
+              # and that is worth seeing.
+              @progress.report_count(index + 1, optional.length, Messages::PlainWords.routine(name))
+              QuickMemoryPlan::Claim.new(name: name, bytes: sizes[name], scene: only_scene.call(name),
+                                         every_frame: every_frame.include?(name), scene_work: scene_work_of(name),
+                                         calls: @crossing_targets[name], call_charge: @call_charges.fetch(name, 0))
+            end
+            insisted_claims + optional_claims
+          end
+
+          # The routines the author asked for by name. A scene insisted on takes the routines the
+          # build made for it (its sprites, its see-through amounts) with it, those it made at all.
+          def insisted_routines(program, insisted, sizes)
+            named = program.walk.select { |node| node.kind == :func && insisted.include?(node.name) }.map(&:name)
+            (named + scene_routines.filter_map { |routine, scene| routine if insisted.include?(scene) && sizes[routine] }).uniq
+          end
+
+          # What the author wrote to insist on +name+: a record's word for its save routines, a
+          # scene's for the scene and the routines the build made for it, a func's for anything else.
+          def insisted_words(name, insisted)
+            record = save_record_insisting_on(name, insisted)
+            record ? "`save_data :#{record}, fast: true`" : fast_true_snippet(name)
+          end
+
+          # What a frame of each scene was measured to spend in +name+, by scene routine: empty for
+          # a routine measured in no scene's counts, nil for one never measured.
+          def scene_work_of(name)
+            return nil unless @routine_profile&.measured?(name)
+
+            @routine_profile.scenes.to_h { |scene, counts| [:"#{SceneQuickMemory::SCENE_PREFIX}#{scene}", counts.fetch(name, 0)] }
+          end
 
           # The routines of +ranked+ the build may keep: not kept out by their author, not
           # holding raw bytes, and measured at all.
@@ -905,51 +893,6 @@ module RubyGBA
             # out with it: its sprites, and its see-through amounts.
             forbidden += scene_routines.filter_map { |routine, scene| routine if forbidden.include?(scene) }
             ranked.reject { |name| forbidden.include?(name) || sizes[name].nil? || !movable?(program, name) }
-          end
-
-          # Then whatever a frame spends the most time in, biggest earner first, within
-          # the framework's own share. Anything that will not fit is skipped rather than
-          # stopping the fill — a small routine after a large one still gets its chance.
-          #
-          # AND THE LIST IS GONE THROUGH AGAIN WHILE ANYTHING WAS ADDED, because what a routine
-          # takes depends on what is kept beside it (see #bytes_added_by): one turned away
-          # near the top can fit once a routine it calls, or that calls it, has gone in below.
-          def place_by_frame_cost(ranked, wanted, sizes, room, chosen)
-            first_time = true
-            loop do
-              kept_before = chosen.size
-              room = place_what_fits(wanted, sizes, room, chosen, named: (ranked if first_time))
-              first_time = false
-              break if chosen.size == kept_before
-            end
-          end
-
-          # Go down +wanted+ once, keeping each routine that fits in +room+, and answer the
-          # room left. Leaves @passed_over as the routines THIS pass turned away, so after the
-          # last pass it is the routines that never fitted.
-          def place_what_fits(wanted, sizes, room, chosen, named: nil)
-            @passed_over = []
-            wanted.each do |name|
-              # Say which routine is being weighed, in the words an author would use. The
-              # phase is quick now that nothing is priced, but it is the one place a build
-              # names the routines it is deciding between, and that is worth seeing.
-              @progress.report_count(named.index(name) + 1, named.length, Messages::PlainWords.routine(name)) if named
-              next if chosen.include?(name)
-
-              adds = bytes_added_by(name, chosen, sizes)
-              # TOO BIG TO FIT, and worth remembering rather than passing over in silence: this
-              # is a routine the frame spends real time in that will run from the cartridge
-              # instead, and the report has no other way to find out afterwards.
-              if adds > room
-                @passed_over << PassedOver.new(name: name, bytes: adds, room: room,
-                                               measured: @routine_profile&.busiest_share_of(name))
-                next
-              end
-
-              chosen << name
-              room -= adds
-            end
-            room
           end
 
           # The trees a name stands for: a routine the author wrote, the loop itself for the
@@ -1152,49 +1095,6 @@ module RubyGBA
           end
 
           def frame_body(program) = program.walk.find { |node| node.kind == :loop }
-
-          # A routine the author asked to keep in the quick memory, that will not go
-          # there, is a plain error where they wrote it — not a silent shrug.
-          #
-          # +insisted+ is every routine that was asked for, which is how a routine of the save
-          # queue, shared by the records, finds a record to name. +chosen+ is what is kept
-          # already, which a record's error reads to say what every frame runs went in first.
-          def guard_insisted_fits!(name, size, room, insisted, chosen)
-            if size.nil?
-              raise LoweringError,
-                    "#{fast_true_snippet(name)} asks to keep that routine in the console's quick " \
-                    "memory, but nothing calls it, so it never runs. To fix this, call it or " \
-                    "remove the routine."
-            end
-            return if size <= room
-
-            if (record = save_record_insisting_on(name, insisted))
-              raise QuickMemoryFull,
-                    "`save_data :#{record}, fast: true` asks to keep the save routines of that record " \
-                    "in the console's quick memory. One of them needs #{size} bytes, and only " \
-                    "#{[room, 0].max} are free.#{kept_ahead_of_saves(chosen)} To fix this, use fewer " \
-                    "variables and lists, or mark another routine `fast: false`, or remove " \
-                    "`fast: true` from the record."
-            end
-
-            raise QuickMemoryFull,
-                  "#{fast_true_snippet(name)} asks to keep that routine in the console's quick " \
-                  "memory, but it needs #{size} bytes and only #{[room, 0].max} are free. To fix " \
-                  "this, make the routine smaller, or use fewer variables and lists."
-          end
-
-          # The sentence that says what every frame runs went in ahead of a record's routines,
-          # or nothing when none of it did. The interrupt routine's own plain name is long and
-          # holds an "and" of its own, so it is said shorter here.
-          def kept_ahead_of_saves(chosen)
-            names = every_frame_routines.select { |name| chosen.include?(name) }.map do |name|
-              name == IRQ_ROUTINE ? "the routine that plays the music" : Messages::PlainWords.routine(name)
-            end
-            return "" if names.empty?
-
-            listed = names.length == 1 ? names.first : "#{names[0..-2].join(', ')} and #{names.last}"
-            " Every frame runs #{listed}, so #{names.one? ? 'it goes' : 'they go'} in first."
-          end
 
           # What the author wrote to insist on +name+: a scene's own word for the scene and for
           # the routines the build made for it, a func's for anything else.

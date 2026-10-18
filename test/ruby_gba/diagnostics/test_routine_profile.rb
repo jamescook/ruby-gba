@@ -90,7 +90,6 @@ class TestRoutineProfile < Minitest::Test
       read = RoutineProfile.read(path)
 
       assert_equal({ shared: 100, title_art: 150 }, read.scenes.fetch(:title))
-      assert_equal %i[title_art shared], read.order_by_scene_work(%i[shared title_art])
       assert_equal %i[shared title_art], read.order_by_work(%i[shared title_art]), "added up, the shared one is dearer"
     end
   end

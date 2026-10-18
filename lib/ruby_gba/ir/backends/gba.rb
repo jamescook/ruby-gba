@@ -31,6 +31,7 @@ require_relative "gba/background_drawing" # putting background layers up, and ch
 require_relative "gba/framebuffer"
 require_relative "gba/scene_entry"
 require_relative "gba/drawing"
+require_relative "gba/quick_memory_plan" # what goes in the quick memory, worked out from plain numbers
 require_relative "gba/scene_quick_memory" # each scene its own share of the quick memory, swapped as it takes over
 require_relative "gba/placement"
 require_relative "gba/buffered"

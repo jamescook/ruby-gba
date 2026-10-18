@@ -215,19 +215,19 @@ class TestSaveDataFast < Minitest::Test
 
     assert_match(/save_data :file, fast: true/, error.message)
     assert_match(/quick memory/, error.message)
-    assert_match(/remove `fast: true` from the record/, error.message)
+    assert_match(/remove `fast: true`/, error.message)
   end
 
   # A game whose game loop is long and which plays a song, so the routine that plays the music
   # does enough to be worth the quick memory too. Its list leaves room there for those two or
   # for the record's save routines, and not for all of them. The lengths are picked for the
   # cartridge the build makes today: a change to how a loop or a save is built can move them,
-  # and then the refusals below say so by finding room for all of them.
+  # and then the tests below say so by finding room for all of them.
   #
   # A measured build first builds once without a measurement, and that build cannot tell the
-  # music is worth the room, so only the game loop goes ahead of the save routines there.
-  # CROWDING_LIST leaves too little room even for that build. CROWDING_THE_MUSIC leaves room
-  # for that build and not for the measured one, where the music goes ahead too.
+  # music is worth the room. CROWDING_LIST leaves too little room for the save routines and the
+  # game loop together in either build. CROWDING_THE_MUSIC leaves room for the game loop beside
+  # them, and not for the music too.
   CROWDING_LIST = 5200
   CROWDING_THE_MUSIC = 4350
 
@@ -254,25 +254,29 @@ class TestSaveDataFast < Minitest::Test
     end
   end
 
-  # THE GAME LOOP AND THE MUSIC GO IN AHEAD OF A RECORD'S WORD. Every frame runs them, and a
-  # save is a few passes now and then; a game whose word put them in the cartridge ran every
-  # frame at the cartridge's speed to save its passes the same. So where they do not all fit,
-  # the build says so rather than choose.
-  def test_a_record_whose_routines_would_put_the_game_loop_in_the_cartridge_is_refused
+  # A RECORD'S WORD GOES IN AHEAD OF WHAT THE BUILD WOULD PICK, the game loop and the music
+  # among them. What the author insisted on is the one thing a build can stop on, so nothing the
+  # build picks for itself can take its room — and the author is told what that cost.
+  def test_a_record_whose_routines_crowd_out_the_game_loop_keeps_them_and_says_so
     by_measuring = kept_in_quick_memory(game_crowding_its_loop(nil), profile: true)
-    error = assert_raises(GBA::LoweringError) { kept_in_quick_memory(game_crowding_its_loop(true), profile: true) }
+    err = StringIO.new
+    kept = game_crowding_its_loop(true).build_rom(out: StringIO.new, err: err, profile: true).built.placement.funcs
 
     assert_empty %i[__frame __interrupt] - by_measuring, "saying nothing, the game loop and the music are kept"
-    assert_match(/save_data :file, fast: true/, error.message)
-    assert_match(/Every frame runs the game loop, so it goes in first/, error.message)
-    assert_match(/remove `fast: true` from the record/, error.message)
+    assert_empty routines(:step, :scan) - kept, "saying fast, the record's routines are kept"
+    refute_includes kept, :__frame
+    assert_match(/game loop's body did not fit/, err.string)
   end
 
-  def test_a_record_whose_routines_would_put_the_music_in_the_cartridge_is_refused
-    game = game_crowding_its_loop(true, pile_size: CROWDING_THE_MUSIC)
-    error = assert_raises(GBA::LoweringError) { kept_in_quick_memory(game, profile: true) }
+  # WHETHER THE RECORD'S WORD FITS IS THE SAME MEASURED OR NOT. The build without a measurement
+  # cannot tell the music is worth the room; the measured one can, and the music still goes in
+  # only after the save routines.
+  def test_a_record_that_fits_beside_the_game_loop_builds_measured_or_not
+    [false, true].each do |profile|
+      kept = kept_in_quick_memory(game_crowding_its_loop(true, pile_size: CROWDING_THE_MUSIC), profile: profile)
 
-    assert_match(/Every frame runs the game loop and the routine that plays the music/, error.message)
+      assert_empty routines(:step, :scan) - kept, "the record's routines are kept (measured: #{profile})"
+    end
   end
 
   # Where there is room for all of them, all of them are kept.
