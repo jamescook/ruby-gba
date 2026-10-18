@@ -325,6 +325,7 @@ module RubyGBA
 
         # A picture the size of the screen, for painting part of the scene onto by itself.
         def framebuffer_like_screen(fill:) = Framebuffer.new(width: @screen.width, height: @screen.height, fill: fill)
+        private :size_screen_for, :framebuffer_like_screen
 
         # The picture, painted up to date first if a repaint is owed (see #request_repaint).
         def screen
