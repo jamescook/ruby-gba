@@ -30,6 +30,8 @@ module RubyGBA
             MAP_JOB = "rt picture map job" # the grid being put up: rows left, where from, where to, its bank
             LCDC_WANTED = "rt picture lcdc"
             OVERLAP = "rt picture overlap" # two sprites' masks and where they meet, while they are tested
+            GRID_UP = "rt picture grid up" # the number of the grid up, or being put up
+            TINT = "rt picture tint" # what the colours are moved toward (TOWARD_*), the colour, and how far
 
             # How many of the grid's 32 rows are copied in one blank: their tiles and their cells'
             # colours, 512 bytes, which the console's own copy does in about a quarter of the blank.
@@ -45,6 +47,8 @@ module RubyGBA
               memory.reserve(MAP_JOB, 6)
               memory.reserve(LCDC_WANTED, 1)
               memory.reserve(OVERLAP, OVERLAP_BYTES)
+              memory.reserve(GRID_UP, 1)
+              memory.reserve(TINT, 4)
             end
 
             def emit(asm, memory, sprite_tiles:, background_tiles:)
@@ -54,7 +58,18 @@ module RubyGBA
               emit_background(asm, memory)
               emit_choices(asm, memory)
               emit_overlap(asm, memory)
+              emit_tint(asm, memory)
             end
+
+            # What a fade or a tint moves every colour toward: black, white, or a colour of the
+            # game's.
+            TOWARD_BLACK = 0
+            TOWARD_WHITE = 1
+            TOWARD_COLOR = 2
+
+            # A colour has three channels of five bits, red in the lowest.
+            CHANNEL_MAX = 31
+            STEPS = 32
 
             # At power-on, with the screen off: every tile into the console's memory, every
             # palette into the copy and the console. The data is the game's (GBC::Art, by the
@@ -186,8 +201,21 @@ module RubyGBA
               asm.and_a(~h::LCDC_ON & 0xFF)
               asm.or_a(:b)
               asm.load_high(h::LCDC, :a)
-              # A grid being put up: MAP_ROWS_PER_BLANK more of its rows, or all of them while the
-              # screen is off.
+              # A grid being put up, and a painted screen's tiles: as much of each as the blank holds.
+              asm.call("rt_picture_map_job")
+              asm.push(:af)
+              asm.call("rt_paint_upload")
+              asm.jump_relative(:c, "rt_upload_more")
+              asm.pop(:af)
+              asm.ret
+              asm.label("rt_upload_more")
+              asm.pop(:af)
+              asm.scf
+              asm.ret
+
+              # MAP_ROWS_PER_BLANK more rows of a grid being put up, or all of them while the screen
+              # is off. Carry set when some are left.
+              asm.label("rt_picture_map_job")
               asm.load(:a, [memory[MAP_JOB]])
               asm.and_a(:a)
               asm.ret(:z) # nothing being put up: carry clear from the AND
@@ -213,7 +241,7 @@ module RubyGBA
             # wholly off the screen is left out, since the table's place is a byte and a place far
             # off the screen would come round onto it.
             def emit_sprites(asm, memory)
-              args = ->(i) { Calls.arg(memory, i, 5) }
+              args = ->(i) { Calls.arg(memory, i, 4) }
               asm.label("rg_gbc_sprites_begin")
               asm.xor_a(:a)
               asm.load([memory[NEXT_SPRITE]], :a)
@@ -231,11 +259,13 @@ module RubyGBA
               4.times { asm.inc(:l) }
               asm.jump_relative("rg_gbc_sprites_end_next")
 
-              # rg_gbc_sprite(picture, x, y, palette, behind): HL in the pictures' table is the
-              # picture's pieces — a count, then for each its dx, dy, tile and bank.
+              # rg_gbc_sprite(picture, x, y, attributes): HL in the pictures' table is the picture's
+              # pieces — a count, then for each its dx, dy, tile and bank. The attributes are the
+              # palette and whether it is drawn behind the background (OBJ_BEHIND), as the sprite
+              # table keeps them.
               asm.label("rg_gbc_sprite")
               asm.load_hl_sp(2)
-              asm.load(:b, 20)
+              asm.load(:b, 16)
               asm.call("rt_take_args")
               asm.load_high(:a, args.call(0)) # the picture's entry: the table + 2 × its number
               asm.load(:l, :a)
@@ -322,19 +352,11 @@ module RubyGBA
               asm.load(:a, [:de])
               asm.load([:hli], :a)
               asm.inc(:de)
-              asm.load(:a, [:de]) # the attributes: bank, then the palette and in front or behind
+              asm.load(:a, [:de]) # the attributes: the piece's bank and mirroring, then the sprite's
               asm.inc(:de)
               asm.load(:b, :a)
               asm.load_high(:a, args.call(3))
-              asm.and_a(Console::GBCHardware::OBJ_PALETTE)
               asm.or_a(:b)
-              asm.load(:b, :a)
-              asm.load_high(:a, args.call(4))
-              asm.and_a(:a)
-              asm.load(:a, :b)
-              asm.jump_relative(:z, "rt_gbc_piece_in_front")
-              asm.or_a(Console::GBCHardware::OBJ_BEHIND)
-              asm.label("rt_gbc_piece_in_front")
               asm.load([:hl], :a)
               asm.load(:h, :d)
               asm.load(:l, :e)
@@ -353,8 +375,13 @@ module RubyGBA
               h = Console::GBCHardware
               asm.label("rg_gbc_background_put_up")
               asm.load_hl_sp(2)
-              asm.load(:a, [:hli]) # the grid's number: its entry in the grids' table, three bytes
-              asm.load(:e, :a)
+              asm.load(:a, [:hl]) # the grid's number: nothing to do when it is the one up
+              asm.load(:hl, memory[GRID_UP])
+              asm.cp_a([:hl])
+              asm.ret(:z)
+              asm.label("rt_picture_put_up") # A = the grid's number
+              asm.load([memory[GRID_UP]], :a)
+              asm.load(:e, :a) # its entry in the grids' table, three bytes
               asm.load(:d, 0)
               asm.load(:hl, "art_grids")
               3.times { asm.add_hl(:de) }
@@ -440,6 +467,15 @@ module RubyGBA
               asm.load(:a, :h)
               asm.load([memory[MAP_JOB] + 4], :a)
               asm.jump("rt_bank_back")
+
+              # A change of the kind of screen takes everything down: the grid with nothing in it
+              # (GBC::Art's first) goes up, at the scroll's start.
+              asm.label("rt_picture_take_down")
+              asm.xor_a(:a)
+              asm.load(:hl, memory[SCROLL])
+              asm.load([:hli], :a)
+              asm.load([:hl], :a)
+              asm.jump("rt_picture_put_up")
 
               asm.label("rg_gbc_background_scroll")
               asm.load_hl_sp(6) # y, then x, from the top of the stack: their low bytes
@@ -707,6 +743,245 @@ module RubyGBA
               asm.jump_relative(:nz, "rt_overlap_bit_shift")
               asm.label("rt_overlap_bit_test")
               asm.and_a([:hl])
+              asm.ret
+            end
+
+            # FADES AND TINTS. A Game Boy Color's display cannot mix colours as it draws, so a fade
+            # is the colours in its lists moved — every palette's every colour, from the game's own
+            # (art_palettes) into the copy the blank sends (SHADOW_PALETTES) — by +steps+
+            # thirty-seconds of the way toward black, white or a colour, by the interpreter's rule
+            # for a fade that walks the colours (Reference::Framebuffer#walked_toward and #mixed):
+            #
+            #   toward black: c - c × steps / 32
+            #   toward white: c + (31 - c) × steps / 32
+            #   toward a colour t: (c × (32 - steps) + t × steps) / 32
+            #
+            # rg_gbc_tint(toward, color, steps) does nothing when nothing changed, which is most
+            # frames of a game that says its fade every frame.
+            def emit_tint(asm, memory)
+              at = memory[TINT]
+              arg = ->(i) { Calls.arg(memory, i, 3) }
+              asm.label("rg_gbc_tint")
+              asm.load_hl_sp(2)
+              asm.load(:b, 12)
+              asm.call("rt_take_args")
+              asm.load_high(:a, arg.call(2)) # the steps, held to 0..32
+              asm.load(:b, :a)
+              asm.load_high(:a, arg.call(2) + 3)
+              asm.bit(7, :a)
+              asm.jump_relative(:z, "rg_gbc_tint_not_below")
+              asm.load(:b, 0)
+              asm.label("rg_gbc_tint_not_below")
+              asm.load(:a, :b)
+              asm.cp_a(STEPS + 1)
+              asm.jump_relative(:c, "rg_gbc_tint_held")
+              asm.load(:b, STEPS)
+              asm.label("rg_gbc_tint_held")
+              # The same as before: nothing to do. No steps at all is the colours as they are,
+              # whatever they were moved toward.
+              asm.load(:hl, at + 3)
+              asm.load(:a, :b)
+              asm.cp_a([:hl])
+              asm.jump_relative(:nz, "rg_gbc_tint_changed")
+              asm.and_a(:a)
+              asm.ret(:z)
+              asm.load_high(:a, arg.call(0))
+              asm.load(:hl, at)
+              asm.cp_a([:hl])
+              asm.jump_relative(:nz, "rg_gbc_tint_changed")
+              asm.load_high(:a, arg.call(1))
+              asm.inc(:hl)
+              asm.cp_a([:hl])
+              asm.jump_relative(:nz, "rg_gbc_tint_changed")
+              asm.load_high(:a, arg.call(1) + 1)
+              asm.inc(:hl)
+              asm.cp_a([:hl])
+              asm.ret(:z)
+              asm.label("rg_gbc_tint_changed")
+              asm.load(:hl, at)
+              asm.load_high(:a, arg.call(0))
+              asm.load([:hli], :a)
+              asm.load_high(:a, arg.call(1))
+              asm.load([:hli], :a)
+              asm.load_high(:a, arg.call(1) + 1)
+              asm.load([:hli], :a)
+              asm.load(:a, :b)
+              asm.load([:hl], :a)
+              # Every colour: its channels apart, each moved, and put back together.
+              asm.load(:hl, "art_palettes")
+              asm.load(:de, memory[SHADOW_PALETTES])
+              asm.load(:c, 64)
+              asm.label("rg_gbc_tint_color")
+              asm.push(:bc)
+              asm.push(:de)
+              asm.load(:a, [:hli])
+              asm.load(:e, :a)
+              asm.load(:a, [:hli])
+              asm.load(:d, :a) # DE = the colour
+              asm.push(:hl)
+              asm.load(:a, :e)
+              asm.and_a(CHANNEL_MAX)
+              asm.load(:b, 0) # the colour's red, from the lowest bits
+              asm.call("rt_tint_channel")
+              asm.push(:af)
+              # green: the top three bits of the low byte and the bottom two of the high one
+              asm.load(:a, :e)
+              asm.swap(:a)
+              asm.srl(:a)
+              asm.and_a(7)
+              asm.load(:l, :a)
+              asm.load(:a, :d)
+              asm.and_a(3)
+              3.times { asm.add_a(:a) }
+              asm.or_a(:l)
+              asm.and_a(CHANNEL_MAX)
+              asm.load(:b, 1)
+              asm.call("rt_tint_channel")
+              asm.push(:af)
+              asm.load(:a, :d)
+              2.times { asm.srl(:a) }
+              asm.and_a(CHANNEL_MAX)
+              asm.load(:b, 2)
+              asm.call("rt_tint_channel")
+              # Back together: blue << 10 | green << 5 | red.
+              asm.load(:d, :a) # blue
+              asm.pop(:af)
+              asm.load(:l, :a) # green
+              asm.pop(:af)
+              asm.load(:e, :a) # red
+              asm.load(:a, :l)
+              asm.swap(:a)
+              asm.add_a(:a) # green's low three bits up to the top of the byte
+              asm.and_a(0xE0)
+              asm.or_a(:e)
+              asm.load(:e, :a)
+              asm.load(:a, :l)
+              3.times { asm.srl(:a) }
+              asm.load(:l, :a) # green's top two bits
+              asm.load(:a, :d)
+              2.times { asm.add_a(:a) }
+              asm.or_a(:l)
+              asm.load(:d, :a)
+              asm.pop(:hl)
+              asm.pop(:bc) # BC = where in the copy (pushed as DE)
+              asm.load(:a, :e)
+              asm.load([:bc], :a)
+              asm.inc(:bc)
+              asm.load(:a, :d)
+              asm.load([:bc], :a)
+              asm.inc(:bc)
+              asm.load(:d, :b)
+              asm.load(:e, :c)
+              asm.pop(:bc)
+              asm.dec(:c)
+              asm.jump_relative(:nz, "rg_gbc_tint_color")
+              asm.load(:a, 1)
+              asm.load([memory[PALETTES_CHANGED]], :a)
+              asm.ret
+
+              # A = channel A (0..31) of a colour moved; B says which channel of the tint's colour
+              # to move toward (0 red, 1 green, 2 blue). Keeps DE and HL.
+              asm.label("rt_tint_channel")
+              asm.push(:de)
+              asm.push(:hl)
+              asm.load(:c, :a) # the channel
+              asm.load(:a, [at + 3])
+              asm.load(:e, :a) # the steps
+              asm.load(:a, [at])
+              asm.cp_a(TOWARD_BLACK)
+              asm.jump_relative(:z, "rt_tint_black")
+              asm.cp_a(TOWARD_WHITE)
+              asm.jump_relative(:z, "rt_tint_white")
+              # Toward a colour: (c × (32 - s) + t × s) / 32.
+              asm.push(:bc)
+              asm.load(:a, STEPS)
+              asm.sub_a(:e)
+              asm.load(:d, :a)
+              asm.load(:a, :c)
+              asm.call("rt_times") # HL = c × (32 - s)
+              asm.pop(:bc)
+              asm.push(:hl)
+              asm.call("rt_tint_wanted") # A = t's channel
+              asm.load(:d, :e)
+              asm.call("rt_times") # HL = t × s
+              asm.pop(:de)
+              asm.add_hl(:de)
+              asm.jump_relative("rt_tint_thirty_seconds")
+              asm.label("rt_tint_black") # c - c × s / 32
+              asm.load(:d, :e)
+              asm.load(:a, :c)
+              asm.call("rt_times")
+              asm.call("rt_tint_halve_five")
+              asm.load(:b, :a)
+              asm.load(:a, :c)
+              asm.sub_a(:b)
+              asm.jump_relative("rt_tint_done")
+              asm.label("rt_tint_white") # c + (31 - c) × s / 32
+              asm.load(:d, :e)
+              asm.load(:a, CHANNEL_MAX)
+              asm.sub_a(:c)
+              asm.call("rt_times")
+              asm.call("rt_tint_halve_five")
+              asm.add_a(:c)
+              asm.jump_relative("rt_tint_done")
+              asm.label("rt_tint_thirty_seconds")
+              asm.call("rt_tint_halve_five")
+              asm.label("rt_tint_done")
+              asm.pop(:hl)
+              asm.pop(:de)
+              asm.ret
+
+              # A = HL / 32.
+              asm.label("rt_tint_halve_five")
+              5.times do
+                asm.srl(:h)
+                asm.rr(:l)
+              end
+              asm.load(:a, :l)
+              asm.ret
+
+              # A = channel B of the tint's colour.
+              asm.label("rt_tint_wanted")
+              asm.load(:a, [at + 1])
+              asm.load(:l, :a)
+              asm.load(:a, [at + 2])
+              asm.load(:h, :a)
+              asm.load(:a, :b)
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_tint_wanted_shifted")
+              asm.label("rt_tint_wanted_shift")
+              5.times do
+                asm.srl(:h)
+                asm.rr(:l)
+              end
+              asm.dec(:b)
+              asm.jump_relative(:nz, "rt_tint_wanted_shift")
+              asm.label("rt_tint_wanted_shifted")
+              asm.load(:a, :l)
+              asm.and_a(CHANNEL_MAX)
+              asm.ret
+
+              # HL = A × D, both small.
+              asm.label("rt_times")
+              asm.load(:hl, 0)
+              asm.and_a(:a)
+              asm.ret(:z)
+              asm.push(:bc)
+              asm.load(:c, :a)
+              asm.load(:b, 0)
+              asm.load(:a, :d)
+              asm.label("rt_times_next")
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_times_done")
+              asm.srl(:a)
+              asm.jump_relative(:nc, "rt_times_skip")
+              asm.add_hl(:bc)
+              asm.label("rt_times_skip")
+              asm.sla(:c)
+              asm.rl(:b)
+              asm.jump_relative("rt_times_next")
+              asm.label("rt_times_done")
+              asm.pop(:bc)
               asm.ret
             end
           end

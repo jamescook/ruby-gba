@@ -154,6 +154,7 @@ module RubyGBA
           @fades = fades
           tints = program.walk.select { |node| node.kind == :tint }
           return if fades.empty? && tints.empty?
+          return walk_every_fade(fades) unless blending_console?(program)
 
           modes = Modes.resolve(program)
           mark_fine_tints(tints.select(&:fraction_bits), modes)
@@ -177,6 +178,18 @@ module RubyGBA
           @blend_fades.clear
           @kept_coarse.clear
           @fine = false
+        end
+
+        # A CONSOLE WHOSE DISPLAY CANNOT BLEND (Console::Description#blends) fades only by
+        # changing the colours in its lists, so every fade there walks them, in thirty-seconds,
+        # whatever screen it falls on. One placed in the stack or held to a rectangle needs the
+        # blend, and is refused by the build for that console; it keeps the display's here.
+        def walk_every_fade(fades)
+          fades.each { |node| @walking[node] = true unless node.under || node.reaches }
+        end
+
+        def blending_console?(program)
+          program.kind != :program || program.described_console.blends
         end
 
         # A fade that asks for the finer steps walks the colors on a screen drawn through a

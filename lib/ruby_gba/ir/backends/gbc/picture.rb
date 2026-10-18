@@ -27,20 +27,140 @@ module RubyGBA
             @objects = by_name(@program.walk, :object)
             @color_lists = by_name(@program.walk, :color_list)
             @tile_runs = {} # Native's picture_named asks; the Color build refuses a painted tile first
-            @art = Art.new
+            @paint_colors = paint_colors
+            @art = Art.new(paint_colors: @paint_colors&.first(Art::PLACES))
             @grids = {} # a background declaration -> its grid's number
             @drawing_arrays = []
           end
 
           # --- the screen ---
 
+          # THE KINDS THAT PAINT, and the colour (or colours) each says.
+          PAINTING = Ractor.make_shareable({ clear_screen: %i[color], fill_rect: %i[color], dma_fill_rect: %i[color],
+                                             draw_rect_at: %i[color], pixel: %i[color], draw_text: %i[color picked],
+                                             draw_digit: %i[color] })
+
+          # The colours this program paints a screen in, black first — the colour a painted screen
+          # starts in — or nil for a program that paints nothing.
+          def paint_colors
+            painting = @program.walk.select { |node| PAINTING.key?(node.kind) }
+            return nil if painting.empty?
+
+            [0, *colors_painted.map { |name| Graphics::Color.resolve(name) & 0x7FFF }].uniq
+          end
+
+          def colors_painted
+            painting = @program.walk.select { |node| PAINTING.key?(node.kind) }
+            painting.flat_map { |node| PAINTING.fetch(node.kind).filter_map { |field| node.public_send(field) } }
+          end
+
+          # A painted screen on a Color holds four colours at once (Runtime::Paint), so a program
+          # that paints in more is refused, naming them.
+          def refuse_too_many_paint_colors!
+            return if @paint_colors.nil? || @paint_colors.length <= Art::PLACES
+
+            names = colors_painted.uniq.map { |name| name.is_a?(Symbol) ? name.inspect : name.to_s }
+            raise LoweringError, "this program paints its screen in #{@paint_colors.length} colours (black and " \
+                                 "#{names.join(', ')}), and a painted Game Boy Color screen holds #{Art::PLACES} " \
+                                 "at once, black among them. To fix this, paint it in fewer colours."
+          end
+
           # A screen drawn from tiles is what a Color has. A turning screen is shown as one that
           # does not turn (Console::GBCFeatures), which the interpreter shows the same way when it
-          # plays the game for a Color. A painted screen is not made yet.
-          def lower_screen(node)
-            return [] unless node.mode == :bitmap
+          # plays the game for a Color. A painted screen is 360 tiles of the background's
+          # (Runtime::Paint). A change between the two replaces the display (rg_gbc_screen), and
+          # what every tiled screen shows is put up again then (Reference#put_up_always_up).
+          def lower_screen(node) = screen_change(node.mode)
 
-            raise LoweringError, "this program paints its screen (`screen :bitmap`), which #{build_name} cannot make yet."
+          def screen_change(mode)
+            painted = mode == :bitmap
+            change = call("rg_gbc_screen", C::Int.new(painted ? Runtime::Paint::PAINTED : Runtime::Paint::TILED))
+            put_back = painted ? [] : always_up_put_up
+            return [C::Eval.new(change)] if put_back.empty?
+
+            [C::If.new(condition: change, body: put_back)]
+          end
+
+          def always_up_put_up
+            always = @handover.always_up
+            [*always.map_choices.map { |var| assign(var, C::Int.new(0)) }, *always.scenery.map { |bg| background_put_up(bg) }]
+          end
+
+          # --- painting ---
+
+          def lower_clear_screen(node) = [eval_call("rg_gbc_paint_clear", ink(node.color))]
+
+          # Framebuffer#fill_rect: from the corner up to the corner past the far edge.
+          def lower_fill_rect(node)
+            x = value(node.x)
+            y = value(node.y)
+            [eval_call("rg_gbc_paint_rect", x, y, call("rg_add", value(node.x), value(node.w)),
+                       call("rg_add", value(node.y), value(node.h)), ink(node.color))]
+          end
+
+          alias lower_dma_fill_rect lower_fill_rect
+          alias lower_draw_rect_at lower_fill_rect
+
+          def lower_pixel(node) = [paint_bits(node.x, node.y, ink(node.color), [[0, 0]])]
+
+          # The pixels of a line of text are known when the game is built, so they are handed
+          # over as a picture rather than worked out from the font as it runs (Reference#exec_draw_text).
+          def lower_draw_text(node)
+            points = node.fonts.get(node.font).enum_for(:each_pixel, node.text).to_a
+            return [] if points.empty?
+
+            color = node.picked ? picked_ink(node.showing, node.color, node.picked) : ink(node.color)
+            [paint_bits(node.x, node.y, color, points)]
+          end
+
+          # Reference#exec_draw_digit: each digit's picture, the one the value names drawn; a value
+          # outside 0..9 draws nothing.
+          def lower_draw_digit(node)
+            font = node.fonts.get(node.font)
+            digit = local_name("digit")
+            draws = (0..9).map do |d|
+              points = font.enum_for(:each_pixel, d.to_s).to_a
+              C::If.new(condition: call("rg_eq", digit, C::Int.new(d)),
+                        body: points.empty? ? [] : [paint_bits(node.x, node.y, ink(node.color), points)])
+            end
+            [C::Block.new([C::Local.new(name: digit, value: value(node.value)), *draws])]
+          end
+
+          # The call that paints +points+ (pairs across and down from (x, y)) in +color+, as a
+          # picture of a bit a pixel (Runtime::Paint's rg_gbc_paint_bits): rows of bytes, the
+          # leftmost pixel in the top bit, with a byte of nothing either side of each row. A
+          # picture whose first pixel is not at its corner is drawn that much further on.
+          #
+          # A picture at a column written in the program is laid out already lined up with the
+          # screen's tiles — moved right within its first byte by as much as it stands past a
+          # multiple of eight — so the runtime has no shifting to do.
+          def paint_bits(x, y, color, points)
+            left = points.map(&:first).min
+            top = points.map(&:last).min
+            across = value(x)
+            lined_up = across.is_a?(C::Int) ? (across.value + left) % 8 : 0
+            width = points.map(&:first).max - left + 1 + lined_up
+            height = points.map(&:last).max - top + 1
+            stride = ((width + 7) / 8) + 2
+            bytes = Array.new(stride * height, 0)
+            points.each do |dx, dy|
+              col = dx - left + lined_up
+              bytes[((dy - top) * stride) + 1 + (col / 8)] |= 0x80 >> (col % 8)
+            end
+            eval_call("rg_gbc_paint_bits", moved(across, left - lined_up), moved(value(y), top), color,
+                      drawing_array("bits", "uint8_t", bytes), C::Int.new(stride), C::Int.new(height))
+          end
+
+          def moved(place, by) = by.zero? ? place : call("rg_add", place, C::Int.new(by))
+
+          # The place a painted colour is kept at (GBC::Art#paint_place).
+          def ink(name) = C::Int.new(@art.paint_place(Graphics::Color.resolve(name)))
+
+          # rg_pick_color: +picked+ while +showing+ is not nought, +color+ otherwise.
+          def picked_ink(showing, color, picked)
+            plain = @art.paint_place(Graphics::Color.resolve(color))
+            other = @art.paint_place(Graphics::Color.resolve(picked))
+            call("rg_add", C::Int.new(plain), call("rg_mul", call("rg_ne", value(showing), C::Int.new(0)), C::Int.new(other - plain)))
           end
 
           # --- backgrounds ---
@@ -127,13 +247,15 @@ module RubyGBA
           # front of its own; the background's see-through pixels still show it.
           def sprite_placement(obj)
             refuse_turning_sprite!(obj)
-            pose = local_name("pose")
-            in_range = call("rg_both", call("rg_ge", pose, C::Int.new(0)), call("rg_lt", pose, C::Int.new(obj.poses.length)))
-            picture, palette = picture_and_palette_drawn(obj, pose)
-            add = eval_call("rg_gbc_sprite", picture, value(obj.x), value(obj.y), palette, yes_or_no(behind_scenery?(obj)))
+            # A pose the program never changes is used as it is, so the build can see it is in range.
+            said = value(obj.pose)
+            pose = said.is_a?(C::Int) ? said : local_name("pose")
+            in_range = call("rg_below", pose, C::Int.new(obj.poses.length))
+            picture, attributes = picture_and_attributes_drawn(obj, pose)
+            add = eval_call("rg_gbc_sprite", picture, value(obj.x), value(obj.y), attributes)
+            kept = said.is_a?(C::Int) ? [] : [C::Local.new(name: pose, value: said)]
             C::If.new(condition: call("rg_eq", value(obj.active), C::Int.new(1)),
-                      body: [C::Block.new([C::Local.new(name: pose, value: value(obj.pose)),
-                                           C::If.new(condition: in_range, body: [add])])])
+                      body: [C::Block.new([*kept, C::If.new(condition: in_range, body: [add])])])
           end
 
           def behind_scenery?(obj)
@@ -149,15 +271,19 @@ module RubyGBA
           end
 
           # Native::Picture#picture_drawn, for the Color: which picture a sprite showing pose number
-          # +pose+ is drawn from and which palette it is drawn in, now. Its pictures are a row of
-          # poses in its own colours, then a row for each list it can be drawn with, so the two
-          # tables are read at the same place.
-          def picture_and_palette_drawn(obj, pose)
+          # +pose+ is drawn from, and the attributes its pieces are drawn with — which palette, and
+          # whether behind the background — now. Its pictures are a row of poses in its own colours,
+          # then a row for each list it can be drawn with, so the two tables are read at the same
+          # place.
+          def picture_and_attributes_drawn(obj, pose)
             lists = Array(obj.recolors)
             sets = [[nil], *lists.map { |colors| colors.is_a?(Symbol) ? sets_held_by(colors) : [colors] }]
-            rows = sets.flatten(1).flat_map { |colors| obj.poses.map { |name| [picture_number(name), palette_of(name, colors)] } }
+            behind = behind_scenery?(obj) ? Console::GBCHardware::OBJ_BEHIND : 0
+            rows = sets.flatten(1).flat_map do |colors|
+              obj.poses.map { |name| [picture_number(name), palette_of(name, colors) | behind] }
+            end
             pictures = drawing_array("pose_pictures", "int16_t", rows.map(&:first))
-            palettes = drawing_array("pose_palettes", "uint8_t", rows.map(&:last))
+            palettes = drawing_array("pose_attributes", "uint8_t", rows.map(&:last))
             at = if lists.empty?
                    pose
                  else
@@ -190,13 +316,51 @@ module RubyGBA
             C::Index.new(pictures, call("rg_pose_place", value(pose), C::Int.new(poses.length)))
           end
 
+          # --- fades and tints ---
+
+          # Reference#exec_fade, as a fade that walks the colours (IR::Fading walks every fade on a
+          # console that cannot blend): toward black or white by the thirty-seconds the amount
+          # comes to. A fade placed in the stack, or held to part of the screen, needs the blend.
+          def lower_fade(node)
+            if node.under || node.reaches
+              raise LoweringError, "this program fades #{node.under ? "under a layer (`under:`)" : "part of the screen (`#{node.reaches}:`)"}, " \
+                                   "and a Game Boy Color can only fade the whole screen. To fix this, leave it out."
+            end
+
+            toward = node.toward == :white ? Runtime::Picture::TOWARD_WHITE : Runtime::Picture::TOWARD_BLACK
+            [eval_call("rg_gbc_tint", C::Int.new(toward), C::Int.new(0), walk_steps(node))]
+          end
+
+          # Reference#exec_tint: toward the colour, in thirty-seconds.
+          def lower_tint(node)
+            [eval_call("rg_gbc_tint", C::Int.new(Runtime::Picture::TOWARD_COLOR), color(node.color), walk_steps(node))]
+          end
+
+          # FadeSteps.steps for a fade that walks the colours: the amount (0..100, or a fraction
+          # of +fraction_bits+) as thirty-seconds — finely for a fraction, in whole sixteenths
+          # otherwise — held to 0..32. The runtime holds it there too.
+          def walk_steps(node)
+            amount = value(node.amount)
+            if node.fraction_bits
+              call("rg_div", call("rg_mul", amount, C::Int.new(Runtime::Picture::STEPS)), C::Int.new(100 << node.fraction_bits))
+            else
+              sixteenths = call("rg_clamp", call("rg_div", call("rg_mul", amount, C::Int.new(16)), C::Int.new(100)),
+                                C::Int.new(0), C::Int.new(16))
+              call("rg_mul", sixteenths, C::Int.new(2))
+            end
+          end
+
           # --- a scene taking the screen over (Reference#take_over) ---
 
-          # The scenery a scene shows goes up as it arrives.
+          # The scene's screen, then its scenery: what it shows goes up as it arrives, and what
+          # the scene before it showed of its own comes down — leaving what every screen shows, or
+          # nothing.
           def scene_arrival(scene)
             arrival = @handover.arrival(scene)
-            [*arrival.map_choices.map { |var| assign(var, C::Int.new(0)) },
-             *arrival.scenery.map { |bg| background_put_up(bg) }]
+            screen = arrival.screen ? lower_screen(arrival.screen) : screen_change(Modes::SCREEN_OF_MODE.fetch(arrival.mode))
+            scenery = arrival.scenery.empty? ? @handover.always_up.scenery : arrival.scenery
+            up = scenery.empty? ? [eval_call("rg_gbc_background_put_up", C::Int.new(0))] : scenery.map { |bg| background_put_up(bg) }
+            [*screen, *arrival.map_choices.map { |var| assign(var, C::Int.new(0)) }, *up]
           end
         end
       end

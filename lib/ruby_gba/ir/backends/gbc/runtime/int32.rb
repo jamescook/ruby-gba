@@ -106,6 +106,37 @@ module RubyGBA
             # puts the negative numbers, whose top bit is set, below the positive ones. Subtracting the
             # two a byte at a time leaves the carry set exactly when the first was below the second.
             def emit_compare(asm, s)
+              # Unsigned: BCDE and (HL) as numbers from nought to 2^32 - 1, which a number below
+              # nought is past the top of — so one comparison asks whether a number is from nought
+              # up to a size.
+              asm.label("rt_cmpu32")
+              asm.push(:bc)
+              asm.push(:de)
+              asm.load(:a, :e)
+              asm.sub_a([:hl])
+              asm.load(:e, :a)
+              asm.inc(:hl)
+              asm.load(:a, :d)
+              asm.sbc_a([:hl])
+              asm.load(:d, :a)
+              asm.inc(:hl)
+              asm.load(:a, :c)
+              asm.sbc_a([:hl])
+              asm.load(:c, :a)
+              asm.inc(:hl)
+              asm.load(:a, :b)
+              asm.sbc_a([:hl])
+              asm.jump_relative(:c, "rt_cmp32_less")
+              asm.or_a(:c)
+              asm.or_a(:d)
+              asm.or_a(:e)
+              asm.pop(:de)
+              asm.pop(:bc)
+              asm.ret(:z)
+              asm.load(:a, 2)
+              asm.or_a(:a)
+              asm.ret
+
               asm.label("rt_cmp32")
               asm.push(:bc)
               asm.push(:de)
@@ -260,7 +291,38 @@ module RubyGBA
               asm.xor_a(:a)
               4.times { |i| asm.load_high(s.div_r + i, :a) }
               asm.load(:b, 32)
+              # A dividend's top byte of nought gives eight digits of nought and moves nothing into
+              # the remainder, so it is skipped a byte at a time: the small numbers games divide
+              # most take eight turns of the loop rather than thirty-two.
+              asm.label("rt_udiv32_skip")
+              asm.load_high(:a, s.div_n + 3)
+              asm.and_a(:a)
+              asm.jump_relative(:nz, "rt_udiv32_loop")
+              asm.load(:a, :b)
+              asm.cp_a(8)
+              asm.jump_relative(:z, "rt_udiv32_loop")
+              [2, 1, 0].each do |i|
+                asm.load_high(:a, s.div_n + i)
+                asm.load_high(s.div_n + i + 1, :a)
+              end
+              asm.xor_a(:a)
+              asm.load_high(s.div_n, :a)
+              asm.load(:a, :b)
+              asm.sub_a(8)
+              asm.load(:b, :a)
+              asm.jump_relative("rt_udiv32_skip")
+              # Sixteen digits or fewer left and a divisor under 65536: the same long division in
+              # the processor's own 16-bit pairs (rt_udiv16), at a third of the cost.
               asm.label("rt_udiv32_loop")
+              asm.load(:a, :b)
+              asm.cp_a(17)
+              asm.jump_relative(:nc, "rt_udiv32_digit")
+              asm.load_high(:a, s.div_d + 2)
+              asm.load(:l, :a)
+              asm.load_high(:a, s.div_d + 3)
+              asm.or_a(:l)
+              asm.jump(:z, "rt_udiv16")
+              asm.label("rt_udiv32_digit")
               asm.load(:hl, s.div_n)
               asm.sla([:hl])
               3.times do
@@ -300,7 +362,59 @@ module RubyGBA
               asm.set(0, [:hl])
               asm.label("rt_udiv32_next")
               asm.dec(:b)
-              asm.jump_relative(:nz, "rt_udiv32_loop")
+              asm.jump_relative(:nz, "rt_udiv32_digit")
+              asm.ret
+
+              # The last B digits (16 or fewer) of the dividend, in s.div_n's top two bytes, over a
+              # divisor of 16 bits: HL is the dividend shifting out at the top and the quotient
+              # coming in at the bottom, BC the remainder, DE the divisor.
+              asm.label("rt_udiv16")
+              asm.load(:a, :b)
+              asm.load_high(s.cmp_top, :a) # the count; nothing here compares
+              asm.load_high(:a, s.div_n + 2)
+              asm.load(:l, :a)
+              asm.load_high(:a, s.div_n + 3)
+              asm.load(:h, :a)
+              asm.load_high(:a, s.div_d)
+              asm.load(:e, :a)
+              asm.load_high(:a, s.div_d + 1)
+              asm.load(:d, :a)
+              asm.load(:bc, 0)
+              asm.label("rt_udiv16_loop")
+              asm.add_hl(:hl)
+              asm.rl(:c)
+              asm.rl(:b)
+              asm.load(:a, :c)
+              asm.sub_a(:e)
+              asm.load(:c, :a)
+              asm.load(:a, :b)
+              asm.sbc_a(:d)
+              asm.load(:b, :a)
+              asm.jump_relative(:nc, "rt_udiv16_goes")
+              asm.load(:a, :c) # it does not go: the remainder back as it was
+              asm.add_a(:e)
+              asm.load(:c, :a)
+              asm.load(:a, :b)
+              asm.adc_a(:d)
+              asm.load(:b, :a)
+              asm.jump_relative("rt_udiv16_next")
+              asm.label("rt_udiv16_goes")
+              asm.inc(:l)
+              asm.label("rt_udiv16_next")
+              asm.load_high(:a, s.cmp_top)
+              asm.dec(:a)
+              asm.load_high(s.cmp_top, :a)
+              asm.jump_relative(:nz, "rt_udiv16_loop")
+              asm.xor_a(:a)
+              [[s.div_n, :l, :h], [s.div_r, :c, :b]].each do |at, low, high|
+                asm.load_high(at + 2, :a)
+                asm.load_high(at + 3, :a)
+                asm.load(:a, low)
+                asm.load_high(at, :a)
+                asm.load(:a, high)
+                asm.load_high(at + 1, :a)
+                asm.xor_a(:a)
+              end
               asm.ret
 
               # The two numbers' sizes into s.div_n and s.div_d, and their signs into s.sign_n and

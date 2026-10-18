@@ -41,28 +41,30 @@ module RubyGBA
 
         # WHERE A RUNNING CARTRIDGE KEEPS WHAT A READER WANTS, which nothing in its bytes says:
         # every variable by the game's name, every list (its place, its capacity, its slot width),
-        # and where the runtime keeps how the run stands (Runtime::Frame's names).
-        Places = Data.define(:variables, :lists, :runtime, :source_program)
+        # where the runtime keeps how the run stands (Runtime::Frame's names), and where every
+        # label of the code went (the Linker's places), for a profile to say whose time it was.
+        Places = Data.define(:variables, :lists, :runtime, :source_program, :code)
 
         # +program+ as a cartridge (Cartridge::GBCROM), carrying its Places.
         def build(program, title: "RUBYGBA")
           lowering = Lowering.new(program, title: title)
           statements = lowering.top_level
           memory = Memory.new
+          # The runtime's places first, so they are in the half of work memory always in view.
+          runtime = Runtime.sections(memory, main: "game_#{lowering.main_routine}", art: lowering.art)
           compiled = Compiler.new(memory: memory).compile(statements)
           art = lowering.art.sections
-          runtime = Runtime.sections(memory, main: "game_#{lowering.main_routine}", art: lowering.art)
           linked = Linker.new(runtime + compiled.sections + art, fixed_from: Console::GBCHardware::HEADER_END).link
-          Cartridge::GBCROM.new(linked.banks, title: title, built: places(lowering, compiled, memory, program))
+          Cartridge::GBCROM.new(linked.banks, title: title, built: places(lowering, compiled, memory, program, linked))
         end
 
         private
 
-        def places(lowering, compiled, memory, program)
+        def places(lowering, compiled, memory, program, linked)
           variables = lowering.variable_names_in_statements.transform_values { |text| compiled.globals.fetch(text) }
           lists = lowering.list_names_in_statements.transform_values { |text| compiled.lists.fetch(text) }
           runtime = memory.places.select { |name, _| name.start_with?("rt ") }
-          Places.new(variables: variables, lists: lists, runtime: runtime, source_program: program)
+          Places.new(variables: variables, lists: lists, runtime: runtime, source_program: program, code: linked.places)
         end
       end
     end

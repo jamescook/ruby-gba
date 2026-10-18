@@ -6,6 +6,7 @@ require_relative "runtime/calls"
 require_relative "runtime/frame"
 require_relative "runtime/lists"
 require_relative "runtime/picture"
+require_relative "runtime/paint"
 require_relative "runtime/sound"
 
 module RubyGBA
@@ -15,7 +16,8 @@ module RubyGBA
         # THE RUNTIME every Game Boy Color cartridge carries, in bank 0 where every routine of the
         # game can reach it: from power-on to the game's first line (Boot), the arithmetic (Int32),
         # calls between banks and the runtime's numbers (Calls), the frame and the buttons (Frame),
-        # the lists (Lists), the picture (Picture) and the sound (Sound).
+        # the lists (Lists), the picture (Picture, and Paint for a painted screen) and the sound
+        # (Sound).
         #
         # The game's code calls it by the names Native's runtime has (rg_wait_vblank, rg_list_push,
         # rg_held...), with the numbers on the stack, so the lowering the two share calls either
@@ -29,6 +31,7 @@ module RubyGBA
           def sections(memory, main:, art:)
             Frame.reserve(memory)
             Picture.reserve(memory)
+            Paint.reserve(memory, painting: art.painting?)
             asm = SM83.new("runtime", home: :fixed)
             Boot.emit(asm, main: "rt_main")
             Boot.emit_display_off(asm)
@@ -38,6 +41,7 @@ module RubyGBA
             Frame.emit(asm, memory)
             Lists.emit(asm, memory)
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length)
+            Paint.emit(asm, memory, painting: art.painting?)
             Sound.emit(asm)
             emit_start(asm)
             emit_main(asm, main)
@@ -66,6 +70,7 @@ module RubyGBA
             asm.label("rt_start_lists")
             asm.call("rt_lists_start")
             asm.call("rt_picture_start")
+            asm.call("rt_paint_start")
             asm.jump("rt_buttons_from_power_on")
           end
 

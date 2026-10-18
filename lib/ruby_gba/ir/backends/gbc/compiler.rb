@@ -46,7 +46,31 @@ module RubyGBA
           # compare A with, and whether the comparison holds when they are equal (:z) or not (:nz).
           COMPARISONS = Ractor.make_shareable({
             "rg_lt" => [1, :z], "rg_le" => [2, :nz], "rg_gt" => [2, :z],
-            "rg_ge" => [1, :nz], "rg_eq" => [0, :z], "rg_ne" => [0, :nz]
+            "rg_ge" => [1, :nz], "rg_eq" => [0, :z], "rg_ne" => [0, :nz], "rg_below" => [1, :z]
+          })
+
+          # The comparisons that take both numbers from nought up (rt_cmpu32): `rg_below(n, size)`
+          # is "n is from nought up to, but not, size", one comparison where it would be two.
+          UNSIGNED = %w[rg_below].freeze
+
+          # WHAT A SUM OF NUMBERS WRITTEN IN THE PROGRAM COMES TO, worked out here rather than by the
+          # runtime as the game runs: IR::Int32's own answer, which is what the runtime's would be.
+          # A test of a number the game never changes (a sprite whose pose is always 0) then costs
+          # nothing at all.
+          FOLDED = Ractor.make_shareable({
+            "rg_add" => ->(a, b) { Int32.add(a, b) }, "rg_sub" => ->(a, b) { Int32.sub(a, b) },
+            "rg_mul" => ->(a, b) { Int32.mul(a, b) }, "rg_div" => ->(a, b) { Int32.div(a, b) },
+            "rg_mod" => ->(a, b) { Int32.mod(a, b) }, "rg_and" => ->(a, b) { Int32.bit_and(a, b) },
+            "rg_or" => ->(a, b) { Int32.bit_or(a, b) }, "rg_xor" => ->(a, b) { Int32.bit_xor(a, b) },
+            "rg_shl" => ->(a, b) { Int32.shift_left(a, b) }, "rg_shr" => ->(a, b) { Int32.shift_right(a, b) },
+            "rg_neg" => ->(a) { Int32.neg(a) }, "rg_not" => ->(a) { Int32.bit_not(a) },
+            "rg_abs" => ->(a) { Int32.wrap(a).negative? ? Int32.neg(a) : Int32.wrap(a) },
+            "rg_lt" => ->(a, b) { Int32.cmp(a, b).negative? ? 1 : 0 }, "rg_le" => ->(a, b) { Int32.cmp(a, b) <= 0 ? 1 : 0 },
+            "rg_gt" => ->(a, b) { Int32.cmp(a, b).positive? ? 1 : 0 }, "rg_ge" => ->(a, b) { Int32.cmp(a, b) >= 0 ? 1 : 0 },
+            "rg_eq" => ->(a, b) { Int32.cmp(a, b).zero? ? 1 : 0 }, "rg_ne" => ->(a, b) { Int32.cmp(a, b).zero? ? 0 : 1 },
+            "rg_both" => ->(a, b) { !Int32.wrap(a).zero? && !Int32.wrap(b).zero? ? 1 : 0 },
+            "rg_either" => ->(a, b) { !Int32.wrap(a).zero? || !Int32.wrap(b).zero? ? 1 : 0 },
+            "rg_below" => ->(a, b) { (a & 0xFFFF_FFFF) < (b & 0xFFFF_FFFF) ? 1 : 0 }
           })
 
           # Each C type a table can keep its numbers in: bytes a number, and whether it is signed.
@@ -89,7 +113,7 @@ module RubyGBA
               case item
               when C::Global then declare_global(item)
               when C::ListStorage then declare_list(item)
-              when C::ConstArray then @arrays[item.name.text] = ["data_#{item.name.text}", item.type]
+              when C::ConstArray then @arrays[item.name.text] = ["data_#{item.name.text}", item.type, item.values]
               when C::FunctionTable then @tables[item.name.text] = "routines_#{item.name.text}"
               when C::Function then @routines[item.name.text] = "game_#{item.name.text}"
               end
@@ -299,9 +323,31 @@ module RubyGBA
             raise Error, "only a variable can be assigned here" unless target.is_a?(C::Name)
 
             address = local ? local_address(target.text) : place_of(target.text)
+            return add_in_place(address, value) if adds_in_place?(target, value)
+
             value(value)
             @asm.load(:hl, address)
             @asm.call("rt_store32")
+          end
+
+          # `x = x + n` and `x = x - n` for a number n written in the program: the four bytes of x
+          # are added to where they are, which is a dozen instructions and no call.
+          def adds_in_place?(target, value)
+            value.is_a?(C::Call) && %w[rg_add rg_sub].include?(value.function.text) &&
+              value.args.first == target && folded(value.args.last)
+          end
+
+          def add_in_place(address, value)
+            amount = folded(value.args.last)
+            amount = Int32.neg(amount) if value.function.text == "rg_sub"
+            amount &= 0xFFFF_FFFF
+            @asm.load(:hl, address)
+            4.times do |i|
+              byte = (amount >> (8 * i)) & 0xFF
+              @asm.load(:a, [:hl])
+              i.zero? ? @asm.add_a(byte) : @asm.adc_a(byte)
+              @asm.load(i == 3 ? [:hl] : [:hli], :a)
+            end
           end
 
           def local_address(name)
@@ -317,6 +363,9 @@ module RubyGBA
           end
 
           def if_statement(node)
+            known = folded(node.condition)
+            return statements(known.zero? ? node.otherwise : node.body) if known
+
             otherwise = fresh("else")
             done = fresh("end_if")
             jump_unless(node.condition, otherwise)
@@ -342,7 +391,13 @@ module RubyGBA
           # Jump to +label+ unless +condition+ holds. A comparison jumps on rt_cmp32's answer
           # straight away, without making a 1 or a 0 of it first.
           def jump_unless(condition, label)
-            if condition.is_a?(C::Call) && COMPARISONS.key?(condition.function.text)
+            known = folded(condition)
+            if known
+              @asm.jump(label) if known.zero?
+            elsif (equal = equality_with_number(condition))
+              compare_with_number(*equal)
+              @asm.jump(condition.function.text == "rg_eq" ? :nz : :z, label)
+            elsif condition.is_a?(C::Call) && COMPARISONS.key?(condition.function.text)
               compare(condition)
               _, holds_when = COMPARISONS.fetch(condition.function.text)
               @asm.jump(holds_when == :z ? :nz : :z, label)
@@ -353,6 +408,32 @@ module RubyGBA
             end
           end
 
+          # A variable said to equal (or not) a number written in the program: [its address, the
+          # number], or nil for any other comparison.
+          def equality_with_number(condition)
+            return nil unless condition.is_a?(C::Call) && %w[rg_eq rg_ne].include?(condition.function.text)
+
+            left, right = condition.args
+            left, right = right, left if folded(left)
+            number = folded(right)
+            return nil unless number && left.is_a?(C::Name) && !@arrays.key?(left.text)
+
+            [place_of(left.text), number & 0xFFFF_FFFF]
+          end
+
+          # The zero flag set when the four bytes at +address+ are +number+: byte by byte, leaving at
+          # the first that differs.
+          def compare_with_number(address, number)
+            done = fresh("compared")
+            @asm.load(:hl, address)
+            4.times do |i|
+              @asm.load(:a, i == 3 ? [:hl] : [:hli])
+              @asm.cp_a((number >> (8 * i)) & 0xFF)
+              @asm.jump_relative(:nz, done) unless i == 3
+            end
+            @asm.label(done)
+          end
+
           # rt_cmp32 on the two sides of a comparison, and A compared with what the comparison
           # holds on, so the zero flag says.
           def compare(call)
@@ -360,7 +441,7 @@ module RubyGBA
             with_hl_at(right) do |where|
               value(left)
               point_hl(where)
-              @asm.call("rt_cmp32")
+              @asm.call(UNSIGNED.include?(call.function.text) ? "rt_cmpu32" : "rt_cmp32")
             end
             k, = COMPARISONS.fetch(call.function.text)
             k.zero? ? @asm.and_a(:a) : @asm.cp_a(k)
@@ -368,7 +449,32 @@ module RubyGBA
 
           # --- values: each leaves its number in BCDE ---
 
+          # The number +node+ comes to when everything in it is written in the program, or nil.
+          def folded(node)
+            case node
+            when C::Int then node.value
+            when Integer then node
+            when C::Call
+              rule = FOLDED[node.function.text]
+              return nil unless rule && rule.arity == node.args.length
+
+              numbers = node.args.map { |arg| folded(arg) }
+              numbers.all? ? Int32.wrap(rule.call(*numbers)) : nil
+            when C::Index
+              _, type, values = @arrays[node.array.text]
+              at = values && folded(node.index)
+              return nil unless at && at.between?(0, values.length - 1)
+
+              size, signed = TYPES.fetch(type)
+              entry = values[at] & ((1 << (8 * size)) - 1)
+              signed && entry >= 1 << ((8 * size) - 1) ? entry - (1 << (8 * size)) : entry
+            end
+          end
+
           def value(node)
+            known = folded(node)
+            return load_constant(known) if known
+
             case node
             when C::Int then load_constant(node.value)
             when Integer then load_constant(node)
@@ -417,8 +523,9 @@ module RubyGBA
           # where (for #point_hl): a variable or a number the routine keeps is pointed at where it
           # is, and anything else is worked out first and pushed, and taken off again after.
           def with_hl_at(node)
+            known = folded(node)
             where = case node
-                    when C::Int, Integer then [:label, constant_label(node.is_a?(C::Int) ? node.value : node)]
+                    when ->(_) { known } then [:label, constant_label(known)]
                     when C::Name then @arrays.key?(node.text) ? nil : [:address, place_of(node.text)]
                     end
             return yield(where) if where
@@ -436,7 +543,7 @@ module RubyGBA
 
           # The entry of a table of numbers at an index the program has already kept inside it.
           def table_entry(node)
-            label, type = @arrays.fetch(node.array.text) { raise Error, "#{node.array.text} is not a table of numbers" }
+            label, type, = @arrays.fetch(node.array.text) { raise Error, "#{node.array.text} is not a table of numbers" }
             size, signed = TYPES.fetch(type)
             value(node.index)
             # HL = the table + the index × the entry's size; the index is never past 16 bits.

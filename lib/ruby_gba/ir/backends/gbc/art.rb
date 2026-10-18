@@ -59,9 +59,17 @@ module RubyGBA
           # not drawn) and the mask of the pixels it draws.
           SpritePicture = Data.define(:name, :number, :width, :height, :pieces, :places, :mask)
 
-          attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids
+          # A game with a painted screen gives it the background's last palette and the tiles past
+          # the first 128 (Runtime::Paint), so its tiled screens have the rest.
+          PAINTING_PALETTES = PALETTES - 1
+          PAINTING_BACKGROUND_TILES = 128
 
-          def initialize
+          attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids, :paint_colors
+
+          # +paint_colors+ are the colours a game paints a screen in, black first (nil for a game
+          # that paints no screen).
+          def initialize(paint_colors: nil)
+            @paint_colors = paint_colors
             @sprite_tiles = []        # 16 bytes each
             @sprite_tile_numbers = {} # bytes -> [number, flips]
             @sprite_pictures = {}     # picture name -> SpritePicture
@@ -72,6 +80,14 @@ module RubyGBA
             @background_tile_of = {} # picture name -> [tile number, palette number]
             @grids = []               # 2048 bytes each: the cells' tiles, then their attributes
             background_tile_number(Array.new(16, 0)) # tile 0: nothing but the backdrop, for an empty cell
+            grid(Array.new(GRID_CELLS) { Array.new(GRID_CELLS) }) # grid 0: nothing up
+          end
+
+          def painting? = !@paint_colors.nil?
+
+          # The place a painted colour is kept at in the painted screen's palette.
+          def paint_place(color)
+            @paint_colors.index(color & 0x7FFF) or raise LoweringError, "the colour #{color} is not among the painted ones"
           end
 
           # --- sprites ---
@@ -173,7 +189,9 @@ module RubyGBA
           def tables_section
             asm = SM83.new("art tables", home: :fixed)
             asm.label("art_palettes")
-            [@background_palettes, @sprite_palettes].each do |palettes|
+            backgrounds = @background_palettes.dup
+            backgrounds[PAINTING_PALETTES] = padded(@paint_colors) if painting?
+            [backgrounds, @sprite_palettes].each do |palettes|
               PALETTES.times do |i|
                 colors = palettes[i] || Array.new(PLACES, BACKDROP)
                 asm.data_words(colors)
@@ -228,10 +246,11 @@ module RubyGBA
               raise LoweringError, "this game's sprites need #{@sprite_tiles.length} tiles of 8×8, and a Game Boy " \
                                    "Color has room for #{MOST_SPRITE_TILES}. To fix this, give it fewer or smaller pictures."
             end
-            return unless @background_tiles.length > MOST_BACKGROUND_TILES
+            most = painting? ? PAINTING_BACKGROUND_TILES : MOST_BACKGROUND_TILES
+            return unless @background_tiles.length > most
 
             raise LoweringError, "this game's backgrounds need #{@background_tiles.length} different tiles, and a Game " \
-                                 "Boy Color has room for #{MOST_BACKGROUND_TILES}."
+                                 "Boy Color has room for #{most}#{painting? ? ' beside a painted screen' : ''}."
           end
 
           # The place each pixel of a sprite's picture is drawn from: its own list's, where it came
@@ -300,8 +319,9 @@ module RubyGBA
             found = palettes.index(colors)
             return found if found
 
-            if palettes.length == PALETTES
-              raise LoweringError, "this game's #{kind} need more than the #{PALETTES} lists of colours a Game Boy Color " \
+            most = painting? && palettes.equal?(@background_palettes) ? PAINTING_PALETTES : PALETTES
+            if palettes.length == most
+              raise LoweringError, "this game's #{kind} need more than the #{most} lists of colours a Game Boy Color " \
                                    "holds for them. To fix this, draw more of them from the same colours."
             end
 

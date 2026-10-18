@@ -316,7 +316,8 @@ module RubyGBA
         def size_screen_for(node)
           return unless node.kind == :program
 
-          width, height = node.described_console.screen_size
+          @console = node.described_console
+          width, height = @console.screen_size
           return if [@screen.width, @screen.height] == [width, height]
 
           @screen = Framebuffer.new(width: width, height: height)
@@ -1585,8 +1586,13 @@ module RubyGBA
         # the affine sibling of #exec_scroll_background. +angle+ wraps to 0..359 the same
         # way a hardware sprite's does, so a program that never wraps it itself (a fixed
         # rotate of, say, 370) still reads the picture the console would show.
+        #
+        # On a console that cannot turn a layer (Console::Description#turning_backgrounds) the layer
+        # is shown as it was drawn, as that console's build shows it (Console::GBCFeatures).
         def exec_affine_background(node)
           @bg_by_name.fetch(node.name) { raise ProgramError, "affine transform of undeclared background #{node.name.inspect}" }
+          return if @console&.turning_backgrounds&.zero?
+
           @bg_affine[node.name] = Turn.new(angle: eval_value(node.angle) % 360, size: eval_value(node.scale),
                                            pivot_x: node.around_x, pivot_y: node.around_y)
           request_repaint
@@ -2101,7 +2107,7 @@ module RubyGBA
         end
 
         # Does the display mix a tint in as it draws, which only the plain bitmap screen does?
-        def tint_by_display? = painted_screen? && !@buffered
+        def tint_by_display? = painted_screen? && !@buffered && (@console.nil? || @console.blends)
 
         # Turn the blend on or off for the thing about to be painted: on for anything the
         # placed fade reaches, off for anything it leaves alone. A +name+ of nil is the

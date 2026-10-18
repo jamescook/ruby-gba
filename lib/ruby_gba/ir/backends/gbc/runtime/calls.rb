@@ -25,13 +25,18 @@ module RubyGBA
 
             def emit(asm, memory)
               h = Console::GBCHardware
-              # Copy B bytes from (HL) into the arguments' place in quick memory.
+              # Copy B bytes from (HL) into the arguments' place in quick memory: a number, four
+              # bytes, to a turn of the loop.
               asm.label("rt_take_args")
               asm.load(:c, memory.args & 0xFF)
+              asm.srl(:b)
+              asm.srl(:b)
               asm.label("rt_take_args_loop")
-              asm.load(:a, [:hli])
-              asm.load_high([:c], :a)
-              asm.inc(:c)
+              4.times do
+                asm.load(:a, [:hli])
+                asm.load_high([:c], :a)
+                asm.inc(:c)
+              end
               asm.dec(:b)
               asm.jump_relative(:nz, "rt_take_args_loop")
               asm.ret

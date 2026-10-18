@@ -5,6 +5,8 @@
 #include <mgba/core/config.h>
 #include <mgba/core/serialize.h>
 #include <mgba/internal/gba/serialize.h>
+#include <mgba/internal/gb/gb.h>
+#include <mgba/internal/sm83/sm83.h>
 #include <mgba-util/memory.h>
 #include <ruby/thread.h>
 #include <string.h>
@@ -2541,6 +2543,72 @@ mgba_core_step(VALUE self)
     return Qnil;
 }
 
+/* Core#profile_gb(frames) — A GAME BOY CARTRIDGE'S NEXT +frames+ FRAMES, AN INSTRUCTION AT A TIME,
+ * and where the time went: for every instruction that ran, the cycles spent on it.
+ *
+ * The Game Boy's processor sees one bank of the cartridge at 0x4000 at a time, so an address there
+ * means nothing without the bank, and each is counted under both: the key is bank × 0x10000 plus
+ * the address. Everything else — bank 0, and code run from memory — is bank 0.
+ *
+ * Asleep (HALT, waiting for the screen) is counted apart and in cycles, as #profile counts it for
+ * the Advance: a sleep is one step however long it lasts, and the address it went to sleep at did
+ * not spend that time.
+ *
+ * Answers { spent: { key => cycles }, halted: cycles, total: cycles }, in the emulator's clock. */
+#define GB_PROFILE_BANKS 128
+static VALUE
+mgba_core_profile_gb(VALUE self, VALUE frames_v)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    if (mc->core->platform(mc->core) != mPLATFORM_GB)
+        rb_raise(rb_eArgError, "profile_gb plays a Game Boy cartridge, and this is not one");
+    struct mCore *core = mc->core;
+    struct GB *gb = (struct GB *)core->board;
+    long frames = NUM2LONG(frames_v);
+    uint32_t *fixed = calloc(0x10000, sizeof(uint32_t));
+    uint32_t *banked = calloc((size_t)GB_PROFILE_BANKS * 0x4000, sizeof(uint32_t));
+    if (!fixed || !banked) {
+        free(fixed);
+        free(banked);
+        rb_raise(rb_eNoMemError, "no room to count a profile");
+    }
+    uint64_t halted = 0, total = 0;
+    int32_t frame_c = core->frameCycles(core);
+    for (long f = 0; f < frames; ++f) {
+        uint64_t start = mTimingGlobalTime(&gb->timing);
+        long guard = 0;
+        while (mTimingGlobalTime(&gb->timing) - start < (uint64_t)frame_c && ++guard < (long)frame_c * 4) {
+            uint64_t before = mTimingGlobalTime(&gb->timing);
+            int was_halted = gb->cpu->halted;
+            uint16_t pc = gb->cpu->pc;
+            int bank = gb->memory.currentBank;
+            core->step(core);
+            uint64_t took = mTimingGlobalTime(&gb->timing) - before;
+            total += took;
+            if (was_halted)
+                halted += took;
+            else if (pc >= 0x4000 && pc < 0x8000 && bank < GB_PROFILE_BANKS)
+                banked[(size_t)bank * 0x4000 + (pc - 0x4000)] += (uint32_t)took;
+            else
+                fixed[pc] += (uint32_t)took;
+        }
+    }
+    VALUE spent = rb_hash_new();
+    for (long pc = 0; pc < 0x10000; ++pc)
+        if (fixed[pc])
+            rb_hash_aset(spent, LONG2NUM(pc), ULONG2NUM(fixed[pc]));
+    for (long i = 0; i < (long)GB_PROFILE_BANKS * 0x4000; ++i)
+        if (banked[i])
+            rb_hash_aset(spent, LONG2NUM((i / 0x4000) * 0x10000 + 0x4000 + (i % 0x4000)), ULONG2NUM(banked[i]));
+    free(fixed);
+    free(banked);
+    VALUE out = rb_hash_new();
+    rb_hash_aset(out, ID2SYM(rb_intern("spent")), spent);
+    rb_hash_aset(out, ID2SYM(rb_intern("halted")), ULL2NUM(halted));
+    rb_hash_aset(out, ID2SYM(rb_intern("total")), ULL2NUM(total));
+    return out;
+}
+
 /* Core#cpu_cycles — the ARM core's relative cycle accumulator (advances as
  * instructions execute, folded into global time at event boundaries). */
 static VALUE
@@ -4086,6 +4154,7 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "measure_frame_busy_cycles", mgba_core_measure_frame_busy_cycles, 0);
     rb_define_method(cCore, "measure_frame_work", mgba_core_measure_frame_work, 0);
     rb_define_method(cCore, "profile",       mgba_core_profile, 2);
+    rb_define_method(cCore, "profile_gb",    mgba_core_profile_gb, 1);
     rb_define_method(cCore, "sound_feed_start",  mgba_core_sound_feed_start, 0);
     rb_define_method(cCore, "sound_feed_finish", mgba_core_sound_feed_finish, 0);
     rb_define_method(cCore, "registers",     mgba_core_registers, 0);
