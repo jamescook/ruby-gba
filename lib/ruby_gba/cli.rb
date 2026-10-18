@@ -68,6 +68,11 @@ module RubyGBA
       A step only the console can run (raw instructions given with `entry`) cannot be
       built for the web; the build names each such line.
 
+      --format=gbc builds a Game Boy Color cartridge instead, a .gbc beside the game file. The
+      game says it is for the Color too (`RubyGBA.game "NAME", consoles: %i[gba gbc]`) and lays
+      itself out from `screen_width` and `screen_height`. The build says, as it goes, what the
+      Color shows differently and what it cannot do.
+
       A game that saves keeps its save in a file, in the folder your computer has for
       each program's own files. To keep it in a different file, start the program with
       --save-file PATH. The file holds the bytes of a cartridge's save memory, so a .sav
@@ -75,11 +80,12 @@ module RubyGBA
     TEXT
     option :output, aliases: "-o", banner: "PATH",
                     desc: "Where to write the .gba, the IR under --format=ir, the program under --format=native, " \
-                          "or the page under --format=web (default: beside the game file, named from its title; " \
-                          "the pager for IR)"
+                          "the page under --format=web, or the .gbc under --format=gbc (default: beside the game " \
+                          "file, named from its title; the pager for IR)"
     option :format, banner: "NAME", default: "game",
                     desc: "What to emit: game (a .gba cartridge), ir (a standalone Ruby class holding the IR), " \
-                          "native (a program for this computer), or web (a page that plays it in a browser)"
+                          "native (a program for this computer), web (a page that plays it in a browser), or gbc " \
+                          "(a Game Boy Color cartridge)"
     option :profile, type: :boolean, default: false,
                      desc: "Also run the game and report what the build made and what it cost (see `profile`)"
     option :stats, type: :boolean, default: false,
@@ -110,8 +116,9 @@ module RubyGBA
       when "ir" then build_ir(game_file)
       when "native" then build_native(game_file)
       when "web" then build_web(game_file)
+      when "gbc" then build_color_cartridge(game_file)
       else
-        raise Thor::Error, "#{options[:format].inspect} is not a build format. The formats are: game, ir, native, web."
+        raise Thor::Error, "#{options[:format].inspect} is not a build format. The formats are: game, ir, native, web, gbc."
       end
     rescue ArgumentError => e
       # A setting the game does not ask for, or one it cannot read: say why, not a backtrace.
@@ -347,6 +354,16 @@ module RubyGBA
       say rom.compression.summary_line if options[:stats] && rom.compression&.any?
       say placement_line(rom) if options[:stats] && rom.placement&.funcs&.any?
       profile_rom(rom) if options[:profile] || options[:scene] || options[:keys].any?
+    end
+
+    # The "gbc" format: a Game Boy Color cartridge, for a game that says it is for the Color too.
+    def build_color_cartridge(game_file)
+      game = load_game(game_file)
+      rom = game.build_rom(progress: RubyGBA::Messages::Progress.to($stderr), settings: given_settings,
+                           console: :gbc)
+      path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename(console: :gbc))
+      rom.write(path)
+      say "Built #{File.basename(path)} (#{rom.size} bytes)"
     end
 
     # The "ir" format (--format=ir): the game's IR as a standalone Ruby class, instead

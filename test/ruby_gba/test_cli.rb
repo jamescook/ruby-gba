@@ -341,6 +341,31 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # A game for the Color too builds a .gbc beside it; one for the Advance alone is refused,
+  # saying what to write.
+  def test_format_gbc_writes_a_game_boy_color_cartridge
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "both.rb"), <<~GAME)
+        require "ruby_gba"
+        RubyGBA.game("BOTH", consoles: %i[gba gbc]) do
+          x = var :x, screen_width / 2
+          game_loop { x.add! 1 }
+        end
+      GAME
+      out, status = cli("build", "both.rb", "--format", "gbc", dir: dir)
+      assert status.success?, out
+      assert_match(/Built both\.gbc \(\d+ bytes\)/, out)
+      cartridge = File.binread(File.join(dir, "both.gbc"))
+      assert_equal RubyGBA::Console::GBCHardware::CGB_ONLY, cartridge.getbyte(RubyGBA::Console::GBCHardware::CGB_FLAG_AT),
+                   "the cartridge says it is for a Game Boy Color"
+
+      cli("new", "demo", dir: dir)
+      refused, refused_status = cli("build", "demo.rb", "--format", "gbc", dir: dir)
+      refute refused_status.success?
+      assert_match(/consoles: %i\[gba gbc\]/, refused)
+    end
+  end
+
   # A game built for the web is one page beside it, holding the game and what plays it, with
   # nothing to fetch.
   def test_format_web_writes_one_page_that_plays_the_game
