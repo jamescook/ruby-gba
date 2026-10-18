@@ -6,3 +6,4 @@
 # so it needs nothing loaded before it.
 
 require_relative "console/hardware" # the register addresses, flags and memory map
+require_relative "console/gbc_features" # what each verb does on a Game Boy Color: works, degrades or refused
