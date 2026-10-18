@@ -21,8 +21,8 @@ class TestJSPreview < Minitest::Test
   end
 
   # Serves +file+ for the length of the block, which is handed a way to fetch the page.
-  private def serving(file, settings: [])
-    preview = Preview.new(file, settings: settings, port: 0, out: StringIO.new)
+  private def serving(file, settings: [], page: nil)
+    preview = Preview.new(file, settings: settings, page: page, port: 0, out: StringIO.new)
     server = Thread.new { preview.serve }
     yield -> { Net::HTTP.get_response(URI(preview.url)) }
   ensure
@@ -63,6 +63,19 @@ class TestJSPreview < Minitest::Test
 
         refute_match(/did not build/, page)
         assert_match(/<title>SETTINGS<\/title>/, page)
+      end
+    end
+  end
+
+  # A page template given to the preview is the one every reload is written from.
+  def test_the_template_given_writes_every_page
+    Dir.mktmpdir do |dir|
+      file = File.join(dir, "game.rb")
+      File.write(file, game_source("TEMPLATED", :blue))
+      template = File.join(dir, "mine.html.erb")
+      File.write(template, "<!doctype html>\n<h1>Mine: <%= title %></h1>\n<%= game %>\n")
+      serving(file, page: template) do |fetch|
+        assert_match(/<h1>Mine: TEMPLATED<\/h1>/, fetch.call.body.force_encoding(Encoding::UTF_8))
       end
     end
   end

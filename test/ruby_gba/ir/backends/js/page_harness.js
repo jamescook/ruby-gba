@@ -1,10 +1,12 @@
 /*
- * Plays a web page's script (runtime/rg_page.js and the game) in node, with a stand-in for each
- * part of the browser it uses: a canvas that keeps the last picture put on it, a window that
- * hands out key presses and the browser's frame callbacks, and storage that keeps the save.
- * test_js_page.rb drives it, so what runs is the page's own driver and not the windowless one.
+ * Plays a web page (runtime/rg_page.js and the game, in the page a template wrote) in node, with a
+ * stand-in for each part of the browser it uses: a canvas that keeps the last picture put on it,
+ * a window that hands out key presses and the browser's frame callbacks, and storage that keeps
+ * the save. test_js_page.rb drives it, so what runs is the page's own driver and not the
+ * windowless one. Of the page's parts the script looks for by id, only those the page's HTML has
+ * are there to find.
  *
- * The script is named on the command line. Each line read from the input is one step:
+ * The page is named on the command line. Each line read from the input is one step:
  *
  *   down KEY / up KEY   a key going down or coming up, by the browser's name for it (ArrowRight)
  *   pad connect         a controller plugged in, laid out the standard way (the browser's
@@ -17,7 +19,8 @@
  *                       the page plays one frame of the game on each
  *   picture             prints "picture" and every pixel last put on the canvas, as the
  *                       console's fifteen-bit colours
- *   text ID             prints "text ID" and the words in the page's element of that id now
+ *   text ID             prints "text ID" and the words in the page's element of that id now, or
+ *                       "text ID (none)" for a page without one
  *
  * At the end it prints "said" and the words the page showed under the canvas, if it showed any.
  */
@@ -27,6 +30,10 @@ const fs = require("fs");
 const vm = require("vm");
 
 const FRAME_MS = 1000 * 280896 / 2 ** 24;
+
+const html = fs.readFileSync(process.argv[2], "utf8");
+const script = html.match(/<script>\n([\s\S]*)<\/script>/)[1];
+const ids = new Set(Array.from(html.replace(script, "").matchAll(/\bid="([^"]+)"/g), (found) => found[1]));
 
 const listeners = {};
 const waiting = [];
@@ -53,7 +60,7 @@ const controller = {
 
 const page = {
   window: null,
-  document: { getElementById: (id) => ({ screen: canvas, said, controller: note })[id] || null },
+  document: { getElementById: (id) => (ids.has(id) && { screen: canvas, said, controller: note }[id]) || null },
   navigator: { getGamepads: () => pads.slice() },
   performance: { now: () => now },
   atob, btoa, console,
@@ -100,7 +107,7 @@ function picture() {
   return colors.join(",");
 }
 
-vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"), vm.createContext(page));
+vm.runInNewContext(script, vm.createContext(page));
 
 const printed = [];
 for (const line of fs.readFileSync(0, "utf8").split("\n")) {
@@ -110,8 +117,8 @@ for (const line of fs.readFileSync(0, "utf8").split("\n")) {
   else if (step === "pad") pad(what, ...rest);
   else if (step === "play") play(Number(what));
   else if (step === "picture") printed.push(`picture ${picture()}`);
-  else if (step === "text") printed.push(`text ${what} ${page.document.getElementById(what).textContent}`);
+  else if (step === "text") printed.push(`text ${what} ${page.document.getElementById(what)?.textContent ?? "(none)"}`);
   else if (step) throw new Error(`page_harness: no step called ${step}`);
 }
-if (!said.hidden) printed.push(`said ${said.textContent}`);
+if (ids.has("said") && !said.hidden) printed.push(`said ${said.textContent}`);
 fs.writeSync(1, `${printed.join("\n")}\n`);

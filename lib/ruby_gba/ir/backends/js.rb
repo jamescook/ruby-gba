@@ -100,14 +100,16 @@ module RubyGBA
 
         # +game+ as ONE web page, written to +path+: the game checked as a cartridge build checks it,
         # written as JavaScript, and put in a page with nothing to fetch, which plays it in a canvas
-        # when opened. +scale+ is how many times the console's picture is enlarged.
-        def build_page(game, path, settings: {}, scale: 3, err: $stderr)
+        # when opened. +scale+ is how many times the console's picture is enlarged, and +page+ the
+        # template the page is written from (see Page for what one is handed).
+        def build_page(game, path, settings: {}, scale: 3, page: Page::DEFAULT, err: $stderr)
           if File.directory?(path)
             raise LoweringError, "#{path} is a folder, so the page cannot be written there. Name a file instead."
           end
+          raise LoweringError, "There is no page template at #{page}. Name an .html.erb file that exists." unless File.file?(page)
 
           script = bundle(checked_program(game, settings: settings, err: err), driver: :page, title: game.title)
-          File.write(path, Page.html(title: game.title, script: script, scale: scale))
+          File.write(path, Page.html(title: game.title, script: script, scale: scale, template: page))
           path
         end
 

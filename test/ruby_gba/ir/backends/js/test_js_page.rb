@@ -25,21 +25,25 @@ class TestJSPage < Minitest::Test
     end
   end
 
-  private def built_page(game = walking_game)
+  # +game+'s page, written by the default template or by one whose text is +template+.
+  private def built_page(game = walking_game, template: nil)
     Dir.mktmpdir do |dir|
       path = File.join(dir, "page.html")
-      JS.new.build_page(game, path, err: nil)
+      options = {}
+      if template
+        options[:page] = File.join(dir, "page.html.erb")
+        File.write(options[:page], template)
+      end
+      JS.new.build_page(game, path, err: nil, **options)
       File.read(path, encoding: Encoding::UTF_8)
     end
   end
 
-  private def page_script(game = walking_game) = built_page(game)[%r{<script>\n(.*)</script>}m, 1]
-
   # What the harness printed for +steps+ (one a line, see page_harness.js), played on +game+'s page.
-  private def played_page(steps, game = walking_game)
+  private def played_page(steps, game = walking_game, template: nil)
     Dir.mktmpdir do |dir|
-      path = File.join(dir, "page.js")
-      File.write(path, page_script(game))
+      path = File.join(dir, "page.html")
+      File.write(path, built_page(game, template: template))
       out, said, status = Open3.capture3("node", HARNESS, path, stdin_data: steps.join("\n"))
       assert status.success?, said
       out.lines(chomp: true)
@@ -111,11 +115,31 @@ class TestJSPage < Minitest::Test
     assert_equal before, after
   end
 
+  # A page written by a template of the game's own, with nothing on it but the game, plays the
+  # game the same: the parts the script fills in are not there, and it does without them.
+  def test_a_template_with_only_the_game_plays_it_the_same
+    template = "<!doctype html>\n<title><%= title %></title>\n<main class=\"mine\"><%= game %></main>\n"
+    steps = ["down ArrowRight", "play 10", "picture", "up ArrowRight", "play 5", "picture", "text controller"]
+
+    assert_includes built_page(template: template), '<main class="mine">'
+    assert_includes played_page(steps, template: template), "text controller (none)"
+    assert_walks_right_for_frames_two_to_eleven(steps, template: template)
+  end
+
+  # A template that never writes the game would make a page with no game on it, so the build
+  # stops and says what to add.
+  def test_a_template_without_the_game_is_refused_by_name
+    error = assert_raises(JS::LoweringError) { built_page(template: "<p><%= keys %></p>") }
+
+    assert_match(/does not write the game/, error.message)
+    assert_includes error.message, "<%= game %>"
+  end
+
   # +steps+ hold right from the page's start to frame 10 and take two pictures, at frames 10 and
   # 15: each is the interpreter's with right held for frames 2 to 11, since the page reads its
   # buttons after each frame, for the next.
-  private def assert_walks_right_for_frames_two_to_eleven(steps)
-    walked, stood = pictures_in(played_page(steps))
+  private def assert_walks_right_for_frames_two_to_eleven(steps, template: nil)
+    walked, stood = pictures_in(played_page(steps, template: template))
     program = walking_game.program
     interpreter = ->(frames) { Reference.new.input_each_frame { |frame| (2..11).cover?(frame) ? [:right] : [] }.run(program, frames: frames) }
 

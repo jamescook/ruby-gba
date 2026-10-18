@@ -25,11 +25,13 @@ module RubyGBA
         # files are read afresh every time, and a build that stops — a guardrail's error, a Ruby
         # mistake — is shown in the page in its own words instead of a game.
         class Preview
-          # +game_file+ is the game; +settings+ are what `--set` hands its build; +port+ is the one to
-          # serve on, 0 for any that is free; +out+ is told where the page is and what happens.
-          def initialize(game_file, settings: [], host: "127.0.0.1", port: 8000, out: $stdout)
+          # +game_file+ is the game; +settings+ are what `--set` hands its build; +page+ is the
+          # template every page is written from, nil for the default; +port+ is the one to serve on,
+          # 0 for any that is free; +out+ is told where the page is and what happens.
+          def initialize(game_file, settings: [], page: nil, host: "127.0.0.1", port: 8000, out: $stdout)
             @game_file = File.expand_path(game_file)
             @settings = settings
+            @page = page && File.expand_path(page)
             @server = TCPServer.new(host, port)
             @out = out
           end
@@ -80,7 +82,8 @@ module RubyGBA
             Dir.mktmpdir("ruby-gba-preview") do |dir|
               path = File.join(dir, "game.html")
               said, status = Open3.capture2e(RbConfig.ruby, RubyGBA.root.join("bin", "ruby-gba").to_s, "build", @game_file,
-                                             "--format", "web", "-o", path, *settings_arguments)
+                                             "--format", "web", "-o", path, *(["--page", @page] if @page),
+                                             *settings_arguments)
               built = status.success? && File.exist?(path)
               @out.puts(built ? "Built #{File.basename(@game_file)}" : "The build stopped:\n#{said}")
               built ? File.read(path, encoding: Encoding::UTF_8) : stopped_page(said)

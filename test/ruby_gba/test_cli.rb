@@ -356,6 +356,23 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # --page writes the page from a template of the author's own, and a template that leaves the
+  # game out stops the build in plain words.
+  def test_format_web_writes_the_page_from_the_template_given
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      File.write(File.join(dir, "mine.html.erb"), "<!doctype html>\n<h1>My <%= title %></h1>\n<%= game %>\n")
+      out, status = cli("build", "demo.rb", "--format", "web", "--page", "mine.html.erb", dir: dir)
+      assert status.success?, out
+      assert_match(/<h1>My /, File.read(File.join(dir, "demo.html"), encoding: Encoding::UTF_8))
+
+      File.write(File.join(dir, "empty.html.erb"), "<p>nothing</p>\n")
+      out, status = cli("build", "demo.rb", "--format", "web", "--page", "empty.html.erb", dir: dir)
+      refute status.success?, "a template without the game should fail"
+      assert_match(/does not write the game/, out)
+    end
+  end
+
   # A computer there is no build for is refused before anything is built, in the command's own
   # words for the ones there are.
   def test_format_native_rejects_an_unknown_target

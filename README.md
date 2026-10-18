@@ -187,6 +187,8 @@ ruby-gba build examples/pong.rb --format=web   # pong.html, beside the game
 ruby-gba preview examples/pong.rb              # serve it; every reload builds it again from the file
 ```
 
+The page is written from a template, and you can give your own with `--page my_page.html.erb` (on `build` and on `preview`). It is ERB, and `<%= game %>` puts the game in it; `<%= extras %>` adds the default key help, the controller note and the line where a game that stops says why, or each of them alone as `keys`, `controller` and `message`. `title` and `style` are there too. A template without `game` stops the build.
+
 `preview` is the quick loop while you work: edit the game, reload the page, and it plays as the file now says — no cartridge, no emulator. What it shows is the game as the framework understands it, so a mistake in the game's own logic shows there and a mistake only the console makes does not; check the cartridge too before shipping. A step only the console can run (raw instructions given with `entry`) cannot be built for the web, and the build names each such line. One inside a routine nothing calls never runs, so the web build leaves it out and warns you instead. A game meant for both can hear that on every cartridge build as well, as a warning: `RubyGBA::IR::Guardrails.register(RubyGBA::IR::Guardrails::Checks::WebPortability.new)`.
 
 The page is the game written as JavaScript: the same statements the C build writes, played by a runtime that is the C build's written again, function for function. `rake test` plays every test's game that way too, under [node](https://nodejs.org), and compares every frame with the interpreter (`rake test:lowering:js` plays only that side).

@@ -92,6 +92,8 @@ module RubyGBA
                  desc: "Tell the game a setting it reads with `setting` (for example --set floors=1)"
     option :target, banner: "COMPUTER",
                     desc: "With --format=native, build for another computer: windows, linux or linux-arm"
+    option :page, banner: "TEMPLATE",
+                  desc: "With --format=web, write the page from this .html.erb template; it must have <%= game %>"
     def build(game_file)
       case options[:format]
       when "game" then build_cartridge(game_file)
@@ -275,12 +277,14 @@ module RubyGBA
       as well before you ship it.
     TEXT
     option :port, type: :numeric, default: 8000, desc: "The port to serve the page on"
+    option :page, banner: "TEMPLATE", desc: "Write the page from this .html.erb template; it must have <%= game %>"
     option :set, type: :array, banner: "NAME=VALUE", default: [],
                  desc: "Tell the game a setting it reads with `setting` (for example --set floors=1)"
     def preview(game_file)
       raise Thor::Error, "I cannot find the game file #{game_file}." unless File.file?(game_file)
 
-      server = RubyGBA::IR::Backends::JS::Preview.new(game_file, settings: options[:set], port: options[:port])
+      server = RubyGBA::IR::Backends::JS::Preview.new(game_file, settings: options[:set], page: options[:page],
+                                                                 port: options[:port])
       trap("INT") { server.stop }
       server.serve
     rescue Errno::EADDRINUSE
@@ -384,7 +388,8 @@ module RubyGBA
       game = load_game(game_file)
       path = options[:output] ||
              File.join(File.dirname(File.expand_path(game_file)), game.default_filename.delete_suffix(".gba") + ".html")
-      RubyGBA::IR::Backends::JS.new.build_page(game, path, settings: given_settings)
+      page = options[:page] ? File.expand_path(options[:page]) : RubyGBA::IR::Backends::JS::Page::DEFAULT
+      RubyGBA::IR::Backends::JS.new.build_page(game, path, settings: given_settings, page: page)
       say "Built #{path}"
     rescue RubyGBA::IR::Backends::JS::LoweringError, RubyGBA::IR::Guardrails::ValidationError => e
       raise Thor::Error, e.message
