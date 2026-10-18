@@ -68,6 +68,7 @@ function listening() {
   return {
     heard,
     addEventListener(type, listener) { (heard[type] ||= []).push(listener); },
+    removeEventListener(type, listener) { heard[type] = (heard[type] || []).filter((each) => each !== listener); },
   };
 }
 
@@ -234,7 +235,10 @@ async function main() {
     await run_module();
     page_read();
   } else {
+    /* An inline script is the document's current one while it runs, with no address of its own. */
+    document.currentScript = { src: "" };
     vm.runInThisContext(script);
+    document.currentScript = null;
     page_read();
   }
   /* Whatever the page fetched has arrived, as it would long before a person pressed anything. */

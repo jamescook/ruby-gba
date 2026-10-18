@@ -23,11 +23,11 @@ module RubyGBA
         class Lowering < Native::Lowering
           # The program as one JavaScript file's text: the game alone, with no runtime (see
           # JS#factory for a program that runs).
-          def source = written.first
+          def source = text_and_data_file.first
 
           # The text and, with +data+ :separate, the data file its big tables are in (nil with them
           # :inline, in the text). See Printer#data_file.
-          def written(data: :inline)
+          def text_and_data_file(data: :inline)
             refuse_unlowered_kinds!
             printer = Printer.new(data: data)
             [printer.print_file(top_level), printer.data_file]

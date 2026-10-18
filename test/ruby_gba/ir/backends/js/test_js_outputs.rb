@@ -138,8 +138,8 @@ class TestJSOutputs < Minitest::Test
     missing = played_page(["play 3", 'js said.join(" | ")'], html: module_page, beside: files.except("game.data"))
     mismatched = played_page(["play 3", 'js said.join(" | ")'], html: module_page, beside: stale)
 
-    assert_match(/could not load .*game\.data/i, missing.grep(/\Ajs /).first)
-    assert_match(/not the one this build of the game/i, mismatched.grep(/\Ajs /).first)
+    assert_match(/cannot load .*game\.data/i, missing.grep(/\Ajs /).first)
+    assert_match(/from a different build of the game/i, mismatched.grep(/\Ajs /).first)
   end
 
   # The classic script puts createGame and the title on window.RubyGBA under the name it is given

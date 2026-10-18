@@ -12,15 +12,18 @@ class TestJSCreateGame < Minitest::Test
   JS = RubyGBA::IR::Backends::JS
 
   # A page of +canvases+ (their ids) that runs +host_js+ once createGame is defined. +host_js+
-  # keeps what it makes in `games`, where a step can reach it (`js games[0].pause()`).
-  private def page_of(game, canvases, host_js)
+  # keeps what it makes in `games`, where a step can reach it (`js games[0].pause()`). With +data+
+  # :separate, the game's big tables are to be fetched from game.data beside the page.
+  private def page_of(game, canvases, host_js, data: :inline)
+    factory, = JS.new.factory_and_data_file(game.program, title: game.title, data: data)
     <<~HTML
       <!doctype html>
       #{canvases.map { |id| %(<canvas id="#{id}" width="240" height="160"></canvas>) }.join("\n")}
       <script>
       (function () {
       "use strict";
-      #{JS.new.factory(game.program, title: game.title)}
+      const rg_data_beside = "game.data";
+      #{factory}
       #{host_js}
       })();
       </script>
@@ -86,6 +89,44 @@ class TestJSCreateGame < Minitest::Test
     told = played_page(["play 5", 'js said.join(" | ")'], html: html).grep(/\Ajs /).first
 
     assert_match(/stopped: The game stopped: .*list :trail is full/, told)
+  end
+
+  # A stopped game lets go of the page: its keys go back to the page (the arrows scroll again, F
+  # does nothing), and a save not yet written is written as it stops.
+  def test_a_stopped_game_lets_go_of_the_page_and_keeps_its_save
+    game = RubyGBA.game "KEEPER" do
+      screen :bitmap
+      count = save_var :count, 0
+      game_loop { count.add! 1 }
+    end
+    html = page_of(game, %w[one], <<~JS)
+      window.kept = [];
+      const storage = { getItem: () => null, setItem: (key) => kept.push(key) };
+      window.games = [createGame({ canvas: #{canvas('one')}, storage })];
+    JS
+    lines = played_page(["play 3", "js games[0].stop()", "down ArrowRight", "down KeyF", "state", 'js kept.join(",")'], html: html)
+
+    assert_includes lines, "state audio=none fullscreen=none kept=0"
+    assert_includes lines, "js ruby-gba-save:KEEPER"
+  end
+
+  # A click on a paused game makes the sound ready but keeps it waiting: it plays when the game does.
+  def test_a_click_while_paused_keeps_the_sound_waiting
+    html = page_of(ticking_game, %w[one], "window.games = [createGame({ canvas: #{canvas('one')} })];")
+    lines = played_page(["play 2", "blur", "click one", "state", "focus", "state"], html: html)
+
+    assert_equal %w[suspended running], lines.grep(/\Astate /).map { |line| line[/audio=(\S+)/, 1] }
+  end
+
+  # Data given in a form the game cannot read is said to be that, in words that say what to give.
+  def test_data_it_cannot_read_is_said_in_plain_words
+    html = page_of(walking_game, %w[one], <<~JS, data: :separate)
+      window.said = [];
+      window.games = [createGame({ canvas: #{canvas('one')}, data: {}, onMessage: (kind, text) => said.push(text) })];
+    JS
+    told = played_page(["play 3", 'js said.join(" | ")'], html: html).grep(/\Ajs /).first
+
+    assert_match(/cannot read the data.*address, or its bytes/, told)
   end
 
   # The save goes where the host says, under the game's name unless the host names it.

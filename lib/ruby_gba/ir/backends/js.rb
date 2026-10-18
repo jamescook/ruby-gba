@@ -87,19 +87,18 @@ module RubyGBA
         # called — the runtime, the game and the browser's driver (runtime/rg_page.js, which says
         # what +host+ may hold and what comes back) all inside it, so every game made has its own
         # state and two never meet. It is the one thing every web output wraps: the page calls it
-        # (#page_script), and the module and the classic script hand it out. The text is the
-        # function's declaration alone; whatever wraps it says strict mode. Its big tables are in
-        # it (see #factory_and_data for them in a file of their own).
-        def factory(program, title: "ruby-gba") = factory_and_data(program, title: title).first
+        # (the page's mount, runtime/rg_mount.js), and the module and the classic script hand it
+        # out. The text is the function's declaration alone; whatever wraps it says strict mode.
+        # Its big tables are in it (see #factory_and_data_file for them in a file of their own).
+        def factory(program, title: "ruby-gba") = factory_and_data_file(program, title: title).first
 
-        # The script the web build's own page carries: createGame, and the page's call of it
-        # (runtime/rg_mount.js), inside a function of their own so nothing leaks into the page.
-        # +beside+ is where a data file is to be fetched from, for a game whose data is separate.
-        def page_script(program, title: "ruby-gba", data: :inline, beside: nil)
-          text, data_file = factory_and_data(program, title: title, data: data)
-          script = [WRITTEN_BY, "(function () {\n\"use strict\";\n", beside_line(beside), text,
-                    *runtime_files(["rg_mount.js"]), "rg_mount_page(createGame);\n})();\n"].join
-          [script, data_file]
+        # createGame's text and, with +data+ :separate, the data file its big tables are in (nil
+        # with them :inline). A game whose data is separate fetches it from +rg_data_beside+, which
+        # whatever wraps the text declares (see #data_beside_declaration).
+        def factory_and_data_file(program, title: "ruby-gba", data: :inline)
+          text, data_file = Lowering.new(program, title: title).text_and_data_file(data: data)
+          [["function createGame(host) {\n", *runtime_text(RUNTIME + ["rg_page.js"]), text,
+            "return page_create(host || {});\n}\n"].join, data_file]
         end
 
         # The program built to run with no window (runtime/rg_headless.js), and the path to it,
@@ -107,8 +106,8 @@ module RubyGBA
         # what it prints: the same as the native lowering's headless program. One game a run, so
         # it is not made through createGame.
         def build_headless(program)
-          write_program([WRITTEN_BY, "(function () {\n\"use strict\";\n", *runtime_files(RUNTIME + ["rg_headless.js"]),
-                         lower(program), "rg_driver_start();\n})();\n"].join)
+          write_program(WRITTEN_BY + in_own_function(*runtime_text(RUNTIME + ["rg_headless.js"]), lower(program),
+                                                     "rg_driver_start();\n"))
         end
 
         # WHERE A GAME'S BIG TABLES GO, for each output below: +data+ :inline (the default) keeps
@@ -124,14 +123,13 @@ module RubyGBA
         # how many times the console's picture is enlarged, and +page+ the template the page is
         # written from (see Page for what one is handed).
         def build_page(game, path, settings: {}, scale: 3, page: Page::DEFAULT, data: :inline, err: $stderr)
-          refuse_folder!(path)
           raise LoweringError, "There is no page template at #{page}. Name an .html.erb file that exists." unless File.file?(page)
 
-          beside = JSON.generate(data_file_name(path)) if data == :separate
-          script, data_file = page_script(checked_program(game, settings: settings, err: err), title: game.title,
-                                                                                              data: data, beside: beside)
-          File.write(path, Page.html(title: game.title, script: script, scale: scale, template: page))
-          write_data_file(path, data_file)
+          write_output(game, path, settings: settings, data: data, err: err) do |text, data_file|
+            script = WRITTEN_BY + in_own_function(data_beside_declaration(data_file, JSON.generate(data_file_name(path))),
+                                                  text, *runtime_text(["rg_mount.js"]), "rg_mount_page(createGame);\n")
+            Page.html(title: game.title, script: script, scale: scale, template: page)
+          end
         end
 
         # +game+ as an ES MODULE, written to +path+ (game.mjs): createGame, exported by name and as
@@ -139,58 +137,60 @@ module RubyGBA
         # through a bundler, a framework, or a <script type="module"> — and call with its canvas.
         # A data file is fetched from beside the module, wherever the page is.
         def build_module(game, path, settings: {}, data: :inline, err: $stderr)
-          refuse_folder!(path)
-          program = checked_program(game, settings: settings, err: err)
-          text, data_file = factory_and_data(program, title: game.title, data: data)
-          beside = "new URL(#{JSON.generate(data_file_name(path))}, import.meta.url).href"
-          File.write(path, [WRITTEN_BY, beside_line(data_file && beside), text,
-                            "export const title = #{JSON.generate(game.title.to_s)};\n",
-                            "export { createGame };\nexport default createGame;\n"].join)
-          write_data_file(path, data_file)
+          write_output(game, path, settings: settings, data: data, err: err) do |text, data_file|
+            beside = "new URL(#{JSON.generate(data_file_name(path))}, import.meta.url).href"
+            [WRITTEN_BY, data_beside_declaration(data_file, beside), text,
+             "export const title = #{JSON.generate(game.title.to_s)};\n",
+             "export { createGame };\nexport default createGame;\n"].join
+          end
         end
 
         # +game+ as a CLASSIC SCRIPT, written to +path+ (game.js), for a page that loads it with a
         # plain <script src>: it puts createGame and the game's title on window.RubyGBA under
         # +name+ — the file's own name unless told — beside any other game's, and leaves nothing
         # else in the page's global scope. The page then calls RubyGBA.<name>.createGame. A data
-        # file is fetched from beside the script, read from the script's own address as it loads.
+        # file is fetched from beside the script, read from the script's own address as it loads —
+        # or, for a script written into the page itself, which has no address, beside the page.
         def build_script(game, path, name: File.basename(path, ".*"), settings: {}, data: :inline, err: $stderr)
-          refuse_folder!(path)
-          program = checked_program(game, settings: settings, err: err)
-          text, data_file = factory_and_data(program, title: game.title, data: data)
-          file = JSON.generate(data_file_name(path))
-          beside = "document.currentScript ? new URL(#{file}, document.currentScript.src).href : #{file}"
-          File.write(path, [WRITTEN_BY, "(function () {\n\"use strict\";\n", beside_line(data_file && beside), text,
-                            "const root = typeof globalThis === \"undefined\" ? window : globalThis;\n",
-                            "root.RubyGBA = root.RubyGBA || {};\n",
-                            "root.RubyGBA[#{JSON.generate(name.to_s)}] = { createGame, title: #{JSON.generate(game.title.to_s)} };\n",
-                            "})();\n"].join)
-          write_data_file(path, data_file)
+          write_output(game, path, settings: settings, data: data, err: err) do |text, data_file|
+            file = JSON.generate(data_file_name(path))
+            beside = "typeof document !== \"undefined\" && document.currentScript && document.currentScript.src " \
+                     "? new URL(#{file}, document.currentScript.src).href : #{file}"
+            WRITTEN_BY + in_own_function(data_beside_declaration(data_file, beside), text,
+                                         "const root = typeof globalThis === \"undefined\" ? window : globalThis;\n",
+                                         "root.RubyGBA = root.RubyGBA || {};\n",
+                                         "root.RubyGBA[#{JSON.generate(name.to_s)}] = " \
+                                         "{ createGame, title: #{JSON.generate(game.title.to_s)} };\n")
+          end
         end
 
         private
 
-        def runtime_files(names) = names.map { |name| File.read(File.join(RUNTIME_DIR, name), encoding: Encoding::UTF_8) }
+        # The runtime files of +names+, their text in that order.
+        def runtime_text(names) = names.map { |name| File.read(File.join(RUNTIME_DIR, name), encoding: Encoding::UTF_8) }
 
-        # createGame's text and, with +data+ :separate, the data file its big tables are in.
-        def factory_and_data(program, title: "ruby-gba", data: :inline)
-          text, data_file = Lowering.new(program, title: title).written(data: data)
-          [["function createGame(host) {\n", *runtime_files(RUNTIME + ["rg_page.js"]), text,
-            "return page_create(host || {});\n}\n"].join, data_file]
+        # +parts+ inside a function of their own, in strict mode, so nothing they declare leaks
+        # into whatever loads them.
+        def in_own_function(*parts) = ["(function () {\n\"use strict\";\n", *parts, "})();\n"].join
+
+        # What every output does: +game+ checked and written as createGame, the text the block
+        # makes of it (handed createGame's text and the data file, or nil) written to +path+, and
+        # the data file beside it. Gives back +path+.
+        def write_output(game, path, settings:, data:, err:)
+          refuse_folder!(path)
+          text, data_file = factory_and_data_file(checked_program(game, settings: settings, err: err), title: game.title,
+                                                                                                      data: data)
+          File.write(path, yield(text, data_file))
+          File.binwrite(File.join(File.dirname(path), data_file_name(path)), data_file) if data_file
+          path
         end
 
         # The data file's name beside the output at +path+: game.mjs's is game.data.
         def data_file_name(path) = "#{File.basename(path, '.*')}.data"
 
-        # Where the data file is fetched from unless the host says (+beside+, a JavaScript
-        # expression), for a game whose data is separate; nothing for one whose data is inline.
-        def beside_line(beside) = beside ? "const rg_data_beside = #{beside};\n" : ""
-
-        # Writes +data_file+ beside the output at +path+, if there is one, and gives back +path+.
-        def write_data_file(path, data_file)
-          File.binwrite(File.join(File.dirname(path), data_file_name(path)), data_file) if data_file
-          path
-        end
+        # The JavaScript that says where a game's data file is fetched from unless the host says
+        # (+beside+, an expression), for a game with a +data_file+; nothing for one without.
+        def data_beside_declaration(data_file, beside) = data_file ? "const rg_data_beside = #{beside};\n" : ""
 
         def refuse_folder!(path)
           return unless File.directory?(path)

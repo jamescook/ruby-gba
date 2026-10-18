@@ -42,7 +42,7 @@ module RubyGBA
             page = ERB.new(File.read(template, encoding: Encoding::UTF_8), trim_mode: "-").result_with_hash(pieces)
             return page if page.include?(pieces[:game])
 
-            raise LoweringError, "The page template #{template} does not write the game, so the page would not " \
+            raise LoweringError, "The page template #{template} does not write the game, so the page will not " \
                                  "play it. Put <%= game %> in the template where the game goes."
           end
 
