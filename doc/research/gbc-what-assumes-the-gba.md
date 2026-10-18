@@ -143,8 +143,10 @@ the check for that is every example built before and after, byte for byte.
    becomes the screen's own height.
 6. **`RubyGBA.build` picks its lowering and cartridge by console** — the GBA's are the only ones
    until the GBC lowering exists — and `Game#default_filename` takes the console's extension.
-7. **The save layout says its kind.** A `Memory` knows whether it is a battery SRAM, a flash or an
-   EEPROM rather than working it out from its size, and each console says which sizes it offers.
+7. **The save layout says its kind** — and, as it turned out, need not yet. A Game Boy Color
+   cartridge's battery-backed memory is written a byte at a time, as the Advance's 32K is, so the
+   GBC lowering keeps exactly that 32K layout (four banks of 8K) and refuses the other sizes. The
+   kind becomes worth saying the day a console offers a flash or an EEPROM of its own.
 8. **The test runs come from one table.** `RakeTasks` makes a task for each name in
    `Lowering::NAMES`, so a new run is a row and not three edits.
 9. **`Verifier` takes its picture size from the emulator**, not from `Console::Hardware`.
