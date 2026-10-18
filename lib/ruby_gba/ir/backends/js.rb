@@ -2,7 +2,6 @@
 
 require "digest"
 require "fileutils"
-require "open3"
 require "tmpdir"
 require_relative "js/printer"
 require_relative "js/lowering"
@@ -61,9 +60,12 @@ module RubyGBA
         end
 
         # The web build's own check, on a program however it was made: every console-only step,
-        # said in plain words to +err+, and a Guardrails::ValidationError when there is one.
+        # said in plain words to +err+, and a Guardrails::ValidationError when the game can reach
+        # one. One in a routine nothing calls is a warning, since the lowering leaves it out
+        # (Lowering#reachable_steps is how the two agree on which those are).
         def refuse_console_only_steps!(program, err = $stderr)
-          check = Guardrails::Checks::WebPortability.new(severity: :error)
+          reached = Lowering.new(program).reachable_steps
+          check = Guardrails::Checks::WebPortability.new(severity: :error, reached: reached)
           report = Guardrails::Validator.new(checks: [check]).run(program, autofix: false)
           report.print_findings(to: err) if err
           report.raise_on_error!

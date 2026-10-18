@@ -125,7 +125,7 @@ module RubyGBA
           def shown_in_blocks?(thing) = !@left_out_of_blocks.nil? && !@left_out_of_blocks.include?(thing.name)
 
           def refuse_picture!(what)
-            raise LoweringError, "this program uses #{what}, which the desktop build cannot draw yet. " \
+            raise LoweringError, "this program uses #{what}, which #{build_name} cannot draw yet. " \
                                  "The cartridge build can."
           end
 
@@ -182,7 +182,7 @@ module RubyGBA
               drawn = sprite_pixels(image, colors)
               if drawn.any? { |pixel| pixel > MAX_COLOR }
                 raise LoweringError, "picture #{name.inspect} holds a pixel past the fifteen bits a colour has, " \
-                                     "so it cannot be built as a desktop program."
+                                     "so #{build_name} cannot make it."
               end
               pixels.concat(drawn)
             end

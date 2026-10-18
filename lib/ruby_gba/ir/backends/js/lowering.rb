@@ -13,12 +13,13 @@ module RubyGBA
         # tree is printed as JavaScript here (Printer) and played by a runtime written in
         # JavaScript (runtime/), which is the native runtime's C function for function. The
         # STATEMENTS and VALUES tables, the art worked out in Ruby, which kinds it cannot write
-        # yet: all of that is the native lowering's, so the two can never disagree about what a
-        # program says, only about how a runtime does it — and each runtime is checked against
-        # the interpreter on its own.
+        # yet, what it refuses — a console-only step the program can reach, and only that: all of
+        # that is the native lowering's, so the two can never disagree about what a program says,
+        # only about how a runtime does it — and each runtime is checked against the interpreter
+        # on its own.
         #
-        # What differs is said here: the kinds a page in a browser cannot run, and the words a
-        # refusal is put in.
+        # What differs is said here: the build a refusal names. The guardrail that tells an
+        # author about a console-only step before a web build is Guardrails::Checks::WebPortability.
         class Lowering < Native::Lowering
           # The program as one JavaScript file's text: the game alone, with no runtime (see
           # JS#bundle for a program that runs).
@@ -29,26 +30,7 @@ module RubyGBA
 
           private
 
-          # A browser runs portable kinds only (IR::Portability says which those are; nothing here
-          # lists them). What is refused is only what the program can REACH: a console-only step
-          # in a routine nothing calls never runs, so the game plays the same without it, as it
-          # does in the interpreter. The guardrail that says this to an author before a build is
-          # Guardrails::WebPortability.
-          def refuse_unlowered_kinds!
-            hardware = @reachable.map(&:kind).uniq.select { |kind| Portability.hardware_only?(kind) }
-            unless hardware.empty?
-              raise LoweringError,
-                    "this program uses #{hardware.map(&:inspect).join(', ')}, which only means something on " \
-                    "the console itself, so it cannot be built for a browser."
-            end
-
-            super
-          end
-
-          def refuse_picture!(what)
-            raise LoweringError, "this program uses #{what}, which the browser build cannot draw yet. " \
-                                 "The cartridge build can."
-          end
+          def build_name = "the browser build"
         end
       end
     end

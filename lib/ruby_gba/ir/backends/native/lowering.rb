@@ -172,6 +172,11 @@ module RubyGBA
             Printer.new.print_file(top_level)
           end
 
+          # Every step a run of the program can reach, values inside them included: what is
+          # written out, and what is refused when it cannot be. A check that has to say the same
+          # as the lowering about a step in a routine nothing calls asks for this.
+          def reachable_steps = @reachable
+
           private
 
           # --- the file ---
@@ -340,6 +345,10 @@ module RubyGBA
 
           # --- refusing what cannot be written yet ---
 
+          # What a refusal calls the build this lowering makes. JS::Lowering says its own; every
+          # refusal is otherwise the same for both.
+          def build_name = "the desktop build"
+
           # What is refused is only what the program can reach: a console-only step in a routine
           # nothing calls never runs, so the game as C plays the same without it, as the
           # interpreter does, which complains of one only when it is reached.
@@ -348,7 +357,7 @@ module RubyGBA
             unless hardware.empty?
               raise LoweringError,
                     "this program uses #{hardware.map(&:inspect).join(', ')}, which only means something on " \
-                    "the console itself, so it cannot be built as a desktop program."
+                    "the console itself, so #{build_name} cannot make it."
             end
 
             missing = @reachable.map(&:kind).uniq.reject do |kind|
@@ -362,7 +371,7 @@ module RubyGBA
             raise LoweringError, "the native backend has no row for #{unknown.map(&:inspect).join(', ')}" unless unknown.empty?
 
             raise LoweringError,
-                  "this program uses #{missing.map(&:inspect).join(', ')}, which the desktop build " \
+                  "this program uses #{missing.map(&:inspect).join(', ')}, which #{build_name} " \
                   "cannot make yet (#{NOT_LOWERED_YET.select { |_, kinds| kinds.intersect?(missing) }.keys.join(', ')}). " \
                   "The cartridge build can."
           end
@@ -515,7 +524,7 @@ module RubyGBA
               end
             end.uniq
             if names.size > MAX_TIMERS
-              raise LoweringError, "this program has #{names.size} timers, and the desktop build has room for #{MAX_TIMERS}."
+              raise LoweringError, "this program has #{names.size} timers, and #{build_name} has room for #{MAX_TIMERS}."
             end
 
             names.each_with_index.to_h

@@ -15,8 +15,9 @@ module RubyGBA
         #
         # It is not one of the checks every build runs: a game made only for the console is free
         # to reach for the console, and nobody should be told off for it. It runs on every web
-        # build (JS#checked_program), where a console-only step is an error, said before anything
-        # is written. A game meant for both can also register it, so its cartridge builds say the
+        # build (JS#checked_program), where a console-only step the game can reach is an error,
+        # said before anything is written, and one in a routine nothing calls a warning. A game
+        # meant for both can also register it, so its cartridge builds say the
         # same thing early, while the line is still fresh — as a warning there, since the
         # cartridge itself is fine:
         #
@@ -41,15 +42,26 @@ module RubyGBA
 
           # +severity+ is :warning where the build goes ahead regardless (a cartridge), and :error
           # where the step stops it (the web build).
-          def initialize(severity: :warning)
+          #
+          # +reached+, when given, is every step a run of the game can reach — the lowering's own
+          # list (JS#refuse_console_only_steps!). A console-only step outside it is in a routine
+          # nothing calls: it never runs, the web build leaves it out and plays the game the same,
+          # as the interpreter does, so it is a warning whatever +severity+ says. It is still
+          # said, since the day something calls that routine the web build stops there.
+          def initialize(severity: :warning, reached: nil)
             @severity = severity
+            @reached = reached && Set.new(reached).compare_by_identity
           end
 
           # One finding for each console-only step, in the order the program holds them, each
           # blaming its own line.
           def detect(program)
             program.walk.select { |node| Portability.hardware_only?(node) }.map do |node|
-              Finding.new(check: NAME, severity: @severity, message: message_for(node.kind), node: node)
+              if @reached.nil? || @reached.include?(node)
+                Finding.new(check: NAME, severity: @severity, message: message_for(node.kind), node: node)
+              else
+                Finding.new(check: NAME, severity: :warning, message: never_called_message(node.kind), node: node)
+              end
             end
           end
 
@@ -60,6 +72,12 @@ module RubyGBA
             "This line uses #{what}. A browser does not have that processor or that screen, so a game " \
               "with this line cannot be built for the web. #{instead} A game built only for the console " \
               "can keep this line."
+          end
+
+          def never_called_message(kind)
+            what, instead = SAID.fetch(kind, OTHERWISE)
+            "This line uses #{what}. Nothing in the game calls the routine it is in, so the web build " \
+              "leaves it out. If the game calls that routine, the web build will stop here. #{instead}"
           end
         end
       end

@@ -52,6 +52,20 @@ class TestIRGuardrailWebPortability < Minitest::Test
     end
 
     assert_match(/raw instructions/, error.message)
-    assert_match(/2 problems about this game/, said.string)
+    refute_match(/which line the console's screen is drawing/, error.message,
+                 "the reading in a routine nothing calls does not stop the build")
+  end
+
+  # A console-only step in a routine nothing calls never runs, so the web build leaves it out and
+  # goes ahead, as the JavaScript lowering does — and still says the line, which stops the build
+  # the day something calls it.
+  def test_the_web_build_warns_of_a_console_only_step_nothing_calls
+    said = StringIO.new
+    program = program(screen(:bitmap), set(:x, 1), func(:later, set(:y, read_scanline)), halt)
+
+    RubyGBA::IR::Backends::JS.new.refuse_console_only_steps!(program, said)
+
+    assert_match(/which line the console's screen is drawing/, said.string)
+    assert_match(/Nothing in the game calls/, said.string)
   end
 end
