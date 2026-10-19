@@ -141,6 +141,19 @@ module RubyGBA
           # What a picture's palette-number form is filed under, beside its colors.
           def indexed_blob(name) = :"#{name}#{INDEXED_SUFFIX}"
 
+          # ...and the same numbers COLUMN BY COLUMN, for a picture a stretched column draws on
+          # the tear-free screen. The walk goes down one column of the picture, so kept that way
+          # the next row's number is the next byte; kept row by row it is a whole picture width
+          # further on, and finding it is a multiply every row. The copy costs the cartridge the
+          # picture's size once more, which is far cheaper than the multiplies.
+          def column_blob(name) = :"#{name}#{COLUMNS_SUFFIX}"
+
+          # A picture's palette numbers, row by row, turned into the same numbers column by
+          # column.
+          def self.numbers_by_column(numbers, width, height)
+            (0...width).flat_map { |x| (0...height).map { |y| numbers.getbyte((y * width) + x) } }.pack("C*")
+          end
+
           # The number a line of text is painted with, into +reg+: a colour on the direct
           # screen, a slot of the colour table on the tear-free one — the block turns a
           # colour into whichever of those this screen wants.
@@ -169,9 +182,10 @@ module RubyGBA
           # come from.
           #
           # +blob+ and +pixel_bytes+ differ by screen: the direct-color one reads the
-          # picture's colors, two bytes each, and the tear-free one reads the same
-          # picture as palette numbers, one byte each.
-          def emit_column_setup(node, bmp, done, blob: node.name, pixel_bytes: 2)
+          # picture's colors, two bytes each, row by row, and the tear-free one reads the
+          # same picture as palette numbers, one byte each, column by column (+by_column+,
+          # which is only ever one byte a pixel).
+          def emit_column_setup(node, bmp, done, blob: node.name, pixel_bytes: 2, by_column: false)
             @lowering.value(node.height)
             @emitter.emit(ASM.mov_reg(COLUMN_ROWS, ACC))
             @emitter.emit(ASM.cmp_imm(COLUMN_ROWS, 0))
@@ -185,11 +199,17 @@ module RubyGBA
             @emitter.emit(ASM.mov_reg(COLUMN_Y, ACC))
 
             # The picture's column: its first pixel is `slice` pixels along its first
-            # row, and its rows are a whole picture width apart.
+            # row, and its rows are a whole picture width apart — or, in a copy kept column
+            # by column, `slice` whole columns along, its rows one after another.
             @lowering.value(node.slice)
             emit_clamp_to(ACC, bmp.width - 1)
             emit_column_runs_pointer(node.name) # ...and where THIS column holds its pixels
-            @emitter.emit(ASM.lsl_imm(ACC, ACC, 1)) if pixel_bytes == 2
+            if by_column
+              @emitter.emit_number(TMP, bmp.height)
+              @emitter.emit(ASM.mul(ACC, ACC, TMP))
+            elsif pixel_bytes == 2
+              @emitter.emit(ASM.lsl_imm(ACC, ACC, 1))
+            end
             @emitter.emit_load_data_address(COLUMN_SRC, blob)
             @emitter.emit(ASM.add_reg(COLUMN_SRC, COLUMN_SRC, ACC))
           end

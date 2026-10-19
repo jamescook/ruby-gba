@@ -832,7 +832,8 @@ module RubyGBA
             clear = @layout.indexed_bitmaps[node.name]
 
             done = gensym
-            @framebuffer.emit_column_setup(node, bmp, done, blob: @framebuffer.indexed_blob(node.name), pixel_bytes: 1)
+            @framebuffer.emit_column_setup(node, bmp, done, blob: @framebuffer.column_blob(node.name), pixel_bytes: 1,
+                                                            by_column: true)
             @framebuffer.emit_column_runs(node.name, bmp, done) do |leave|
               # Clipped BEFORE the destination is worked out, so the destination points at the
               # first row that shows rather than at a row above the screen.
@@ -849,10 +850,10 @@ module RubyGBA
               emit(ASM.cmp_reg(COLUMN_X, TMP))
               emit_branch(:bcond, clipped, cond: :gt)
 
-              emit_buffered_column_bodies(bmp, width, clear, Parity.of(node.x))
+              emit_buffered_column_bodies(width, clear, Parity.of(node.x))
               emit_branch(:b, leave) if width > 1
               place_label(clipped)
-              emit_buffered_column_rows { emit_buffered_column_row(bmp, width, clear, nil) } if width > 1
+              emit_buffered_column_rows { emit_buffered_column_row(width, clear, nil) } if width > 1
             end
             place_label(done)
           end
@@ -863,10 +864,10 @@ module RubyGBA
           # even. Otherwise the low bit is tested ONCE, here, and each answer gets its own copy:
           # every row of a strip starts in the same column, so a test inside the walk would ask
           # the same question a hundred and sixty times over.
-          def emit_buffered_column_bodies(bmp, width, clear, parity)
+          def emit_buffered_column_bodies(width, clear, parity)
             if parity
               return emit_buffered_column_rows do
-                emit_buffered_column_row(bmp, width, clear, parity == :odd)
+                emit_buffered_column_row(width, clear, parity == :odd)
               end
             end
 
@@ -875,10 +876,10 @@ module RubyGBA
             emit(ASM.and_imm(ACC, COLUMN_X, 1))
             emit(ASM.cmp_imm(ACC, 0))
             emit_branch(:bcond, odd, cond: :ne)
-            emit_buffered_column_rows { emit_buffered_column_row(bmp, width, clear, false) }
+            emit_buffered_column_rows { emit_buffered_column_row(width, clear, false) }
             emit_branch(:b, both)
             place_label(odd)
-            emit_buffered_column_rows { emit_buffered_column_row(bmp, width, clear, true) }
+            emit_buffered_column_rows { emit_buffered_column_row(width, clear, true) }
             place_label(both)
           end
 
@@ -898,12 +899,13 @@ module RubyGBA
 
           # The walk down the screen. The destination steps one screen width a row, which is
           # why the pair it points at needed rounding only once: a row is an even number of
-          # bytes across, so every row of a strip sits the same way inside its pair.
+          # bytes across, so every row of a strip sits the same way inside its pair. That is
+          # also why the walk keeps no count of which screen row it is on — the destination
+          # already says, and nothing in the walk asks.
           def emit_buffered_column_rows
             emit_row_loop(COLUMN_ROWS) do
               yield
               emit(ASM.add_reg(COLUMN_POS, COLUMN_POS, COLUMN_STEP))
-              emit(ASM.add_imm(COLUMN_Y, COLUMN_Y, 1))
               emit(ASM.add_imm(COLUMN_DEST, COLUMN_DEST, SCREEN_WIDTH)) # one row down
             end
           end
@@ -912,9 +914,9 @@ module RubyGBA
           # write it across — unless the row is off the top or bottom of the screen, in which
           # case the walk goes on without drawing, so a wall taller than the screen still lands
           # where it should. +starts_odd+ is nil in the copy that has to test each pixel.
-          def emit_buffered_column_row(bmp, width, clear, starts_odd)
+          def emit_buffered_column_row(width, clear, starts_odd)
             skip = gensym
-            emit_read_column_number(bmp, clear, skip)
+            emit_read_column_number(clear, skip)
 
             if starts_odd.nil?
               width.times { |dx| emit_buffered_column_pixel_clipped(dx) }
@@ -924,16 +926,14 @@ module RubyGBA
             place_label(skip)
           end
 
-          # number = picture[(pos >> 16) * width + slice], the slice already folded into
-          # COLUMN_SRC. Leaves it in ACC, or jumps to +skip+ when the pixel is see-through.
-          # Nothing holds the row back — see the note on the direct screen's reader for why it
-          # cannot run past the picture.
-          def emit_read_column_number(bmp, clear, skip)
-            emit(ASM.lsr_imm(ACC, COLUMN_POS, COLUMN_FIXED))
-            emit_number(TMP, bmp.width)
-            emit(ASM.mul(ACC, ACC, TMP))
-            emit(ASM.add_reg(ACC, COLUMN_SRC, ACC))
-            emit(ASM.ldrb_offset(ACC, ACC, 0))
+          # number = column[pos >> 16], COLUMN_SRC already pointing at the picture's column in
+          # its column-by-column copy (see Framebuffer#column_blob), so a row's number is the
+          # next byte down rather than a whole picture width along — one load, no multiply.
+          # Leaves it in ACC, or jumps to +skip+ when the pixel is see-through. Nothing holds
+          # the row back — see the note on the direct screen's reader for why it cannot run past
+          # the picture.
+          def emit_read_column_number(clear, skip)
+            emit(ASM.ldrb_reg_lsr(ACC, COLUMN_SRC, COLUMN_POS, COLUMN_FIXED))
 
             # A see-through pixel carries the one number that is not any color in the table,
             # so it means "leave this one alone" and the pair is not touched at all.

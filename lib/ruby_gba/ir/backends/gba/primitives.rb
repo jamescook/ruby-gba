@@ -236,15 +236,20 @@ module RubyGBA
           # The count is tested BEFORE the first row, which is what makes a height of
           # zero — or a negative one, from a bar that ran past empty — draw nothing
           # instead of wrapping round to four thousand million rows.
+          #
+          # ...and after that only at the BOTTOM of each row. Taking one off the count can set
+          # the chip's flags as it goes, so "is there another row?" is the subtract and one
+          # branch back. Tested at the top as well, every row would pay a compare, a branch out
+          # that is not taken, and a branch back: two instructions a row more for the same walk.
           def emit_row_loop(counter)
             top = @emitter.gensym
             done = @emitter.gensym
-            @emitter.place_label(top)
             @emitter.emit(ASM.cmp_imm(counter, 0))
             @emitter.emit_branch(:bcond, done, cond: :le)
+            @emitter.place_label(top)
             yield
-            @emitter.emit(ASM.sub_imm(counter, counter, 1))
-            @emitter.emit_branch(:b, top)
+            @emitter.emit(ASM.subs_imm(counter, counter, 1))
+            @emitter.emit_branch(:bcond, top, cond: :gt)
             @emitter.place_label(done)
           end
 

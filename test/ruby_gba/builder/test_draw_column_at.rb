@@ -304,8 +304,14 @@ class TestDrawColumnAtSeeThrough < Minitest::Test
       screen :bitmap, tear_free: tear_free
       image(:lamp, "." => :transparent, "#" => :white) { art }
       tall = var :tall, 0
+      # The direct screen is one page, cleared once: every pass then paints the same pixels
+      # over the same picture, so the console read part way through a pass still shows all
+      # of it. Cleared at the top of each pass instead, a pass that only just fits in a frame
+      # is read just after the clear. The tear-free screen has two pages and shows only a
+      # finished one, so it clears each pass.
+      clear_screen :gray unless tear_free
       game_loop do
-        clear_screen :gray
+        clear_screen :gray if tear_free
         HEIGHTS.each_with_index do |height, n|
           tall.set! height
           4.times do |slice|

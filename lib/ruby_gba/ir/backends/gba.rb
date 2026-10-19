@@ -142,6 +142,9 @@ module RubyGBA
         # What a picture's palette-number form is filed under, beside its colors. Where each
         # of its columns holds pixels is filed beside them too — see StretchedColumns.
         INDEXED_SUFFIX = "__indexed"
+        # ...and the same palette numbers column by column, for a stretched column to walk (see
+        # Framebuffer#column_blob).
+        COLUMNS_SUFFIX = "__columns"
         DISPCNT_STATE = :__dispcnt
         BACKBUF = :__backbuf
 
@@ -1433,7 +1436,9 @@ module RubyGBA
 
         # The indexed screen holds a NUMBER per pixel where a picture holds a whole color, so a
         # picture needs a second form before anything can draw it there. Built here, once, and
-        # shipped beside the picture's colors.
+        # shipped beside the picture's colors. A picture a stretched column draws gets a third:
+        # the same numbers column by column, which is the order that walk reads them in (see
+        # Framebuffer#column_blob).
         #
         # Every picture the program declares, once it has a tear-free scene at all — rather than
         # only the ones such a scene draws. A program with no tear-free scene ships nothing
@@ -1449,6 +1454,10 @@ module RubyGBA
 
             bytes, clear = @palette.indices_for(node)
             @emit.data_blobs[indexed_blob_name(node.name)] = bytes
+            if @stretched_columns.reads?(node.name)
+              @emit.data_blobs[@framebuffer.column_blob(node.name)] =
+                Framebuffer.numbers_by_column(bytes, node.width, node.height)
+            end
             @indexed_bitmaps[node.name] = clear
           end
         end

@@ -40,6 +40,19 @@ class TestColumnWalkCost < Minitest::Test
     RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
   end
 
+  # WHAT ONE SCREEN ROW OF A STRIP COSTS, in instructions: the same strips drawn twice as tall,
+  # and the difference shared out over the rows that were added. Everything else in the two
+  # frames is the same, so it cancels, and the profiler counts every instruction it ran.
+  #
+  # Both have to finish every pass inside a frame. One that ran over would spill into the next
+  # frame and run FEWER instructions a frame, which would read as a cheaper row.
+  private def instructions_per_row(title)
+    short = profile_of(strips_program([40] * 20), "#{title}S")
+    tall = profile_of(strips_program([80] * 20), "#{title}T")
+    refute tall.dropping_frames?, "the taller strips ran over a frame, so the count means nothing"
+    (tall.samples_per_frame - short.samples_per_frame) / (20 * 40)
+  end
+
   private def divide_samples(result)
     result.lines.find { |line| line.name == RubyGBA::IR::Backends::GBA::Divide::ROUTINE }&.samples || 0
   end
@@ -62,6 +75,16 @@ class TestColumnWalkCost < Minitest::Test
     result = profile_of(strips_program([40, 41] * (STRIPS / 2)), "TWOSTEPS")
 
     assert_operator divide_samples(result), :>, 0
+  end
+
+  # A ROW OF A STRIP ON THE TEAR-FREE SCREEN: read the picture's number for that row, splice it
+  # into its half of the pair it shares, step on, and go round. A picture drawn as columns is
+  # kept column by column, so its number for a row is one load with no multiply; nothing is
+  # counted that the walk never reads; and the loop is tested once a row, at the bottom.
+  def test_a_row_of_a_strip_on_the_tear_free_screen_is_nine_instructions
+    require_emulator!
+
+    assert_operator instructions_per_row("ROW"), :<=, 9.0
   end
 
   def test_reusing_a_step_draws_what_the_interpreter_draws
