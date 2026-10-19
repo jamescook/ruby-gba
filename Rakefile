@@ -84,14 +84,17 @@ end
 # GBA lowering's run (the interpreter, with the cartridge checked in the emulator), then the
 # native lowering's (the game built as C, checked against the interpreter, in several processes),
 # then the JavaScript lowering's (the game built as JavaScript and played by node, checked the same
-# way), and ends with a line for each. `rake test:lowering:gba`, `rake test:lowering:native` and
-# `rake test:lowering:js` play one. TEST= names one file, played by each lowering whose run loads
+# way), then the Game Boy Color's (the game built as a Color cartridge, checked the same way), and
+# ends with a line for each. `rake test:lowering:gba`, `rake test:lowering:native`,
+# `rake test:lowering:js` and `rake test:lowering:gbc` play one. TEST= names one file, played by each lowering whose run loads
 # it (a file in one lowering's own folder is played by that one alone; see
 # TestSuites::LOWERING_FOLDERS).
 RubyGBA::Testing::RakeTasks.new do |t|
   # SDL=1 also builds and runs the desktop program, with its window (TestSuites::DESKTOP_TEST).
   t.test_files = TestSuites.all_files(desktop: ENV["SDL"] == "1")
   t.lowering_folders = TestSuites::LOWERING_FOLDERS
+  # The library builds for the Game Boy Color too, so its suite plays the Color's run as well.
+  t.consoles = %i[gba gbc]
 end
 
 # What this repository's runs need besides: a whole run waits for any other on the machine, the

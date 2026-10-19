@@ -6,4 +6,7 @@ require "ruby_gba/testing/rake_tasks"
 
 RubyGBA::Testing::RakeTasks.new do |t|
   t.test_files = FileList["test/**/*_test.rb"]
+  # A game for the Game Boy Color too writes `t.consoles = %i[gba gbc]`. The test outside names
+  # the consoles here, so one game stands for every kind.
+  t.consoles = ENV["GAME_SUITE_CONSOLES"].split.map(&:to_sym) if ENV.key?("GAME_SUITE_CONSOLES")
 end

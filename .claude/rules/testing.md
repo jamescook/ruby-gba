@@ -336,8 +336,9 @@ class includes for `game_player`, `skip_on_native` and `CheckedPlayer`. `Checked
 `RubyGBA::IR::Backends::Native::CheckedRun` with a disagreement reported as a failed test rather
 than the library's `CheckedRun::Disagreement`; the comparisons are `Native::Differences`. The
 rake tasks are the library's too (`RubyGBA::Testing::RakeTasks`, in
-`lib/ruby_gba/testing/rake_tasks.rb`): this Rakefile makes `rake test` and the two
-`test:lowering:` tasks with it, handing over the test files and the lowering folders, and adds
+`lib/ruby_gba/testing/rake_tasks.rb`): this Rakefile makes `rake test` and the four
+`test:lowering:` tasks with it, handing over the test files, the lowering folders and the consoles
+(`%i[gba gbc]`; a game's Rakefile that names none gets no Color run), and adds
 only what this repository needs besides (the machine lock, the emulator build, coverage). Each
 `test:lowering:` task is a `RubyGBA::Testing::TestTask`, rake's test task told its lowering, and
 that is where how a native run is started lives (no Ractors, several processes, zig asked for

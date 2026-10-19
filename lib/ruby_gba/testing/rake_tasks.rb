@@ -2,6 +2,7 @@
 
 require "rake"
 require "rake/tasklib"
+require_relative "../console/description"
 require_relative "lowering"
 require_relative "test_task"
 
@@ -24,6 +25,13 @@ module RubyGBA
     #
     # Each takes TEST= for one file, and `rake test` plays it on each lowering whose run loads it.
     #
+    # A game for the Game Boy Color too says so here as it does where the game is named:
+    # `t.consoles = %i[gba gbc]`. That adds a fifth task, `rake test:lowering:gbc`, the game built
+    # as a Color cartridge and checked against the interpreter, and `rake test` plays it too. A game
+    # that says nothing is for the Advance alone, and gets no Color run it could never pass. The
+    # Rakefile cannot see which games its tests build, so it is told the same list the games are,
+    # and it takes and refuses exactly what `consoles:` does.
+    #
     # The GBA lowering's run is a plain test run, so a suite that puts its tests in Ractors
     # (--ractor in TESTOPTS) keeps doing so there. The native lowering's run cannot, and spreads
     # its tests over several processes instead (TestTask says how). The two runs go one after the
@@ -42,15 +50,18 @@ module RubyGBA
       OUTCOMES = { passed: "passed", failed: "FAILED", not_played: "does not play this file" }.freeze
 
       # The test files; the folders a test file can require from by bare name (the game's own code
-      # and its tests, lib and test unless told); and the folders each lowering owns.
-      attr_accessor :test_files, :libs, :lowering_folders
+      # and its tests, lib and test unless told); the folders each lowering owns; and the consoles
+      # the game is for, the Advance alone unless told.
+      attr_accessor :test_files, :libs, :lowering_folders, :consoles
 
       def initialize
         super
         @test_files = Rake::FileList["test/**/test_*.rb"]
         @libs = %w[lib test]
         @lowering_folders = {}
+        @consoles = [Console::DEFAULT]
         yield self if block_given?
+        @lowerings = Lowering.lowerings_for(Console.refuse_unknown_consoles!(consoles, setting: "t.consoles"))
         define_lowering_tasks
         define_test_task
       end
@@ -65,10 +76,11 @@ module RubyGBA
       def define_test_task
         desc "Run the tests on every lowering, one after the other (one file with TEST=test/test_foo.rb)"
         task :test do
-          results = LABELS.map { |lowering, label| run_lowering(lowering, label) }
+          labels = LABELS.slice(*@lowerings)
+          results = labels.map { |lowering, label| run_lowering(lowering, label) }
           puts
           results.each do |label, outcome, seconds|
-            puts format("%-*s %s%s", LABELS.values.map(&:length).max, label, OUTCOMES.fetch(outcome),
+            puts format("%-*s %s%s", labels.values.map(&:length).max, label, OUTCOMES.fetch(outcome),
                         outcome == :not_played ? "" : format(" in %ds", seconds))
           end
           abort "rake test: a lowering's run failed" if results.any? { |_, outcome| outcome == :failed }
@@ -92,11 +104,12 @@ module RubyGBA
       end
 
       # Each lowering's run is a TestTask, which says how a run for that lowering is played: one for
-      # each of Lowering::NAMES, so a new lowering is a row there and not a task written here.
+      # each of Lowering::NAMES that plays the game's consoles, so a new lowering is a row there and
+      # not a task written here.
       def define_lowering_tasks
         namespace :test do
           namespace :lowering do
-            Lowering::NAMES.each do |lowering|
+            @lowerings.each do |lowering|
               TestTask.new(lowering) do |t|
                 t.lowering = lowering
                 t.libs = libs.dup

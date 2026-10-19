@@ -6,7 +6,8 @@ module RubyGBA
     # loads. Both the rake tasks (RakeTasks) and the tests themselves (Testing.lowering) read it
     # from here, so the two cannot answer differently.
     #
-    # A game is played four ways. The GBA lowering's run plays it on the interpreter
+    # A game is played three ways, or four when it is for the Game Boy Color too (see CONSOLES).
+    # The GBA lowering's run plays it on the interpreter
     # (Backends::Reference), which is what the cartridge is checked against; the native
     # lowering's run builds it as C and plays that, the JavaScript lowering's run builds it as
     # JavaScript and plays that under node, and the Game Boy Color lowering's builds it as a
@@ -37,7 +38,18 @@ module RubyGBA
       }.freeze
       NEEDS = { native: "zig", js: "node" }.freeze
 
+      # The console each lowering's run plays the game as (see Console::DESCRIPTIONS). The native
+      # and JavaScript builds play an Advance game, laid out for the Advance's screen, so a game for
+      # the Advance alone is played by the first three and a game for the Color too by all four.
+      CONSOLES = { gba: :gba, native: :gba, js: :gba, gbc: :gbc }.freeze
+
       module_function
+
+      # The lowerings whose runs play a game for +consoles+ (Symbols), in the order `rake test`
+      # plays them.
+      def lowerings_for(consoles)
+        NAMES.select { |lowering| consoles.include?(CONSOLES.fetch(lowering)) }
+      end
 
       # The lowering +env+ says, refusing one there is not.
       def from(env)

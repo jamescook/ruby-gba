@@ -29,7 +29,7 @@ module RubyGBA
         @code = code
         @maker = maker
         @options = options
-        @consoles = refuse_unknown_consoles!(consoles)
+        @consoles = Console.refuse_unknown_consoles!(consoles, setting: "consoles:")
         @block = shareable_if_possible(block)
         freeze
       end
@@ -167,14 +167,6 @@ module RubyGBA
         seen = (Ractor.current[:ruby_gba_evaluated_games] ||= {})
         seen[[self, settings, console]] ||= EvaluatedGame.new(@block, options: @options.with(console: console),
                                                                       settings: settings)
-      end
-
-      def refuse_unknown_consoles!(consoles)
-        named = Array(consoles).map(&:to_sym)
-        named.each { |name| Console.described(name) }
-        raise ArgumentError, "consoles: names no console. Leave it out for the Game Boy Advance alone." if named.empty?
-
-        named.freeze
       end
 
       # +console+, when the game is for it; a plain refusal when it is not.

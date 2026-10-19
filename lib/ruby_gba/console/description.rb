@@ -56,5 +56,17 @@ module RubyGBA
                              "#{DESCRIPTIONS.keys.map(&:inspect).join(' and ')}."
       end
     end
+
+    # The consoles a game says it is for, as a frozen list of names: one name or a list of them.
+    # A name no console has, or no name at all, is refused. +setting+ is what the game wrote them
+    # in (`consoles:` where the game is named, `t.consoles` in its Rakefile), so both are checked
+    # alike and the refusal says which.
+    def self.refuse_unknown_consoles!(consoles, setting:)
+      named = Array(consoles).map(&:to_sym)
+      named.each { |name| described(name) }
+      raise ArgumentError, "#{setting} names no console. Leave it out for the Game Boy Advance alone." if named.empty?
+
+      named.freeze
+    end
   end
 end

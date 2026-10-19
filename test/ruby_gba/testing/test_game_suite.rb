@@ -45,15 +45,44 @@ class TestGameSuite < Minitest::Test
     end
   end
 
-  def test_rake_test_plays_the_games_tests_on_every_lowering
+  # A game that names no console is for the Advance alone, and its rake test plays every lowering
+  # of an Advance game: the Game Boy Color's run is not played, and has no task to ask for it.
+  def test_rake_test_plays_the_games_tests_on_every_lowering_of_its_console
     out, passed, lowerings = rake("test")
 
     assert passed, "the game's rake test failed:\n#{out}"
-    assert_equal %w[gba gbc js native], lowerings
+    assert_equal %w[gba js native], lowerings
     assert_match(/^GBA lowering\s+passed/, out)
     assert_match(/^native lowering\s+passed/, out)
     assert_match(/^JavaScript lowering\s+passed/, out)
+    refute_match(/Game Boy Color/, out)
+    refute_match(/test:lowering:gbc/, rake("-T").first)
+  end
+
+  # A game whose Rakefile names the Color too gets the Color's run as well.
+  def test_a_game_for_the_color_plays_the_colors_run_too
+    out, passed, lowerings = rake("test", env: { "GAME_SUITE_CONSOLES" => "gba gbc" })
+
+    assert passed, "the game's rake test failed:\n#{out}"
+    assert_equal %w[gba gbc js native], lowerings
     assert_match(/^Game Boy Color lowering\s+passed/, out)
+  end
+
+  # A Rakefile that names a console there is not is told which there are, and one that names none
+  # is told to leave the setting out: what `consoles:` refuses where the game is named.
+  def test_a_game_that_names_an_unknown_console_is_told_the_consoles
+    out, passed, = rake("-T", env: { "GAME_SUITE_CONSOLES" => "gba snes" })
+
+    refute passed
+    assert_match(/no console named :snes/, out)
+    assert_match(/:gba/, out)
+  end
+
+  def test_a_game_that_names_no_console_is_told_to_leave_the_setting_out
+    out, passed, = rake("-T", env: { "GAME_SUITE_CONSOLES" => "" })
+
+    refute passed
+    assert_match(/t\.consoles names no console/, out)
   end
 
   # The native lowering's run alone, its tests played in several processes rather than Ractors.
@@ -68,8 +97,7 @@ class TestGameSuite < Minitest::Test
   # An interpreter made to draw one pixel differently fails the game's tests on each run, as
   # failed assertions and not as errors in the library: on the native run the game as C differs
   # from it at a frame, on the JavaScript run the game as JavaScript does, and on the GBA
-  # lowering's run the cartridge does, at the pixel named. The walker is laid out for the
-  # Advance's screen, so the Game Boy Color's run plays none of it, and says so as a skip.
+  # lowering's run the cartridge does, at the pixel named.
   def test_a_disagreement_fails_the_games_test_on_each_run
     out, passed, = rake("test", env: { "GAME_SUITE_DISAGREE" => "1" })
 
@@ -77,11 +105,10 @@ class TestGameSuite < Minitest::Test
     assert_match(/^GBA lowering\s+FAILED/, out)
     assert_match(/^native lowering\s+FAILED/, out)
     assert_match(/^JavaScript lowering\s+FAILED/, out)
-    assert_match(/^Game Boy Color lowering\s+passed/, out)
     assert_match(/disagree at frame 1: the picture differs/, out)
     assert_match(/the backends drew different screens: 1 of 38400 pixels differ/, out)
     assert_match(/\(  0,  0\)/, out)
-    assert_equal %w[0 0 0 0], out.scan(/(\d+) errors/).flatten, "no run's tests stopped with an error"
+    assert_equal %w[0 0 0], out.scan(/(\d+) errors/).flatten, "no run's tests stopped with an error"
   end
 
   WALKING = "test_holding_right_walks_the_walker"
