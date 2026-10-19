@@ -2825,22 +2825,16 @@ module RubyGBA
 
         def exec_list_push(node)
           list = list_for(node.name)
-          if list.full?
-            raise ProgramError,
-                  "list #{node.name.inspect} is full (capacity #{list.capacity}) — " \
-                  "drop an item first (shift/pop) or create it with a larger capacity"
-          end
+          raise ProgramError, Faults.list_full(node.name, list.capacity) if list.full?
+
           list.push(eval_value(node.value))
         end
 
         def exec_list_drop(node)
           list = list_for(node.name)
           from = node.from # :front (a shift) or :back (a pop)
-          if list.empty?
-            raise ProgramError,
-                  "list #{node.name.inspect} is empty — " \
-                  "there is nothing to #{from == :front ? 'shift' : 'pop'}"
-          end
+          raise ProgramError, Faults.list_empty(node.name, from) if list.empty?
+
           from == :front ? list.shift : list.pop
         end
 
@@ -2906,13 +2900,7 @@ module RubyGBA
         def check_list_index!(list, name, index)
           return if list.index?(index)
 
-          if list.empty?
-            raise ProgramError,
-                  "index #{index} is out of range — list #{name.inspect} is empty"
-          end
-          raise ProgramError,
-                "index #{index} is out of range for list #{name.inspect} — " \
-                "valid indexes are 0..#{list.length - 1}"
+          raise ProgramError, Faults.index_out_of_range(name, index, list.length)
         end
 
         # Evaluate an operand to a signed 32-bit integer. Operands are normally

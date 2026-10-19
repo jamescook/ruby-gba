@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "tmpdir"
-
 module RubyGBA
   module IR
     module Backends
@@ -130,18 +128,12 @@ module RubyGBA
           def play(frames)
             saves = Native::Saving.named_by?(@rom.built.source_program)
             refuse_power_cut! if saves
-            Dir.mktmpdir("ruby-gba-gbc") do |dir|
-              path = File.join(dir, "game.gbc")
-              sav = File.join(dir, "game.sav")
-              @rom.write(path)
-              File.binwrite(sav, @save.to_sav) if saves
-              @core = RubyGBAEmulator::Core.new(path, dir, nil)
+            Diagnostics::Emulator.with_cartridge(@rom, file_name: "game.gbc", save: (@save if saves)) do |core|
+              @core = core
               @core.set_keys(Native::HeadlessRun.button_mask(@held))
               play_passes(frames)
             ensure
-              @core&.destroy
               @core = nil
-              @save.replace_with_sav(File.binread(sav), from: "The cartridge's save memory") if saves && File.size?(sav)
             end
           end
 
@@ -166,7 +158,7 @@ module RubyGBA
               if pending && shown_pass == pending.first
                 pass, variables, lists, @sprites = pending
                 pending = nil
-                return record_end(variables, lists, picture_now) if pass > frames
+                return record_moment(:end, variables, lists, picture_now) if pass > frames
 
                 record_moment(pass, variables, lists, picture_now)
               end
@@ -190,13 +182,15 @@ module RubyGBA
             @core.set_keys(Native::HeadlessRun.button_mask(buttons))
           end
 
-          def record_moment(pass, variables, lists, picture)
+          # The moment of +frame+ — a pass's number, or :end for the moment the run ended on, which
+          # is no frame boundary and so is not shown to a block watching each one.
+          def record_moment(frame, variables, lists, picture)
             @vars = variables
             @lists = lists
             @screen = picture
-            @moments << Moment.new(frame: pass, variables: variables, picture: picture_check(picture), sounds: 0,
+            @moments << Moment.new(frame: frame, variables: variables, picture: picture_check(picture), sounds: 0,
                                    sprites: @sprites, collections: game_state.except(:vars), sounding: [])
-            @on_vblank&.call(pass)
+            @on_vblank&.call(frame) unless frame == :end
           end
 
           # The game halted: its picture copied to the console once more, then shown; the moment is
@@ -209,15 +203,7 @@ module RubyGBA
             end
             @core.run_frame
             @sprites = read_sprites
-            record_end(read_variables, read_lists, picture_now)
-          end
-
-          def record_end(variables, lists, picture)
-            @vars = variables
-            @lists = lists
-            @screen = picture
-            @moments << Moment.new(frame: :end, variables: variables, picture: picture_check(picture), sounds: 0,
-                                   sprites: @sprites, collections: game_state.except(:vars), sounding: [])
+            record_moment(:end, read_variables, read_lists, picture_now)
           end
 
           def picture_check(picture) = Native::HeadlessRun.picture_check(picture.shown)
@@ -250,6 +236,7 @@ module RubyGBA
             rows.reverse
           end
 
+          # The +width+ bytes at +address+ as one number, lowest byte first, as the Color keeps them.
           def little(address, width) = (0...width).sum { |i| @core.bus_read8(address + i) << (8 * i) }
           def signed16(value) = value >= 0x8000 ? value - 0x10000 : value
 
@@ -267,13 +254,13 @@ module RubyGBA
           end
 
           def read_slot(address, width)
-            raw = (0...width).sum { |i| @core.bus_read8(address + i) << (8 * i) }
+            raw = little(address, width)
             top = 1 << ((8 * width) - 1)
             raw >= top ? raw - (top << 1) : raw
           end
 
           def word(address) = IR::Int32.wrap(@core.bus_read32(address))
-          def half(address) = @core.bus_read8(address) | (@core.bus_read8(address + 1) << 8)
+          def half(address) = little(address, 2)
 
           def runtime_place(name) = @places.runtime.fetch(name)
 
@@ -303,34 +290,21 @@ module RubyGBA
             list = @places.lists.find { |_, (address, *)| address == half(at + 1) }&.first
             first = word(at + 3)
             second = word(at + 7)
-            raise ProgramError, Faults.message(code, list, first, second)
+            raise ProgramError, fault_message(code, list, first, second)
           end
-        end
 
-        # What went wrong, in the words Native's rg_list.h and the interpreter say it.
-        module Faults
-          module_function
-
-          def message(code, list, first, second)
+          # The sentence for the fault the runtime kept as +code+, with the two numbers it kept
+          # beside it and the list it named, if any.
+          def fault_message(code, list, first, second)
             case code
-            when Runtime::Frame::INDEX_OUT_OF_RANGE
-              return "index #{first} is out of range: list :#{list} is empty" if second.zero?
-
-              "index #{first} is out of range for list :#{list} (valid indexes are 0..#{second - 1})"
-            when Runtime::Frame::LIST_FULL
-              "list :#{list} is full (capacity #{first}): drop an item first, or give it a larger capacity"
-            when Runtime::Frame::LIST_EMPTY
-              "list :#{list} is empty: there is nothing to #{first.zero? ? 'pop' : 'shift'}"
-            when Runtime::Frame::COPY_TOO_LONG
-              "a copy of #{first} entries does not fit list :#{list} (capacity #{second})"
-            when Runtime::Frame::COPY_PAST_TABLE
-              "a copy of #{first} entries is longer than its table (#{second} entries)"
-            when Runtime::Frame::PICTURE_NOT_THERE then "a sprite is showing picture #{first} of its #{second}"
-            when Runtime::Frame::SAVE_READ_OUTSIDE, Runtime::Frame::SAVE_WRITE_OUTSIDE
-              did = code == Runtime::Frame::SAVE_READ_OUTSIDE ? "read" : "wrote to"
-              format("The program %<did>s save memory at 0x%<at>X, and save memory is %<kb>dK, which ends at " \
-                     "0x%<end>X. A program must keep to the save memory it has.", did: did, at: first, kb: second / 1024,
-                                                                                    end: second)
+            when Runtime::Frame::INDEX_OUT_OF_RANGE then Faults.index_out_of_range(list, first, second)
+            when Runtime::Frame::LIST_FULL then Faults.list_full(list, first)
+            when Runtime::Frame::LIST_EMPTY then Faults.list_empty(list, first.zero? ? :back : :front)
+            when Runtime::Frame::COPY_TOO_LONG then Faults.copy_too_long(list, first, second)
+            when Runtime::Frame::COPY_PAST_TABLE then Faults.copy_past_table(first, second)
+            when Runtime::Frame::PICTURE_NOT_THERE then Faults.picture_missing(first, second)
+            when Runtime::Frame::SAVE_READ_OUTSIDE then Faults.save_outside("read", first, second)
+            when Runtime::Frame::SAVE_WRITE_OUTSIDE then Faults.save_outside("wrote to", first, second)
             else "the game went wrong (#{code})"
             end
           end

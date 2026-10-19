@@ -265,9 +265,7 @@ module RubyGBA
       def refuse_outside_memory!(did, at, count)
         return if at >= 0 && at + count <= memory.size
 
-        raise Refused, format("The program %<did>s save memory at 0x%<at>X, and save memory is %<kb>dK, which " \
-                              "ends at 0x%<end>X. A program must keep to the save memory it has.",
-                              did: did, at: at, kb: memory.kilobytes, end: memory.size)
+        raise Refused, Faults.save_outside(did, at, memory.size)
       end
 
       # A flash chip that is wiping a block takes no other command until it is done.

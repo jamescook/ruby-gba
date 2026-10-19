@@ -591,11 +591,17 @@ module RubyGBA
                     end
             return yield(where) if where
 
+            emit_pushed_value(node)
+            yield [:stack]
+            @asm.add_sp(4)
+          end
+
+          # The number +node+ worked out into BCDE and pushed, four bytes, high half first: the
+          # stack then holds it the way a number is kept anywhere else, lowest byte first.
+          def emit_pushed_value(node)
             value(node)
             @asm.push(:bc)
             @asm.push(:de)
-            yield [:stack]
-            @asm.add_sp(4)
           end
 
           def point_hl((kind, at))
@@ -692,11 +698,7 @@ module RubyGBA
           # The first number in BCDE, the second at HL and the third just past it: both pushed.
           def three(call, routine)
             first, second, third = call.args
-            [third, second].each do |node|
-              value(node)
-              @asm.push(:bc)
-              @asm.push(:de)
-            end
+            [third, second].each { |node| emit_pushed_value(node) }
             value(first)
             @asm.load_hl_sp(0)
             @asm.call(routine)
@@ -706,11 +708,7 @@ module RubyGBA
           # A runtime routine taking +args+, each pushed in order, the first deepest: the routine
           # finds the last of them just past its return address.
           def runtime_call(name, args)
-            args.each do |arg|
-              value(arg)
-              @asm.push(:bc)
-              @asm.push(:de)
-            end
+            args.each { |arg| emit_pushed_value(arg) }
             @asm.call(name)
             bytes = args.length * 4
             while bytes.positive?

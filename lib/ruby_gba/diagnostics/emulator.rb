@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "tmpdir"
+
 module RubyGBA
   module Diagnostics
     # The single seam between ruby-gba and the emulator it verifies ROMs on.
@@ -141,6 +143,31 @@ module RubyGBA
       # creates one if it is not there. {probe} is the layer that has an opinion about that.
       def open(rom_path, save_dir: nil, bios_path: nil)
         core_class.new(rom_path, save_dir, bios_path)
+      end
+
+      # Plays +rom+ in a core of its own for the length of the block, which is handed the core,
+      # and gives back what the block gave. The cartridge is written as +file_name+ into a folder
+      # made for this play alone, and the folder and the core are gone when the block ends, even
+      # when it raises.
+      #
+      # +save+ is a SaveImage for a cartridge with battery-backed save memory, or nil for one
+      # without. Its bytes go in as the .sav file the emulator keeps that memory in, and what the
+      # play left there comes back into the same image once the core is shut — the emulator writes
+      # the file as it shuts — so one image handed to two plays is a power cycle.
+      def with_cartridge(rom, file_name:, save: nil)
+        Dir.mktmpdir("ruby-gba-play") do |dir|
+          path = File.join(dir, file_name)
+          sav = path.sub(/\.\w+\z/, "") + ".sav"
+          rom.write(path)
+          File.binwrite(sav, save.to_sav) if save
+          core = open(path, save_dir: dir)
+          begin
+            yield core
+          ensure
+            core.destroy
+            save.replace_with_sav(File.binread(sav), from: "The cartridge's save memory") if save && File.size?(sav)
+          end
+        end
       end
 
       # Open a high-level probe on a ROM file path — the API that runs frames, reads

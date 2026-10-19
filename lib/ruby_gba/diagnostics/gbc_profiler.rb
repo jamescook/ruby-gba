@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "tmpdir"
-
 module RubyGBA
   module Diagnostics
     # WHERE A GAME BOY COLOR CARTRIDGE'S FRAMES WENT, measured by running it — the Color's own
@@ -39,24 +37,17 @@ module RubyGBA
       def initialize(rom)
         @rom = rom
         @places = rom.built or raise ArgumentError, "this cartridge carries no record of its build to name its routines by"
-        @labels = @places.code.map { |label, place| [(place.bank * 0x10000) + place.address, label] }.sort
+        @labels = @places.code.map { |label, place| [counted_key(place), label] }.sort
         @starts = @labels.map(&:first)
       end
 
       def measure(frames:, settle:, keys:)
-        Dir.mktmpdir("ruby-gba-gbc-profile") do |dir|
-          path = File.join(dir, "game.gbc")
-          @rom.write(path)
-          core = RubyGBAEmulator::Core.new(path, dir, nil)
-          begin
-            core.set_keys(IR::Backends::Native::HeadlessRun.button_mask(keys))
-            settle.times { core.run_frame }
-            before = passes(core)
-            counted = core.profile_gb(frames)
-            result_of(counted, frames, passes(core) - before)
-          ensure
-            core.destroy
-          end
+        Emulator.with_cartridge(@rom, file_name: "game.gbc") do |core|
+          core.set_keys(IR::Backends::Native::HeadlessRun.button_mask(keys))
+          settle.times { core.run_frame }
+          before = passes(core)
+          counted = core.profile_gb(frames)
+          result_of(counted, frames, passes(core) - before)
         end
       end
 
@@ -85,7 +76,7 @@ module RubyGBA
       def result_of(counted, frames, passes)
         total = counted[:total].to_f
         spent = counted[:spent].dup
-        sleeps = SLEEPS.filter_map { |label| @places.code[label] }.map { |place| (place.bank * 0x10000) + place.address }
+        sleeps = SLEEPS.filter_map { |label| @places.code[label] }.map { |place| counted_key(place) }
         asleep = counted[:halted] + sleeps.sum { |key| spent.delete(key) || 0 }
         by = Hash.new(0)
         spent.each { |key, cycles| by[routine_at(key)] += cycles }
@@ -96,7 +87,11 @@ module RubyGBA
                    idle_share: asleep / total, game: game, runtime: runtime)
       end
 
-      # The routine an instruction at +key+ (bank × 0x10000 + address) is in, by the game's name
+      # The key the emulator counts an instruction's cycles under: its bank × 0x10000 plus its
+      # address, since an address past the first bank means nothing without the bank in view.
+      def counted_key(place) = (place.bank * 0x10000) + place.address
+
+      # The routine an instruction at +key+ (see #counted_key) is in, by the game's name
       # for it where it is the game's.
       def routine_at(key)
         return "the sprite table's copy, run from quick memory" if key.between?(0x8000, 0xFFFF)
