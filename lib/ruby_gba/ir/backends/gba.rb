@@ -291,6 +291,7 @@ module RubyGBA
         # public: an explicit-receiver call ignores privacy on the DEFINING class, not
         # on whatever the receiver happens to evaluate to.
         def emit_flip_if_buffered = @drawing.emit_flip_if_buffered
+        def emit_skip_wait_for_late_page(shown) = @drawing.emit_skip_wait_for_late_page(shown)
         def emit_end_forced_blank = @drawing.emit_end_forced_blank
         # Where the game loop starts (see Frames#emit_reset_frame_mark), and only where the
         # screen's interrupt counts frames at all. The buttons start here too: a tap made while
@@ -389,7 +390,8 @@ module RubyGBA
           @functions = Functions.new(emitter: @emit, lowering: @lowering, placement: self,
                                      scene_preamble: method(:emit_scene_preamble),
                                      scene_art: method(:emit_scene_art_upload),
-                                     scene_arrival_pass: method(:emit_return_on_arrival_pass))
+                                     scene_arrival_pass: method(:emit_return_on_arrival_pass),
+                                     scene_late_pages: method(:emit_scene_late_pages))
           @statements = Statements.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                        placement: self, functions: @functions)
           @framebuffer = Framebuffer.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
@@ -427,7 +429,7 @@ module RubyGBA
                                  buffered: @buffered,
                                  uploads: @uploads, sprite_drawing: @sprite_drawing,
                                  background_drawing: @background_drawing, backing_info: method(:backing_info),
-                                 call_cold_routine: method(:emit_call_cold_routine))
+                                 call_cold_routine: method(:emit_call_cold_routine), frames: @frames)
           # Every value kind's handler, registered once in one place — see {Lowering}.
           @lowering.values(
             int: @expressions.method(:eval_int), var_ref: @expressions.method(:eval_var_ref),
@@ -553,7 +555,8 @@ module RubyGBA
                                    emitted: @attribution.emitted,
                                    routines: routine_addresses,
                                    timer_handlers: timer_handler_addresses,
-                                   video_copies: video_copy_addresses, lists: @lists.list_places,
+                                   video_copies: video_copy_addresses, late_pages: late_page_addresses,
+                                   lists: @lists.list_places,
                                    voices: voice_table,
                                    sound_drops: drop_table,
                                    video_memory: @screen.video_memory_report,
@@ -658,14 +661,29 @@ module RubyGBA
         # SceneQuickMemory).
         def video_copy_addresses
           @emit.video_copies.flat_map do |copy|
-            name, span = @functions.func_ranges.find { |_, range| range.cover?(copy.at) }
-            at = span ? runtime_base(name, span) + (copy.at - span.begin) : ROM_START + RubyGBA::Cartridge::ROM::ENTRY_OFFSET + copy.at
-            site = { source: copy.source, bytes: copy.bytes, at: at }
-            set = name && set_holding(name)
-            next [site] unless set
-
-            [site, site.merge(at: swapped_address(name) + (copy.at - span.begin), set: set)]
+            runtime_sites(copy.at).map { |site| { source: copy.source, bytes: copy.bytes, **site } }
           end
+        end
+
+        # WHERE EACH PAGE SHOWN AT ONCE ALTHOUGH IT WAS LATE IS SHOWN FROM, the same way (see
+        # Drawing#emit_skip_wait_for_late_page): the instruction there runs once for each, and
+        # +tears+ says whether it shows the page part way down the picture.
+        def late_page_addresses
+          @emit.late_pages_shown.flat_map do |shown|
+            runtime_sites(shown.at).map { |site| { tears: shown.tears, **site } }
+          end
+        end
+
+        # The address an instruction at +at+ in the emitted code runs from: by the routine it sits
+        # in, or else where the cartridge holds it — and, for one in a scene's own routine, also
+        # where that routine runs while its set is in, with the set's number.
+        def runtime_sites(at)
+          name, span = @functions.func_ranges.find { |_, range| range.cover?(at) }
+          address = span ? runtime_base(name, span) + (at - span.begin) : ROM_START + RubyGBA::Cartridge::ROM::ENTRY_OFFSET + at
+          set = name && set_holding(name)
+          return [{ at: address }] unless set
+
+          [{ at: address }, { at: swapped_address(name) + (at - span.begin), set: set }]
         end
 
         # WHERE EACH STATEMENT OF A ROUTINE THAT MISSED THE QUICK MEMORY IS, by the routine: the
@@ -849,6 +867,7 @@ module RubyGBA
             scene_sprites: @scene_sprites || [],
             waits_for_frames: @uses_vblank,
             draw_runs: @draw_runs, pose_sent_bytes: @pose_sent_bytes, room_tables: @room_tables,
+            late_pages: IR::LatePages.of(program),
           )
           @drawing.layout = layout
           @buffered.layout = layout
@@ -866,6 +885,7 @@ module RubyGBA
           @save.emit_wake_chip if @uses_save
           emit_copy_divide_routines_to_iwram # a no-op when neither routine was reserved
           @framebuffer.emit_clear_remembered_column_step # no stretched column has worked out a step yet
+          @drawing.emit_late_pages_at_power_on # what the game's own screen does with a late page
           emit_copy_hot_code_to_iwram unless @fast_funcs.empty?
           emit_call_power_on_swap # the scenes' own routines that fit side by side, the ones the game loop runs first
           # THE MIXER IS BROUGHT UP BEFORE THE INTERRUPTS ARE ARMED, and the order is load-bearing
@@ -1075,6 +1095,7 @@ module RubyGBA
         # Forwards to @drawing (see {Drawing}) — the scene entry points Functions is handed
         # before @drawing exists, so it is given these instead.
         def emit_scene_preamble(name) = @drawing.emit_scene_preamble(name)
+        def emit_scene_late_pages(name) = @drawing.emit_scene_late_pages(name)
         def emit_scene_art_upload(name) = @drawing.emit_scene_art_upload(name)
         def emit_return_on_arrival_pass(name) = @drawing.emit_return_on_arrival_pass(name)
 

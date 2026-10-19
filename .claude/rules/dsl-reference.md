@@ -30,6 +30,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 - `RubyGBA.game "NAME" do … end` — the name is all a cartridge needs; its four-character code is worked out from it (`code:`/`maker:` optional, a real cartridge's code refused). `stack_room:` sets the stack's bytes of quick memory (1024 by default, more for deep calls).
 - `screen :bitmap` / `screen :bitmap, tear_free: true` / `screen :tiled` / `screen :rotozoom` — pick the display; per scene, and a turning background on `:tiled` is picked by the build. No `screen` line means `screen :bitmap`.
 - `screen :bitmap, tear_free: true, colors: [...]` — give the colour table in an imported picture's own order.
+- `screen :bitmap, tear_free: true, late: :show_now` (or a row, `late: 40`; `pace: 30` for a game aiming at thirty) — show a page finished too late at once instead of a frame later, at the cost of a tear; per scene, `:wait` by default.
 - `setting :floors, 60` — a value handed to one build (`settings:`, `--set`), never read from the environment.
 - `wait_vblank` — wait for the safe window to draw (a `game_loop` does it for you).
 - `halt` — stop. `debug_halt` — truncate the ROM here, for bisecting.

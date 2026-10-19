@@ -144,10 +144,12 @@ module RubyGBA
       # only meaningful for a bitmap mode; the flag rides on the node so a backend
       # (and the cost estimator) can tell the two apart. Absent when off, so an
       # ordinary screen node is unchanged.
-      def screen(mode, buffered: false, colors: nil)
+      def screen(mode, buffered: false, colors: nil, late: nil, late_pace: nil)
         attrs = { mode: mode }
         attrs[:buffered] = true if buffered
         attrs[:colors] = colors if colors
+        attrs[:late] = late if late
+        attrs[:late_pace] = late_pace if late_pace
         Nodes.build(:screen, **attrs)
       end
 

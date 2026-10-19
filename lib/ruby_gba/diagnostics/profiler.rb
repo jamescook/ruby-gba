@@ -91,12 +91,19 @@ module RubyGBA
       # whose rate halves for one line of work says why here and nowhere else.
       Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
                            :reached, :tearing, :flicker, :tick_rates, :sound_drops, :video_copies,
-                           :late_passes, :split_hints, :list_touches, :late_hand_overs) do
+                           :late_passes, :split_hints, :list_touches, :late_hand_overs,
+                           :pages_shown_at_once, :pages_shown_part_way) do
         # +split_hints+ are the parts of routines that missed the quick memory worth making a
         # `func` of (see SplitHints), busiest first. +list_touches+ is how many times the run read
         # or wrote each list, by its name. +late_hand_overs+ are the scenes that run late on the
-        # frame the game hands over to them (see HandOvers).
-        def initialize(split_hints: [], list_touches: {}, late_hand_overs: [], **rest) = super
+        # frame the game hands over to them (see HandOvers). +pages_shown_at_once+ is how many
+        # pages a tear-free screen showed as soon as they were done although they were late for
+        # their break, because its `late:` said to (see IR::LatePages) — each a frame that was
+        # not a whole frame late. +pages_shown_part_way+ is how many of those it showed part way
+        # down the picture, which is each a frame that can have torn; the rest were shown in the
+        # break between pictures, where nothing tears.
+        def initialize(split_hints: [], list_touches: {}, late_hand_overs: [], pages_shown_at_once: 0,
+                       pages_shown_part_way: 0, **rest) = super
 
         def dropping_frames? = fps < 59.5
 
@@ -108,7 +115,8 @@ module RubyGBA
         def to_h
           { frames: frames, samples: samples, fps: fps, idle_share: idle_share,
             keys: keys.map(&:to_s), unattributed: unattributed, reached: reached.to_h,
-            late_passes: late_passes,
+            late_passes: late_passes, pages_shown_at_once: pages_shown_at_once,
+            pages_shown_part_way: pages_shown_part_way,
             late_hand_overs: late_hand_overs.map { |late| { scene: late.scene.to_s, loads_first: late.loads_first } },
             split_hints: split_hints.map { |hint| hint.to_h.merge(routine: hint.routine.to_s) },
             tearing: tearing && { looked: tearing.looked, torn: tearing.torn, worst: tearing.worst },
@@ -183,11 +191,33 @@ module RubyGBA
           end
         end
 
+        late_pages = rom.built.late_pages
+        shown_at_once = count_at_sites(profile, late_pages, loaded_sets)
         build_result(profile, routines, held, reached, tearing, flicker,
                      tick_rates_in(profile, rom.built.timer_handlers), lost,
                      video_copies_in(profile, rom.built.video_copies, loaded_sets))
           .with(split_hints: SplitHints.of(profile, rom), list_touches: touches_by_list(profile.touches, rom.built.lists),
-                late_hand_overs: picture ? HandOvers.late(rom, keys: held) : [])
+                late_hand_overs: picture ? HandOvers.late(rom, keys: held) : [],
+                pages_shown_at_once: shown_at_once,
+                pages_shown_part_way: count_at_sites(profile, late_pages.select { |site| site[:tears] }, loaded_sets),
+                fps: pictures_per_second(profile, shown_at_once))
+      end
+
+      # NEW PICTURES A SECOND. The emulator counts the frames the game finished its work in by
+      # whether it went to sleep in them, since a game that keeps up sleeps once a frame until
+      # the screen comes round. A page shown at once although it was late is a new picture shown
+      # without that sleep, so those count as well — at most one picture a frame, which is sixty.
+      def self.pictures_per_second(profile, shown_at_once)
+        return profile.frames_per_second if shown_at_once.zero? || profile.frames.zero?
+
+        [(60.0 * (profile.finished + shown_at_once) / profile.frames).round(1), 60.0].min
+      end
+
+      # How many times the run went through any of +sites+ — each an instruction the build says
+      # runs once per thing worth counting — leaving out one in a scene's own routine while
+      # another scene's set was in its place (see #video_copies_in).
+      def self.count_at_sites(profile, sites, loaded_sets = 0)
+        sites.reject { |site| site[:set] && loaded_sets[site[:set]].zero? }.sum { |site| profile.pc.fetch(site[:at], 0) }
       end
 
       # WHICH SCENES' OWN ROUTINES WERE IN THE QUICK MEMORY, in a game that swaps them as a scene
@@ -214,7 +244,7 @@ module RubyGBA
         return [] if copies.nil? || copies.empty? || profile.frames.zero?
 
         copies.reject { |copy| copy[:set] && loaded_sets[copy[:set]].zero? }.group_by { |copy| copy[:source] }.filter_map do |source, sites|
-          runs = sites.sum { |site| profile.pc.fetch(site[:at], 0) }
+          runs = count_at_sites(profile, sites, loaded_sets)
           next if runs.zero?
 
           moved = sites.sum { |site| profile.pc.fetch(site[:at], 0) * site[:bytes] }
@@ -668,6 +698,7 @@ module RubyGBA
         printer.puts("  #{result.fps} frames a second#{frame_drop_suffix(result)}")
         printer.puts("  #{(result.idle_share * 100).round(1)}% of each frame spare")
         late_pass_line(result.late_passes, printer)
+        shown_at_once_line(result, printer)
         result.late_hand_overs.each { |late| printer.puts("  #{HandOvers.message(late)}") }
         tearing_line(result.tearing, printer)
         flicker_line(result.flicker, printer)
@@ -728,6 +759,27 @@ module RubyGBA
         printer.puts("  #{passes} ended after the break between pictures began. Each one then waited " \
                      "a whole picture for the next break. Ending #{lines} #{unit} sooner keeps the picture.",
                      severity: :bad)
+      end
+
+      # What `late:` on a tear-free screen did over the measured frames: the pages it showed as
+      # soon as they were done, which is what it buys, and how many of those were shown part way
+      # down the picture, which is what it costs: each is a frame that may have torn.
+      def self.shown_at_once_line(result, printer)
+        shown = result.pages_shown_at_once
+        return if shown.zero?
+
+        pages = shown == 1 ? "1 page was" : "#{shown} pages were"
+        part_way = result.pages_shown_part_way
+        words = ["#{pages} late and shown at once, as `late:` says, in #{result.frames} frames.",
+                 "Each one was not a whole picture late."]
+        if part_way.positive?
+          torn = part_way == 1 ? "1 of them was" : "#{part_way} of them were"
+          words << "#{torn} shown part way down the picture, so the picture can tear on those frames."
+        end
+        words << if part_way.zero? then "All of them were shown between pictures, where nothing tears."
+                 elsif part_way < shown then "The others were shown between pictures, where nothing tears."
+                 end
+        printer.puts("  #{words.compact.join(' ')}")
       end
 
       # Said only where a tear could be looked for. A screen that cannot tear says nothing here,

@@ -1213,7 +1213,11 @@ module RubyGBA
             # What the pass has left to finish goes first, in time the console would otherwise
             # spend asleep (see the end_of_pass the lowering hands over).
             @end_of_pass.call
+            # ...unless the pass ran late and its screen says to show its page at once.
+            shown_late = @emitter.gensym
+            @drawing.emit_skip_wait_for_late_page(shown_late)
             @emitter.emit(ASM.swi(SWI_VBLANK_INTR_WAIT << 16))
+            @emitter.place_label(shown_late)
 
             # How many frames the pass that just ended really took. First thing after the wait,
             # because everything below is entitled to ask — and it is the difference between two

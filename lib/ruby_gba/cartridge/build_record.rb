@@ -56,6 +56,10 @@ module RubyGBA
     # paints, a map handed to a background, a sprite's next frame — each with where the
     # instruction that starts it runs from and how many bytes it moves. That instruction runs
     # once per copy, so a profile counts the copies without anything added to the cartridge.
+    # +late_pages+ is where the instructions run from that show a page at once although it was
+    # finished too late for its break (see IR::LatePages), so a profile counts those pages the
+    # same way — each saying whether it shows the page part way down the picture, where it can
+    # tear, or in the break, where it cannot. Empty for a game whose screens all wait.
     # +sprite_slots+ is which of the console's 128 places each declared sprite was given — one
     # each for most, several in a row for a picture too big to draw in one go. The console's own
     # table says which place a sprite is in and nothing more, so without this nothing can get
@@ -90,11 +94,13 @@ module RubyGBA
                                     :build_options, :findings, :emitted, :routines, :video_memory,
                                     :roomy_memory, :timer_handlers, :voices, :sound_drops,
                                     :sprite_slots, :sprite_offsets, :streamed_sprite_pose_vars,
-                                    :video_copies, :lists, :sprite_runs, :scene_sets, :missed_routine_parts)
+                                    :video_copies, :late_pages, :lists, :sprite_runs, :scene_sets,
+                                    :missed_routine_parts)
       def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
                      roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil,
                      sprite_slots: {}, sprite_offsets: {}, streamed_sprite_pose_vars: {},
-                     video_copies: [], lists: {}, sprite_runs: [], scene_sets: nil, missed_routine_parts: {}, **rest)
+                     video_copies: [], late_pages: [], lists: {}, sprite_runs: [], scene_sets: nil,
+                     missed_routine_parts: {}, **rest)
         super
       end
 

@@ -61,7 +61,27 @@ module RubyGBA
       #
       # @example Colors that came with the art
       #   screen :bitmap, tear_free: true, colors: imported.colors
-      def screen(mode, tear_free: false, colors: nil)
+      #
+      # Pass +late:+ to say what the tear-free screen does with a page the game finished too
+      # late for the break between pictures it was meant for. By default (+:wait+) it waits for
+      # the next break, so it never tears — but a frame a little late then costs a whole frame,
+      # and a game at sixty drops to thirty for it. +:show_now+ shows such a page as soon as
+      # it is done, which can tear on those frames. A row number (0 to 159) shows it at once
+      # only while the screen is still drawing above that row, where a tear is least seen, and
+      # waits otherwise. A late page finished during the break itself is shown at once by
+      # either, since nothing is being drawn then. Said per `screen`, so a scene can allow it while the
+      # game plays and forbid it on a menu. `rom.profile` counts the pages it showed at once.
+      #
+      # +pace:+ says what LATE means: the pictures a second the game aims for — 60 (the
+      # default), 30, 20 or 15. A page is late when it misses the break that rate aims at. A
+      # game that runs at thirty and says `pace: 30` shows at once only the pages that ran
+      # over thirty, and the ones on time at thirty wait as they always did.
+      #
+      # @example A late page shown at once, if the tear is in the top quarter
+      #   screen :bitmap, tear_free: true, late: 40
+      # @example A game at thirty that does not drop to twenty on a heavy frame
+      #   screen :bitmap, tear_free: true, late: :show_now, pace: 30
+      def screen(mode, tear_free: false, colors: nil, late: :wait, pace: 60)
         case mode
         when Symbol
           unless SCREEN_MODES.key?(mode)
@@ -87,7 +107,38 @@ module RubyGBA
         # the mode unnamed.
         @screen_mode = mode if mode.is_a?(Symbol)
         @tear_free = tear_free
-        record(Build.screen(mode, buffered: tear_free, colors: resolve_screen_colors(colors, tear_free)))
+        late_rows = resolve_late_pages(late, tear_free)
+        record(Build.screen(mode, buffered: tear_free, colors: resolve_screen_colors(colors, tear_free),
+                                  late: late_rows, late_pace: resolve_late_pace(pace, late_rows)))
+      end
+
+      # The breaks a pass may take and be on time, as the IR keeps them: nil for one.
+      private def resolve_late_pace(pace, late_rows)
+        breaks = IR::LatePages::PACES[pace]
+        unless breaks
+          raise ArgumentError, "pace: #{pace.inspect} is not a rate the screen can keep. Use 60, 30, 20 or 15 " \
+                               "pictures a second."
+        end
+        if late_rows.nil? && breaks != 1
+          raise ArgumentError, "pace: works only with late:. A screen that waits for every page has no late " \
+                               "page to measure. To use pace:, add late: :show_now or a row."
+        end
+        breaks == 1 ? nil : breaks
+      end
+
+      # The rows a late page may still be shown at once above, as the IR keeps them: nil to
+      # wait, IR::LatePages::ANY_ROW for :show_now, else the row the game named.
+      private def resolve_late_pages(late, tear_free)
+        return nil if late == :wait
+        unless tear_free
+          raise ArgumentError, "late: works only with `screen :bitmap, tear_free: true`. Only that screen keeps a " \
+                               "finished page to show. To use late:, add tear_free: true."
+        end
+        return IR::LatePages::ANY_ROW if late == :show_now
+        return late if late.is_a?(Integer) && (0...SCREEN_HEIGHT).cover?(late)
+
+        raise ArgumentError, "late: #{late.inspect} is not a setting. Use :wait (the default), :show_now, or a " \
+                             "row from 0 to #{SCREEN_HEIGHT - 1}."
       end
 
       # HOW MANY PICTURES THIS SCREEN KEEPS. A tear-free screen keeps two and shows

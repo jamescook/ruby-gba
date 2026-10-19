@@ -16,12 +16,15 @@ module RubyGBA
           # +modes+ is the IR::Modes result GBA#resolve_modes builds each #lower — not
           # known at construction, so it's set afterward with #modes= rather than
           # passed in here. +scene_preamble+ is Drawing's own #emit_scene_preamble,
-          # handed in as a bound method rather than a reference to Drawing as a whole.
-          def initialize(emitter:, lowering:, placement:, scene_preamble:, scene_art:, scene_arrival_pass:)
+          # handed in as a bound method rather than a reference to Drawing as a whole, and
+          # +scene_late_pages+ its #emit_scene_late_pages the same way.
+          def initialize(emitter:, lowering:, placement:, scene_preamble:, scene_art:, scene_arrival_pass:,
+                         scene_late_pages:)
             @emitter = emitter
             @lowering = lowering
             @placement = placement
             @scene_preamble = scene_preamble
+            @scene_late_pages = scene_late_pages
             @scene_art = scene_art
             @scene_arrival_pass = scene_arrival_pass
             @modes = nil
@@ -89,6 +92,7 @@ module RubyGBA
             @lowering.in_mode(@modes.func_mode.fetch(name, @modes.default_mode)) do
               next minted.call if minted
 
+              @scene_late_pages.call(name) # what this scene's screen does with a late page
               if @modes.scene_funcs.include?(name)
                 # ...a preamble: what this scene has to tell the display as it takes over.
                 # That is the screen mode, in a program that switches it per scene, and the

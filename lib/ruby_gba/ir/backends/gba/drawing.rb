@@ -34,8 +34,9 @@ module RubyGBA
 
           def initialize(emitter:, primitives:, lowering:, divide:, framebuffer:, raster:, palette_tint:,
                           layer_blend:, effects:, buffered:, uploads:, sprite_drawing:, background_drawing:,
-                          backing_info:, call_cold_routine:)
+                          backing_info:, call_cold_routine:, frames:)
             @emitter = emitter
+            @frames = frames # how many breaks a pass took, which says whether its page is late
             @primitives = primitives
             @lowering = lowering
             @divide = divide
@@ -83,7 +84,7 @@ module RubyGBA
           Layout = Data.define(:screen, :bitmaps, :palette, :indexed_bitmaps, :blob_codecs, :blob_raw_bytes,
                                 :modes, :fading, :tiled, :has_objects, :scene_blend, :movement,
                                 :scene_sprites, :waits_for_frames, :draw_runs, :pose_sent_bytes,
-                                :room_tables) do
+                                :room_tables, :late_pages) do
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
             # which way the console arranges that screen's layers. A background that turns
             # on `screen :rotozoom` is on a screen of its own, up at a different moment, so
@@ -115,6 +116,7 @@ module RubyGBA
           # preamble, so a `screen` node is only a build-time declaration of a scene's
           # mode and emits nothing here. Otherwise it's the plain one-time register write.
           def emit_screen(node)
+            emit_late_pages_setting(IR::LatePages.setting_of(node))
             return if @layout.modes.switched_per_scene?
 
             mode = node.mode
@@ -701,6 +703,96 @@ module RubyGBA
           def backing_info(name) = @backing_info.call(name)
           def placed_fade = @layout.screen.placed_fade
           def emit_call_cold_routine(label) = @call_cold_routine.call(label)
+
+          # WHAT THE SCREEN UP NOW DOES WITH A PAGE FINISHED TOO LATE (see IR::LatePages), kept
+          # where the end of a pass can read it: nothing to wait, else one more than the row a
+          # late page is still shown at once above — so a row of nothing, which shows a late
+          # page only when it is finished during the break, is not mistaken for waiting.
+          # Written, with the pace a late page is measured against (see Frames), at power-on,
+          # wherever a `screen` is, and at the top of every scene's routine on every pass (see
+          # #emit_scene_late_pages), in a game where any screen shows a late page at once — and
+          # nowhere in a game where none does.
+          LATE_PAGE_ROWS = :__late_page_rows
+
+          def emit_late_pages_setting(setting)
+            return unless @layout.late_pages.any?
+
+            rows = setting.rows
+            @primitives.store_word_immediate(rows ? rows + 1 : 0, @primitives.var_addr(LATE_PAGE_ROWS))
+            @frames.emit_set_pace(setting.pace)
+          end
+
+          # What the screen a scene draws on does with a late page — its own `screen`, or the
+          # game's — said at the top of the scene's routine every pass. That is every scene,
+          # however the game reaches it: one the game loop picks with `case_var` and one it
+          # calls by a name it keeps in a variable alike. A routine that is not a scene is on
+          # whatever screen is up, and says nothing.
+          def emit_scene_late_pages(name)
+            return unless @layout.late_pages.any? && IR::LatePages.scene?(name)
+
+            emit_late_pages_setting(@layout.late_pages.setting_on(scene_handover.arrival(name).screen))
+          end
+
+          # What the game's own screen does, and no page late yet, before anything has run.
+          def emit_late_pages_at_power_on
+            return unless @layout.late_pages.any?
+
+            emit_late_pages_setting(@layout.late_pages.game_setting)
+            @frames.emit_pace_at_power_on
+          end
+
+          # JUMP TO +shown+ INSTEAD OF WAITING, when the screen up says to show a late page at once
+          # and the page just finished may be shown now. Waiting means sleeping until the NEXT
+          # break between pictures, which for a page that missed its break is a whole picture.
+          #
+          # A page is late when the pass missed the break the game's pace aims at (see
+          # Frames#emit_branch_if_on_pace) — so a game aiming at thirty does not show its page at
+          # once on every pass, only on the ones that ran over thirty. A page on time waits.
+          #
+          # WHERE THE SCREEN HAS GOT TO is the console's own count of the line it is sending, 0 to
+          # 159 down the picture and 160 to 227 through the break after it, and it decides the
+          # rest:
+          #
+          #   - IN THE BREAK, nothing is being sent, so showing the page cannot tear, and a late
+          #     page is shown.
+          #   - PART WAY DOWN THE PICTURE, showing it tears there, so a late page is shown only
+          #     above the row the game named — and, just after a page was shown part way down,
+          #     only if it is late counting from the break after the coming one, so one tear does
+          #     not set off another.
+          #
+          # The page itself is shown by the page flip after the wait, which is where this jumps
+          # to, so a page shown at once is shown exactly the way a page that waited is. Each way
+          # of showing is counted where it runs, for the profile (see Emit#note_late_page_shown).
+          def emit_skip_wait_for_late_page(shown)
+            return unless @layout.late_pages.any?
+
+            wait = gensym
+            in_break = gensym
+            @frames.emit_branch_if_on_pace(wait)
+            load_var(ACC, LATE_PAGE_ROWS)
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, wait, cond: :eq) # this screen waits
+            emit_number(TMP, REG_VCOUNT)
+            emit(ASM.load_halfword(TMP, TMP))
+            emit(ASM.cmp_imm(TMP, SCREEN_HEIGHT))
+            emit_branch(:bcond, in_break, cond: :ge)
+            emit(ASM.add_imm(TMP, TMP, 1))
+            emit(ASM.cmp_reg(TMP, ACC))
+            emit_branch(:bcond, wait, cond: :ge) # below the row the game allows
+            @frames.emit_branch_if_on_pace(wait, spent: true)
+
+            @emitter.note_late_page_shown(tears: true)
+            @frames.emit_note_break_spent(true)
+            emit_branch(:b, shown)
+
+            place_label(in_break)
+            @emitter.note_late_page_shown(tears: false)
+            @frames.emit_note_break_spent(false)
+            emit_branch(:b, shown)
+
+            place_label(wait)
+            @frames.emit_note_break_spent(false)
+          end
 
           # At the vblank boundary, flip the pages — but only while a buffered scene is
           # live (a direct scene draws straight to the screen and has nothing to flip).

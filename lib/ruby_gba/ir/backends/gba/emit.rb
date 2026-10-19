@@ -79,7 +79,7 @@ module RubyGBA
           TABLED_FROM = 3
 
           attr_reader :code, :labels, :fixups, :data_blobs, :data_positions, :address_register,
-                      :list_register, :video_copies, :number_loads
+                      :list_register, :video_copies, :late_pages_shown, :number_loads
 
           # How many jumps have been emitted so far. Counted here because this is where a
           # jump is made, and read by {Attribution}, which needs to know whether the code a
@@ -97,6 +97,7 @@ module RubyGBA
             @data_positions = {}   # name -> byte offset of its blob within @code
             @data_links = []       # words inside a blob that hold another blob's address
             @video_copies = []     # run-time copies into video memory, for the profile (see VideoCopy)
+            @late_pages_shown = [] # where a late page is shown at once, for the profile (see #note_late_page_shown)
             @number_loads = []     # every load a number table could take (see NumberLoad)
             @number_table = nil    # the table of the routine being emitted, when it has one
             # Everything that ends up in @code comes through here, and labels are placed
@@ -136,6 +137,16 @@ module RubyGBA
           # the same whether anybody profiles it or not.
           def note_video_copy(source, bytes)
             @video_copies << VideoCopy.new(at: pos, source: source, bytes: bytes)
+          end
+
+          # The instructions that follow run once for each page shown at once although it was
+          # finished late (see Drawing#emit_skip_wait_for_late_page), so the profile's count of
+          # the first is how many there were; +tears+ says whether these show it part way down
+          # the picture, where it can tear. Nothing is emitted for it.
+          LatePageShown = Data.define(:at, :tears)
+
+          def note_late_page_shown(tears:)
+            @late_pages_shown << LatePageShown.new(at: pos, tears: tears)
           end
 
           # Emit a 4-byte branch placeholder now and remember to resolve it against

@@ -92,6 +92,65 @@ module RubyGBA
             @emitter.place_label(over)
             @primitives.store_var(ACC, STEP)
           end
+
+          # IS THE PASS THAT JUST ENDED LATE? — asked by a screen that may show a late page at
+          # once (see IR::LatePages). Late is not "a break went by": a game aiming at thirty sees
+          # one go by on every pass, and on time. It is "more breaks went by than the game aims to
+          # take", which the screen says as its pace — so a game aiming at thirty is late when a
+          # pass runs into a third frame, and one aiming at sixty when a pass runs into a second.
+          #
+          # ...plus one, for a page that would tear, after a page shown part way down the picture.
+          # The pass after it started part way down too, so the break coming was never one it
+          # could make; reaching the break after that is on time for it, and showing it part way
+          # down sooner would tear for nothing. A page that finishes IN that break is shown, since
+          # nothing tears there and waiting would cost a whole picture.
+          PACE = :__frames_late_pace
+          SPENT = :__frames_break_spent
+
+          # Jump to +on_time+ when fewer breaks went by during the pass than the pace allows — and,
+          # with +spent+, one fewer than that after a page shown part way down.
+          def emit_branch_if_on_pace(on_time, spent: false)
+            @primitives.load_var(ACC, COUNT)
+            @primitives.load_var(TMP, SEEN)
+            @emitter.emit(ASM.sub_reg(ACC, ACC, TMP)) # the breaks that went by...
+            if spent
+              # ...held to MOST, as a step is, so the count spent at power-on is past it whatever
+              # the marks held then and however long the first pass took.
+              within = @emitter.gensym
+              @emitter.emit(ASM.cmp_imm(ACC, MOST))
+              @emitter.emit_branch(:bcond, within, cond: :le)
+              @emitter.emit_number(ACC, MOST)
+              @emitter.place_label(within)
+              @primitives.load_var(TMP, SPENT)
+              @emitter.emit(ASM.sub_reg(ACC, ACC, TMP)) # ...less one already spent
+            end
+            @primitives.load_var(TMP, PACE)
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit_branch(:bcond, on_time, cond: :lt)
+          end
+
+          # Whether the page just shown was shown part way down the picture, for the next pass.
+          def emit_note_break_spent(spent)
+            @emitter.emit_number(ACC, spent ? 1 : 0)
+            @primitives.store_var(ACC, SPENT)
+          end
+
+          # The breaks a pass may take and be on time, from the screen that is up.
+          def emit_set_pace(frames)
+            @emitter.emit_number(ACC, frames)
+            @primitives.store_var(ACC, PACE)
+          end
+
+          # NO PAGE IS SHOWN PART WAY DOWN BEFORE THE FIRST PASS HAS BEEN COUNTED: the marks are
+          # rubbish at power-on (see #emit_frame_step), and counting more breaks as spent than a
+          # pass can take keeps the first page from being shown part way down — which is also
+          # what keeps the picture from being switched on part way down the screen. A first page
+          # finished in the break may still be shown there, where nothing tears. Every wait after
+          # it says what it spent.
+          def emit_pace_at_power_on
+            @emitter.emit_number(ACC, MOST + 1)
+            @primitives.store_var(ACC, SPENT)
+          end
         end
       end
     end
