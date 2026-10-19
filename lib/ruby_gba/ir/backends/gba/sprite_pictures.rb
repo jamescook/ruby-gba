@@ -98,6 +98,15 @@ module RubyGBA
 
             sprites.first.stored_bytes - (sprites.first.frame_bytes * counted)
           end
+
+          # Is the set smaller kept to one frame, on the fullest screen that shows it? A screen
+          # keeps a frame's room for each sprite of it that shows the set, and the sprites every
+          # screen shows are on all of them.
+          def smaller_kept_to_one_frame?
+            everywhere = sprites.count { |sprite| sprite.scene.nil? }
+            most = sprites.reject { |sprite| sprite.scene.nil? }.group_by(&:scene).values.map(&:size).max || 0
+            sprites.first.stored_bytes > sprites.first.frame_bytes * (everywhere + most)
+          end
         end
       end
     end

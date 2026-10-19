@@ -410,7 +410,8 @@ module RubyGBA
                                        palette_tint: @palette_tint, layer_blend: @layer_blend)
           @sprite_drawing = SpriteDrawing.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                               divide: @divide, framebuffer: @framebuffer,
-                                              palette_tint: @palette_tint, uploads: @uploads)
+                                              palette_tint: @palette_tint, uploads: @uploads,
+                                              call_cold_routine: method(:emit_call_cold_routine))
           @background_drawing = BackgroundDrawing.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                                       divide: @divide, raster: @raster,
                                                       palette_tint: @palette_tint, uploads: @uploads, lists: @lists,
@@ -586,6 +587,14 @@ module RubyGBA
             address = var_addr(sprite.resident_frame_var)
             sprite.pieces.times { |piece| where[sprite.slot + piece] = address }
           end
+        end
+
+        # Room in the roomy memory for +bytes+ of a record the sprite drawing keeps, which says
+        # +what+; or the friendly error, when it is full.
+        def alloc_sprite_record!(bytes, what)
+          @memory.alloc_roomy(bytes) or
+            raise LoweringError, "The console's roomy memory is full. So there is no room for the #{bytes} " \
+                                 "bytes that say #{what}. To fix this, make a list or a pool smaller."
         end
 
         # WHAT WENT IN THE OTHER MEMORY, and how much of it is left.
@@ -806,10 +815,13 @@ module RubyGBA
           # which are in sprite memory (see PoseSends). In the roomy memory: it is read once a
           # thing, where the quick memory is worth more to the code a frame runs.
           @pose_sent_bytes = @screen.pools_sending_poses.transform_values do |pool|
-            @memory.alloc_roomy(pool.count) or
-              raise LoweringError, "The console's roomy memory is full. So there is no room for the #{pool.count} " \
-                                   "bytes that say which pictures of a pool are in sprite memory. " \
-                                   "To fix this, make a list or a pool smaller."
+            alloc_sprite_record!(pool.count, "which pictures of a pool are in sprite memory")
+          end
+          # The record of each set of shared rooms: which pose each room holds, how many sprites
+          # draw from it, and which room each sprite holds (see SpriteLayout::SharedRooms). In the
+          # roomy memory too: it is read once a sprite, and written only when a pose changes.
+          @room_tables = @screen.shared_rooms.to_h do |rooms|
+            [rooms, alloc_sprite_record!(rooms.table_bytes, "which pose each sprite shows from a shared room")]
           end
           # Save data reaches the chip too, so it needs the marker that maps it as much as a
           # saved number does.
@@ -831,7 +843,7 @@ module RubyGBA
             scene_blend: @scene_blend || {}, movement: @movement || IR::Movement::EVERYTHING_MOVES,
             scene_sprites: @scene_sprites || [],
             waits_for_frames: @uses_vblank,
-            draw_runs: @draw_runs, pose_sent_bytes: @pose_sent_bytes,
+            draw_runs: @draw_runs, pose_sent_bytes: @pose_sent_bytes, room_tables: @room_tables,
           )
           @drawing.layout = layout
           @buffered.layout = layout
@@ -901,6 +913,7 @@ module RubyGBA
           @drawing.emit_digit_routines  # the shared glyph loop each font's draw_number/draw_digit calls
           @buffered.emit_digit_routines # ...and its tear-free counterpart
           @background_drawing.emit_set_swap_routines # bringing another set of tiles in, a routine a background
+          @sprite_drawing.emit_shared_room_routines # giving a sprite a room for its pose, two routines a set of rooms
           @lists.emit_fill_routine # the one routine every list_fill calls, for the same reason
           @lists.emit_copy_routine # ...and every list_copy
           emit_swap_routine # copying a scene's own routines in as it takes over

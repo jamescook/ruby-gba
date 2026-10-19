@@ -256,8 +256,34 @@ module RubyGBA
           printer.puts format("    %-8s %s of %s used, %s free%s",
                               what, format_bytes(area.used), format_bytes(area.capacity), format_bytes(area.free),
                               storage_note(area))
+          screen_lines(area, printer)
         end
         object_count_lines(video.objects, printer)
+      end
+
+      # EACH SCENE'S SHARE OF THE SPRITE MEMORY, said for a scene with rooms that sprites share or
+      # with room it could give back. The line above is the fullest scene's, and the fullest is
+      # not always the one a game grows in: a file screen of still pictures can be the fullest
+      # while every room, person and effect of the game is in the play scene.
+      #
+      # What is used keeps a set of pictures whole while it fits, since that copies nothing as
+      # the game plays. How little it could come to is the wall a growing scene really has.
+      def screen_lines(area, printer)
+        area.screens.each do |screen|
+          next unless screen.room_bytes.positive? || screen.least_needed < screen.used
+
+          parts = ["#{format_bytes(screen.used)} used"]
+          if screen.room_bytes.positive?
+            parts << "#{format_bytes(screen.fixed)} fixed and #{format_bytes(screen.room_bytes)} " \
+                     "in rooms that sprites share by the pose they show"
+          end
+          if screen.least_needed < screen.used
+            parts << "the pictures need #{format_bytes(screen.least_needed)} at the least, " \
+                     "if each sprite that animates keeps only the frame it shows"
+          end
+          where = screen.scene ? "scene :#{screen.scene}" : "every screen"
+          printer.puts "      #{where} #{parts.join(', ')}"
+        end
       end
 
       # HOW MANY OF THE CONSOLE'S SPRITES THE GAME REALLY SPENDS — said only when it is not

@@ -120,6 +120,14 @@ module RubyGBA
                             words: nil),
         set_swap: Kind.new(spelling: "__set_swap_%{background}", parts: { background: ANY },
                            words: ->(parts) { "bringing background :#{parts[:background]} another set of tiles" }),
+        shared_rooms: Kind.new(spelling: "__shared_rooms_%{number}__%{part}", parts: { number: "\\d+", part: PLAIN },
+                               words: lambda do |parts|
+                                 if parts[:part] == "take"
+                                   "giving a sprite a room in sprite memory for the pose it shows"
+                                 else
+                                   "taking back the room of a sprite that is not shown"
+                                 end
+                               end),
         view_along_map: Kind.new(spelling: "__view_along_map_%{background}", parts: { background: ANY },
                                  words: ->(parts) { "bringing the view of background :#{parts[:background]} along its map" }),
         pool_stacking: Kind.new(spelling: "__stacking_pool_%{pool}", parts: { pool: ANY },

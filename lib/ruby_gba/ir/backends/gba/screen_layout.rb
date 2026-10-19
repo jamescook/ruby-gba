@@ -324,6 +324,10 @@ module RubyGBA
           # takes over.
           def pools_sending_poses_in(scene) = pools_sending_poses.each_value.select { |pool| pool.scene == scene }
 
+          # Every set of rooms that sprites kept to one frame share (see SpriteLayout::SharedRooms).
+          # Empty in a game with none.
+          def shared_rooms = @sprite_art&.shared_rooms || []
+
           # Do the tiled scenes want different layers on? Only then does each scene tell the
           # display which, as it takes over (see #scene_screens_for).
           def layers_differ_by_scene? = @scene_sends.each_value.filter_map(&:screen).uniq.size > 1
@@ -1583,6 +1587,7 @@ module RubyGBA
               one_frame.merge(set.names)
             end
             @objects = @sprite_art.sprites
+            @least_sprite_screens = least_sprite_screens(nodes, sets, painted)
             scene_of = nodes.to_h { |node| [node.name, node.scene] }
             painted.each do |name, picture|
               run = @painted_pictures.fetch(picture)
@@ -1635,6 +1640,30 @@ module RubyGBA
                        .select(&:can_keep_to_one_frame?)
                        .max_by { |set| set.bytes_freed_by_one_frame(scene) }
             best if best&.bytes_freed_by_one_frame(scene)&.positive?
+          end
+
+          # THE LEAST SPRITE MEMORY EACH SCENE COULD NEED, by scene as SpriteLayout#screens says
+          # them: laid out again with every set of pictures kept to one frame at a time where that
+          # is smaller than the set kept whole. Only the report reads it, so nothing of this layout
+          # is kept — not its records, not its blobs.
+          def least_sprite_screens(nodes, sets, painted)
+            smaller = sets.select { |set| set.can_keep_to_one_frame? && set.smaller_kept_to_one_frame? }
+            blobs = SpriteLayout::Blobs.new(data_blobs: {}, keep_plain: ->(_name) {})
+            SpriteLayout.new(nodes: nodes, pictures: @obj_pictures, painted: painted,
+                             one_frame: Set.new(smaller.flat_map(&:names)), blobs: blobs) { |_pictures, placed| placed }
+                        .screens
+          end
+
+          # Each scene's sprite memory for the report: what it takes, how much of that is shared
+          # rooms, and the least it could take — never more than it takes, since a set the least
+          # layout keeps to one frame on a screen where that is bigger is not one the build would.
+          def sprite_screens_report
+            @sprite_art.screens.map do |scene, (bytes, rooms)|
+              least, = @least_sprite_screens.fetch(scene)
+              RubyGBA::Diagnostics::VideoMemory::Screen.new(scene: scene && Modes.strip_scene_prefix(scene).to_sym,
+                                                            used: bytes, room_bytes: rooms,
+                                                            least_needed: [least, bytes].min)
+            end
           end
 
           # Out of room for sprite pictures. Name the greediest, since the fix is nearly
@@ -2088,7 +2117,7 @@ module RubyGBA
           # each pose's pieces begin, counted from +tile_index+, for the pose table of a sprite
           # whose poses are not alike.
           def object_record(pictures, slot:, affine_slot:, starts:, alike:, per_pose:, tiles:, tile_units:,
-                            tile_index:, frames: nil, frame_bytes: nil)
+                            tile_index:, frames: nil, frame_bytes: nil, rooms: nil, room_member: nil)
             node = pictures.node
             name = node.name
             place = pictures.place
@@ -2105,6 +2134,7 @@ module RubyGBA
               scene: node.scene, # sent when that scene takes over, rather than at boot
               tile_index: tile_index, # this sprite's base tile number
               frames: frames, frame_bytes: frame_bytes, # every frame in the cartridge, for one kept to one frame
+              rooms: rooms, room_member: room_member, # ...and the rooms it shares, and which sprite of them it is
               pose_sends: nil, # a pool's poses sent as they are first shown, settled once every sprite has landed
               per_pose: per_pose,    # stride to the next pose's tiles
               pose: node.pose,     # the run-time pose selector (which pose to show)
@@ -2254,7 +2284,8 @@ module RubyGBA
             RubyGBA::Diagnostics::VideoMemory::Area.new(used: @sprite_art.bytes, capacity: OBJ_TILE_CAPACITY,
                                            small: small, big: @objects.size - small,
                                            saved: sprite_memory_saved, shared: shared,
-                                           one_frame: one_frame, repeats: @sprite_art.repeats)
+                                           one_frame: one_frame, repeats: @sprite_art.repeats,
+                                           screens: sprite_screens_report)
           end
 
           # What the same pictures would have cost stored the old way: a small one is exactly

@@ -47,9 +47,13 @@ module RubyGBA
       # frames waiting in the cartridge — which is the other way a picture comes to cost nothing
       # here, and a different thing from sharing: a shared picture is in this memory once for
       # everyone showing it, where these are copied in as the sprite animates.
+      #
+      #
+      # +screens+ is the sprites' half of the same question asked of each scene in turn (see
+      # Screen), since the fullest scene is not always the one a game grows in. Empty for tiles.
       Area = Data.define(:used, :capacity, :small, :big, :saved, :shared, :mirrored, :repeats, :skipped,
-                         :one_frame) do
-        def initialize(mirrored: 0, repeats: 0, skipped: 0, one_frame: 0, **rest) = super
+                         :one_frame, :screens) do
+        def initialize(mirrored: 0, repeats: 0, skipped: 0, one_frame: 0, screens: [], **rest) = super
 
         def free = capacity - used
         def share = capacity.zero? ? 0.0 : used.to_f / capacity
@@ -57,8 +61,19 @@ module RubyGBA
         def to_h
           { used: used, capacity: capacity, free: free, small: small, big: big,
             saved: saved, shared: shared, mirrored: mirrored, repeats: repeats, skipped: skipped,
-            one_frame: one_frame }
+            one_frame: one_frame, screens: screens.map(&:to_h) }
         end
+      end
+
+      # ONE SCENE'S SPRITE MEMORY, with the pictures every screen shows: +scene+ as the author
+      # named it, or nil in a game with no scenes. +used+ is what it takes. +room_bytes+ is how
+      # much of that is rooms that sprites kept to one frame share, a room for each sprite that
+      # can show their pictures at once, so that what is used there follows what is on screen;
+      # the rest is +fixed+. +least_needed+ is what the scene would take if every set of pictures
+      # that animates kept only that. The build keeps whole every set that fits, since a set kept
+      # whole copies nothing as it plays, so the least is how far from the wall the scene really is.
+      Screen = Data.define(:scene, :used, :room_bytes, :least_needed) do
+        def fixed = used - room_bytes
       end
 
       # HOW MANY OF THE CONSOLE'S SPRITES THE GAME SPENDS, which is not the same number as

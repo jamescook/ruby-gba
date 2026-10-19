@@ -34,6 +34,42 @@ module RubyGBA
             end
           end
 
+          # ROOMS SHARED BY THE SPRITES OF ONE SCENE THAT SHOW ONE SET OF PICTURES, kept to one
+          # frame at a time. There is a room for each of those sprites, +count+ of them, each
+          # +units+ long, from the unit +first+ on; every pose is in the cartridge at +frames+, laid
+          # out the way a room is, +frame_bytes+ apart.
+          #
+          # A sprite does not own a room. It takes one as it is drawn: the room already holding the
+          # pose it shows, if one is, and a room nobody is drawing from otherwise, copying its pose
+          # in. So two sprites showing the same pose draw from one room and the pose is copied once,
+          # and a pose stays in a room nobody uses until another pose needs the room.
+          #
+          # THERE IS ALWAYS A ROOM TO TAKE. A sprite lets go of its own room before it looks, which
+          # leaves the others at most one room each, and there is one more room than that. So the
+          # game can never run out, which is the one thing a shared heap of sprite memory cannot
+          # promise — there, a thing that does not fit is not drawn.
+          #
+          # THE RECORD OF THE ROOMS, which the running game keeps (see
+          # SpriteDrawing#emit_shared_room_routines): two words for each room, which pose it holds
+          # and how many sprites draw from it, and then a word for each sprite, which room it
+          # holds. Where it is kept is the lowering's to decide; how it is laid out is said here
+          # once, for the code that sizes it and the code that reads it.
+          SharedRooms = Data.define(:first, :units, :count, :frames, :frame_bytes) do
+            def table_bytes = count * (self.class::ROOM_WORDS_BYTES + self.class::HELD_WORD_BYTES)
+
+            # Where in the record room +room+'s two words start, and the asking sprite's word.
+            def room_at(room) = room * self.class::ROOM_WORDS_BYTES
+            def held_at(member) = (count * self.class::ROOM_WORDS_BYTES) + (member * self.class::HELD_WORD_BYTES)
+          end
+
+          class SharedRooms
+            ROOM_WORDS_BYTES = 8 # a room's two words...
+            ROOM_WORDS_SHIFT = 3 # ...so a room's number shifted this far is where they start
+            USERS_AT = 4         # how many sprites draw from it, the second of them
+            HELD_WORD_BYTES = 4  # a sprite's word...
+            HELD_WORD_SHIFT = 2  # ...so a sprite's number shifted this far is where it is
+          end
+
           # +pictures+ is every sprite's pictures by name, +one_frame+ the names kept to one
           # frame at a time this time round, and +blobs+ where a kept-to-one-frame sprite's
           # frames go in the cartridge. The block is given a sprite's pictures and where they
@@ -54,10 +90,14 @@ module RubyGBA
             @scene_art = {}    # scene -> the pictures it sends when it takes over
             @scene_bytes = {}  # scene -> what it needs, the always-there pictures included
             @repeats = 0       # bytes a piece did not cost because another piece already held them
+            @shared_rooms = [] # every set of rooms shared by the sprites of one scene
+            @rooms_bytes = {}  # scene, or nil for what every screen shows -> the bytes of those rooms on it
+            @sharing = {}      # while one screen is laid out: a sprite sharing rooms -> every sprite it shares them with
+            @rooms_of = {}     # ...and those sprites -> the rooms they share, once the first of them is placed
             lay_out(nodes)
           end
 
-          attr_reader :sprites, :scene_art, :repeats
+          attr_reader :sprites, :scene_art, :repeats, :shared_rooms
 
           def fits?(capacity) = bytes <= capacity
           def bytes = @art.bytes
@@ -67,6 +107,16 @@ module RubyGBA
           # memory — or nothing, for a game whose sprites all belong to every screen.
           def fullest_scene = @scene_bytes.max_by { |_scene, bytes| bytes }&.first
 
+          # Each screen's sprite memory, and how much of it is shared rooms, as [bytes, rooms]: each
+          # scene's with what every screen shows, or, in a game with no scenes, what every screen
+          # shows under nil.
+          def screens
+            everywhere = @rooms_bytes.fetch(nil, 0)
+            return { nil => [@art.bytes, everywhere] } if @scene_bytes.empty?
+
+            @scene_bytes.to_h { |scene, bytes| [scene, [bytes, everywhere + @rooms_bytes.fetch(scene, 0)]] }
+          end
+
           private
 
           # A painted picture's room is kept per screen, like everything else here: the room it
@@ -74,7 +124,7 @@ module RubyGBA
           # gets a room of its own (and the copy is told where, see ScreenLayout::PaintedRun).
           def lay_out(nodes)
             by_scene = nodes.group_by(&:scene)
-            (by_scene[nil] || []).each { |node| place(node) }
+            place_screen(by_scene[nil] || [])
             @art.finish_resident_art
             resident_rooms = @painted_rooms.dup
             by_scene.each do |scene, in_scene|
@@ -82,10 +132,30 @@ module RubyGBA
 
               @art.begin_scene
               @painted_rooms = resident_rooms.dup
-              in_scene.each { |node| place(node) }
+              place_screen(in_scene)
               @scene_bytes[scene] = @art.bytes_so_far
               @scene_art[scene] = @art.end_scene
             end
+          end
+
+          # One screen's sprites: what every screen shows, or one scene's. The sprites of it kept
+          # to one frame that show the same poses share their rooms, when there are two or more of
+          # them; one alone keeps a room of its own, as it always did.
+          #
+          # THE SAME POSES, IN THE SAME ORDER, and not merely the same pictures. A room is found by
+          # the number of the pose it holds, so two sprites share rooms only when every pose number
+          # means the same picture to both: the same pictures in another order are stored alike,
+          # and a room holding one's pose 1 would draw as the other's pose 1. Every pose laid out
+          # the way a room is, back to back, says exactly that.
+          def place_screen(nodes)
+            @screen = nodes.first&.scene
+            @sharing = nodes.select { |node| @one_frame.include?(node.name) }
+                            .group_by { |node| @pictures.fetch(node.name).frames }
+                            .values.select { |alike| alike.size > 1 }
+                            .flat_map { |alike| alike.map(&:name).then { |names| names.map { |name| [name, names] } } }
+                            .to_h
+            @rooms_of = {}
+            nodes.each { |node| place(node) }
           end
 
           # A sprite's place in sprite memory: its pictures stored whole where they fit, or
@@ -93,7 +163,9 @@ module RubyGBA
           def place(node)
             pictures = @pictures.fetch(node.name)
             @sprites[node.name] =
-              if @one_frame.include?(node.name)
+              if (sharing = @sharing[node.name])
+                @record.call(pictures, shared_room_placement(pictures, sharing))
+              elsif @one_frame.include?(node.name)
                 @record.call(pictures, one_frame_placement(pictures))
               elsif (picture = @painted[node.name])
                 @record.call(pictures, painted_placement(pictures, picture))
@@ -129,6 +201,30 @@ module RubyGBA
               tiles: nil, tile_units: units,
               tile_index: @art.reserve(units, narrow: pictures.place.narrow?),
               frames: blob, frame_bytes: pictures.frame_bytes }
+          end
+
+          # A ROOM SHARED WITH THE OTHER SPRITES OF THIS SCREEN SHOWING THE SAME PICTURES (see
+          # SharedRooms). The first of them to be placed lays out every room and stores the
+          # frames, once for all of them; each is numbered among them, which is how the running
+          # game says which room it holds. A pose's pieces are laid out the same way in every
+          # room, so its record points at the first room, and the room it draws from is added
+          # while the game runs.
+          def shared_room_placement(pictures, sharing)
+            rooms = (@rooms_of[sharing] ||= lay_out_shared_rooms(pictures, sharing.size))
+            { starts: pictures.room_starts, alike: pictures.one_shape?, per_pose: 0,
+              tiles: nil, tile_units: rooms.units, tile_index: rooms.first,
+              frames: rooms.frames, frame_bytes: rooms.frame_bytes,
+              rooms: rooms, room_member: sharing.index(pictures.name) }
+          end
+
+          def lay_out_shared_rooms(pictures, count)
+            blob = :"__obj_frames_#{pictures.name}"
+            @blobs.store_unpacked(blob, pictures.frames)
+            units = pictures.frame_bytes / 32
+            first = @art.reserve(units * count, narrow: pictures.place.narrow?)
+            @rooms_bytes[@screen] = @rooms_bytes.fetch(@screen, 0) + (units * count * 32)
+            SharedRooms.new(first: first, units: units, count: count, frames: blob,
+                            frame_bytes: pictures.frame_bytes).tap { |rooms| @shared_rooms << rooms }
           end
         end
       end

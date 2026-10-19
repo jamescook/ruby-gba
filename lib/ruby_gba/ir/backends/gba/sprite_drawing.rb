@@ -17,7 +17,8 @@ module RubyGBA
           include Console::Hardware
           include EmitterCalls
 
-          def initialize(emitter:, primitives:, lowering:, divide:, framebuffer:, palette_tint:, uploads:)
+          def initialize(emitter:, primitives:, lowering:, divide:, framebuffer:, palette_tint:, uploads:,
+                         call_cold_routine:)
             @emitter = emitter
             @primitives = primitives
             @lowering = lowering
@@ -25,6 +26,7 @@ module RubyGBA
             @framebuffer = framebuffer
             @palette_tint = palette_tint
             @uploads = uploads
+            @call_cold_routine = call_cold_routine
             @layout = nil
           end
 
@@ -513,11 +515,16 @@ module RubyGBA
               emit_store_number_in_row(rows[piece], 0, OBJ_HIDDEN_ATTR0) # active == 0: mark it unused
               write_reg16(oam_slot(twin.slot, piece), OBJ_HIDDEN_ATTR0) if twin # ...and its window
             end
+            emit_let_go_of_shared_room(obj) if obj.rooms
             emit_branch(:b, done)
 
             place_label(draw)
             emit_store_object_picked_attr2(obj) if obj.picks_attr2?
-            emit_send_object_frame(obj, name) if obj.frames
+            if obj.rooms
+              emit_take_shared_room(obj)
+            elsif obj.frames
+              emit_send_object_frame(obj, name)
+            end
             emit_send_pose_first_shown(obj.pose_sends, obj.pose) if obj.pose_sends
             # Worked out once for the whole sprite when it is drawn as several objects:
             # every piece stands at the same place and reads it back from there.
@@ -623,6 +630,173 @@ module RubyGBA
 
           def emit_reset_resident_frames(objects)
             objects.each { |obj| store_word_immediate(NO_FRAME, var_addr(resident_frame_var(obj))) if obj.frames }
+            objects.filter_map(&:rooms).uniq.each { |rooms| emit_empty_shared_rooms(rooms) }
+          end
+
+          # SPRITES SHARING ROOMS (see SpriteLayout::SharedRooms, which says how the record of a set
+          # of rooms is laid out). The record is kept in the roomy memory. A sprite holding no room
+          # holds the room past the last, which is one compare to tell.
+          ROOMS = SpriteLayout::SharedRooms
+          def room_table(rooms) = @layout.room_tables.fetch(rooms)
+          def room_pose_at(rooms, room) = room_table(rooms) + rooms.room_at(room)
+          def room_users_at(rooms, room) = room_pose_at(rooms, room) + ROOMS::USERS_AT
+          def room_held_at(rooms, member) = room_table(rooms) + rooms.held_at(member)
+
+          # Where the tiles of the room a sprite holds start, counted from its first room, while the
+          # sprite is drawn. One variable serves every sprite, since each is done before the next.
+          OBJ_ROOM_TILES = :__obj_room_tiles
+
+          # Nothing is in any room and nobody holds one: at boot, and as their scene takes over,
+          # since another scene's pictures went into the same memory.
+          def emit_empty_shared_rooms(rooms)
+            rooms.count.times do |room|
+              store_word_immediate(NO_FRAME, room_pose_at(rooms, room))
+              store_word_immediate(0, room_users_at(rooms, room))
+              store_word_immediate(rooms.count, room_held_at(rooms, room)) # a sprite each, as many as rooms
+            end
+          end
+
+          # A SPRITE SHOWING A POSE TAKES A ROOM HOLDING IT, when the pose is not the one in its room
+          # already, and is then drawn from that room. Taking one is a routine of its own the sprites
+          # of a set share, since it is the rare part: a sprite holding still, or showing what it
+          # showed last frame, does a compare and the sum below.
+          def emit_take_shared_room(obj)
+            rooms = obj.rooms
+            held = gensym
+            @lowering.value(obj.pose)
+            load_var(TMP, resident_frame_var(obj))
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit_branch(:bcond, held, cond: :eq)
+            store_var(ACC, resident_frame_var(obj))
+            emit_number(TMP, obj.room_member)
+            emit_call_cold_routine(shared_room_label(rooms, :take))
+            place_label(held)
+            emit_number(TMP, room_held_at(rooms, obj.room_member))
+            emit(ASM.ldr(ACC, TMP))
+            emit_number(TMP, rooms.units)
+            emit(ASM.mul(2, ACC, TMP))
+            store_var(2, OBJ_ROOM_TILES)
+          end
+
+          # A SPRITE THAT IS NOT SHOWN LETS GO OF ITS ROOM, so another pose can have it. The room
+          # keeps its pose, and the sprite forgets what it was showing, so it takes a room again
+          # when it is shown.
+          def emit_let_go_of_shared_room(obj)
+            rooms = obj.rooms
+            none = gensym
+            emit_number(TMP, room_held_at(rooms, obj.room_member))
+            emit(ASM.ldr(ACC, TMP))
+            emit(ASM.cmp_imm(ACC, rooms.count))
+            emit_branch(:bcond, none, cond: :hs)
+            store_word_immediate(NO_FRAME, var_addr(resident_frame_var(obj)))
+            emit_number(TMP, obj.room_member)
+            emit_call_cold_routine(shared_room_label(rooms, :let_go))
+            place_label(none)
+          end
+
+          def shared_room_label(rooms, part)
+            Messages::MadeNames.make(:shared_rooms, number: @layout.room_tables.keys.index(rooms), part: part.to_s)
+          end
+
+          # THE TWO ROUTINES EACH SET OF SHARED ROOMS HAS, after the program's own code and reached
+          # only by the calls above. Both are handed which sprite of the set is asking in the
+          # second register, and taking one is handed the pose in the first.
+          #
+          #   r0  the pose, then where its tiles are in the cartridge
+          #   r2  the set's record, then where the tiles go in sprite memory
+          #   r3  a room's number
+          #   r4  where the asking sprite's word is, saying which room it holds
+          #   r5  a room's two words
+          #   r12 one word read out of them
+          def emit_shared_room_routines
+            @layout.room_tables.each_key do |rooms|
+              emit_shared_room_routine(rooms, :let_go) do
+                emit_number(TMP, rooms.count)
+                emit(ASM.str(TMP, 4)) # it holds no room now
+              end
+              emit_shared_room_routine(rooms, :take) { emit_give_room_holding_pose(rooms) }
+            end
+          end
+
+          def emit_shared_room_routine(rooms, part)
+            label = shared_room_label(rooms, part)
+            emit(ASM.loop_forever) # fall-through guard: only ever entered by the call
+            place_label(label)
+            emit(ASM.push(4, 5, 14))
+            emit(ASM.lsl_imm(4, TMP, ROOMS::HELD_WORD_SHIFT))
+            emit_number(5, room_held_at(rooms, 0))
+            emit(ASM.add_reg(4, 4, 5))
+            emit_number(2, room_table(rooms))
+            emit_drop_one_room_user(rooms)
+            yield
+            emit(ASM.pop(4, 5, 15))
+            # Where it ends, so a profile of the finished game can name it (see
+            # GBA#lowered_routine_addresses).
+            place_label(:"#{label}_end")
+          end
+
+          # One fewer sprite draws from the room the asking sprite holds, if it holds one.
+          def emit_drop_one_room_user(rooms)
+            none = gensym
+            emit(ASM.ldr(3, 4))
+            emit(ASM.cmp_imm(3, rooms.count))
+            emit_branch(:bcond, none, cond: :hs)
+            emit(ASM.lsl_imm(5, 3, ROOMS::ROOM_WORDS_SHIFT))
+            emit(ASM.add_reg(5, 5, 2))
+            emit(ASM.ldr_offset(ADDR, 5, ROOMS::USERS_AT))
+            emit(ASM.sub_imm(ADDR, ADDR, 1))
+            emit(ASM.str_offset(ADDR, 5, ROOMS::USERS_AT))
+            place_label(none)
+          end
+
+          # GIVE THE ASKING SPRITE A ROOM HOLDING THE POSE, and count it among the room's users: the
+          # room already holding the pose, if one is, used or not, and then nothing is copied. Or
+          # else a room nobody draws from, with the pose copied into it. There is always one of
+          # those (see SpriteLayout::SharedRooms), so the second walk always stops at one; it is
+          # held to the rooms there are all the same, and would take the last of them.
+          def emit_give_room_holding_pose(rooms)
+            found = gensym
+            take = gensym
+            emit_walk_rooms(rooms, 0, found) { emit(ASM.cmp_reg(ADDR, ACC)) }
+            emit_walk_rooms(rooms, ROOMS::USERS_AT, take) { emit(ASM.cmp_imm(ADDR, 0)) }
+            emit(ASM.sub_imm(5, 5, ROOMS::ROOM_WORDS_BYTES))
+            emit(ASM.sub_imm(3, 3, 1))
+            place_label(take)
+            emit(ASM.str(ACC, 5)) # the room holds this pose now
+            emit_number(ADDR, rooms.frame_bytes)
+            emit(ASM.mul(TMP, ACC, ADDR))
+            emit_load_data_address(ACC, rooms.frames)
+            emit(ASM.add_reg(ACC, ACC, TMP)) # from the pose's frame in the cartridge
+            emit_number(ADDR, rooms.units * 32)
+            emit(ASM.mul(2, 3, ADDR))
+            emit_number(ADDR, OBJ_TILE_BASE + (rooms.first * 32))
+            emit(ASM.add_reg(2, 2, ADDR)) # ...to the room
+            sharers = @layout.screen.objects.filter_map { |name, obj| ":#{declared_name(name)}" if obj.rooms == rooms }.uniq
+            @emitter.note_video_copy("sending sprite #{sharers.join(', ')} its next frame", rooms.frame_bytes)
+            emit_start_copy_engine(from: in_register(ACC), to: in_register(2),
+                                   control: (rooms.frame_bytes / 4) | DMA_ENABLE | DMA_32BIT)
+            place_label(found)
+            emit(ASM.ldr_offset(ADDR, 5, ROOMS::USERS_AT))
+            emit(ASM.add_imm(ADDR, ADDR, 1))
+            emit(ASM.str_offset(ADDR, 5, ROOMS::USERS_AT))
+            emit(ASM.str(3, 4)) # the asking sprite holds it
+          end
+
+          # Walk the rooms from the first, r3 counting them and r5 at each one's two words, until
+          # the word +offset+ into one passes the test the block makes, and go to +stop+ there.
+          # Falls through past the last room.
+          def emit_walk_rooms(rooms, offset, stop)
+            again = gensym
+            emit_number(3, 0)
+            emit(ASM.mov_reg(5, 2))
+            place_label(again)
+            emit(ASM.ldr_offset(ADDR, 5, offset))
+            yield
+            emit_branch(:bcond, stop, cond: :eq)
+            emit(ASM.add_imm(5, 5, ROOMS::ROOM_WORDS_BYTES))
+            emit(ASM.add_imm(3, 3, 1))
+            emit(ASM.cmp_imm(3, rooms.count))
+            emit_branch(:bcond, again, cond: :ne)
           end
 
           # COPY THE FRAME THIS SPRITE IS SHOWING INTO ITS ROOM, when it is not the one already
@@ -642,13 +816,25 @@ module RubyGBA
             emit(ASM.mul(2, ACC, TMP))                    # r2 = where this frame starts in the blob
             emit_load_data_address(ACC, obj.frames)
             emit(ASM.add_reg(ACC, ACC, 2))                # from the frame in the cartridge
-            # Named the way the author named it; the build's own name is all a sprite they named
-            # nothing for has.
-            declared = @layout.screen.picture.objects.find { |node| node.name == name }&.declared || name
-            @emitter.note_video_copy("sending sprite :#{declared} its next frame", obj.frame_bytes)
+            @emitter.note_video_copy("sending sprite :#{declared_name(name)} its next frame", obj.frame_bytes)
             emit_start_copy_engine(from: in_register(ACC), to: OBJ_TILE_BASE + (obj.tile_index * 32),
                                    control: (obj.frame_bytes / 4) | DMA_ENABLE | DMA_32BIT)
             place_label(already)
+          end
+
+          # A sprite named the way the author named it, for the build's list of what is copied when;
+          # the build's own name is all a sprite they named nothing for has.
+          def declared_name(name) = @layout.screen.picture.objects.find { |node| node.name == name }&.declared || name
+
+          def emit_call_cold_routine(label) = @call_cold_routine.call(label)
+
+          # Add the room a sprite sharing rooms is drawn from to the tile number in r0, which counts
+          # from its first room (see #emit_take_shared_room).
+          def emit_add_room_tiles(obj)
+            return unless obj.rooms
+
+            load_var(TMP, OBJ_ROOM_TILES)
+            emit(ASM.add_reg(ACC, ACC, TMP))
           end
 
           # COPY A POOL'S POSE INTO SPRITE MEMORY THE FIRST TIME ONE OF ITS THINGS SHOWS IT since
@@ -800,6 +986,7 @@ module RubyGBA
             # mask: a ten-bit mask is not one of the immediates this chip can carry.
             emit(ASM.lsl_imm(ACC, POSE_WORD, 22))
             emit(ASM.lsr_imm(ACC, ACC, 22))
+            emit_add_room_tiles(obj)
             orr_acc(obj.attr2_base) unless obj.attr2_base.zero?
             orr_picked_attr2(obj)
             emit_store_acc_in_row(row, 4)
@@ -974,10 +1161,11 @@ module RubyGBA
           # of the sprite's +row+.
           def emit_object_tile_number(obj, row)
             fixed = const_int(obj.pose)
-            if fixed && !obj.picks_attr2?
+            if fixed && !obj.picks_attr2? && !obj.rooms
               emit_store_number_in_row(row, 4, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base)
             elsif fixed
               emit_number(ACC, obj.tile_index + (fixed * obj.per_pose) | obj.attr2_base)
+              emit_add_room_tiles(obj)
               orr_picked_attr2(obj)
               emit_store_acc_in_row(row, 4)
             else
@@ -985,6 +1173,7 @@ module RubyGBA
               emit_number(TMP, obj.per_pose)   # r1 = stride between poses
               emit(ASM.mul(2, ACC, TMP))                      # r2 = pose * stride (rd must differ from rm)
               emit_add_const(ACC, 2, obj.tile_index, TMP)   # r0 = r2 + base tile
+              emit_add_room_tiles(obj)
               orr_acc(obj.attr2_base) unless obj.attr2_base.zero?
               orr_picked_attr2(obj)
               emit_store_acc_in_row(row, 4)

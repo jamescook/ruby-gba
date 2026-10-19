@@ -64,6 +64,12 @@ module RubyGBA
         # leaves the bank out, since the bank is the part of that word a frame decides. nil for
         # every other sprite.
         #
+        # +rooms+ is set on a sprite kept to one frame that shares its rooms with the other
+        # sprites of its scene showing the same pictures (see SpriteLayout::SharedRooms), and
+        # +room_member+ says which of those sprites it is. Its +tile_index+ is then the first room,
+        # and the room it draws from is worked out as it is drawn. nil for every other sprite,
+        # a sprite kept to one frame alone among them included: that one keeps its own room.
+        #
         # +pose_sends+ is set on every sprite of a pool whose poses go into sprite memory the first
         # time one of its things shows each (see PoseSends::Pool): which pictures, and where each
         # pose's tiles are among them. nil for every other sprite.
@@ -74,7 +80,7 @@ module RubyGBA
         # +attr2_base+ then leaves the depth out. nil for every other sprite.
         Sprite = Data.define(
           :slot, :pieces, :scene,
-          :tiles, :tile_units, :tile_index, :frames, :frame_bytes, :pose_sends,
+          :tiles, :tile_units, :tile_index, :frames, :frame_bytes, :rooms, :room_member, :pose_sends,
           :pose, :pose_count, :alike, :per_pose, :pose_table, :pose_words, :mirrors,
           :offset_x, :offset_y, :width, :height,
           :x, :y, :active, :angle, :scale, :transformed, :scales, :affine_slot,
