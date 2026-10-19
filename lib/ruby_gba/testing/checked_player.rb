@@ -33,10 +33,11 @@ module RubyGBA
       include DisagreementFailsTest
 
       def run(program, max_steps: nil, frames: nil)
-        refuse_advance_picture!(program)
+        if program.kind == :program && program.console.nil?
+          program = program.copy
+          program.console = :gbc
+        end
         super
-      rescue IR::Backends::GBC::LoweringError => e
-        raise Minitest::Skip, "Game Boy Color: #{reason_not_made(e.message)}"
       rescue IR::Backends::GBC::HeadlessRun::CannotAnswer => e
         raise Minitest::Skip, cannot_answer_reason(e)
       end
