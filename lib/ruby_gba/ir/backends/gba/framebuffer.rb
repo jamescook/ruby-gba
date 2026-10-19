@@ -44,6 +44,12 @@ module RubyGBA
             def by_multiply? = !magic.nil?
           end
 
+          # The last step a column worked out, and the strip height and picture height it was
+          # worked out for (see #emit_column_step).
+          LAST_STEP = :_column_last_step
+          LAST_STEP_ROWS = :_column_last_step_rows
+          LAST_STEP_PICTURE_HEIGHT = :_column_last_step_picture_height
+
           def initialize(emitter:, primitives:, lowering:, divide:)
             @emitter = emitter
             @primitives = primitives
@@ -171,13 +177,7 @@ module RubyGBA
             @emitter.emit(ASM.cmp_imm(COLUMN_ROWS, 0))
             @emitter.emit_branch(:bcond, done, cond: :le) # a column of no height draws nothing
 
-            # step = (picture height << 16) / height, by the shared divide routine —
-            # which takes the numerator in TMP and the divisor in ACC, and hands the
-            # answer back in ACC.
-            @emitter.emit_number(TMP, bmp.height << COLUMN_FIXED)
-            @emitter.emit(ASM.mov_reg(ACC, COLUMN_ROWS))
-            @divide.emit_call_divide_routine
-            @emitter.emit(ASM.mov_reg(COLUMN_STEP, ACC))
+            emit_column_step(bmp)
 
             @lowering.value(node.x)
             @emitter.emit(ASM.mov_reg(COLUMN_X, ACC))
@@ -192,6 +192,59 @@ module RubyGBA
             @emitter.emit(ASM.lsl_imm(ACC, ACC, 1)) if pixel_bytes == 2
             @emitter.emit_load_data_address(COLUMN_SRC, blob)
             @emitter.emit(ASM.add_reg(COLUMN_SRC, COLUMN_SRC, ACC))
+          end
+
+          # HOW FAR DOWN THE PICTURE EACH SCREEN ROW MOVES: (picture height << 16) / height, by
+          # the shared divide routine — which takes the numerator in TMP and the divisor in
+          # ACC, and hands the answer back in ACC.
+          #
+          # A DIVIDE IS A CALL AND A LOOP, AND MOST STRIPS DO NOT NEED ONE. A thing on screen is
+          # many strips of one height, and a wall's strips change height a row at a time, so
+          # the strip before this one has very often just worked out this very step. The last
+          # step is kept with the two numbers it came from, and a strip whose numbers match takes
+          # it as it stands: a handful of loads and compares in place of the call, and the same
+          # step to the bit, since it is the answer the same divide gave. A strip whose numbers
+          # do not match pays those, the divide, and three stores to keep its answer — a few
+          # instructions on top of a routine that costs many times that.
+          def emit_column_step(bmp)
+            return emit_divide_for_column_step(bmp) unless @stretched_columns.reuses_last_step?
+
+            divide = @emitter.gensym
+            known = @emitter.gensym
+            @primitives.load_var(TMP, LAST_STEP_ROWS)
+            @emitter.emit(ASM.cmp_reg(TMP, COLUMN_ROWS))
+            @emitter.emit_branch(:bcond, divide, cond: :ne)
+            @primitives.load_var(TMP, LAST_STEP_PICTURE_HEIGHT)
+            @emitter.emit_number(ACC, bmp.height)
+            @emitter.emit(ASM.cmp_reg(TMP, ACC))
+            @emitter.emit_branch(:bcond, divide, cond: :ne)
+            @primitives.load_var(COLUMN_STEP, LAST_STEP)
+            @emitter.emit_branch(:b, known)
+
+            @emitter.place_label(divide)
+            emit_divide_for_column_step(bmp)
+            @primitives.store_var(COLUMN_STEP, LAST_STEP)
+            @primitives.store_var(COLUMN_ROWS, LAST_STEP_ROWS)
+            @emitter.emit_number(ACC, bmp.height)
+            @primitives.store_var(ACC, LAST_STEP_PICTURE_HEIGHT)
+            @emitter.place_label(known)
+          end
+
+          def emit_divide_for_column_step(bmp)
+            @emitter.emit_number(TMP, bmp.height << COLUMN_FIXED)
+            @emitter.emit(ASM.mov_reg(ACC, COLUMN_ROWS))
+            @divide.emit_call_divide_routine
+            @emitter.emit(ASM.mov_reg(COLUMN_STEP, ACC))
+          end
+
+          # NO STEP IS KNOWN AT POWER-ON. The memory holds whatever it held, which could pass for
+          # a height and a step that were never worked out. A height of nothing never reaches
+          # the step (a column of no height draws nothing), so it is the one that cannot match.
+          def emit_clear_remembered_column_step
+            return unless @stretched_columns.reuses_last_step?
+
+            @emitter.emit_number(ACC, 0)
+            @primitives.store_var(ACC, LAST_STEP_ROWS)
           end
 
           # This column's list of the stretches of rows that hold pixels. ACC holds the

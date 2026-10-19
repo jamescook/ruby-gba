@@ -54,6 +54,7 @@ module RubyGBA
           def initialize(program, emitter:)
             @emitter = emitter
             @drawn_as_columns = program.walk.filter_map { |node| node.name if node.kind == :draw_column_at }.uniq
+            @drawn_in_interrupt = drawn_in_interrupt?(program)
             @decided = {}
           end
 
@@ -61,6 +62,14 @@ module RubyGBA
           # drawn pixel by pixel with its colors baked into the code and needs no copy in the
           # cartridge; this walks it as the game runs, so it does.
           def reads?(name) = @drawn_as_columns.include?(name)
+
+          # MAY A COLUMN TAKE THE STEP THE COLUMN BEFORE IT WORKED OUT (see
+          # Framebuffer#emit_column_step)? That step is kept in memory as three numbers, read
+          # and written one at a time. A timer's tick interrupts the game wherever it happens to
+          # be, so a tick that draws a column could land between those reads, put a different
+          # strip's numbers in, and leave the game holding one strip's height with another's
+          # step. In a game like that every column divides, as they all did before.
+          def reuses_last_step? = !@drawn_as_columns.empty? && !@drawn_in_interrupt
 
           # Does this picture's walk go stretch by stretch? A picture that ships no list is
           # drawn in one pass over its full height, which is what every picture did before
@@ -96,6 +105,23 @@ module RubyGBA
           end
 
           private
+
+          # Does anything an interrupt runs — a timer's tick, or a background bent a row at a
+          # time — draw a stretched column, itself or through the routines it calls?
+          def drawn_in_interrupt?(program)
+            routines = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
+            seen = Set.new
+            waiting = TopOfQuickMemory.interrupt_bodies(program)
+            until waiting.empty?
+              body = waiting.shift
+              return true if body.walk.any? { |node| node.kind == :draw_column_at }
+
+              body.walk.flat_map(&:callees).each do |name|
+                waiting << routines[name] if routines.key?(name) && seen.add?(name)
+              end
+            end
+            false
+          end
 
           # ...done, and what stopped it: nil when the picture ships its stretches, else which
           # of the two ceilings it ran into.

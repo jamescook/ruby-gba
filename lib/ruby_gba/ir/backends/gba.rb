@@ -860,6 +860,7 @@ module RubyGBA
           # A flash chip is told so before anything else touches save memory (see Save).
           @save.emit_wake_chip if @uses_save
           emit_copy_divide_routines_to_iwram # a no-op when neither routine was reserved
+          @framebuffer.emit_clear_remembered_column_step # no stretched column has worked out a step yet
           emit_copy_hot_code_to_iwram unless @fast_funcs.empty?
           emit_call_power_on_swap # the scenes' own routines that fit side by side, the ones the game loop runs first
           # THE MIXER IS BROUGHT UP BEFORE THE INTERRUPTS ARE ARMED, and the order is load-bearing
