@@ -858,6 +858,9 @@ module RubyGBA
               raise LoweringError, "draw_column_at of undefined image #{node.name.inspect}"
             end
             width = node.width || 1
+            # Whether a row is asked if its pixel is see-through: not when every row the walk
+            # reaches is a pixel.
+            see_through = bmp.transparent && !@framebuffer.column_rows_all_pixels?(node.name)
 
             done = gensym
             @framebuffer.emit_column_setup(node, bmp, done)
@@ -876,10 +879,10 @@ module RubyGBA
               emit(ASM.cmp_reg(COLUMN_X, TMP))
               emit_branch(:bcond, clipped, cond: :gt)
 
-              emit_column_rows { emit_draw_column_row(bmp, width, clipped: false) }
+              emit_column_rows { emit_draw_column_row(bmp, width, clipped: false, see_through: see_through) }
               emit_branch(:b, leave) if width > 1
               place_label(clipped)
-              emit_column_rows { emit_draw_column_row(bmp, width, clipped: true) } if width > 1
+              emit_column_rows { emit_draw_column_row(bmp, width, clipped: true, see_through: see_through) } if width > 1
             end
             place_label(done)
           end
@@ -896,10 +899,10 @@ module RubyGBA
           # One row of the strip: work out which picture row we are on, read its colour, and
           # write it across. Every row this reaches is on the screen — that was settled before
           # the walk started.
-          def emit_draw_column_row(bmp, width, clipped:)
+          def emit_draw_column_row(bmp, width, clipped:, see_through:)
             skip = gensym
 
-            emit_read_column_pixel(bmp, skip)
+            emit_read_column_pixel(bmp, skip, see_through)
 
             # ...to the screen at (x, y), and to the pixels beside it. Their addresses are a
             # fixed distance along from the first, so the row's address is built once.
@@ -921,7 +924,7 @@ module RubyGBA
           # picture's height shifted up over the row count, rounded down, and the last row
           # reaches at most one less than that count times it — which is strictly less than
           # the picture's height however the rounding falls.
-          def emit_read_column_pixel(bmp, skip)
+          def emit_read_column_pixel(bmp, skip, see_through)
             emit(ASM.lsr_imm(ACC, COLUMN_POS, COLUMN_FIXED))
             emit_number(TMP, bmp.width * 2)
             emit(ASM.mul(ACC, ACC, TMP))
@@ -930,8 +933,9 @@ module RubyGBA
 
             # A see-through pixel carries a value no real color has, so it means "leave this
             # one alone" and nothing is written — which is what lets a scaled sprite in a
-            # first-person view keep its shape instead of standing in a black box.
-            return unless bmp.transparent
+            # first-person view keep its shape instead of standing in a black box. A picture
+            # whose walk lands only on pixels has nothing to ask (+see_through+ false).
+            return unless see_through
 
             emit_number(TMP, bmp.transparent)
             emit(ASM.cmp_reg(ACC, TMP))

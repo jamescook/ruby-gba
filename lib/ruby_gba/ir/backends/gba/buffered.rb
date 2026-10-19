@@ -829,7 +829,9 @@ module RubyGBA
               raise LoweringError, "draw_column_at of undefined image #{node.name.inspect}"
             end
             width = node.width || 1
-            clear = @layout.indexed_bitmaps[node.name]
+            # The number no colour has, which a row is asked about — unless every row the walk
+            # reaches is a pixel, and then none is.
+            clear = @layout.indexed_bitmaps[node.name] unless @framebuffer.column_rows_all_pixels?(node.name)
 
             done = gensym
             @framebuffer.emit_column_setup(node, bmp, done, blob: @framebuffer.column_blob(node.name), pixel_bytes: 1,

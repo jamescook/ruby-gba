@@ -218,7 +218,9 @@ module RubyGBA
         # is one story about them. r4 the screen column, r5 the screen row, r6 how many rows are
         # left, r8 where we are in the picture, r9 how far that moves per screen row, r10 the
         # picture's column. The tear-free screen needs one more, r11, for the address of the
-        # 16-bit unit the current row writes into.
+        # 16-bit unit the current row writes into. Before a stretch's rows are settled, r8 and
+        # r11 are free on both screens, and hold the ends of the stretch being worked out (see
+        # Framebuffer#emit_exact_stretch_ends).
         COLUMN_X = 4
         COLUMN_Y = 5
         COLUMN_ROWS = 6

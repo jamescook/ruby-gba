@@ -18,8 +18,8 @@ module RubyGBA
         # The byte that ends a column's list. The tallest picture that ships one has a row of
         # exactly this number — its bottom row — so a stretch that STARTS there would read as
         # the end of the list and everything from it would be lost. A stretch like that is
-        # widened by a row when it is written (see #avoid_end_marker), which costs nothing:
-        # the walk still asks each row whether its pixel is see-through. A stretch that merely
+        # widened by a row when it is written (see #avoid_end_marker), and that picture's walk
+        # asks each row whether its pixel is see-through. A stretch that merely
         # ENDS on that row is untouched, because a last row is read rather than compared.
         RUNS_END = 255
         RUNS_MAX_BYTES = 0xFFFF
@@ -31,10 +31,15 @@ module RubyGBA
         #
         # A picture that ships none walks EVERY row of every column it draws, and a see-through
         # picture is mostly rows that draw nothing — so this is the difference between a lamp
-        # costing its lit rows and costing its square. Nothing about how the game runs reads it;
-        # it is here so the report can say what happened.
-        ColumnStretches = Data.define(:height, :held_back_by) do
+        # costing its lit rows and costing its square. The report reads it to say what happened.
+        #
+        # +widened+ is true when a stretch had to take a see-through row to stay clear of the
+        # byte that ends a list (see StretchedColumns#avoid_end_marker): such a stretch is not
+        # all pixels, so that picture's walk asks each row whether it is see-through, where
+        # every other picture's lands exactly on its pixels and asks nothing.
+        ColumnStretches = Data.define(:height, :held_back_by, :widened) do
           def skips_empty_rows? = held_back_by.nil?
+          def stretches_are_all_pixels? = skips_empty_rows? && !widened
         end
 
         # EVERY PICTURE A STRETCHED COLUMN DRAWS, and what the build settled about each.
@@ -74,10 +79,12 @@ module RubyGBA
           # Does this picture's walk go stretch by stretch? A picture that ships no list is
           # drawn in one pass over its full height, which is what every picture did before
           # there were lists and what an opaque one still does.
-          def skips_empty_rows?(name)
-            picture = @decided[name]
-            !picture.nil? && picture.skips_empty_rows?
-          end
+          def skips_empty_rows?(name) = @decided[name]&.skips_empty_rows? || false
+
+          # Is every row of every stretch this picture ships a pixel? Then a walk that lands
+          # exactly on each stretch's first and last rows reaches no see-through row, and need
+          # not ask any row whether it is one.
+          def stretches_are_all_pixels?(name) = @decided[name]&.stretches_are_all_pixels? || false
 
           # What the lists are filed under, beside the picture's colors.
           def runs_blob(name) = :"#{name}#{RUNS_SUFFIX}"
@@ -101,7 +108,14 @@ module RubyGBA
           def register(node)
             return unless node.transparent && reads?(node.name)
 
-            @decided[node.name] = ColumnStretches.new(height: node.height, held_back_by: store_column_runs(node))
+            if node.height > RUNS_MAX_ROWS
+              @decided[node.name] = ColumnStretches.new(height: node.height, held_back_by: :too_tall, widened: false)
+              return
+            end
+
+            runs = column_runs(node)
+            @decided[node.name] = ColumnStretches.new(height: node.height, held_back_by: store_column_runs(node, runs),
+                                                      widened: runs.flatten(1).any? { |(first, _)| first == RUNS_END })
           end
 
           private
@@ -123,12 +137,10 @@ module RubyGBA
             false
           end
 
-          # ...done, and what stopped it: nil when the picture ships its stretches, else which
-          # of the two ceilings it ran into.
-          def store_column_runs(node)
-            return :too_tall if node.height > RUNS_MAX_ROWS
-
-            runs = column_runs(node)
+          # Ship a picture's stretches, and say what stopped it: nil when they ship, else
+          # :too_many.
+          def store_column_runs(node, runs)
+            runs = runs.map { |column| column.map { |(first, last)| avoid_end_marker(first, last) } }
             starts = []
             at = 0
             runs.each do |column|
@@ -147,11 +159,12 @@ module RubyGBA
             nil
           end
 
+          # Each column's stretches as [first row, last row], exactly as the picture holds them.
           def column_runs(node)
             pixels = node.pixels.unpack("v*")
             (0...node.width).map do |x|
               rows = (0...node.height).select { |y| pixels[(y * node.width) + x] != node.transparent }
-              rows.slice_when { |a, b| b != a + 1 }.map { |run| avoid_end_marker(run.first, run.last) }
+              rows.slice_when { |a, b| b != a + 1 }.map { |run| [run.first, run.last] }
             end
           end
 
@@ -160,8 +173,9 @@ module RubyGBA
           # Only the tallest picture has a row numbered RUNS_END, and only a stretch that
           # begins there is at risk — a lone pixel on the bottom row, or a stretch starting
           # on it. That one begins a row earlier instead. The row it gains is see-through by
-          # construction (a lit one would have been part of the same stretch), so it draws
-          # nothing extra, which is the guarantee the stretch arithmetic already leans on.
+          # construction (a lit one would have been part of the same stretch), so a picture with
+          # a stretch like that keeps the walk that asks each row whether it is see-through
+          # (see ColumnStretches#stretches_are_all_pixels?), and the row draws nothing.
           def avoid_end_marker(first, last)
             [first == RUNS_END ? first - 1 : first, last]
           end

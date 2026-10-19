@@ -28,10 +28,12 @@ module RubyGBA
           # multiplier is worked out here, while the program is being built, and costs the walk
           # one instruction over the shift.
           #
-          # The multiplier is rounded DOWN, so its answer can land one row early. That is the
-          # safe direction at the near end of a stretch (a row too early draws nothing extra,
-          # since the walk still asks each row whether its pixel is see-through) and the unsafe
-          # one at the far end, which is why that end takes a second spare row.
+          # The multiplier is rounded DOWN, so its answer can land one row early. Where the walk
+          # asks each row whether its pixel is see-through, that is the safe direction at the
+          # near end of a stretch (a row too early draws nothing extra) and the unsafe one at the
+          # far end, which is why that end takes a second spare row. Where it asks nothing, both
+          # ends are stepped on to the exact row anyway (see #emit_exact_stretch_ends), and an
+          # early guess only means a step more.
           ColumnDivide = Data.define(:shift, :magic, :spare_rows) do
             def self.for(height)
               if height.positive? && (height & (height - 1)).zero?
@@ -267,6 +269,10 @@ module RubyGBA
             @primitives.store_var(ACC, LAST_STEP_ROWS)
           end
 
+          # Does every row the walk reaches in this picture hold a pixel? Then no row needs
+          # asking whether it is see-through (see #emit_exact_stretch_ends).
+          def column_rows_all_pixels?(name) = @stretched_columns.stretches_are_all_pixels?(name)
+
           # This column's list of the stretches of rows that hold pixels. ACC holds the
           # picture's column coming in and still holds it going out.
           def emit_column_runs_pointer(name)
@@ -291,12 +297,15 @@ module RubyGBA
           # handed the label to jump to when ITS stretch has none, which is the next
           # stretch rather than the end.
           #
-          # THE PICTURE CANNOT CHANGE, however the arithmetic rounds. The walk still
-          # asks each row it does reach whether its pixel is see-through, so a stretch
-          # a row too wide costs one row and draws nothing extra; and a stretch is
-          # never too NARROW, because its first row is rounded down and its last is
-          # rounded up with a row to spare. See {ColumnDivide} for how each end is
-          # rounded and why the far one sometimes wants a second spare row.
+          # THE PICTURE CANNOT CHANGE, however the arithmetic rounds. Where every row of
+          # every stretch is a pixel, each end is stepped on to exactly the screen row the
+          # walk shows it at (see #emit_exact_stretch_ends), so the walk meets only pixels and
+          # asks no row whether it is see-through. Where one is not (see
+          # ColumnStretches#stretches_are_all_pixels?), the walk asks each row, so a stretch a
+          # row too wide costs one row and draws nothing extra; and it is never too NARROW,
+          # because its first row is rounded down and its last is rounded up with a row to
+          # spare. See {ColumnDivide} for how each end is rounded and why the far one sometimes
+          # wants a second spare row.
           def emit_column_runs(name, bmp, bail)
             unless @stretched_columns.skips_empty_rows?(name)
               @emitter.emit_number(SPARE, 0)
@@ -327,15 +336,27 @@ module RubyGBA
             # Both ends of the stretch, each a picture row times the height on screen and
             # then divided by the picture's own height. COLUMN_Y is somewhere to keep the
             # second product while the first is divided; it is loaded back below.
+            # Where the ends are stepped on to the exact row, each is rounded UP rather than
+            # down (a picture row's worth less one is added before dividing): still never past
+            # the answer, and now usually on it, so the stepping seldom goes round.
+            exact = column_rows_all_pixels?(name)
+            round_up = exact && bmp.height > 1 ? bmp.height - 1 : 0
             @emitter.emit(ASM.mul(TMP, ACC, COLUMN_ROWS))
+            @emitter.emit(ASM.add_imm(TMP, TMP, round_up)) if round_up.positive?
+            @emitter.emit(ASM.lsl_imm(COLUMN_POS, ACC, COLUMN_FIXED)) if exact
             @emitter.emit(ASM.add_imm(HIGH, HIGH, 1))
+            @emitter.emit(ASM.lsl_imm(COLUMN_DEST, HIGH, COLUMN_FIXED)) if exact
             @emitter.emit(ASM.mul(COLUMN_Y, HIGH, COLUMN_ROWS))
+            @emitter.emit(ASM.add_imm(COLUMN_Y, COLUMN_Y, round_up)) if round_up.positive?
             @emitter.emit(ASM.ldr_offset(ACC, STACK, at[ACC])) if divide.by_multiply?
             emit_column_divide(divide, from: TMP, into: SPARE, spill: HIGH) # the first screen row...
-            emit_column_divide(divide, from: COLUMN_Y, into: HIGH, spill: TMP)
-            # ...and one past the last, with a row to spare.
-            @emitter.emit(ASM.add_imm(HIGH, HIGH, divide.spare_rows))
+            emit_column_divide(divide, from: COLUMN_Y, into: HIGH, spill: TMP) # ...and one past the last
             @emitter.emit(ASM.ldr_offset(COLUMN_Y, STACK, at[COLUMN_Y]))
+            if exact
+              emit_exact_stretch_ends
+            else
+              @emitter.emit(ASM.add_imm(HIGH, HIGH, divide.spare_rows)) # ...with a row to spare
+            end
 
             after = @emitter.gensym
             yield(after)
@@ -343,6 +364,60 @@ module RubyGBA
             @emitter.emit_branch(:b, top)
             @emitter.place_label(finish)
             @emitter.emit(ASM.pop(*held))
+          end
+
+          # A STRETCH'S ENDS LANDED EXACTLY, so the walk between them meets only pixels.
+          #
+          # The walk shows, at screen row r, picture row (r × step) >> 16 — so a stretch from
+          # picture row a to picture row b begins at the first r whose r × step reaches a << 16,
+          # and ends before the first r whose r × step reaches (b + 1) << 16. Dividing would give
+          # those straight off; the divide above gives a guess instead, and this steps each guess
+          # on a row at a time until it sits on the answer.
+          #
+          # NEITHER GUESS IS EVER TOO LATE, so neither has to step back. A guess is the picture
+          # row times the height over the picture's height, rounded up; the true row is that
+          # same picture row over a step that was itself rounded down, which can only come out
+          # later. How much later grows with how tall the strip is drawn: on a strip a few times
+          # the picture's height it is nothing, or a row; on one drawn a hundred times taller and
+          # more, many rows. So neither end steps past the bottom of the area drawing may land
+          # in, and the first starts no higher than its top — the rows outside are cut off
+          # anyway (see #emit_clip_column_rows), so what the walk draws is the same, and the
+          # stepping costs at most the rows that show however tall the strip is. That also
+          # ends it on a strip so tall that its step is nothing at all, where no number of rows
+          # would ever reach the next picture row.
+          #
+          # COLUMN_Y holds the strip's top coming in. The stretch's first picture row and the row
+          # after its last wait in COLUMN_POS and COLUMN_DEST, shifted up to the walk's fixed
+          # point: both are free until the stretch's rows are settled, since the walk sets its
+          # position and its destination only after that. TMP and ACC are used up.
+          def emit_exact_stretch_ends
+            low_enough = @emitter.gensym
+            @emitter.emit(ASM.rsb_imm(TMP, COLUMN_Y, clip_top)) # the first row drawing may land on
+            @emitter.emit(ASM.cmp_reg(SPARE, TMP))
+            @emitter.emit_branch(:bcond, low_enough, cond: :ge)
+            @emitter.emit(ASM.mov_reg(SPARE, TMP))
+            @emitter.place_label(low_enough)
+
+            @emitter.emit(ASM.rsb_imm(ACC, COLUMN_Y, clip_bottom)) # one past the last row it may land on
+            emit_step_row_on_to(SPARE, COLUMN_POS, limit: ACC)
+            emit_step_row_on_to(HIGH, COLUMN_DEST, limit: ACC)
+          end
+
+          # Move the screen row in +row+ on until (row × step) reaches +target+, or until it
+          # reaches +limit+. A row already there costs a multiply, a compare and a branch.
+          def emit_step_row_on_to(row, target, limit:)
+            again = @emitter.gensym
+            found = @emitter.gensym
+            @emitter.emit(ASM.mul(TMP, row, COLUMN_STEP))
+            @emitter.place_label(again)
+            @emitter.emit(ASM.cmp_reg(TMP, target))
+            @emitter.emit_branch(:bcond, found, cond: :ge)
+            @emitter.emit(ASM.cmp_reg(row, limit))
+            @emitter.emit_branch(:bcond, found, cond: :ge)
+            @emitter.emit(ASM.add_reg(TMP, TMP, COLUMN_STEP))
+            @emitter.emit(ASM.add_imm(row, row, 1))
+            @emitter.emit_branch(:b, again)
+            @emitter.place_label(found)
           end
 
           # One end of a stretch, from a picture row times the height on screen to the screen
