@@ -81,17 +81,10 @@ module RubyGBA
       # A pool's things are ordered one by one, so each needs its number worked out where the
       # pool copies them into the order it draws them in (see Pool#order_by).
       def order_pool_things(pool, key)
-        declare_list_filled(pool.stacked_list(:order_key), pool.capacity, :word, pool.part_name(:order_key_fill)) { Build.int(0) }
+        at_boot(Build.list_new(pool.stacked_list(:order_key), pool.capacity, full_of: 0))
         pool.order_by(key)
       end
 
-      # Declare +list+ at power-on holding +count+ items, each the block's answer for the item's
-      # place (handed as a value node), counted with the variable +index+.
-      def declare_list_filled(list, count, width, index)
-        ensure_var(index)
-        at_boot(Build.list_new(list, count, width: width))
-        at_boot(Build.repeat(Build.int(count), index, Build.list_push(list, yield(Build.var_ref(index)))))
-      end
 
       # The number each object of +order+ is ordered by, by the object's name: a sprite's
       # worked out from its handle, a pool object's read from what the pool copied for its
@@ -161,11 +154,15 @@ module RubyGBA
         end
       end
 
-      # The order starts as declared, and every number at nought.
+      # The order starts as declared — each object's place pushed in turn, a different number
+      # each — and every number at nought.
       def declare_order_lists(order)
         count = object_names_in(order).length
-        declare_list_filled(order.order_list, count, :byte, order.part(:fill)) { |place| place }
-        declare_list_filled(order.keys_list, count, :word, order.part(:fill)) { Build.int(0) }
+        index = order.part(:fill)
+        ensure_var(index)
+        at_boot(Build.list_new(order.order_list, count, width: :byte))
+        at_boot(Build.repeat(Build.int(count), index, Build.list_push(order.order_list, Build.var_ref(index))))
+        at_boot(Build.list_new(order.keys_list, count, full_of: 0))
       end
 
       # WORK OUT EVERY NUMBER, THEN SORT. The list holds the objects back to front, so the

@@ -103,9 +103,9 @@ class TestConsoleLineUp < Minitest::Test
   # console reaches its loop late and is one pass behind for the whole run, however fast the
   # game itself is. A still picture cannot show it; this one moves, so it can.
   #
-  # A pool of sprites over a background is what found it. What tips it over is the pool's
-  # CAPACITY, not how many are live and not what the body computes: the same program with a
-  # capacity of 16 boots inside the offset and this one does not.
+  # A pool of sprites over a background is what found it, when setting up a pool's slots was
+  # a push for every field of every slot. That is one fill a list now, so the setup here is
+  # work the game does itself before its loop, enough to take the console past the offset.
   private def slow_to_boot
     build do
       screen :tiled
@@ -115,6 +115,8 @@ class TestConsoleLineUp < Minitest::Test
       tiles :set, "#" => :brick, "." => :floor
       background :bg, tiles: :set, map: FULL_MAP
       guards = pool :guard, x: 0, y: 0, capacity: 32, image: :guy
+      setting_up = var :setting_up, 0
+      repeat(30_000) { setting_up.add! 1 }
       6.times { |i| guards.spawn(x: (i * 20) + 16, y: 32) }
       game_loop { guards.each { |g| g.x.add! 2 } }
     end

@@ -456,11 +456,35 @@ module RubyGBA
           # list_new: reset the list to empty. Its storage is already reserved (see
           # register_list); this just zeroes head and length. The slot contents are
           # left as-is — nothing reads them until a push makes them live.
+          #
+          # A list FULL OF a value holds all its items at once instead: its length is its
+          # capacity, and every slot is set to the value by the routine a list_fill calls, a
+          # whole word at a time — where pushing them would work out an address and store the
+          # length again for each item. The console's memory is not zero at power-on, so a
+          # list full of nought is filled all the same.
           def emit_list_new(node)
             info = list_info(node.name)
             @emitter.emit_number(ACC, 0)
             @primitives.store_var(ACC, head_var(node.name)) if info[:ring]
-            @primitives.store_var(ACC, length_var(node.name))
+            if node.full_of
+              @emitter.emit_number(ACC, info[:capacity])
+              @primitives.store_var(ACC, length_var(node.name))
+              emit_fill_from_first_slot(info, node.full_of)
+            else
+              @primitives.store_var(ACC, length_var(node.name))
+            end
+          end
+
+          # Every one of a list's +capacity+ slots, from its first, set to the whole number
+          # +value+ by the shared fill routine.
+          def emit_fill_from_first_slot(info, value)
+            @fills = true
+            @primitives.emit_list_base(info[:base])
+            @emitter.emit(ASM.mov_reg(TMP, LIST_ADDR))              # r1 = the first slot
+            @emitter.emit_number(3, value)
+            emit_fill_pattern(info[:width])                         # r0 = the value in every byte place
+            @emitter.emit_number(2, info[:capacity] * info[:bytes]) # r2 = bytes to write
+            @call_cold.call(FILL_ROUTINE)
           end
 
           # list_push: append at the tail — slot (head + length) & mask — then grow

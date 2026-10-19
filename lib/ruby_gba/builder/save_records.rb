@@ -373,8 +373,7 @@ module RubyGBA
       # out at power-on, and again after each job.
       def declare_save_data_lists(layout)
         %i[state half seq].each do |what|
-          at_boot(Build.list_new(layout.directory(what), layout.copies, width: what == :seq ? :word : :byte))
-          layout.copies.times { at_boot(Build.list_push(layout.directory(what), Build.int(0))) }
+          at_boot(Build.list_new(layout.directory(what), layout.copies, width: what == :seq ? :word : :byte, full_of: 0))
         end
       end
 
@@ -466,6 +465,9 @@ module RubyGBA
         layout.pools.each { |part| reset_pool_part(part, layout.pools) }
         layout.kept.each do |item|
           next if random_numbers?(item.name) || pooled.include?(item.name)
+          # A list declared full of a value is made full again, as power-on made it.
+          made = list_new_node(item.name) if item.kind == :list
+          next record(Build.list_new_like(made)) if made&.full_of
           next repeat(DSL::Value.new(handle, Build.list_len(item.name))) { |_| record(Build.list_drop(item.name, from: :back)) } if item.kind == :list
 
           start = start_value(item.name)

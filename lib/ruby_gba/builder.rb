@@ -283,13 +283,37 @@ module RubyGBA
     #
     # @param width [Symbol] how big one slot is — :byte, :half or :word (the default)
     # @param fast [Boolean, nil] insist on the quick memory (true) or give it up (false)
+    # @param full_of [Numeric, nil] start holding +capacity+ items of this, rather than none.
+    #   The loop it replaces, a push for each item, finds each item's place and stores the
+    #   length again every time; this is one fill, done the moment the declaration runs.
     # @return [List] a handle to the list
-    def list(name, capacity:, estimate: nil, holds: nil, width: :word, fast: nil)
+    def list(name, capacity:, estimate: nil, holds: nil, width: :word, fast: nil, full_of: nil)
       record_estimate_line(estimate)
-      record(Build.list_new(name, capacity, width: width, fast: fast))
-      bits = list_fraction_bits(name, holds)
+      # A fraction given as what the list starts full of says it holds fractions, as `holds:` would.
+      example = holds
+      example = full_of if holds.nil? && full_of.is_a?(Numeric)
+      bits = list_fraction_bits(name, example)
+      record(Build.list_new(name, capacity, width: width, fast: fast,
+                                            full_of: list_starting_item(name, full_of, bits)))
       @fraction_lists[name] = bits if bits
       DSL::List.new(self, name, fraction_bits: bits)
+    end
+
+    # What `full_of:` said, as the number each item holds: a fraction multiplied up the way the
+    # list keeps its items. A fraction into a list `holds:` says is whole is refused, as a push
+    # of one would be.
+    def list_starting_item(name, full_of, bits)
+      return nil if full_of.nil?
+      unless full_of.is_a?(Numeric)
+        raise ArgumentError, "`full_of:` takes the number every item starts as, like `full_of: 0`. " \
+                             "`list :#{name}` was given #{full_of.inspect}."
+      end
+      if bits.nil? && !full_of.is_a?(Integer)
+        raise ArgumentError, "`list :#{name}` holds whole numbers, and `full_of:` gives #{full_of}. " \
+                             "To start it with a fraction, write `holds: 0.0` too, or leave `holds:` out."
+      end
+
+      bits ? DSL::Fraction.scale(full_of, bits) : full_of.to_i
     end
 
     # What `holds:` said, as a number of fraction bits. A whole number says the same as

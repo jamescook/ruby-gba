@@ -183,6 +183,23 @@ class TestSaveData < Minitest::Test
     assert_empty run.list(:name)
   end
 
+  # A kept list that starts full (`full_of:`) is full again after a reset, as power-on left it,
+  # not empty: A writes into it, SELECT starts a new game.
+  def test_reset_fills_a_kept_list_that_starts_full_again
+    game = built do
+      screen :tiled
+      flags = list :flags, capacity: 3, width: :byte, full_of: 1
+      files = save_data(:files) { keep flags }
+      game_loop do
+        pressed(:a).then { flags[0] = 9 }
+        pressed(:select).then { files.reset }
+      end
+    end
+    run = play(game, SaveImage.new, pressing: presses(:a, :select), frames: 8)
+
+    assert_equal [1, 1, 1], run.list(:flags)
+  end
+
   def test_a_copy_number_the_record_does_not_have_does_nothing
     store = SaveImage.new
     files_after(store, :down, :a)

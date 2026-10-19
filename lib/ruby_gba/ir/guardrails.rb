@@ -305,6 +305,7 @@ require_relative "guardrails/manual_sprite_blit"
 require_relative "guardrails/per_frame_scope" # shared by the one-time-setup checks below
 require_relative "guardrails/seed_in_loop"
 require_relative "guardrails/list_in_loop"
+require_relative "guardrails/list_filled_by_loop"
 require_relative "guardrails/iwram_budget"
 require_relative "guardrails/frame_from_cartridge"
 require_relative "guardrails/layer_holds_nothing"
@@ -350,6 +351,7 @@ module RubyGBA
         Checks::ManualSpriteBlit.new,
         Checks::SeedInLoop.new,
         Checks::ListInLoop.new,
+        Checks::ListFilledByLoop.new,
         Checks::IwramBudget.new,
         Checks::LayerInvisible.new,
         Checks::LayerSolidWhileFading.new,

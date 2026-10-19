@@ -626,7 +626,10 @@ module RubyGBA
         # to insist on the quick one, absent to let the framework decide. It is the same
         # word a routine takes for the same question, and it changes nothing a program
         # does — only how long a read takes.
-        operands name: :name, capacity: :int, declared: :int, width: :option, fast: :flag
+        #
+        # +full_of+, when given, is what the list holds from power-on and each time this runs:
+        # +capacity+ items, every one that number. Absent, it starts empty.
+        operands name: :name, capacity: :int, declared: :int, width: :option, fast: :flag, full_of: :int
       end
 
       class ListPush

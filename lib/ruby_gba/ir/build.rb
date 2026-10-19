@@ -908,7 +908,17 @@ module RubyGBA
       # than one work memory: false for "I know this is cold — give it room", true to
       # insist on the quick one, nil to let the framework decide. It changes nothing the
       # program does, only how long a read takes.
-      def list_new(name, capacity, width: :word, fast: nil)
+      #
+      # The list a list_new +made+ declares, declared again: a fresh node to run somewhere else
+      # (a node belongs to one parent), which puts the list back as its declaration leaves it,
+      # empty or full of its value.
+      def list_new_like(made)
+        list_new(made.name, made.capacity, width: made.width || :word, fast: made.fast, full_of: made.full_of)
+      end
+
+      # `full_of` is a whole number the list starts holding `capacity` of, rather than starting
+      # empty; nil for empty.
+      def list_new(name, capacity, width: :word, fast: nil, full_of: nil)
         unless DSL::Whole.positive?(capacity)
           raise ArgumentError,
                 "a list's capacity must be a positive whole number, got #{capacity.inspect}"
@@ -924,6 +934,11 @@ module RubyGBA
         # is arranged is the backend's business now, and it is arranged around this number.
         attrs = { name: name, capacity: capacity, width: width }
         attrs[:fast] = fast unless fast.nil?
+        unless full_of.nil?
+          raise ArgumentError, "a list's full_of must be a whole number, got #{full_of.inspect}" unless full_of.is_a?(Integer)
+
+          attrs[:full_of] = full_of
+        end
         Nodes.build(:list_new, **attrs)
       end
 

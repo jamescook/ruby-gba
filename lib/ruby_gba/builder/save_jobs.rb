@@ -108,10 +108,7 @@ module RubyGBA
       def declare_snapshot_buffer(layout)
         stage = layout.scratch(:stage)
         size = [layout.body * 2, 1].max
-        at_boot(Build.list_new(stage, size, width: :byte, fast: false))
-        index = layout.scratch(:stage_fill)
-        ensure_var(index)
-        at_boot(Build.repeat(Build.int(size), index, Build.list_push(stage, Build.int(0))))
+        at_boot(Build.list_new(stage, size, width: :byte, fast: false, full_of: 0))
         ensure_var(layout.scratch(:finished))
       end
 

@@ -579,7 +579,9 @@ module RubyGBA
 
           # --- lists (runtime/rg_list.h does the work and the checking) ---
 
-          def lower_list_new(node) = [list_call("rg_list_empty", node)]
+          def lower_list_new(node)
+            [node.full_of ? list_call("rg_list_full", node, C::Int.new(node.full_of)) : list_call("rg_list_empty", node)]
+          end
           def lower_list_push(node) = [list_call("rg_list_push", node, value(node.value))]
           def lower_list_drop(node) = [list_call("rg_list_drop", node, C::Int.new(node.from == :front ? 1 : 0))]
           def lower_list_set(node) = [list_call("rg_list_set", node, value(node.index), value(node.value))]

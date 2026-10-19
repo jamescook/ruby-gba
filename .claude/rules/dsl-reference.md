@@ -161,7 +161,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 
 ## Lists — `.claude/dsl/lists.md`
 
-- `list :name, capacity: N` → `List`: `push`/`<<`, `pop`, `shift`, `[]`, `[]=`, `first`, `last`, `length`, `each`, `fill`, `copy_from`; `holds: 0.0`, `width: :byte`/`:half`, `fast:`.
+- `list :name, capacity: N` → `List`: `push`/`<<`, `pop`, `shift`, `[]`, `[]=`, `first`, `last`, `length`, `each`, `fill`, `copy_from`; `holds: 0.0`, `width: :byte`/`:half`, `fast:`, `full_of: 0` (starts holding `capacity` of it).
 
 ## Tables — `.claude/dsl/tables.md`
 

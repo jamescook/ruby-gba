@@ -476,7 +476,9 @@ module RubyGBA
               # A list is room the cartridge sets aside, so it is there, empty, from power-on —
               # wherever it is declared. A scene that shows tiles painted from a list declared
               # inside it puts them up as it takes over, before its declaration has run once.
-              @lists[n.name] ||= ListValue.of(n)
+              # Empty even for a list full of a value: it is the declaration that fills it, on
+              # every backend, and the console's memory holds nothing in particular before then.
+              @lists[n.name] ||= ListValue.empty_of(n)
             when :table
               @tables[n.name] = TableValues.new(values: n.values, signed: n.signed)
             when :data

@@ -52,6 +52,13 @@ static inline void rg_list_empty(rg_list *list) {
   list->length = 0;
 }
 
+/* ...or, declared full of a value (`full_of:`), starts again holding its capacity of it. */
+static inline void rg_list_full(rg_list *list, int32_t value) {
+  list->front = 0;
+  list->length = list->capacity;
+  for (int32_t i = 0; i < list->capacity; i++) list->items[i] = rg_list_fit(list, value);
+}
+
 static inline int32_t rg_list_length(const rg_list *list) { return list->length; }
 
 static inline void rg_list_push(rg_list *list, int32_t value) {

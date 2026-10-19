@@ -27,11 +27,8 @@ module RubyGBA
         refuse_bad_canvas!(name, width, height, as)
         bytes = width * height / 2
         list_name = Messages::MadeNames.make(:canvas_part, canvas: name, part: :pixels)
-        filling = Messages::MadeNames.make(:canvas_part, canvas: name, part: :fill)
         # Made full at power-on, so every byte is there to write by number from the start.
-        at_boot(Build.list_new(list_name, bytes, width: :byte, fast: fast))
-        ensure_var(filling)
-        at_boot(Build.repeat(bytes, filling, Build.list_push(list_name, Build.int(0))))
+        at_boot(Build.list_new(list_name, bytes, width: :byte, fast: fast, full_of: 0))
         list = DSL::List.new(self, list_name)
         run = if as == :sprite
                 image(name, from: list, width: width, height: height, colors: colors)

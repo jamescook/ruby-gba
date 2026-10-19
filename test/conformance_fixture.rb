@@ -364,6 +364,9 @@ module ConformanceFixture
       B.list_new(:owed, 4, width: :half),
       B.list_push(:owed, -300),           # below nothing, and wide enough to hold it
       B.set(:acc, B.list_get(:owed, 0)),
+      B.list_new(:primed, 5, width: :byte, full_of: -2), # starts holding five of -2
+      B.set(:acc, B.list_len(:primed)),
+      B.set(:acc, B.list_get(:primed, 4)),
 
       # --- control flow: if+else, call, case, repeat ---
       if_else,

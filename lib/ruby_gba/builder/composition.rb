@@ -141,16 +141,12 @@ module RubyGBA
       # with, the first time one is told to draw with one (see Pool#draw_with). Every slot
       # starts in its own colours.
       def make_pool_recolorable(pool)
-        at_boot(Build.list_new(pool.colors_list, pool.capacity, width: :byte, fast: pool.fast))
-        index = pool.part_name(:colors_fill)
-        ensure_var(index)
-        at_boot(Build.repeat(Build.int(pool.capacity), index,
-                             Build.list_push(pool.colors_list, Build.int(Build::NO_RECOLOR))))
+        at_boot(Build.list_new(pool.colors_list, pool.capacity, width: :byte, fast: pool.fast,
+                                                                full_of: Build::NO_RECOLOR))
         # ...and each of the pool's sprites reads the colours copied for its place in the
         # drawing order (see Pool#stacked_list), which the copy fills from the slots.
-        stacked = pool.stacked_list(:colors)
-        at_boot(Build.list_new(stacked, pool.capacity, width: :byte, fast: pool.fast))
-        at_boot(Build.repeat(Build.int(pool.capacity), index, Build.list_push(stacked, Build.int(Build::NO_RECOLOR))))
+        at_boot(Build.list_new(pool.stacked_list(:colors), pool.capacity, width: :byte, fast: pool.fast,
+                                                                          full_of: Build::NO_RECOLOR))
         pool.stacked_objects.each_with_index do |node, place|
           node.recolor = pool.stacked_at(:colors, pool.rank_at_place(place))
         end
@@ -406,6 +402,20 @@ module RubyGBA
         lists
       end
 
+      # WHAT EACH OF A POOL'S LISTS HOLDS AT POWER-ON, for the ones made full of one value: a
+      # nought in every field, the active column and the poses, and "no slot" in both links of
+      # the chain. The free stack is full of the slot numbers, a different one each, so it is
+      # filled a slot at a time (see #build_pool_fill); the removals not yet taken out of the
+      # chain start as none.
+      def pool_list_starts(pool)
+        starts = pool.field_names.to_h { |field| [pool.field_list(field), 0] }
+        starts[pool.active_list] = 0
+        pool.pose_lists.each { |list| starts[list] = 0 }
+        starts[pool.next_list] = DSL::Pool::NONE
+        starts[pool.prev_list] = DSL::Pool::NONE
+        starts
+      end
+
       # THE LISTS A DRAWN POOL'S THINGS ARE COPIED INTO EACH FRAME, in the order they are
       # drawn, as list => width: where each is, at the width its x and y fields have, and
       # which picture when there is a choice.
@@ -518,12 +528,10 @@ module RubyGBA
       # join them only if the pool is ever told to draw with others (see
       # #make_pool_recolorable).
       def setup_pool_stacking(pool, capacity, widths, fast)
-        index = pool.part_name(:stacking_fill)
-        [index, pool.stacked_var, pool.stacking_cursor_var, pool.stacking_index_var].each { |var| ensure_var(var) }
-        lists = pool_stacking_lists(pool, widths)
-        lists.each { |list, width| at_boot(Build.list_new(list, capacity, width: width, fast: fast)) }
-        at_boot(Build.repeat(Build.int(capacity), index,
-                             *lists.keys.map { |list| Build.list_push(list, Build.int(0)) }))
+        [pool.stacked_var, pool.stacking_cursor_var, pool.stacking_index_var].each { |var| ensure_var(var) }
+        pool_stacking_lists(pool, widths).each do |list, width|
+          at_boot(Build.list_new(list, capacity, width: width, fast: fast, full_of: 0))
+        end
         at_boot(Build.set(pool.stacked_var, Build.int(0)))
       end
 
@@ -595,8 +603,9 @@ module RubyGBA
       # and fill every slot so each field is randomly addressable from the start.
       def setup_pool_storage(pool, capacity, fields, widths = {}, fast = nil)
         fields.each { |field, default| check_width_holds_fractions!(pool.name, field, default, widths.fetch(field, :word)) }
+        starts = pool_list_starts(pool)
         pool_lists(pool, fields, widths).each do |list, width|
-          at_boot(Build.list_new(list, capacity, width: width, fast: fast))
+          at_boot(Build.list_new(list, capacity, width: width, fast: fast, full_of: starts[list]))
         end
         if pool.art&.animates?
           ensure_var(pool.tick_var)
@@ -620,16 +629,17 @@ module RubyGBA
         lists, vars = pool.saved_lists_and_vars
         index = pool.part_name(:refill)
         ensure_var(index)
-        emptied = lists.map do |list|
-          Build.repeat(Build.list_len(list), index, Build.list_drop(list, from: :back))
+        # A list made full of one value is made full again, the way power-on made it; the rest
+        # are emptied, and the free stack filled again a slot at a time.
+        refilled = lists.map do |list|
+          made = declared_list_node(list)
+          if made.full_of
+            Build.list_new_like(made)
+          else
+            Build.repeat(Build.list_len(list), index, Build.list_drop(list, from: :back))
+          end
         end
-        colors = if pool.recolorable?
-                   [Build.repeat(Build.int(pool.capacity), index,
-                                 Build.list_push(pool.colors_list, Build.int(Build::NO_RECOLOR)))]
-                 else
-                   []
-                 end
-        [*emptied, build_pool_fill(pool, pool.capacity), *colors,
+        [*refilled, build_pool_fill(pool, pool.capacity),
          *vars.map { |var| Build.set(var, Build.int(pool.power_on_value(var))) }]
       end
 
@@ -646,19 +656,13 @@ module RubyGBA
         :word
       end
 
-      # A boot loop that pushes one slot per iteration: 0 into every field and the active
-      # column, and the slot's own index onto the free stack — so all `capacity` slots
-      # exist (length == capacity, every index addressable) and every slot starts free.
+      # A boot loop that pushes each slot's own index onto the free stack, so every slot starts
+      # free. The pool's other lists are made full as they are declared (see
+      # #pool_list_starts), so every index of them is there to read from the start.
       def build_pool_fill(pool, capacity)
         index = pool.part_name(:fill)
         ensure_var(index)
-        body = pool.field_names.map { |f| Build.list_push(pool.field_list(f), Build.int(0)) }
-        body << Build.list_push(pool.active_list, Build.int(0))
-        pool.pose_lists.each { |list| body << Build.list_push(list, Build.int(0)) }
-        body << Build.list_push(pool.next_list, Build.int(DSL::Pool::NONE))
-        body << Build.list_push(pool.prev_list, Build.int(DSL::Pool::NONE))
-        body << Build.list_push(pool.free_list, Build.var_ref(index))
-        Build.repeat(Build.int(capacity), index, *body)
+        Build.repeat(Build.int(capacity), index, Build.list_push(pool.free_list, Build.var_ref(index)))
       end
     end
   end
