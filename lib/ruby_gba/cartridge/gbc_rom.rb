@@ -52,8 +52,27 @@ module RubyGBA
 
       def size = @bytes.bytesize
 
+      # WHAT EVERY GAME BOY CARTRIDGE'S HEADER SAYS, the Color's too, whoever made it — asked of a
+      # cartridge file too (Diagnostics::CartridgeFile), which has nothing but its bytes.
+      #
+      # The console a cartridge of this kind is for; whether +bytes+ are one (every Game Boy
+      # cartridge carries the logo the console's start-up program compares before it will start
+      # one); and the title field of its header, eleven bytes padded with noughts.
+      def self.console = :gbc
+      def self.header?(bytes) = bytes.byteslice(LOGO_AT, LOGO.size)&.bytes == LOGO
+      def self.title_field_of(bytes) = bytes.byteslice(TITLE_AT, TITLE_LENGTH)
+
+      # What a reader over a running cartridge asks of any cartridge, the Advance's as well:
+      # which console it is for, its title, its bytes, where the build put its variables, and
+      # the program it was built from.
+      def console = self.class.console
+      def header_title = self.class.title_field_of(@bytes)
+      alias buffer bytes
+      def var_addresses = @built&.variables
+      def source_program = @built&.source_program
+
       # The game's title as the header holds it.
-      def title = @bytes.byteslice(TITLE_AT, TITLE_LENGTH).delete("\0")
+      def title = header_title.delete("\0")
 
       def write(path) = ROM.write_bytes(path, @bytes)
 
@@ -95,7 +114,7 @@ module RubyGBA
       def write_header(title, save_bytes)
         @bytes[LOGO_AT, LOGO.size] = LOGO.pack("C*")
         @bytes[TITLE_AT, CGB_FLAG_AT - TITLE_AT] = "\0".b * (CGB_FLAG_AT - TITLE_AT)
-        @bytes[TITLE_AT, TITLE_LENGTH] = header_title(title)
+        @bytes[TITLE_AT, TITLE_LENGTH] = title_field_for(title)
         @bytes.setbyte(CGB_FLAG_AT, CGB_ONLY)
         @bytes[NEW_LICENSEE_AT, 2] = "00"
         @bytes.setbyte(SGB_FLAG_AT, 0)
@@ -110,7 +129,7 @@ module RubyGBA
       end
 
       # Upper-case letters, digits and spaces, as the cartridges of the day wrote them.
-      def header_title(title)
+      def title_field_for(title)
         title.to_s.upcase.gsub(/[^A-Z0-9 ]/, " ").byteslice(0, TITLE_LENGTH).b.ljust(TITLE_LENGTH, "\0")
       end
 

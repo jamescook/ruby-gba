@@ -46,8 +46,9 @@ module RubyGBA
           Scratch = Data.define(:cmp_top, :mul_by, :product, :div_n, :div_d, :div_r, :div_r_top,
                                 :sign_n, :sign_d, :fraction_bits, :wide, :wide_by)
 
-          # Raised when the game keeps more than there is room for.
-          class Full < StandardError; end
+          # Raised when the game keeps more than there is room for. It is the game's to fix, so it
+          # is a refusal like the lowering's others, said to the author in the same way.
+          class Full < Native::LoweringError; end
 
           attr_reader :scratch
 
@@ -99,8 +100,9 @@ module RubyGBA
           private
 
           def full_message(name, bytes)
-            "this game keeps more than a Game Boy Color's work memory holds: #{name} wants #{bytes} bytes and " \
-              "#{HIGH_END - @next} are left. Its lists are the usual cause; give them smaller capacities."
+            "This game keeps more than a Game Boy Color's work memory holds. #{name.sub(/\A./, &:upcase)} needs #{bytes} " \
+              "bytes, and #{HIGH_END - @next} are left. A list is the usual cause. To fix this, give the " \
+              "game's lists smaller capacities."
           end
         end
       end

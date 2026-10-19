@@ -250,4 +250,14 @@ class TestPlaythroughCartridgeFile < Minitest::Test
       assert_match(/path of a cartridge file/, err.message)
     end
   end
+
+  # Something big handed over in a cartridge's place is named by what it is, not written out:
+  # the refusal is a sentence a person reads, and a cartridge's worth of bytes is not.
+  def test_something_big_that_is_not_a_cartridge_is_named_and_not_printed
+    big = Struct.new(:bytes).new("\xFF".b * 65_536)
+    err = assert_raises(ArgumentError) { walk_right.play(big) }
+
+    assert_match(/cartridge the build made/, err.message)
+    assert_operator err.message.size, :<, 400
+  end
 end

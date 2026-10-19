@@ -52,6 +52,71 @@ class TestCommandLinePlay < Minitest::Test
     end
   end
 
+  # A GAME BOY COLOR CARTRIDGE FILE plays the same way: the script's frames and moments, said
+  # under the title the Color's own header holds.
+  COLOR_WALKER = <<~RUBY
+    require "ruby_gba"
+
+    RubyGBA.game "COLOR WALKER", consoles: %i[gba gbc] do
+      screen :tiled
+      image(:box, "#" => :white) { "########\\n" * 8 }
+      x = var :x, 20
+      box = sprite :box, at: [x, 60]
+      game_loop do
+        held(:right).then { x.add! 2 }
+        box.move_to x, 60
+      end
+    end
+  RUBY
+
+  def test_play_takes_a_game_boy_color_cartridge_file
+    with_game_and_scripts do |dir|
+      File.write(File.join(dir, "color_walker.rb"), COLOR_WALKER)
+      built, = cli("build", "color_walker.rb", "--format", "gbc", dir: dir)
+
+      out, status = cli("play", "color_walker.gbc", "--script", "walk.rb", dir: dir)
+
+      assert status.success?, "#{built}\n#{out}"
+      assert_match(/Played 60 frames of "walk" on COLOR WALKE\./, out)
+      assert_match(/walked +frame 30$/, out)
+    end
+  end
+
+  # A GAME FILE PLAYED AS ITS COLOR CARTRIDGE, with --console gbc. Built here, its variables
+  # have their names, so a script can wait on one: the box walks from 20 to 60 at two pixels a
+  # frame, which is twenty frames of RIGHT after the ten of standing.
+  def test_play_with_console_gbc_builds_the_color_cartridge_of_a_game_file
+    with_game_and_scripts do |dir|
+      File.write(File.join(dir, "color_walker.rb"), COLOR_WALKER)
+
+      out, status = cli("play", "color_walker.rb", "--console", "gbc", "--script", "several.rb",
+                        "--playthrough", "walk to sixty", dir: dir)
+
+      assert status.success?, out
+      assert_match(/on COLOR WALKE\./, out)
+      assert_match(/arrived +frame 30$/, out)
+    end
+  end
+
+  # A game file the Color's build refuses is refused in the build's words, as `build` says it.
+  def test_play_with_console_gbc_says_a_refused_build_plainly
+    with_game_and_scripts do |dir|
+      File.write(File.join(dir, "again.rb"), <<~RUBY)
+        require "ruby_gba"
+        RubyGBA.game("AGAIN", consoles: %i[gba gbc]) do
+          func(:again) { call :again }
+          game_loop { call :again }
+        end
+      RUBY
+
+      out, status = cli("play", "again.rb", "--console", "gbc", "--script", "walk.rb", dir: dir)
+
+      refute status.success?
+      assert_match(/can call itself again/, out)
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+    end
+  end
+
   # --set REACHES THE GAME FILE. The walk to sixty is forty pixels: twenty frames of
   # holding RIGHT at the game's two a frame, and ten at four.
   def test_set_builds_the_game_file_with_a_setting

@@ -27,11 +27,10 @@ module RubyGBA
           make_folder!
         end
 
-        # Write +pixels+, a screenful of colours, as the picture at the moment +name+. The
-        # path of the file is handed back.
-        def write(name, pixels)
-          Graphics::PNG.write(File.join(@path, "#{name}.png"), width: Console::Hardware::SCREEN_WIDTH,
-                                                               height: Console::Hardware::SCREEN_HEIGHT, pixels: pixels)
+        # Write +pixels+, a screenful of colours +width+ by +height+, as the picture at the
+        # moment +name+. The path of the file is handed back.
+        def write(name, pixels, width:, height:)
+          Graphics::PNG.write(File.join(@path, "#{name}.png"), width: width, height: height, pixels: pixels)
         end
 
         private

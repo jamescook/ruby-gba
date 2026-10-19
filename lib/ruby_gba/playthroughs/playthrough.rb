@@ -157,8 +157,8 @@ module RubyGBA
         return given if given.respond_to?(:buffer) && given.respond_to?(:built)
 
         unless path?(given)
-          raise ArgumentError, "A playthrough was given #{given.inspect} to play. It must be a cartridge the build made " \
-                               "(`RubyGBA.build`, `game.build_rom`), or the path of a cartridge file."
+          raise ArgumentError, "A playthrough was given #{described(given)} to play. It must be a cartridge the build " \
+                               "made (`RubyGBA.build`, `game.build_rom`), or the path of a cartridge file."
         end
         if bytes_given_as_path?(given)
           raise ArgumentError, "A playthrough was given #{given.bytesize} bytes of data to play, and not the path of a " \
@@ -217,7 +217,17 @@ module RubyGBA
 
       def self.path?(given) = (given.is_a?(String) && !given.empty?) || given.respond_to?(:to_path)
       def self.bytes_given_as_path?(given) = given.is_a?(String) && (given.bytesize > LONGEST_PATH || given.include?("\0"))
-      private_class_method :path?, :bytes_given_as_path?
+
+      # Something handed over where it does not go, as a refusal says it: a plain value as Ruby
+      # writes it, and anything else by its kind, since written out it can be a cartridge's
+      # worth of bytes.
+      def self.described(given)
+        case given
+        when nil, Integer, Symbol, String then given.inspect
+        else "a #{given.class}"
+        end
+      end
+      private_class_method :path?, :bytes_given_as_path?, :described
 
       # ONE PLAYING, as it goes: the cartridge running, and a tape of every press made on it so
       # far. Each step plays itself on this. +title+ is the name of what is being played, for
@@ -288,7 +298,12 @@ module RubyGBA
         # makes: the picture is what the error points at, so it has to be there after the
         # playing is gone.
         def write_picture_of_frame
-          PictureFolder.new(Dir.mktmpdir("playthrough"), []).write("frame-#{@taping.frames}", @game.frame_gba)
+          write_screen(PictureFolder.new(Dir.mktmpdir("playthrough"), []), "frame-#{@taping.frames}", @game.frame_gba)
+        end
+
+        # +pixels+ written into +folder+ as +name+, at the size of the console's screen.
+        def write_screen(folder, name, pixels)
+          folder.write(name, pixels, width: @game.screen_width, height: @game.screen_height)
         end
 
         # A watching block has to answer yes or no. Ruby takes every number for yes, nought
@@ -312,7 +327,7 @@ module RubyGBA
         def mark(name)
           @taping.moment(name)
           @pictures[name] = @game.frame_gba
-          @picture_files[name] = @folder.write(name, @pictures[name]) if @folder
+          @picture_files[name] = write_screen(@folder, name, @pictures[name]) if @folder
           @at_each_moment&.call(name, @game)
         end
 

@@ -230,6 +230,7 @@ module RubyGBA
       private def starts
         @starts ||= begin
           pair = @handed_over.map { |given| Playthrough.cartridge_from(given) }
+          refuse_color_cartridges!(pair)
           @readings.refuse_unreadable_on!(pair)
           pair.zip(%w[first second], @lead_ins).map do |cartridge, which, lead_in|
             Start.new(which: which, cartridge: cartridge, save: save_fitted_to(cartridge, which), lead_in: lead_in)
@@ -348,6 +349,15 @@ module RubyGBA
       end
 
       private def what_any_report_has(settings) = { cartridges: cartridges, settings: settings + starting_sentences }
+
+      # A comparison lines two screens up, and frames rectangles on them, at the Advance's size.
+      # A Color screen is another size, so a Color cartridge is refused rather than compared wrong.
+      private def refuse_color_cartridges!(pair)
+        which = %w[first second].zip(pair).find { |_, cartridge| cartridge.console == :gbc }&.first or return
+
+        raise ArgumentError, "The #{which} cartridge is for a Game Boy Color. A comparison compares Game Boy " \
+                             "Advance cartridges only. To play a Color cartridge, use `play`."
+      end
 
       private def refuse_malformed_lead_ins!(given)
         return if given.nil?

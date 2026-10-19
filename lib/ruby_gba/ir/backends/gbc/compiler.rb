@@ -133,7 +133,8 @@ module RubyGBA
           # A list: its header (Runtime::Lists says what is in it) and then its slots, each the width
           # the game declared.
           def declare_list(storage)
-            address = @memory.reserve("list #{storage.name.text}", Runtime::Lists::HEADER + (storage.capacity * storage.width))
+            # Named as the game names it, since running out of room says which list asked.
+            address = @memory.reserve("the list :#{storage.label}", Runtime::Lists::HEADER + (storage.capacity * storage.width))
             @lists[storage.name.text] = [address, storage.capacity, storage.width, storage.label]
           end
 

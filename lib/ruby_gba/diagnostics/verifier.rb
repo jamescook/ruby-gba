@@ -144,8 +144,20 @@ module RubyGBA
       # comparison needs — asking pixel by pixel would mean 38,400 separate reads.
       # The values line up with the reference interpreter's own framebuffer dump, so
       # the two backends' pictures can be compared directly.
-      # @return [Array<Integer>] 240*160 colors in BGR555
+      # @return [Array<Integer>] screen_width * screen_height colors in BGR555
       def frame_gba = Emulator.screen_questions.color_list(picture)
+
+      # How wide and tall the console's picture is, in pixels: the size the emulator draws for
+      # the cartridge it was handed, which is 240 by 160 for an Advance cartridge.
+      def screen_width
+        ensure_rendered!
+        @width
+      end
+
+      def screen_height
+        ensure_rendered!
+        @height
+      end
 
       # --- questions about the whole screen ---
       #

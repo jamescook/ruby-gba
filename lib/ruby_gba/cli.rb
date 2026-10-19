@@ -120,8 +120,9 @@ module RubyGBA
       else
         raise Thor::Error, "#{options[:format].inspect} is not a build format. The formats are: game, ir, native, web, gbc."
       end
-    rescue ArgumentError => e
-      # A setting the game does not ask for, or one it cannot read: say why, not a backtrace.
+    rescue ArgumentError, RubyGBA::ROMError => e
+      # A setting the game does not ask for, or one it cannot read, or a build the guardrails
+      # stopped (their reasons are printed already): say why, not a backtrace.
       raise Thor::Error, e.message
     end
 
@@ -189,7 +190,9 @@ module RubyGBA
     long_desc <<~TEXT
       Play CARTRIDGE with nobody at the controls, and say how many frames went by and the
       frame each named moment fell on. CARTRIDGE is a game file (a .rb that declares a
-      game, which is built first) or a cartridge file (a .gba, yours or somebody else's).
+      game, which is built first) or a cartridge file (a .gba, yours or somebody else's, or
+      a Game Boy Color .gbc). --console=gbc builds a game file as its Game Boy Color
+      cartridge, for a game built for the Color too.
 
       What to press comes from a script or from a tape.
 
@@ -221,6 +224,8 @@ module RubyGBA
     option :pictures_in, banner: "DIR", desc: "Write the screen at each named moment into this folder"
     option :write_tape, banner: "PATH", desc: "Write the presses that were made to this file, as a tape"
     option :write_save, banner: "PATH", desc: "Write the save memory as the last frame left it to this file"
+    option :console, banner: "NAME", enum: %w[gba gbc],
+                     desc: "Which console's cartridge a game file is built as: gba, or gbc for a game built for the Color too"
     def play(cartridge_file)
       with_playthroughs_command_line { |command| command.play(cartridge_file) }
     end
@@ -340,7 +345,8 @@ module RubyGBA
     # handed the options, somewhere to print, and how a game file is built here. What it
     # refuses, it refuses in a sentence, and that sentence is what the command ends with.
     def with_playthroughs_command_line
-      build = ->(file) { load_game(file).build_rom(settings: given_settings) }
+      console = (options[:console] || "gba").to_sym # not said (and `compare` has no --console): the Advance
+      build = ->(file) { load_game(file).build_rom(settings: given_settings, console: console) }
       yield RubyGBA::Playthroughs::CommandLine.new(options, out: $stdout, build: build)
     rescue RubyGBA::Playthroughs::CommandLine::Refused => e
       raise Thor::Error, e.message
@@ -369,6 +375,9 @@ module RubyGBA
       path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename(console: :gbc))
       rom.write(path)
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
+    rescue RubyGBA::IR::Backends::GBC::LoweringError => e
+      # Something the checks let through and the Color's lowering cannot make: its own words.
+      raise Thor::Error, e.message
     end
 
     # The "ir" format (--format=ir): the game's IR as a standalone Ruby class, instead

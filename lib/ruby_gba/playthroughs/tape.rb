@@ -98,9 +98,9 @@ module RubyGBA
 
       # What a person tells one cartridge from another by: the title in its own heading,
       # and a checksum of every byte of it, which says which build of that game it is.
+      # Each kind of cartridge keeps its title somewhere else in its header, so it is asked.
       def self.title_and_checksum_of(cartridge)
-        header_title = cartridge.buffer.byteslice(Cartridge::Header::HEADER_TITLE, Cartridge::ROM::TITLE_LENGTH)
-        [printable(header_title), Zlib.crc32(cartridge.buffer)]
+        [printable(cartridge.header_title), Zlib.crc32(cartridge.buffer)]
       end
 
       # Those two as they are written for a person, on a tape and in a report: `HERO 0x5C0FFEE5`.

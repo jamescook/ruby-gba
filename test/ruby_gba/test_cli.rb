@@ -366,6 +366,62 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # A game the Color cannot play is refused in the build's own words, and the command ends
+  # there: no backtrace under the words, and no cartridge written.
+  def test_format_gbc_refuses_a_game_the_color_cannot_play_without_a_backtrace
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "shoulders.rb"), <<~GAME)
+        require "ruby_gba"
+        RubyGBA.game("SHOULDERS", consoles: %i[gba gbc]) do
+          count = var :count, 0
+          game_loop { held(:l).then { count.add! 1 } }
+        end
+      GAME
+      out, status = cli("build", "shoulders.rb", "--format", "gbc", dir: dir)
+
+      refute status.success?, out
+      assert_match(/no shoulder buttons/, out)
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+      refute File.exist?(File.join(dir, "shoulders.gbc"))
+    end
+  end
+
+  # The same when it is the Color's lowering that refuses, after the checks have passed.
+  def test_format_gbc_refuses_what_the_color_lowering_cannot_make_without_a_backtrace
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "again.rb"), <<~GAME)
+        require "ruby_gba"
+        RubyGBA.game("AGAIN", consoles: %i[gba gbc]) do
+          func(:again) { call :again }
+          game_loop { call :again }
+        end
+      GAME
+      out, status = cli("build", "again.rb", "--format", "gbc", dir: dir)
+
+      refute status.success?, out
+      assert_match(/can call itself again/, out)
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+    end
+  end
+
+  # And when the game keeps more than the Color has memory for.
+  def test_format_gbc_refuses_a_game_too_big_for_the_colors_memory_without_a_backtrace
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "hoard.rb"), <<~GAME)
+        require "ruby_gba"
+        RubyGBA.game("HOARD", consoles: %i[gba gbc]) do
+          trail = list :trail, capacity: 6000
+          game_loop { trail.push 1 }
+        end
+      GAME
+      out, status = cli("build", "hoard.rb", "--format", "gbc", dir: dir)
+
+      refute status.success?, out
+      assert_match(/:trail/, out)
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+    end
+  end
+
   # A game built for the web is one page beside it, holding the game and what plays it, with
   # nothing to fetch.
   def test_format_web_writes_one_page_that_plays_the_game

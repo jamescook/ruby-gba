@@ -23,6 +23,19 @@ module RubyGBA
 
       attr_reader :buffer, :code_offset
 
+      # WHAT EVERY ADVANCE CARTRIDGE'S HEADER SAYS, whoever made the cartridge — asked of a
+      # cartridge file too (Diagnostics::CartridgeFile), which has nothing but its bytes.
+      #
+      # The console a cartridge of this kind is for; whether +bytes+ are one (every Advance
+      # cartridge carries FIXED_VALUE at the same place in its header); and the title field of
+      # its header, twelve bytes padded with noughts.
+      def self.console = :gba
+      def self.header?(bytes) = bytes.getbyte(HEADER_FIXED) == FIXED_VALUE
+      def self.title_field_of(bytes) = bytes.byteslice(HEADER_TITLE, TITLE_LENGTH)
+
+      def console = self.class.console
+      def header_title = self.class.title_field_of(@buffer)
+
       # WHAT THE BUILD WORKED OUT about this cartridge, or nil when nothing did (see
       # {BuildRecord}). It arrives whole, at construction, so a ROM is either a cartridge
       # that can report on itself or a cartridge that cannot — never half of each. Nil is
