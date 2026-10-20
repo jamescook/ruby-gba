@@ -302,6 +302,7 @@ module RubyGBA
             @emitter.write_reg16(REG_WINOUT, WIN_ALL_LAYERS | WIN_EFFECT)
             @emitter.write_reg16(REG_BLDCNT, LIGHT_CONTROL)
             @emitter.write_reg16(REG_BLDY, 0)
+            @primitives.store_word_immediate(0, @primitives.var_addr(LIGHT_ROWS_FILLED)) # no rows worked out yet
           end
 
           # THE LIGHT AT THE GAP BETWEEN FRAMES, in a game where it takes turns: where the scene
@@ -334,6 +335,7 @@ module RubyGBA
             @emitter.emit(ASM.cmp_imm(ACC, BLD_MAX))
             @emitter.emit(ASM.mov_imm_cond(:gt, ACC, BLD_MAX))
             @primitives.store_halfword_acc(REG_BLDY)
+            @primitives.store_var(ACC, LIGHT_STEPS)
           end
 
           # Point the engine back at the top of the table, in the gap between frames. It
@@ -371,12 +373,87 @@ module RubyGBA
           #
           # THE LIGHT'S DARKNESS GOES WITH ITS ROW 0, and before any table, for the same
           # reason: it is a register the whole picture reads.
+          #
+          # THE LIGHT'S ROWS ARE WORKED OUT ONLY WHEN THEY CAN SHOW AND HAVE CHANGED. Every row is a
+          # few dozen instructions, and a light is often there doing nothing — switched off in a
+          # scene that sees through a layer, darkening nothing until an iris starts, or standing
+          # still — so its darkness is worked out first, and the rows only on a frame the light
+          # darkens something and has moved or changed size since they were last worked out. The
+          # table keeps the rows from then, and its first row is fed to the display again, since
+          # the engine has walked the register on through the table. The picture is the same.
           def emit_fill_row_bend_tables
-            feed_keys.each { |key| emit_first_row(key) }
-            if switches_light? then emit_light_for_scene
-            elsif @light then emit_light_amount
+            emit_light_this_frame if @light
+            feed_keys.each { |key| key == LIGHT ? emit_light_first_row : emit_first_row(key) }
+            feed_keys.each { |key| key == LIGHT ? emit_if_light_rows { emit_fill_row_table(key) } : emit_fill_row_table(key) }
+          end
+
+          # Whether this frame works the light's rows out, 1 or 0; whether the rows in the table were
+          # ever worked out, which they are not at power-on; and the darkness last worked out, in
+          # sixteenths, kept because the display's own register for it cannot be read back.
+          LIGHT_ROWS_THIS_FRAME = :_light_rows_this_frame
+          LIGHT_ROWS_FILLED = :_light_rows_filled
+          LIGHT_STEPS = :_light_steps
+
+          # Where each number the light's rows are worked out from stood when they last were.
+          def light_rows_from_var(name) = :"_light_rows_from_#{name}"
+
+          # The light's darkness for the frame to come, and whether its rows are worked out: only
+          # where it shows, darkens something, and has moved since they last were.
+          def emit_light_this_frame
+            done = @emitter.gensym
+            changed = @emitter.gensym
+            @primitives.store_word_immediate(0, @primitives.var_addr(LIGHT_ROWS_THIS_FRAME))
+            if switches_light?
+              emit_light_for_scene
+              emit_branch_if_zero(LIGHT_SHOWN, done)
+            else
+              emit_light_amount
             end
-            feed_keys.each { |key| emit_fill_row_table(key) }
+            emit_branch_if_zero(LIGHT_STEPS, done)
+            emit_branch_if_zero(LIGHT_ROWS_FILLED, changed)
+            IR::LightScenes.span_vars(@light).each do |name|
+              @primitives.load_var(ACC, name)
+              @primitives.load_var(TMP, light_rows_from_var(name))
+              @emitter.emit(ASM.cmp_reg(ACC, TMP))
+              @emitter.emit_branch(:bcond, changed, cond: :ne)
+            end
+            @emitter.emit_branch(:b, done)
+            @emitter.place_label(changed)
+            IR::LightScenes.span_vars(@light).each do |name|
+              @primitives.load_var(ACC, name)
+              @primitives.store_var(ACC, light_rows_from_var(name))
+            end
+            @primitives.store_word_immediate(1, @primitives.var_addr(LIGHT_ROWS_FILLED))
+            @primitives.store_word_immediate(1, @primitives.var_addr(LIGHT_ROWS_THIS_FRAME))
+            @emitter.place_label(done)
+          end
+
+          # The light's row 0: worked out, where the rows are; otherwise the one the table keeps.
+          def emit_light_first_row
+            kept = @emitter.gensym
+            done = @emitter.gensym
+            emit_branch_if_zero(LIGHT_ROWS_THIS_FRAME, kept)
+            emit_first_row(LIGHT)
+            @emitter.emit_branch(:b, done)
+            @emitter.place_label(kept)
+            @emitter.emit_number(ADDR, @row_bend_table.fetch(LIGHT))
+            @emitter.emit(ASM.load_halfword(ACC, ADDR))
+            @primitives.store_halfword_acc(register_fed(LIGHT))
+            @emitter.place_label(done)
+          end
+
+          def emit_if_light_rows
+            skip = @emitter.gensym
+            emit_branch_if_zero(LIGHT_ROWS_THIS_FRAME, skip)
+            yield
+            @emitter.place_label(skip)
+          end
+
+          # Go to +label+ when the variable +name+ holds nought.
+          def emit_branch_if_zero(name, label)
+            @primitives.load_var(ACC, name)
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, label, cond: :eq)
           end
 
           # One thing's row 0: into the table, and straight into its register, since

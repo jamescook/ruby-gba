@@ -83,12 +83,19 @@ module RubyGBA
       # off its own statement, so nothing here has to know what a backend or the builder
       # called them. The row it is worked out for, what it works out once a row on its way to
       # the edges, and the switch the build gives it are the light's own, not the game's.
-      def light_vars(light)
-        read = [light.left, light.right, light.amount, *light.children].flat_map do |part|
-          part.walk.select { |node| node.kind == :var_ref }
-        end
+      def light_vars(light) = (vars_read(light, [light.left, light.right, light.amount, *light.children]) - [ON]).uniq
+
+      # The variables the light's ROWS are worked out from — where it is and how big, but not how
+      # dark, which is the same on every row. Rows worked out from the same numbers come out the
+      # same, which is what lets a backend keep them from one frame to the next.
+      def span_vars(light) = vars_read(light, [light.left, light.right, *light.children]).uniq
+
+      # Every variable read in +parts+ of +light+, but the row it is worked out for and what it
+      # works out once a row on its way to the edges, which are its own.
+      def vars_read(light, parts)
+        read = parts.flat_map { |part| part.walk.select { |node| node.kind == :var_ref } }.map(&:name)
         own = light.children.flat_map { |child| child.walk.to_a }.select { |node| node.statement? && node.respond_to?(:var) }.map(&:var)
-        read.map(&:name).uniq - [light.row, ON, *own]
+        read - [light.row, *own]
       end
 
       # Does the statement +node+ change one of +vars+? Every statement that changes a variable

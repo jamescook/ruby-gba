@@ -135,10 +135,22 @@ class TestIris < Minitest::Test
 
   # --- a walk said in pixels a frame ---
 
-  # The light's size and darkness, and whether the iris says it is shut, at the end of each frame
-  # of a run, read off the light's own handle (which the game can read too): what a frame sets is
-  # drawn on the next picture, which test_spotlight.rb holds to every row of the circle.
-  private def walk_of(prog, frames)
+  # The light's size and darkness, and whether the iris says it is shut, at the end of each turn of
+  # a loop that starts +walk+ on its third turn — read off the light's own handle, which the game
+  # can read too, after the turn's own work. What a turn leaves is drawn on the next picture, which
+  # test_spotlight.rb holds to every row of the circle. The first reading is from before turn 1, so
+  # turn n's end is at n. +before+ runs before the loop.
+  private def walk_by_turn(frames, before: nil, &walk)
+    prog = room(before: before, each: lambda {
+      turn = var :turn, 0
+      closed = var :closed, 0
+      light = spotlight
+      turn.add! 1
+      (turn == 3).then { instance_exec(&walk) }
+      iris_shut?.then { closed.set! 1 }
+      var(:size_now, 0).set! light.radius
+      var(:dark_now, 0).set! light.dark
+    })
     seen = []
     run = game_player
     run.each_vblank { seen << [run[:size_now], run[:dark_now], run[:closed]] }
@@ -146,51 +158,54 @@ class TestIris < Minitest::Test
     seen
   end
 
-  # What every frame of the loop keeps, for #walk_of to read.
-  private def keep_light_readings = lambda {
-    light = spotlight
-    var(:size_now, 0).set! light.radius
-    var(:dark_now, 0).set! light.dark
-    closed = var :closed, 0
-    iris_shut?.then { closed.set! 1 }
-  }
-
   # THE GAME'S OWN WALK: The Minish Cap starts a closing iris at 150 and takes 4 off every frame
-  # (tmc: src/fade.c, SetFadeIris and FadeMain), so the sizes shown are 146, 142 ... 2 and then
-  # nought, and the iris is shut on the frame its size reaches nought.
+  # (tmc: src/fade.c, SetFadeIris and FadeMain). Its first size, 146, is the light's at the end of
+  # the frame the walk starts on, then 142 ... 2 and nought, and the iris is shut on the frame its
+  # size reaches nought.
   def test_an_iris_out_can_start_at_a_size_and_close_by_pixels_a_frame
-    closing = room(before: -> { iris_out at: [120, 80], from: 150, by: 4 }, each: keep_light_readings)
-    seen = walk_of(closing, 45)
-    start = seen.index { |size, _, _| size == 146 }
+    seen = walk_by_turn(45) { iris_out at: [120, 80], from: 150, by: 4 }
+    sizes = seen[3, 38].map(&:first)
 
-    refute_nil start, "the first size is 146: #{seen.inspect}"
-    sizes = seen[start, 38].map(&:first)
-    assert sizes == [*146.step(2, -4), 0], "146, 142 ... 2, then nought: #{sizes.inspect}"
-    assert_equal start + 37, seen.index { |_, _, closed| closed == 1 }, "shut on the frame the size is nought: #{seen.inspect}"
+    assert sizes == [*146.step(2, -4), 0], "from turn 3, 146, 142 ... 2, then nought: #{seen.inspect}"
+    assert_equal 3 + 37, seen.index { |_, _, closed| closed == 1 }, "shut on the turn the size is nought: #{seen.inspect}"
   end
 
   # ...and the opening one goes the other way, from nought by 4 a frame, and lets the light go
-  # once it passes the size it was given.
-  # It stops once the size is PAST the one given, as the game's does: to 150 the last size shown
-  # is 148, and to 148 it is 148 too, since 148 is not past it.
+  # once it passes the size it was given — to 150 the last size shown is 148, and to 148 it is 148
+  # too, since 148 is not past it.
   def test_an_iris_in_can_open_by_pixels_a_frame_to_a_size
-    keep = keep_light_readings
     [150, 148].each do |to|
-      opening = room(before: -> { spotlight at: [120, 80], radius: 0, dark: 100 },
-                     each: lambda {
-                       instance_exec(&keep)
-                       turn = var :turn, 0
-                       turn.add! 1
-                       (turn == 3).then { iris_in by: 4, to: to, radius: 200, dark: 0 }
-                     })
-      seen = walk_of(opening, 45)
-      start = seen.index { |size, _, _| size == 4 }
+      seen = walk_by_turn(45, before: -> { spotlight at: [120, 80], radius: 0, dark: 100 }) do
+        iris_in by: 4, to: to, radius: 200, dark: 0
+      end
+      sizes = seen[3, 37].map(&:first)
 
-      refute_nil start, "the first size is 4: #{seen.inspect}"
-      sizes = seen[start, 37].map(&:first)
-      assert sizes == [*4.step(148, 4)], "to #{to}: 4, 8 ... 148: #{sizes.inspect}"
-      assert_equal [200, 0], seen[start + 37].first(2), "past #{to} the light is let go, as radius: and dark: say"
+      assert sizes == [*4.step(148, 4)], "to #{to}, from turn 3, 4, 8 ... 148: #{seen.inspect}"
+      assert_equal [200, 0], seen[3 + 37].first(2), "past #{to} the light is let go, as radius: and dark: say"
     end
+  end
+
+  # A walk that arrives on its first step arrives on the frame it is called, as the game's does:
+  # shut there, or the light let go there.
+  def test_an_iris_out_that_reaches_nought_on_its_first_step_is_shut_that_frame
+    seen = walk_by_turn(6) { iris_out at: [120, 80], from: 4, by: 4 }
+
+    assert_equal [0, 100, 1], seen[3], "turn 3: nought and shut: #{seen.inspect}"
+  end
+
+  def test_an_iris_in_whose_first_step_passes_its_size_lets_the_light_go_that_frame
+    seen = walk_by_turn(6, before: -> { spotlight at: [120, 80], radius: 0, dark: 100 }) do
+      iris_in by: 200, to: 150, radius: 60, dark: 0
+    end
+
+    assert_equal [60, 0], seen[3].first(2), "turn 3: the light let go, as radius: and dark: say: #{seen.inspect}"
+  end
+
+  # Said in pixels with no `from:`, the walk starts at the light's own size.
+  def test_an_iris_out_in_pixels_with_no_start_starts_at_the_lights_size
+    seen = walk_by_turn(6, before: -> { spotlight at: [120, 80], radius: 40, dark: 75 }) { iris_out by: 4 }
+
+    assert_equal [36, 32, 28], seen[3, 3].map(&:first), "from turn 3: #{seen.inspect}"
   end
 
   def test_the_console_walks_the_same_circle_by_pixels

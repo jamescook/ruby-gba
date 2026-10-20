@@ -60,9 +60,10 @@ module RubyGBA
         #
         #   iris_out at: [120, 80], from: 150, by: 4    # 146, 142 ... 2, then shut at nought
         #
-        # The first move is made before the first picture, as such a game makes it, so the first
-        # size shown is `from` less `by`, and `iris_shut?` is true from the frame the size reaches
-        # nought. A size set in a frame is drawn on the next picture, as a sprite's place is.
+        # The first step is taken on the frame the walk is called, as such a game takes it, so the
+        # light holds `from` less `by` at the end of that frame, and `iris_shut?` is true from the
+        # frame the size reaches nought. A size set in a frame is drawn on the next picture, as a
+        # sprite's place is.
         #
         # @param at [Array, nil] the point the circle closes on
         # @param frames [Integer, nil] how long the walk takes, in frames
@@ -76,17 +77,19 @@ module RubyGBA
           light.move_to(*at) if at
           keep_light_to_give_back(light, state)
           state[:target].set! 0.0
+          light.dark.set! 100
+          state[:shut].set! 0
+          state[:active].set! 1
           if by
-            state[:size].set! from || light.radius
-            state[:size].set! (state[:size] - by).clamp(0.0, Builder::Spotlights::LARGEST.to_f)
-            state[:step].set! by
+            state[:size].set! (from || light.radius).to_f
+            first_step_in_pixels(light, state, -by, Builder::Spotlights::LARGEST.to_f) do
+              state[:active].set! 0
+              state[:shut].set! 1
+            end
           else
             state[:size].set! (from || light.radius).clamp(0, state[:reach]).to_f
             state[:step].set! state[:size] / WalkLength.steps(frames, duration, DEFAULT_FRAMES, "an iris")
           end
-          light.dark.set! 100
-          state[:shut].set! 0
-          state[:active].set! 1
           nil
         end
 
@@ -108,7 +111,7 @@ module RubyGBA
         #
         #   iris_in by: 4, to: 150, dark: 0    # 4, 8 ... 148, then the whole picture
         #
-        # As with `iris_out`, the first move is made before the first picture.
+        # As with `iris_out`, the first step is taken on the frame it is called.
         #
         # @param frames [Integer, nil] how long it takes, in frames
         # @param duration [Numeric, nil] how long it takes, in seconds
@@ -138,14 +141,13 @@ module RubyGBA
             (state[:dark] == 0).then { state[:target].set! state[:reach].to_f }
                                .else { state[:target].set! state[:radius].clamp(0, state[:reach]).to_f }
           end
+          state[:shut].set! 0
+          state[:active].set! 1
           if by
-            state[:size].set! (state[:size] + by).clamp(0.0, state[:target])
-            state[:step].set! by
+            first_step_in_pixels(light, state, by, state[:target]) { let_light_go(light, state) }
           else
             state[:step].set! (state[:target] - state[:size]).abs / WalkLength.steps(frames, duration, DEFAULT_FRAMES, "an iris")
           end
-          state[:shut].set! 0
-          state[:active].set! 1
           nil
         end
 
@@ -180,6 +182,30 @@ module RubyGBA
         end
 
         private
+
+        # THE FIRST STEP OF A WALK SAID IN PIXELS, taken on the frame the walk is called, as the
+        # game being copied takes it: the light holds the first size at the end of that frame and
+        # draws it on the next picture. The walk's own routine runs where each frame starts, so
+        # by the time the game calls the walk this frame's has already run; it shows the size it
+        # is left holding and then moves it on, so that is the size after the first.
+        #
+        # A walk whose first step already reaches where it is going has arrived on that frame,
+        # as the game's does: the block says what arriving is — shut, or the light let go.
+        def first_step_in_pixels(light, state, step, high, &arrived)
+          state[:size].set! (state[:size] + step).clamp(0.0, high)
+          light.radius.set! state[:size].to_i
+          (state[:size] == state[:target]).then(&arrived).else do
+            state[:size].set! (state[:size] + step).clamp(0.0, high)
+          end
+          state[:step].set! step.abs
+        end
+
+        # The light given back once a walk in arrives: as it was, or as `iris_in` said.
+        def let_light_go(light, state)
+          state[:active].set! 0
+          light.radius.set! state[:radius]
+          light.dark.set! state[:dark]
+        end
 
         # A walk is said in pixels a frame or in how long it takes, not both: the two would each
         # say how far the circle moves every frame.

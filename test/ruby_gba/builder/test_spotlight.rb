@@ -297,6 +297,32 @@ class TestSpotlight < Minitest::Test
     assert_backends_agree(back, frames: TURN_FRAMES, name: "BACK")
   end
 
+  # THE CONSOLE KEEPS A LIGHT'S ROWS while it shows nothing new — off in the title, standing still
+  # in the lit scene — and feeds the kept ones again. Lit, off and lit again every four turns with
+  # nothing moved, the picture is the interpreter's on every turn compared.
+  def test_the_console_keeps_a_lights_rows_across_turns_and_still_frames
+    taking_turns = program do
+      screen :tiled
+      layers :ground, :water
+      image(:white_tile, "#" => :white) { (["#" * 8] * 8).join("\n") }
+      image(:red_tile, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      tiles :set, "#" => :white_tile, "r" => :red_tile
+      layer(:ground) { background :room, tiles: :set, map: ["#" * 32] * 32 }
+      mode = var :mode, 1
+      turn = var :turn, 0
+      spotlight at: [120, 80], radius: 40, dark: 100
+      scene(:title) { layer(:water, transparency: 50) { background :pond, tiles: :set, map: ["r" * 32] * 32 } }
+      scene(:playing) {}
+      game_loop do
+        turn.add! 1
+        mode.set! 1 - ((turn >> 2) & 1)
+        case_var(:mode) { when_val 0, :title; when_val 1, :playing }
+      end
+    end
+
+    assert_backends_agree(taking_turns, frames: [2, 3, 5, 7, 9, 10, 13, 15], name: "KEPT")
+  end
+
   # --- what a light refuses ---
 
   def test_a_second_light_is_refused
