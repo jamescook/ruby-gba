@@ -93,14 +93,23 @@ module RubyGBA
       # Every variable read in +parts+ of +light+, but the row it is worked out for and what it
       # works out once a row on its way to the edges, which are its own.
       def vars_read(light, parts)
-        read = parts.flat_map { |part| part.walk.select { |node| node.kind == :var_ref } }.map(&:name)
-        own = light.children.flat_map { |child| child.walk.to_a }.select { |node| node.statement? && node.respond_to?(:var) }.map(&:var)
+        nodes = parts.flat_map { |part| part.walk.to_a }
+        read = nodes.filter_map { |node| node.kind == :copy ? node.src : (node.name if node.kind == :var_ref) }
+        own = light.children.flat_map { |child| child.walk.to_a }.filter_map { |node| written_var(node) }
         read - [light.row, *own]
       end
 
-      # Does the statement +node+ change one of +vars+? Every statement that changes a variable
-      # names it as its `var`.
-      def writes_any?(node, vars) = node.statement? && node.respond_to?(:var) && vars.include?(node.var)
+      # Does the statement +node+ change one of +vars+?
+      def writes_any?(node, vars) = vars.include?(written_var(node))
+
+      # The variable the statement +node+ changes, or nil. Every statement that changes one
+      # names it as its `var`, but a copy, which names it as where it copies to.
+      def written_var(node)
+        return unless node.statement?
+        return node.dest if node.kind == :copy
+
+        node.var if node.respond_to?(:var)
+      end
 
       def routines_of(program) = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
 

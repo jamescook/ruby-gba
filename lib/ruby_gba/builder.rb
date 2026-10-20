@@ -35,6 +35,7 @@ require_relative "builder/save_jobs"
 require_relative "builder/save_var_record"
 require_relative "builder/saves" # ...all four held as one object, behind the save_data verb
 require_relative "builder/debug" # the probe-only verbs, defined but deliberately not mixed in
+require_relative "builder/game_effects" # uses: a game's own effect packs, for its build alone
 
 module RubyGBA
   # DSL context for building a GBA ROM.
@@ -84,6 +85,7 @@ module RubyGBA
     include DrawOrder  # draw_in_order (sprites drawn in an order the game works out)
     include Settings   # setting (what this build was told: which floors, which screen it boots on)
     include SaveData   # save_data (records of the game's state, saved when the game says so; see Saves)
+    include GameEffects # uses (a game's own effect packs, for its build alone)
 
     # Shorthand for the IR node constructors, so DSL methods can build tree
     # nodes as terse Build.set(...) calls.
@@ -164,6 +166,7 @@ module RubyGBA
       @inline_color_nodes = []   # background_colors nodes, the same, for a layer drawn with other colours
       @per_frame_routines = []   # func names `once_a_frame` declared, called at every frame boundary
       @per_pass_routines = []    # func names the framework calls once a pass, after the frame boundary
+      @pass_jobs = {}            # each_pass jobs by name (or their routine's, when unnamed)
       @each_frame_seq = 0        # counts once_a_frame bodies, to name each one's hidden routine
       @scene_gates = {}        # scene func name → [state_var, value] it's dispatched on (from case_var), for gating its presentation
       @current_scene_gate = nil # while a scene func's body is being built: the [state_var, value] its declarations belong to

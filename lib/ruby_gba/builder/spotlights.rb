@@ -123,16 +123,25 @@ module RubyGBA
                             amount: DSL::Value.node_for(light.dark))
       end
 
+      # The three tables the circle is read from — the scaled half widths, one pixel as a share
+      # of each radius, and the midpoint circles — declared once, with the light.
+      def declare_tables(builder)
+        [builder.table(WIDTHS, HALF_WIDTHS, width: :half),
+         builder.table(SHARES, SHARES_OF_RADIUS, width: :half),
+         builder.table(MIDPOINT, MIDPOINT_HALF_WIDTHS, width: :byte)]
+      end
+
       # The statements that put the row's half width in HALF, recorded where +builder+ is
       # recording — the light's own statement, which runs them once a row. ONE of the two ways
       # runs on a row, picked by the light's size: working out both and choosing between them
       # would cost a row both, and the light is worked out for every row of every frame.
-      def work_out_half_width(builder, light)
-        widths = builder.table(WIDTHS, HALF_WIDTHS, width: :half)
-        shares = builder.table(SHARES, SHARES_OF_RADIUS, width: :half)
-        midpoint = builder.table(MIDPOINT, MIDPOINT_HALF_WIDTHS, width: :byte)
-        row = builder.var(ROW, 0)
-        half = builder.var(HALF, 0)
+      #
+      # +row+ is the row worked out for — the light's own row unless a shape asks for another
+      # (see DSL::Spotlight#circle) — and +into+ the variable the half width is put in, which is
+      # handed back.
+      def work_out_half_width(builder, light, tables, row: builder.var(ROW, 0), into: HALF)
+        widths, shares, midpoint = tables
+        half = builder.var(into, 0)
 
         radius = light.radius.clamp(0, LARGEST)
         apart = (row - light.y).abs.clamp(0, LARGEST + 1)
@@ -142,6 +151,7 @@ module RubyGBA
         end.else do
           half.set! midpoint[(radius * MIDPOINT_STRIDE) + apart.clamp(0, MIDPOINT_STRIDE - 1)]
         end
+        half
       end
     end
   end

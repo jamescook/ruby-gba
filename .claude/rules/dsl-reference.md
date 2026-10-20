@@ -51,7 +51,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 - `fade_level` → `Value`, 0..100: how far the screen is faded now (wait on it to swap scenes).
 - `pixelate 8` / `under:` — show the screen in blocks, 1..16.
 - `pixelate_out` / `pixelate_in` — the blocks walked over time; `pixelate_size` → `Value`, the walk's block size now.
-- `spotlight at:, radius:, dark:` → `Spotlight` — a light: picture inside a circle, darkened outside (tiled only, one per game).
+- `spotlight at:, radius:, dark:` → `Spotlight` — a light: picture inside a circle, darkened outside (tiled only, one per game); `light.shape { |row| … }` gives it a shape of the game's own, `light.circle(row)` the circle to build on.
 - `iris_out at:` / `iris_in` / `iris_shut?` — a circle closing to black and opening again, on the game's light; `from: 150, by: 4` (and `iris_in by:, to:`) walks it in pixels a frame.
 - `pulse sprite, to: 1.3` — a tiled sprite that grows and shrinks for ever.
 - `keep_showing :name do … end` → handle with `.changed`, `.draw`, `.cancel` — a picture painted only when it changes, right on a two-page screen.
@@ -136,6 +136,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 - `repeat(n) { |i| … }` (`stop_when:`) — a run-time counted loop.
 - `every(n) { … }` / `every(0.5, :seconds)` — on a beat. `after(n) { … }` — once, n frames in.
 - `once_a_frame { … }` — always runs, once for each frame that really passed (movement that keeps real time).
+- `each_pass(:name) { |job| … }` → `PassJob` with `start`, `stop`, `running?` — a step taken once a pass of the game loop; `start` takes the first one there and then.
 - `timer :name, per_second: N` → `Timer` with `ticks`, `on_tick`, `stop`.
 - Low-level: `if_eq` / `if_ne` / `if_gt` / `if_lt` / `if_ge` / `if_le`, aliases `if_gte` / `if_lte`.
 
@@ -194,6 +195,10 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 ## Playing a finished game with nobody at the controls — `.claude/dsl/playthroughs.md`
 
 - `RubyGBA.playthrough "name" do … end` — a script (`press`, `hold`, `wait`, `wait_until`, `hold_until`, `moment`); `.play(cartridge)` with `save:`, `lead_in:`, `pictures_in:`; `.tape`; `.compare(ours, theirs)` with its settings; `write_side_by_side_picture`; `ruby-gba play` and `ruby-gba compare`.
+
+## Effects a game writes — `.claude/dsl/effects.md`
+
+- `uses MyPack` — bring in a module of verbs written in the game's own verbs, for this game alone; its checks report on this build.
 
 ## Escape hatch — `.claude/dsl/escape-hatch.md`
 

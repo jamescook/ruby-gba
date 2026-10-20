@@ -286,6 +286,42 @@ module RubyGBA
         name
       end
 
+      # A STEP TAKEN ONCE A PASS, from when the game starts it until it stops (see DSL::PassJob).
+      # The block is the step, and is handed the job, so a step can stop its own job when it
+      # arrives. `each_pass :name` with no block gives back the job made under that name, so the
+      # verbs of an effect can start and stop one job between them.
+      #
+      #   each_pass(:closing) { |job| light.radius.sub! 4; (light.radius <= 0).then { job.stop } }
+      #   each_pass(:closing).start
+      #
+      # The steps after the first are taken straight after each gap between frames, once for the
+      # pass about to run, however many frames the last one took.
+      #
+      # @param name [Symbol, nil] the job's name, to ask for it again
+      # @return [DSL::PassJob]
+      def each_pass(name = nil, &block)
+        return pass_job_named(name) unless block
+
+        if name && @pass_jobs.key?(name)
+          raise ArgumentError, "This game makes `each_pass :#{name}` twice. Each job has one step. To fix this, " \
+                               "give the second job another name, or ask for the first with `each_pass :#{name}`."
+        end
+
+        number = @pass_jobs.size + 1
+        routine = name ? :"__each_pass_#{name}" : :"__each_pass_#{number}"
+        running = var(:"#{routine}_running", 0)
+        stepping = var(:"#{routine}_stepping", 0)
+        job = DSL::PassJob.new(self, routine: routine, running: running, stepping: stepping)
+        declare_func(routine, wrote: name ? "each_pass :#{name}" : "each_pass") do
+          stepping.set! 1
+          yield(job)
+          stepping.set! 0
+        end
+        declare_func(:"#{routine}_tick") { (running == 1).then { call routine } }
+        @per_pass_routines << :"#{routine}_tick"
+        @pass_jobs[name || routine] = job
+      end
+
       # --- Low-level comparison verbs ---
       # Compare a variable against an immediate or another variable; the block runs
       # only when the condition is true. The expression DSL's `(a > b).then { }` is
@@ -313,6 +349,16 @@ module RubyGBA
       alias_method :if_lte, :if_le
 
       private
+
+      # The job `each_pass :name` made, for `each_pass :name` with no block.
+      def pass_job_named(name)
+        raise ArgumentError, "`each_pass` needs a block, the step it takes once a pass: `each_pass(:walk) { ... }`." unless name
+
+        @pass_jobs.fetch(name) do
+          raise ArgumentError, "There is no `each_pass :#{name}` with a block in this game yet. To fix this, " \
+                               "make the job with its step before you ask for it: `each_pass(:#{name}) { ... }`."
+        end
+      end
 
       # The statements that advance one flipbook a single frame: tick its hidden
       # counter, and once it reaches the sprite's rate, reset the counter and step to

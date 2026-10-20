@@ -118,10 +118,7 @@ module RubyGBA
       #
       # Registering the same pack twice does nothing the second time. Returns the pack.
       def register_pack(pack)
-        unless pack.is_a?(Module) && !pack.is_a?(Class)
-          raise ArgumentError,
-                "register_effects needs a module of verbs. You gave #{pack.inspect}."
-        end
+        refuse_non_module_pack!(pack, "register_effects")
         return pack if @packs.include?(pack)
 
         verbs = pack.public_instance_methods(false)
@@ -181,6 +178,29 @@ module RubyGBA
         self
       end
 
+      # A pack is a module: a class, or anything else, is refused by the verb that was handed it.
+      def refuse_non_module_pack!(pack, verb)
+        return if pack.is_a?(Module) && !pack.is_a?(Class)
+
+        raise ArgumentError, "`#{verb}` takes a module of verbs. You gave #{pack.inspect}. To fix this, " \
+                             "write the verbs as methods in a `module`, and give `#{verb}` that module."
+      end
+
+      # A name ruby-gba already has is refused: the pack would quietly change what a verb the
+      # game writes means.
+      def refuse_built_in_name!(name)
+        return unless Builder.method_defined?(name) || Builder.private_method_defined?(name)
+
+        raise DuplicateVerb,
+              "The name `#{name}` is already used by ruby-gba. A pack cannot replace " \
+              "a built-in verb. To fix this, use a different name in your pack."
+      end
+
+      # The guardrail checks +pack+ brings with it, if it answers `checks`.
+      def pack_checks(pack)
+        pack.respond_to?(:checks) ? Array(pack.checks) : []
+      end
+
       private
 
       # Refuse a name that something already answers to. Catching it here — as the
@@ -195,15 +215,7 @@ module RubyGBA
                 "cannot use one name. To fix this, rename the verb in your pack."
         end
 
-        return unless Builder.method_defined?(name) || Builder.private_method_defined?(name)
-
-        raise DuplicateVerb,
-              "The name `#{name}` is already used by ruby-gba. A pack cannot replace " \
-              "a built-in verb. To fix this, use a different name in your pack."
-      end
-
-      def pack_checks(pack)
-        pack.respond_to?(:checks) ? Array(pack.checks) : []
+        refuse_built_in_name!(name)
       end
 
       def default_verb_names

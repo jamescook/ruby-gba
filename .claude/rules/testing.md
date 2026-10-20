@@ -73,7 +73,8 @@ feature. The one exception mirrors a directory too, just not lib's:
 program in `examples/` (see "Running a file on the native lowering too").
 
 The shared helpers — `test_helper.rb`, `differential.rb`, `emulator_blend.rb`,
-`mixed_sound.rb`, `conformance_fixture.rb` — stay at `test/`, and are loaded **by bare name**
+`mixed_sound.rb`, `conformance_fixture.rb`, `midpoint_circle.rb` (the console games' circle, the
+answer key a light's rows are checked against) — stay at `test/`, and are loaded **by bare name**
 (`require "differential"`). That works from any depth because the Rakefile puts
 `test` on the load path. Never `require_relative` them: that one breaks the
 moment a file moves.

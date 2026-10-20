@@ -147,7 +147,7 @@ module RubyGBA
       # `wait_vblank` calls, the lines that gave an `estimate:`, and the software sprites,
       # whose layer lives on the handle.
       # All are just checks in the list, so the Validator treats them alike.
-      checks = IR::Guardrails.default_checks +
+      checks = IR::Guardrails.default_checks + evaluated.game_pack_checks +
                [IR::Guardrails::Checks::OrphanedCondition.new(evaluated.unused_conditions),
                 IR::Guardrails::Checks::OrphanedExpression.new(evaluated.expressions),
                 IR::Guardrails::Checks::DroppedFrameSync.new(evaluated.dropped_syncs),

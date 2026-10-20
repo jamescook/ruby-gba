@@ -16,11 +16,12 @@ module RubyGBA
     # gap before every frame, so moving the light costs a write and nothing else.
     class Spotlight
       # Built by Builder#spotlight, which declares the four and what the picture makes of them.
-      def initialize(x:, y:, radius:, dark:)
+      def initialize(x:, y:, radius:, dark:, builder:)
         @x = x
         @y = y
         @radius = radius
         @dark = dark
+        @builder = builder
       end
 
       # Where the middle of the light is, in screen pixels: across from the left edge, and
@@ -40,6 +41,29 @@ module RubyGBA
         @y.set! y
         self
       end
+
+      # GIVE THE LIGHT A SHAPE OF THE GAME'S OWN, a row of the screen at a time. The block is
+      # handed the row, 0 at the top, and gives back how far the light reaches either side of
+      # its middle on that row — or the row's two edges, `[left, right]`, the columns from left
+      # up to (not including) right. The circle is the shape a light has until it is given one.
+      #
+      #   light.shape { |row| 40 - (row - light.y).abs }               # a diamond
+      #   light.shape { |row| light.circle((row - 1).clamp(0, 159)) }  # each row the circle of the row above
+      #
+      # The rows are worked out in the gap before each frame, from what the game's numbers hold
+      # then. A shape works its rows out and does nothing else: it may declare variables of its
+      # own and change them, and read the game's numbers and tables, but it cannot change a
+      # variable of the game's, read a list or the buttons, call a routine, play a sound or draw.
+      # That is what lets the console skip the rows on a frame nothing they read has changed.
+      def shape(&block)
+        @builder.record_light_shape(self, &block)
+        self
+      end
+
+      # How far this light's circle reaches either side of its middle on +row+ — the shape the
+      # light has until it is given one, for a shape to build on. Up to a radius of 150 it is
+      # the midpoint circle the console's own games draw.
+      def circle(row) = @builder.light_circle(self, row)
     end
   end
 end

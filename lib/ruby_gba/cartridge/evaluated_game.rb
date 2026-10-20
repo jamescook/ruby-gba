@@ -77,6 +77,9 @@ module RubyGBA
 
       # Function names `dump_func` queued, to disassemble out of the lowered ROM.
       def dump_requests = @builder.dump_requests
+
+      # The checks the game's own effect packs brought (see Builder#uses), for this build alone.
+      def game_pack_checks = @builder.game_pack_checks
     end
   end
 end

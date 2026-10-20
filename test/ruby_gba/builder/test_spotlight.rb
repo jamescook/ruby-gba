@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "differential"
+require "midpoint_circle"
 
 # A light the game moves: the picture as drawn inside a circle, and darkened everywhere
 # outside it.
@@ -14,9 +15,7 @@ require "differential"
 # which is what holds the circle's edge to one rule on both backends.
 class TestSpotlight < Minitest::Test
   include Differential
-
-  WIDTH = 240
-  HEIGHT = 160
+  include MidpointCircle # and its WIDTH and HEIGHT, the screen's
 
   WHITE = Color.resolve(:white)
 
@@ -124,54 +123,9 @@ class TestSpotlight < Minitest::Test
   # --- the circle's edge, row by row ---
 
   # THE CIRCLE A LIGHT LIGHTS IS THE MIDPOINT CIRCLE, the one games of this console draw their
-  # window circles with, so a game copying one lands on every pixel of it. This is that circle
-  # written out the way The Minish Cap writes it (tmc: src/common.c, sub_0801E24C makes the half
-  # widths and sub_0801E290 turns them into a span for rows y - n and y + n, n below the size):
-  # each row's [left, right), the right edge one past the last lit column; nil for a row the
-  # circle does not reach.
-  private def game_circle_spans(x, y, size)
-    widths = Array.new(size + 1, 0)
-    across = 0
-    down = size
-    turn = 3 - (2 * size)
-    while across <= down
-      widths[across] = down
-      widths[down] = across
-      if turn.negative?
-        turn += 6 + (across * 4)
-      else
-        turn += 10 + ((across - down) * 4)
-        down -= 1
-      end
-      across += 1
-    end
-    spans = Array.new(HEIGHT)
-    size.times do |n|
-      left = [x - widths[n], 0].max
-      right = x + widths[n] > 239 ? 240 : x + widths[n]
-      [y - n, y + n].each { |row| spans[row] = [left, right] if (0...HEIGHT).cover?(row) }
-    end
-    spans
-  end
-
-  # Each row's lit columns in a picture of a white room under a light of darkness 100, as
-  # [left, right), or nil for a row with none.
-  private def lit_spans(screen)
-    Array.new(HEIGHT) do |row|
-      lit = (0...WIDTH).select { |column| screen.pixel(column, row) == WHITE }
-      lit.empty? ? nil : [lit.first, lit.last + 1]
-    end
-  end
-
-  # The rows two lists of spans disagree on, said row by row: minitest's own diff of two long
-  # lists cannot run inside a Ractor.
-  private def assert_same_spans(expected, got, what)
-    wrong = (0...HEIGHT).reject { |row| expected[row] == got[row] }
-    assert wrong.empty?, "#{what}: #{wrong.size} rows differ, the first #{wrong.first(3).map do |row|
-      "row #{row} is #{got[row].inspect}, the game's #{expected[row].inspect}"
-    end.join('; ')}"
-  end
-
+  # window circles with, so a game copying one lands on every pixel of it. The game's own circle
+  # is in test/midpoint_circle.rb, written from its code; a shape of the game's own is in
+  # test/ruby_gba/dsl/test_spotlight_shape.rb.
   def test_each_row_of_the_light_is_the_midpoint_circles
     [[120, 80, 82], [120, 80, 1], [120, 80, 2], [120, 80, 150], [184, 96, 4], [184, 96, 37],
      [0, 0, 30], [239, 159, 61], [30, 150, 146]].each do |x, y, size|

@@ -452,14 +452,55 @@ module RubyGBA
         refuse_spotlight_start!(at, radius, dark)
 
         light = DSL::Spotlight.new(x: var(Spotlights::X, at[0]), y: var(Spotlights::Y, at[1]),
-                                   radius: var(Spotlights::RADIUS, radius), dark: var(Spotlights::DARK, dark))
+                                   radius: var(Spotlights::RADIUS, radius), dark: var(Spotlights::DARK, dark),
+                                   builder: self)
+        @spotlight_tables = Spotlights.declare_tables(self)
         shade = Spotlights.shade_node(self, light)
-        push_container(shade) { Spotlights.work_out_half_width(self, light) }
+        push_container(shade) { Spotlights.work_out_half_width(self, light, @spotlight_tables) }
         record(shade)
+        @spotlight_shade = shade
         @spotlight_unsaid = !said
         @spotlight = light
       end
 
+
+      # THE HOOK BEHIND Spotlight#shape: the block's statements become the ones the light runs
+      # once a row, and what it gives back the row's two edges, held to the screen. The circle
+      # the light had is put aside.
+      def record_light_shape(light, &block)
+        refuse_light_shape_with_no_block!(block)
+        refuse_second_light_shape!
+        shade = @spotlight_shade
+        before = @variables.keys
+        shade.children.clear
+        edges = nil
+        begin
+          @shaping_light = true
+          push_container(shade) { edges = yield(DSL::Value.handed_to_block(self, Build.var_ref(Spotlights::ROW))) }
+        ensure
+          @shaping_light = false
+        end
+        left, right = light_edges(light, edges)
+        shade.left = DSL::Value.node_for(left)
+        shade.right = DSL::Value.node_for(right)
+        own = @variables.keys - before
+        refuse_light_shape_with_side_effects!(shade, own)
+        start_own_variables_every_row(shade, own)
+        @light_shape_own = own
+        @light_shaped = true
+      end
+
+      # THE HOOK BEHIND Spotlight#circle: the statements that work out the light's circle on
+      # +row+, into a variable of the shape's own, which is handed back.
+      def light_circle(light, row)
+        unless @shaping_light
+          raise ArgumentError, "`light.circle` works out a row of the light's circle for a shape. " \
+                               "To use it, call it inside `light.shape { |row| ... }`."
+        end
+
+        @light_circles = (@light_circles || 0) + 1
+        Spotlights.work_out_half_width(self, light, @spotlight_tables, row: row, into: :"__spotlight_circle_#{@light_circles}")
+      end
 
       # Fill a rectangle at a fixed position and size.
       #
@@ -616,6 +657,7 @@ module RubyGBA
       def finalize_light_switch
         return unless @spotlight
 
+        refuse_light_shape_variable_shared!
         dark = IR::LightScenes.dark(program)
         return if dark.empty?
 
@@ -628,6 +670,115 @@ module RubyGBA
         end
         light = IR::LightScenes.light_of(program)
         light.amount = Build.binop(:*, light.amount, Build.var_ref(IR::LightScenes::ON))
+      end
+
+      def refuse_light_shape_with_no_block!(block)
+        return if block
+
+        raise ArgumentError, "`light.shape` needs a block that gives back each row of the light: " \
+                             "`light.shape { |row| 40 - (row - light.y).abs }`."
+      end
+
+      def refuse_second_light_shape!
+        return unless @light_shaped
+
+        raise ArgumentError, "This game gives the light a shape twice. A light has one shape. " \
+                             "To fix this, keep one `light.shape`, and work the difference out inside it."
+      end
+
+      # A ROW'S TWO EDGES, held to the screen, from what a shape gave back: a half width either
+      # side of the light's middle (never less than nothing), or [left, right] as they are.
+      def light_edges(light, edges)
+        screen = Console::Hardware::SCREEN_WIDTH
+        number = ->(edge) { edge.is_a?(Integer) || edge.is_a?(DSL::Value) }
+        if edges.is_a?(Array) && edges.length == 2 && edges.all?(&number)
+          left, right = edges
+        elsif number.call(edges)
+          half = edges.clamp(0, screen)
+          left = light.x - half
+          right = light.x + half
+        else
+          refuse_light_edges!(edges)
+        end
+        [left.clamp(0, screen), right.clamp(0, screen)]
+      end
+
+      def refuse_light_edges!(edges)
+        raise ArgumentError, "`light.shape` needs a block that gives back a half width (a number) " \
+                             "or a row's two edges, [left, right]. This one gave back #{edges.inspect}."
+      end
+
+      # WHAT A SHAPE MAY DO, and why it is a short list: the rows are worked out in the gap before
+      # a frame, and the console skips them on a frame where nothing they read has changed. So a
+      # row has to come out of the row and the game's numbers alone. A shape works numbers out —
+      # from variables, tables and arithmetic — keeps them in variables of its own, branches and
+      # loops; anything else would read something the console does not watch, or change the game
+      # at different times on different machines.
+      LIGHT_SHAPE_STATEMENTS = %i[set add sub copy negate abs negate_abs clamp if else repeat table].freeze
+      LIGHT_SHAPE_VALUES = %i[int var_ref binop neg bit_not absolute clamped mul_fix div_fix shift_right
+                              table_get data_byte].freeze
+
+      # What the commonest things a shape cannot do are, said as the game says them.
+      LIGHT_SHAPE_CANNOT = { list_get: "read a list", list_len: "read a list", held: "read the buttons",
+                             pressed: "read the buttons", chance: "pick a number at random",
+                             call: "call a routine", call_one_of: "call a routine" }.freeze
+
+      # Refused where the shape is written, so the error points at it: anything off the list above,
+      # a random number, which moves the stream every other part of the game draws from, and a
+      # change to any variable the shape did not declare.
+      def refuse_light_shape_with_side_effects!(shade, own)
+        [*shade.children, shade.left, shade.right].flat_map { |part| part.walk.to_a }.each do |node|
+          written = IR::LightScenes.written_var(node)
+          if written == Randomness::RNG_STATE
+            raise ArgumentError, "The light's shape picks a number at random. The random numbers are one stream " \
+                                 "ruby-gba keeps for the whole game, and a shape cannot move it. To fix this, pick " \
+                                 "the number outside the shape into a variable, and read that variable in the shape."
+          end
+          unless (node.value? ? LIGHT_SHAPE_VALUES : LIGHT_SHAPE_STATEMENTS).include?(node.kind)
+            did = LIGHT_SHAPE_CANNOT.fetch(node.kind) { "use `#{Messages::PlainWords.verb(node.kind)}`" }
+            raise ArgumentError, "The light's shape tries to #{did}. A shape can only work numbers out from " \
+                                 "the game's numbers and tables, keep them in variables it declares, branch and " \
+                                 "repeat. To fix this, do the work outside the shape, keep the number in a " \
+                                 "variable, and read that variable in the shape."
+          end
+          next if written.nil? || own.include?(written)
+
+          raise ArgumentError,
+                "The light's shape changes the variable :#{written}. A shape can change only the variables it " \
+                "declares itself. To fix this, declare a variable inside the shape's block, or change " \
+                ":#{written} outside the shape."
+        end
+      end
+
+      # A SHAPE'S OWN VARIABLES START EVERY ROW AS THEY WERE DECLARED. Nothing then carries from
+      # one row to the next, or from one frame to the next, so a row is the row and the game's
+      # numbers and nothing else — which is what lets the console keep rows it worked out before.
+      def start_own_variables_every_row(shade, own)
+        own.reverse_each do |name|
+          start = @boot_inits.find { |node| node.kind == :set && node.var == name }&.value
+          reset = Build.set(name, start ? start.copy : Build.int(0))
+          shade.children.unshift(reset)
+          reset.parent = shade
+        end
+      end
+
+      # The variables a shape declared are its alone: one the rest of the game also reads or
+      # changes would be put back every row, so the game would see it change for no reason, and
+      # on the console only on the frames whose rows are worked out again.
+      def refuse_light_shape_variable_shared!
+        return unless @light_shape_own&.any?
+
+        in_shade = @spotlight_shade.walk.to_set
+        program.walk.reject { |node| in_shade.include?(node) }.each do |node|
+          named = node.kind == :copy ? [node.src, node.dest] : [IR::LightScenes.written_var(node), (node.name if node.kind == :var_ref)]
+          shared = (named & @light_shape_own).first
+          next unless shared
+
+          raise ArgumentError,
+                "The light's shape declares the variable :#{shared}, and the rest of the game uses it too. " \
+                "A shape puts its own variables back on every row. To fix this, give the shape's variable " \
+                "a name of its own."
+        end
       end
 
       # A GAME HAS ONE LIGHT. The console has one window shaped row by row, and a light is
