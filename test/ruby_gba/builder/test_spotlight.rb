@@ -121,6 +121,96 @@ class TestSpotlight < Minitest::Test
     assert_backends_agree(crowded, frames: 2)
   end
 
+  # --- the circle's edge, row by row ---
+
+  # THE CIRCLE A LIGHT LIGHTS IS THE MIDPOINT CIRCLE, the one games of this console draw their
+  # window circles with, so a game copying one lands on every pixel of it. This is that circle
+  # written out the way The Minish Cap writes it (tmc: src/common.c, sub_0801E24C makes the half
+  # widths and sub_0801E290 turns them into a span for rows y - n and y + n, n below the size):
+  # each row's [left, right), the right edge one past the last lit column; nil for a row the
+  # circle does not reach.
+  private def game_circle_spans(x, y, size)
+    widths = Array.new(size + 1, 0)
+    across = 0
+    down = size
+    turn = 3 - (2 * size)
+    while across <= down
+      widths[across] = down
+      widths[down] = across
+      if turn.negative?
+        turn += 6 + (across * 4)
+      else
+        turn += 10 + ((across - down) * 4)
+        down -= 1
+      end
+      across += 1
+    end
+    spans = Array.new(HEIGHT)
+    size.times do |n|
+      left = [x - widths[n], 0].max
+      right = x + widths[n] > 239 ? 240 : x + widths[n]
+      [y - n, y + n].each { |row| spans[row] = [left, right] if (0...HEIGHT).cover?(row) }
+    end
+    spans
+  end
+
+  # Each row's lit columns in a picture of a white room under a light of darkness 100, as
+  # [left, right), or nil for a row with none.
+  private def lit_spans(screen)
+    Array.new(HEIGHT) do |row|
+      lit = (0...WIDTH).select { |column| screen.pixel(column, row) == WHITE }
+      lit.empty? ? nil : [lit.first, lit.last + 1]
+    end
+  end
+
+  # The rows two lists of spans disagree on, said row by row: minitest's own diff of two long
+  # lists cannot run inside a Ractor.
+  private def assert_same_spans(expected, got, what)
+    wrong = (0...HEIGHT).reject { |row| expected[row] == got[row] }
+    assert wrong.empty?, "#{what}: #{wrong.size} rows differ, the first #{wrong.first(3).map do |row|
+      "row #{row} is #{got[row].inspect}, the game's #{expected[row].inspect}"
+    end.join('; ')}"
+  end
+
+  def test_each_row_of_the_light_is_the_midpoint_circles
+    [[120, 80, 82], [120, 80, 1], [120, 80, 2], [120, 80, 150], [184, 96, 4], [184, 96, 37],
+     [0, 0, 30], [239, 159, 61], [30, 150, 146]].each do |x, y, size|
+      assert_same_spans game_circle_spans(x, y, size),
+                        lit_spans(shown(lit_room(radius: size, dark: 100) { |light| light.move_to x, y })),
+                        "a light of size #{size} at (#{x}, #{y})"
+    end
+  end
+
+  # One row read off the real cartridge rather than worked out by the copy above, so a slip made
+  # the same way in the copy and in the framework would still be caught: at size 82 centred on
+  # (120, 80), the top row of the screen is lit from column 100 up to 140.
+  def test_the_top_row_of_a_size_82_circle_is_the_cartridges
+    assert_equal [100, 140], lit_spans(shown(lit_room(radius: 82, dark: 100)))[0]
+  end
+
+  def test_the_console_draws_the_midpoint_circle
+    [[120, 80, 82], [184, 96, 146], [239, 0, 9]].each do |x, y, size|
+      game = lit_room(radius: size, dark: 100) { |light| light.move_to x, y }
+      assert_backends_agree(game, frames: 2, name: "MID#{size}")
+    end
+  end
+
+  # Every size an iris passes through, one a frame, read off one run: the size the game sets in a
+  # frame is drawn on the next picture, as a sprite's place is.
+  def test_every_size_up_to_150_is_the_midpoint_circle
+    walking = lit_room(radius: 0, dark: 100) do |light|
+      once_a_frame { (light.radius < 150).then { light.radius.add! 1 } }
+    end
+    seen = []
+    run = game_player
+    run.each_vblank { seen << lit_spans(run.screen) }
+    run.run(walking, frames: 152)
+
+    (0..150).each do |size|
+      assert_same_spans game_circle_spans(120, 80, size), seen[size + 1], "a light of size #{size}"
+    end
+  end
+
   # --- a light beside the other things that darken a picture ---
 
   # A FADE AND A LIGHT ARE BOTH IN FORCE. The display has one darkening, and the light holds
@@ -137,6 +227,74 @@ class TestSpotlight < Minitest::Test
     refute_equal Color.rgb(0, 0, 0), inside
     assert (outside & 31) < (inside & 31), "outside the light is darker than inside it"
     assert_backends_agree(faded, frames: 2)
+  end
+
+  # --- a light that takes turns with another scene's mixing ---
+
+  # A title that sees through red water to a white room, then from frame 6 a scene with a light
+  # of darkness 100. +back+ starts in the lit scene and goes to the title instead.
+  private def title_then_light(title: nil, back: false)
+    title ||= -> { layer(:water, transparency: 50) { background :pond, tiles: :set, map: ["r" * 32] * 32 } }
+    program do
+      screen :tiled
+      layers :ground, :water
+      image(:white_tile, "#" => :white) { (["#" * 8] * 8).join("\n") }
+      image(:red_tile, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      tiles :set, "#" => :white_tile, "r" => :red_tile
+      layer(:ground) { background :room, tiles: :set, map: ["#" * 32] * 32 }
+      mode = var :mode, back ? 1 : 0
+      turn = var :turn, 0
+      spotlight at: [120, 80], radius: 40, dark: 100
+      scene(:title) { instance_exec(&title) }
+      scene(:playing) {}
+      game_loop do
+        turn.add! 1
+        (turn == 6).then { mode.set! back ? 0 : 1 }
+        case_var(:mode) { when_val 0, :title; when_val 1, :playing }
+      end
+    end
+  end
+
+  # The frames compared: either side of the change of scene on frame 6, and well after it.
+  TURN_FRAMES = [3, 6, 7, 8, 12].freeze
+
+  # THE LIGHT IS OFF IN A SCENE THAT SEES THROUGH A LAYER, and on in the rest: the display's
+  # mixing is told afresh every frame, so the title's water is mixed and the next scene is lit.
+  def test_a_light_is_off_in_a_scene_that_sees_through_a_layer
+    title = shown(title_then_light, frames: 3)
+    playing = shown(title_then_light, frames: 12)
+
+    assert_equal title.pixel(120, 80), title.pixel(5, 5), "the title is mixed the same everywhere"
+    refute_equal WHITE, title.pixel(5, 5), "...with the water in it"
+    refute_equal Color.rgb(0, 0, 0), title.pixel(5, 5), "...and not darkened"
+    assert_equal WHITE, playing.pixel(120, 80), "the next scene is lit inside the light"
+    assert_equal Color.rgb(0, 0, 0), playing.pixel(5, 5), "and dark outside it"
+  end
+
+  def test_the_console_takes_turns_the_same_way
+    assert_backends_agree(title_then_light, frames: TURN_FRAMES, name: "TURNS")
+  end
+
+  # The same with a fade placed in the stack in place of the water: the title is half faded
+  # under the water's place, the light off, and then the next scene is lit.
+  def test_a_light_is_off_in_a_scene_that_fades_under_a_layer
+    fading = title_then_light(title: lambda {
+      layer(:water) { background :pond, tiles: :set, map: ["r" * 32] * 32 }
+      fade :black, 50, under: :water
+    })
+    title = shown(fading, frames: 3)
+
+    assert_equal title.pixel(120, 80), title.pixel(5, 5), "the title is faded the same everywhere"
+    assert_backends_agree(fading, frames: TURN_FRAMES, name: "FADES")
+  end
+
+  # ...and back again: coming back to the title from the lit scene, the water is mixed again.
+  def test_coming_back_to_a_scene_that_sees_through_a_layer_turns_the_light_off_again
+    back = title_then_light(back: true)
+    screen = shown(back, frames: 12)
+
+    assert_equal screen.pixel(120, 80), screen.pixel(5, 5), "the title is mixed the same everywhere again"
+    assert_backends_agree(back, frames: TURN_FRAMES, name: "BACK")
   end
 
   # --- what a light refuses ---

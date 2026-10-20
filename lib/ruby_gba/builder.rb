@@ -549,6 +549,7 @@ module RubyGBA
       finalize_changing_color_lists
       finalize_background_affine
       finalize_layer_blend
+      finalize_light_switch
       finalize_per_frame_routines
       finalize_per_pass_routines
       refuse_non_scenes_in_scene_dispatch!

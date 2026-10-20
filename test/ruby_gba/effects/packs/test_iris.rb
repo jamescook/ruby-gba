@@ -125,11 +125,84 @@ class TestIris < Minitest::Test
     assert all_one_color?(shown(opening, frames: 30), WHITE), "and opens onto the room"
   end
 
-  # The walk starts at about the farthest corner, so the very first frames already close.
+  # The walk starts at about the farthest corner, so the very first frames already close. (The
+  # corner is 144 and a fraction from the middle, which a midpoint circle of 144 still reaches.)
   def test_the_circle_is_seen_closing_from_the_first_frames
-    early = shown(room(before: -> { iris_out at: [120, 80], frames: 20 }), frames: 4)
+    early = shown(room(before: -> { iris_out at: [120, 80], frames: 20 }), frames: 5)
 
-    assert_equal BLACK, early.pixel(0, 0), "a corner has gone after three frames of twenty"
+    assert_equal BLACK, early.pixel(0, 0), "a corner has gone after four frames of twenty"
+  end
+
+  # --- a walk said in pixels a frame ---
+
+  # The light's size and darkness, and whether the iris says it is shut, at the end of each frame
+  # of a run, read off the light's own handle (which the game can read too): what a frame sets is
+  # drawn on the next picture, which test_spotlight.rb holds to every row of the circle.
+  private def walk_of(prog, frames)
+    seen = []
+    run = game_player
+    run.each_vblank { seen << [run[:size_now], run[:dark_now], run[:closed]] }
+    run.run(prog, frames: frames)
+    seen
+  end
+
+  # What every frame of the loop keeps, for #walk_of to read.
+  private def keep_light_readings = lambda {
+    light = spotlight
+    var(:size_now, 0).set! light.radius
+    var(:dark_now, 0).set! light.dark
+    closed = var :closed, 0
+    iris_shut?.then { closed.set! 1 }
+  }
+
+  # THE GAME'S OWN WALK: The Minish Cap starts a closing iris at 150 and takes 4 off every frame
+  # (tmc: src/fade.c, SetFadeIris and FadeMain), so the sizes shown are 146, 142 ... 2 and then
+  # nought, and the iris is shut on the frame its size reaches nought.
+  def test_an_iris_out_can_start_at_a_size_and_close_by_pixels_a_frame
+    closing = room(before: -> { iris_out at: [120, 80], from: 150, by: 4 }, each: keep_light_readings)
+    seen = walk_of(closing, 45)
+    start = seen.index { |size, _, _| size == 146 }
+
+    refute_nil start, "the first size is 146: #{seen.inspect}"
+    sizes = seen[start, 38].map(&:first)
+    assert sizes == [*146.step(2, -4), 0], "146, 142 ... 2, then nought: #{sizes.inspect}"
+    assert_equal start + 37, seen.index { |_, _, closed| closed == 1 }, "shut on the frame the size is nought: #{seen.inspect}"
+  end
+
+  # ...and the opening one goes the other way, from nought by 4 a frame, and lets the light go
+  # once it passes the size it was given.
+  # It stops once the size is PAST the one given, as the game's does: to 150 the last size shown
+  # is 148, and to 148 it is 148 too, since 148 is not past it.
+  def test_an_iris_in_can_open_by_pixels_a_frame_to_a_size
+    keep = keep_light_readings
+    [150, 148].each do |to|
+      opening = room(before: -> { spotlight at: [120, 80], radius: 0, dark: 100 },
+                     each: lambda {
+                       instance_exec(&keep)
+                       turn = var :turn, 0
+                       turn.add! 1
+                       (turn == 3).then { iris_in by: 4, to: to, radius: 200, dark: 0 }
+                     })
+      seen = walk_of(opening, 45)
+      start = seen.index { |size, _, _| size == 4 }
+
+      refute_nil start, "the first size is 4: #{seen.inspect}"
+      sizes = seen[start, 37].map(&:first)
+      assert sizes == [*4.step(148, 4)], "to #{to}: 4, 8 ... 148: #{sizes.inspect}"
+      assert_equal [200, 0], seen[start + 37].first(2), "past #{to} the light is let go, as radius: and dark: say"
+    end
+  end
+
+  def test_the_console_walks_the_same_circle_by_pixels
+    closing = room(before: -> { iris_out at: [120, 80], from: 150, by: 4 })
+    assert_backends_agree(closing, frames: [5, 20, 40])
+  end
+
+  def test_a_walk_said_both_in_pixels_and_in_frames_is_refused
+    error = assert_raises(ArgumentError) { room(before: -> { iris_out by: 4, frames: 10 }) }
+
+    assert_match(/`by:`/, error.message)
+    assert_match(/`frames:`/, error.message)
   end
 
   def test_an_iris_out_never_brought_back_is_a_warning

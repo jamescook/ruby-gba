@@ -136,6 +136,60 @@ module RubyGBA
               @row_bends[node.name] = node if node.kind == :scroll_rows # last wins if repeated
               @light = node if node.kind == :shade_outside
             end
+            @dark_scenes = IR::LightScenes.switches?(program) ? IR::LightScenes.dark(program).keys : []
+          end
+
+          # What the blend unit is told while the light is on: darken every layer, the sprites
+          # and the backdrop, by however much the frame says.
+          LIGHT_CONTROL = BLD_DARKEN | BLD_ALL_LAYERS
+
+          # Does the light take turns with scenes it is off in (see IR::LightScenes)?
+          def switches_light? = @light && !@dark_scenes.empty?
+
+          # WHETHER THE LAST GAP BETWEEN FRAMES SWITCHED THE LIGHT ON, 1 or 0. A lit scene's
+          # pass reads it to tell the blend unit the same, so a scene arriving from one the light
+          # was off in shows its first picture with no light, as every backend does.
+          LIGHT_SHOWN = :_light_shown
+
+          # TAKING TURNS WITH THE LIGHT, said by a scene as its pass starts. The light switches
+          # OFF at once — the scene it is off in takes the blend unit for its own mixing there and
+          # then, and lets that mixing through the light's window, inside as well as out — and
+          # back ON only at the next gap between frames, where its darkness is worked out (see
+          # #emit_light_for_scene). This is what the other backends do, by the same rule
+          # (Reference#advance_frame).
+          #
+          # A scene the light is off in hands back the light's darkening before anything of its
+          # own is told the blend unit, so what it then says is not taken for a fade holding it.
+          def emit_light_leaving(scene)
+            return unless switches_light? && @dark_scenes.include?(scene)
+
+            @emitter.write_reg16(REG_WININ, WIN_ALL_LAYERS | WIN_EFFECT)
+            kept = @emitter.gensym
+            @emitter.emit_number(ADDR, REG_BLDCNT)
+            @emitter.emit(ASM.load_halfword(ACC, ADDR))
+            @emitter.emit_number(TMP, LIGHT_CONTROL)
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+            @emitter.emit_branch(:bcond, kept, cond: :ne)
+            @emitter.write_reg16(REG_BLDCNT, BLD_OFF)
+            @emitter.place_label(kept)
+          end
+
+          # ...and a scene the light is on in tells the blend unit what the last gap did: the
+          # darkening if it switched the light on, nothing if the light is still off. Said after
+          # anything else the scene tells the blend unit, so it is the last word.
+          def emit_light_for_lit_scene(scene)
+            return unless switches_light? && !@dark_scenes.include?(scene)
+
+            shown = @emitter.gensym
+            done = @emitter.gensym
+            @primitives.load_var(ACC, LIGHT_SHOWN)
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, shown, cond: :ne)
+            @emitter.write_reg16(REG_BLDCNT, BLD_OFF)
+            @emitter.emit_branch(:b, done)
+            @emitter.place_label(shown)
+            @emitter.write_reg16(REG_BLDCNT, LIGHT_CONTROL)
+            @emitter.place_label(done)
           end
 
           # Whether any row is answered per line by an interrupt — which is what decides
@@ -246,8 +300,29 @@ module RubyGBA
             @emitter.write_reg16(REG_WIN0V, VISIBLE_LINES)
             @emitter.write_reg16(REG_WININ, WIN_ALL_LAYERS)
             @emitter.write_reg16(REG_WINOUT, WIN_ALL_LAYERS | WIN_EFFECT)
-            @emitter.write_reg16(REG_BLDCNT, BLD_DARKEN | BLD_ALL_LAYERS)
+            @emitter.write_reg16(REG_BLDCNT, LIGHT_CONTROL)
             @emitter.write_reg16(REG_BLDY, 0)
+          end
+
+          # THE LIGHT AT THE GAP BETWEEN FRAMES, in a game where it takes turns: where the scene
+          # that just ran has it on, it is the darkening and a window whose inside is left alone,
+          # as at boot, and its darkness for the frame to come. Either way the gap remembers what
+          # it did, for the next pass of a lit scene to say (see #emit_light_for_lit_scene). Where
+          # the light is off the scene has already said so (see #emit_light_leaving).
+          def emit_light_for_scene
+            off = @emitter.gensym
+            done = @emitter.gensym
+            @primitives.load_var(ACC, IR::LightScenes::ON)
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, off, cond: :eq)
+            @emitter.write_reg16(REG_WININ, WIN_ALL_LAYERS)
+            @emitter.write_reg16(REG_BLDCNT, LIGHT_CONTROL)
+            emit_light_amount
+            @primitives.store_word_immediate(1, @primitives.var_addr(LIGHT_SHOWN))
+            @emitter.emit_branch(:b, done)
+            @emitter.place_label(off)
+            @primitives.store_word_immediate(0, @primitives.var_addr(LIGHT_SHOWN))
+            @emitter.place_label(done)
           end
 
           # How dark outside the light is this frame: the program's amount, 0 to 100, turned
@@ -298,7 +373,9 @@ module RubyGBA
           # reason: it is a register the whole picture reads.
           def emit_fill_row_bend_tables
             feed_keys.each { |key| emit_first_row(key) }
-            emit_light_amount if @light
+            if switches_light? then emit_light_for_scene
+            elsif @light then emit_light_amount
+            end
             feed_keys.each { |key| emit_fill_row_table(key) }
           end
 
@@ -340,16 +417,14 @@ module RubyGBA
           # The variable a thing fed by rows is handed each row number in.
           def row_var(key) = key == LIGHT ? @light.row : @row_bends.fetch(key).row
 
-          # The number for the row now in that variable, left in r0. For a bending layer:
-          # whatever else its block does, then its offset, measured from the layer's own
-          # scroll. For the light: its span, as the window's register holds one — the left
-          # edge in the high byte and the right in the low.
+          # The number for the row now in that variable, left in r0. First whatever else the
+          # thing works out once a row. Then, for a bending layer, its offset, measured from the
+          # layer's own scroll; for the light, its span, as the window's register holds one —
+          # the left edge in the high byte and the right in the low.
           def emit_row_value(key)
-            return @lowering.value(light_span) if key == LIGHT
-
-            node = @row_bends.fetch(key)
+            node = key == LIGHT ? @light : @row_bends.fetch(key)
             node.children.each { |child| @lowering.statement(child) }
-            @lowering.value(Build.binop(:+, node.offset, @row_bend_base[node.name]))
+            @lowering.value(key == LIGHT ? light_span : Build.binop(:+, node.offset, @row_bend_base[node.name]))
           end
 
           def light_span = Build.binop(:|, Build.binop(:<<, @light.left, Build.int(8)), @light.right)

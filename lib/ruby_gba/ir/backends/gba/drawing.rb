@@ -457,7 +457,9 @@ module RubyGBA
             emit_scene_mode(name) if @layout.modes.switched_per_scene?
             emit_painted_run_places(name)
             emit_scene_scenery(name)
+            @raster.emit_light_leaving(name) # before the scene tells the blend unit its own mixing
             emit_scene_blend(name)
+            @raster.emit_light_for_lit_scene(name) # ...and after, so it is the last word
             emit_scene_layers(name)
           end
 

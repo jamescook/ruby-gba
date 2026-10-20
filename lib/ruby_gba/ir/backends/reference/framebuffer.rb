@@ -53,6 +53,7 @@ module RubyGBA
             @block = 1
             @spans = nil
             @shade_steps = 0
+            @light_off = false
           end
 
           # TWO PAGES, OR ONE. A tear-free screen is two pictures rather than one: the
@@ -284,11 +285,15 @@ module RubyGBA
             @shade_steps = steps
           end
 
+          # Whether the scene that just ran has the game's light switched off: then nothing is
+          # darkened, whatever the light was last worked out to be.
+          attr_writer :light_off
+
           # Is (x, y) inside its row's span? A span whose left is past its right comes round
           # the edge of the screen — from left to the right edge and from the left edge to
           # right — which is what the console's window does with one.
           def lit?(x, y)
-            return true if @shade_steps.zero?
+            return true if @shade_steps.zero? || @light_off
 
             left, right = @spans[y]
             left <= right ? x >= left && x < right : x >= left || x < right

@@ -921,6 +921,7 @@ module RubyGBA
 
           spans = Array.new(Framebuffer::HEIGHT) do |row|
             @vars[@shade.row] = row
+            @shade.children.each { |child| exec(child) } # what the light works out once a row, before its edges
             [eval_value(@shade.left), eval_value(@shade.right)]
           end
           @screen.shade_outside(spans, FadeSteps.sixteenths(eval_value(@shade.amount)))
@@ -1012,6 +1013,12 @@ module RubyGBA
         # be spotted), advance the frame counter, and pull the next frame's input
         # if a script is driving it.
         def advance_frame
+          # A LIGHT THAT TAKES TURNS GOES OFF WITH THE PASS that switched it off: the scene it is
+          # off in takes the display's mixing for its own as it starts. It comes back on only
+          # from the light worked out at this gap, a frame later (see IR::LightScenes and
+          # GBA::Raster#emit_light_leaving). A game whose light never takes turns has no switch.
+          @screen.light_off = @vars.fetch(IR::LightScenes::ON, 1).zero?
+
           # A frame boundary is the one safe moment to swap the pages of a tear-free
           # screen, so it happens FIRST — before either stop below. The frame whose
           # drawing just finished is the one being published, and a run that stops here

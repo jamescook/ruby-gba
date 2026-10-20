@@ -52,7 +52,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 - `pixelate 8` / `under:` — show the screen in blocks, 1..16.
 - `pixelate_out` / `pixelate_in` — the blocks walked over time; `pixelate_size` → `Value`, the walk's block size now.
 - `spotlight at:, radius:, dark:` → `Spotlight` — a light: picture inside a circle, darkened outside (tiled only, one per game).
-- `iris_out at:` / `iris_in` / `iris_shut?` — a circle closing to black and opening again, on the game's light.
+- `iris_out at:` / `iris_in` / `iris_shut?` — a circle closing to black and opening again, on the game's light; `from: 150, by: 4` (and `iris_in by:, to:`) walks it in pixels a frame.
 - `pulse sprite, to: 1.3` — a tiled sprite that grows and shrinks for ever.
 - `keep_showing :name do … end` → handle with `.changed`, `.draw`, `.cancel` — a picture painted only when it changes, right on a two-page screen.
 - `shake_screen intensity:, frames:` — shake on impact, then put the picture back.

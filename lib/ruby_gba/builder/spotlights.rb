@@ -10,7 +10,11 @@ module RubyGBA
     # nothing at the top and bottom, so all of this is working out how wide the circle is on
     # a given row.
     #
-    # THAT IS A SQUARE ROOT, which nothing on the console does quickly, so it is looked up.
+    # UP TO A SIZE OF 150 IT IS THE MIDPOINT CIRCLE, looked up row by row from a table of every
+    # such circle (see MIDPOINT_LARGEST), because that is the circle the console's games draw.
+    # Past that it is a square root:
+    #
+    # A SQUARE ROOT is something nothing on the console does quickly, so it is looked up.
     # How far a row is from the middle, as a share of the radius, picks an entry of a table
     # of half widths for a circle 256 across, and the radius scales it. Taking the share
     # would be a divide on every row; it is a multiply instead, by a second table holding
@@ -28,6 +32,9 @@ module RubyGBA
       RADIUS = :__spotlight_radius
       DARK = :__spotlight_dark
       ROW = :__spotlight_row
+
+      # The row's half width, worked out once a row before either edge reads it.
+      HALF = :__spotlight_half
 
       # How dark outside a light is when its declaration does not say: dark enough to read as
       # a light in the dark, light enough that the room is still there.
@@ -65,22 +72,76 @@ module RubyGBA
 
       module_function
 
-      # The statement that darkens the picture outside the circle +light+ says.
-      def shade_node(builder, light)
-        widths = builder.table(WIDTHS, HALF_WIDTHS, width: :half)
-        shares = builder.table(SHARES, SHARES_OF_RADIUS, width: :half)
-        row = builder.var(ROW, 0)
+      # A SMALLER CIRCLE IS THE ONE GAMES DRAW, row for row. The console's own games make their
+      # window circles with the midpoint circle — whole-number steps round an eighth of the
+      # circle, mirrored into the rest — and a game copying one has to land on its every pixel,
+      # which the scaled table above does not: it comes out a pixel or a few narrower at each
+      # edge. So up to the biggest circle such a game draws, the half widths are that circle's
+      # own, worked out here for every size and kept in the cartridge, a row of them a size.
+      # Past it the scaled table carries on, since a light that big is most of the screen.
+      MIDPOINT_LARGEST = 150
+      MIDPOINT = :__spotlight_midpoint
 
-        radius = light.radius.clamp(0, LARGEST)
-        apart = (row - light.y).abs.clamp(0, LARGEST + 1)
-        share = ((apart * shares[radius]) >> SHARE_SHIFT).clamp(0, LARGEST)
-        half = (radius * widths[share]) >> 8
+      # Entries a size: one for each row from the middle out to the largest size, and one more,
+      # always nought, that a row beyond the circle reads.
+      MIDPOINT_STRIDE = MIDPOINT_LARGEST + 2
+
+      # The midpoint circle's half width on each row from its middle out, for a circle of
+      # +size+: rows 0 to size - 1 lit, the rest nought. Written the way the console's games
+      # write it (The Minish Cap: src/common.c, sub_0801E24C) — +turn+ says whether the next
+      # step round the circle goes straight across or across and in.
+      def midpoint_half_widths(size)
+        widths = Array.new(size + 1, 0)
+        across = 0
+        down = size
+        turn = 3 - (2 * size)
+        while across <= down
+          widths[across] = down
+          widths[down] = across
+          if turn.negative?
+            turn += 6 + (across * 4)
+          else
+            turn += 10 + ((across - down) * 4)
+            down -= 1
+          end
+          across += 1
+        end
+        Array.new(MIDPOINT_STRIDE) { |row| row < size ? widths[row] : 0 }
+      end
+
+      MIDPOINT_HALF_WIDTHS = (0..MIDPOINT_LARGEST).flat_map { |size| midpoint_half_widths(size) }.freeze
+
+      # The statement that darkens the picture outside the circle +light+ says. Its edges read
+      # the row's half width, which #work_out_half_width puts in HALF first.
+      def shade_node(builder, light)
+        half = builder.var(HALF, 0)
         screen = Console::Hardware::SCREEN_WIDTH
         left = (light.x - half).clamp(0, screen)
         right = (light.x + half).clamp(0, screen)
 
         Build.shade_outside(row: ROW, left: DSL::Value.node_for(left), right: DSL::Value.node_for(right),
                             amount: DSL::Value.node_for(light.dark))
+      end
+
+      # The statements that put the row's half width in HALF, recorded where +builder+ is
+      # recording — the light's own statement, which runs them once a row. ONE of the two ways
+      # runs on a row, picked by the light's size: working out both and choosing between them
+      # would cost a row both, and the light is worked out for every row of every frame.
+      def work_out_half_width(builder, light)
+        widths = builder.table(WIDTHS, HALF_WIDTHS, width: :half)
+        shares = builder.table(SHARES, SHARES_OF_RADIUS, width: :half)
+        midpoint = builder.table(MIDPOINT, MIDPOINT_HALF_WIDTHS, width: :byte)
+        row = builder.var(ROW, 0)
+        half = builder.var(HALF, 0)
+
+        radius = light.radius.clamp(0, LARGEST)
+        apart = (row - light.y).abs.clamp(0, LARGEST + 1)
+        (radius > MIDPOINT_LARGEST).then do
+          share = ((apart * shares[radius]) >> SHARE_SHIFT).clamp(0, LARGEST)
+          half.set! (radius * widths[share]) >> 8
+        end.else do
+          half.set! midpoint[(radius * MIDPOINT_STRIDE) + apart.clamp(0, MIDPOINT_STRIDE - 1)]
+        end
       end
     end
   end

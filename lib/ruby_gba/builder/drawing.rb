@@ -453,7 +453,9 @@ module RubyGBA
 
         light = DSL::Spotlight.new(x: var(Spotlights::X, at[0]), y: var(Spotlights::Y, at[1]),
                                    radius: var(Spotlights::RADIUS, radius), dark: var(Spotlights::DARK, dark))
-        record(Spotlights.shade_node(self, light))
+        shade = Spotlights.shade_node(self, light)
+        push_container(shade) { Spotlights.work_out_half_width(self, light) }
+        record(shade)
         @spotlight_unsaid = !said
         @spotlight = light
       end
@@ -604,6 +606,28 @@ module RubyGBA
               "#{said.call(under)}. A game pixelates from one place in the stack, because which " \
               "things are drawn in blocks is settled once, before it runs. To fix this, give " \
               "every `pixelate` the same `under:`."
+      end
+
+      # SWITCH THE LIGHT OFF IN THE SCENES IT IS OFF IN: those that see through a layer, or
+      # fade under one (see IR::LightScenes). Each scene says, as it starts its pass, whether
+      # the light is on, and the light's darkness is that much of what the game says — so
+      # every backend works out the same picture from the program alone. A game whose light
+      # is on in every scene gets none of this.
+      def finalize_light_switch
+        return unless @spotlight
+
+        dark = IR::LightScenes.dark(program)
+        return if dark.empty?
+
+        var(IR::LightScenes::ON, 1)
+        scenes = IR::LightScenes.scenes(program)
+        program.walk.select { |node| node.kind == :func && scenes.include?(node.name) }.each do |scene|
+          switch = Build.set(IR::LightScenes::ON, Build.int(dark.key?(scene.name) ? 0 : 1))
+          scene.children.unshift(switch)
+          switch.parent = scene
+        end
+        light = IR::LightScenes.light_of(program)
+        light.amount = Build.binop(:*, light.amount, Build.var_ref(IR::LightScenes::ON))
       end
 
       # A GAME HAS ONE LIGHT. The console has one window shaped row by row, and a light is

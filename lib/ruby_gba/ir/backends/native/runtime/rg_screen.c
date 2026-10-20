@@ -1807,9 +1807,14 @@ void rg_screen_work_out_shade(void) {
   rg_game_shade_amount();
 }
 
+/* Framebuffer#light_off=: whether the scene that just ran has the light switched off, said as
+ * the frame ends, before it is shown (Reference#advance_frame). */
+static int32_t shade_off;
+void rg_shade_switch(int32_t on) { shade_off = on == 0; }
+
 /* Framebuffer#lit?: is (x, y) inside its row's span? */
 static int32_t lit(int32_t x, int32_t y) {
-  if (shade_steps == 0) return 1;
+  if (shade_steps == 0 || shade_off) return 1;
   int32_t left = shade_spans[y][0], right = shade_spans[y][1];
   return left <= right ? (x >= left && x < right) : (x >= left || x < right);
 }

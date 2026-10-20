@@ -462,7 +462,8 @@ module RubyGBA
           # no light, which never calls them.
           def shade_span
             body = if @shade
-                     [assign(@shade.row, call("rg_shade_line")), eval_call("rg_shade_left", value(@shade.left)),
+                     [assign(@shade.row, call("rg_shade_line")), *body_of(@shade),
+                      eval_call("rg_shade_left", value(@shade.left)),
                       eval_call("rg_shade_right", value(@shade.right))]
                    else
                      []

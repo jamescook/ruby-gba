@@ -144,6 +144,8 @@ module RubyGBA
             # The game's light: the last one written, wherever, since it stands from power-on
             # (Reference#collect_definitions), or nil for a game with none.
             @shade = program.walk.select { |node| node.kind == :shade_outside }.last
+            # ...and whether it takes turns with the scenes it is off in, said as each frame ends.
+            @switches_shade = @shade && IR::LightScenes.switches?(program)
             # What each timer does when it ticks: its handler, wherever that is written, since it
             # is the timer's from power-on (Nodes::OnTimer.of). And the number the runtime knows
             # each timer by.
@@ -562,14 +564,16 @@ module RubyGBA
             C::Function.new(name: @names.own("timer_ticks"), body: handlers, exported: true)
           end
 
-          # The runtime ends the frame (shows it, reads the buttons, keeps time), and the frame
+          # A game whose light takes turns says first whether the scene that just ran has it on
+          # (Reference#advance_frame). The runtime ends the frame (shows it, reads the buttons, keeps time), and the frame
           # counters the program can read move on, where the interpreter moves them. Last, a game
           # that bends a background it has works every bend's lines out for the pass to come
           # (Reference#work_out_bends), and a game with a light works out where it falls
           # (Reference#work_out_shade).
           def lower_wait_vblank(_node)
             count = variable(Frames::COUNT)
-            [eval_call("rg_wait_vblank"),
+            [*(@switches_shade ? [eval_call("rg_shade_switch", variable(IR::LightScenes::ON))] : []),
+             eval_call("rg_wait_vblank"),
              assign(Frames::COUNT, call("rg_add", count, C::Int.new(1))),
              assign(Frames::SEEN, count),
              assign(Frames::STEP, C::Int.new(1)),

@@ -24,6 +24,7 @@ require_relative "ir/late_pages" # ...and when a page finished too late is shown
 require_relative "ir/movement" # ...and which of the things it stacks move, so the rest need not be redrawn
 require_relative "ir/see_through" # the layers a program can be seen through, and their mix
 require_relative "ir/fading" # ...and the one rule saying which part of the display a fade uses
+require_relative "ir/light_scenes" # ...and which scenes a light is off in, to let one of those have it
 require_relative "ir/tunes" # which tunes a program plays, and the mixer voices they keep
 require_relative "ir/mixing" # ...and how its recordings are added together into one stream
 require_relative "ir/verifier"

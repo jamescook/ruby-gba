@@ -15,6 +15,11 @@ module RubyGBA
         #
         # A plain fade is NOT among them: a game with a light fades by walking its colours,
         # so the two are both in force (see IR::Fading).
+        #
+        # A SEE-THROUGH LAYER OR A PLACED FADE IN ANOTHER SCENE IS NOT EITHER. The display is
+        # told what to mix afresh every frame, and a game is in one scene at a time, so the
+        # light is off in such a scene and on in the rest (see IR::LightScenes). What is
+        # refused is one scene with both, or a game with no scenes, which is one screen.
         class LightCannotShare
           NAME = :light_cannot_share
           PLAIN_NAME = "a light beside something that needs the same part of the display"
@@ -24,28 +29,47 @@ module RubyGBA
           LIGHT = "a light (a `spotlight` or an `iris_out`)"
 
           def detect(program)
-            light = program.walk.find { |node| node.kind == :shade_outside }
+            light = LightScenes.light_of(program)
             return [] unless light
 
-            [see_through(program), placed_fade(program), untiled_screen(program), no_frames(program)]
+            sharing = LightScenes.scenes(program).empty? ? one_screen_sharing(program) : scenes_sharing(program)
+            [*sharing, untiled_screen(program), no_frames(program)]
               .compact.map { |message| Finding.new(check: NAME, severity: :error, node: light, message: message) }
           end
 
           private
 
-          def see_through(program)
-            layer = SeeThrough.layers(program).first or return nil
-
-            "This game has #{LIGHT}, and the layer :#{layer.name} is see-through. Both use the one " \
-              "part of the console that mixes the picture, and it can do one of the two. To fix this, " \
-              "remove `transparency:` (or `shows:`) from :#{layer.name}, or remove the light."
+          # A game with no scenes is one screen, and the light is on all of it.
+          def one_screen_sharing(program)
+            layer = SeeThrough.layers(program).first
+            fade = program.walk.find { |node| LightScenes.placed_fade?(node) }
+            [layer && see_through_message(layer, nil), fade && placed_fade_message(fade, nil)]
           end
 
-          def placed_fade(program)
-            fade = program.walk.find { |node| node.kind == :fade && node.under } or return nil
+          # Each scene that moves the light and is one the light is off in, and a fade placed by
+          # code outside every scene, which is in force in all of them.
+          def scenes_sharing(program)
+            scenes = LightScenes.dark_scenes_moving_light(program).map do |routine, why|
+              scene = routine.to_s.delete_prefix(ScreenInsideScene::SCENE_PREFIX)
+              why.kind == :fade ? placed_fade_message(why, scene) : see_through_message(why, scene)
+            end
+            fade = LightScenes.placed_fade_outside_scenes(program)
+            fade ? scenes + [placed_fade_message(fade, nil)] : scenes
+          end
 
-            "This game has #{LIGHT}, and it fades under the layer :#{fade.under}. A fade placed in " \
-              "the stack and a light both use the console's one darkening. To fix this, fade the " \
+          def see_through_message(layer, scene)
+            where = scene ? "in the scene :#{scene}, which uses the light, " : ""
+            fix = scene ? "use the light in a scene that sees through no layer, or " : ""
+            "This game has #{LIGHT}, and #{where}the layer :#{layer.name} is see-through. Both use the one " \
+              "part of the console that mixes the picture, and that part can do one of the two at a time. " \
+              "To fix this, #{fix}remove `transparency:` (or `shows:`) from :#{layer.name}, or remove the light."
+          end
+
+          def placed_fade_message(fade, scene)
+            who = scene ? "the scene :#{scene}, which uses the light," : "it"
+            fix = scene ? "use the light in a scene that fades under no layer, or " : ""
+            "This game has #{LIGHT}, and #{who} fades under the layer :#{fade.under}. A fade placed in " \
+              "the stack and a light both use the console's one darkening. To fix this, #{fix}fade the " \
               "whole screen: remove `under: :#{fade.under}`."
           end
 
