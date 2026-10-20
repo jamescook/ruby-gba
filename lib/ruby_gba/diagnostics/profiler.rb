@@ -79,6 +79,17 @@ module RubyGBA
       # why two and not one.
       FLICKER_GAP = 2
 
+      # THE FIRST PASS AFTER POWER-ON: how many breaks between pictures it ran through, each a
+      # picture later for the first picture, and how many lines before the next break it ended —
+      # below nothing for one that ended a few lines into a break. Both nil for one still running
+      # when the measuring stopped, which is said rather than left out: "we did not see it end"
+      # must never read as "there was nothing to see".
+      FirstPass = Data.define(:missed, :ended_before) do
+        def self.of(pass) = pass ? new(missed: pass.missed, ended_before: pass.ended_before) : new(missed: nil, ended_before: nil)
+
+        def finished? = !ended_before.nil?
+      end
+
       # A finished profile. +unattributed+ is the share that ran outside every routine the build
       # knows about.
       # ONE KIND OF COPY INTO VIDEO MEMORY over the measured frames: what it is, how many times it
@@ -89,10 +100,15 @@ module RubyGBA
       # pictures that began while it ran, how many lines sooner it had to end. Such a pass
       # waits for the break after, a whole picture, however few lines late it was — so a game
       # whose rate halves for one line of work says why here and nowhere else.
+      #
+      # +power_on_pass+ is the first pass after power-on, the one the setting up is in (see
+      # FirstPass). Only a run from power-on with no settling sees that pass whole, so on any other
+      # it is nil. A game that sets up a little more as it grows is on time until the day it is a
+      # whole picture later, and the lines say how near that day is.
       Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
                            :reached, :tearing, :flicker, :tick_rates, :sound_drops, :video_copies,
                            :late_passes, :split_hints, :list_touches, :late_hand_overs,
-                           :pages_shown_at_once, :pages_shown_part_way) do
+                           :pages_shown_at_once, :pages_shown_part_way, :power_on_pass) do
         # +split_hints+ are the parts of routines that missed the quick memory worth making a
         # `func` of (see SplitHints), busiest first. +list_touches+ is how many times the run read
         # or wrote each list, by its name. +late_hand_overs+ are the scenes that run late on the
@@ -103,7 +119,7 @@ module RubyGBA
         # down the picture, which is each a frame that can have torn; the rest were shown in the
         # break between pictures, where nothing tears.
         def initialize(split_hints: [], list_touches: {}, late_hand_overs: [], pages_shown_at_once: 0,
-                       pages_shown_part_way: 0, **rest) = super
+                       pages_shown_part_way: 0, power_on_pass: nil, **rest) = super
 
         def dropping_frames? = fps < 59.5
 
@@ -115,7 +131,8 @@ module RubyGBA
         def to_h
           { frames: frames, samples: samples, fps: fps, idle_share: idle_share,
             keys: keys.map(&:to_s), unattributed: unattributed, reached: reached.to_h,
-            late_passes: late_passes, pages_shown_at_once: pages_shown_at_once,
+            late_passes: late_passes, power_on_pass: power_on_pass&.to_h,
+            pages_shown_at_once: pages_shown_at_once,
             pages_shown_part_way: pages_shown_part_way,
             late_hand_overs: late_hand_overs.map { |late| { scene: late.scene.to_s, loads_first: late.loads_first } },
             split_hints: split_hints.map { |hint| hint.to_h.merge(routine: hint.routine.to_s) },
@@ -193,6 +210,8 @@ module RubyGBA
 
         late_pages = rom.built.late_pages
         shown_at_once = count_at_sites(profile, late_pages, loaded_sets)
+        # Only a run from power-on with no settling sees the first pass whole; nil on any other.
+        power_on_pass = FirstPass.of(profile.passes.first) unless from || holding || settle.positive?
         build_result(profile, routines, held, reached, tearing, flicker,
                      tick_rates_in(profile, rom.built.timer_handlers), lost,
                      video_copies_in(profile, rom.built.video_copies, loaded_sets))
@@ -200,7 +219,8 @@ module RubyGBA
                 late_hand_overs: picture ? HandOvers.late(rom, keys: held) : [],
                 pages_shown_at_once: shown_at_once,
                 pages_shown_part_way: count_at_sites(profile, late_pages.select { |site| site[:tears] }, loaded_sets),
-                fps: pictures_per_second(profile, shown_at_once))
+                fps: pictures_per_second(profile, shown_at_once),
+                power_on_pass: power_on_pass)
       end
 
       # NEW PICTURES A SECOND. The emulator counts the frames the game finished its work in by
@@ -465,6 +485,7 @@ module RubyGBA
                finished: a.finished + b.finished,
                pc: a.pc.merge(b.pc) { |_, x, y| x + y },
                cycles: a.cycles.merge(b.cycles) { |_, x, y| x + y }, late: a.late + b.late,
+               passes: a.passes + b.passes,
                touches: a.touches.merge(b.touches) { |_, x, y| x + y })
       end
 
@@ -644,10 +665,12 @@ module RubyGBA
                   unmapped: "code with no routine recorded for it" }.freeze
 
       # Put each sampled address back against the routine whose span covers it. Routines never
-      # overlap, so the first match is the only one. Returns the routines and, separately, what
-      # fell outside them grouped by the memory it ran in.
+      # overlap one another, but the setting up before the game loop holds the loops in it that
+      # fill a list (see IR::Backends::GBA#setting_up_addresses), so the narrowest span that covers
+      # an address is the one it is counted to. Returns the routines and, separately, what fell
+      # outside them grouped by the memory it ran in.
       def self.tally_by_routine(counts, routines)
-        spans = routines.sort_by { |_, span| span.begin }
+        spans = routines.sort_by { |_, span| [span.size, span.begin] }
         tally = Hash.new(0)
         outside = Hash.new(0)
         counts.each do |address, seen|
@@ -697,6 +720,7 @@ module RubyGBA
         printer.puts("")
         printer.puts("  #{result.fps} frames a second#{frame_drop_suffix(result)}")
         printer.puts("  #{(result.idle_share * 100).round(1)}% of each frame spare")
+        power_on_pass_line(result.power_on_pass, printer, result.frames)
         late_pass_line(result.late_passes, printer)
         shown_at_once_line(result, printer)
         result.late_hand_overs.each { |late| printer.puts("  #{HandOvers.message(late)}") }
@@ -760,6 +784,38 @@ module RubyGBA
                      "a whole picture for the next break. Ending #{lines} #{unit} sooner keeps the picture.",
                      severity: :bad)
       end
+
+      # HOW CLOSE THE FIRST PASS AFTER POWER-ON CAME TO ONE MORE BREAK, said only on a run that saw
+      # it whole. The setting up is in that pass, so it is the one a game makes longer each time it
+      # declares more. Setting up that runs through a break or two is a choice a game can make; a
+      # pass that ends a few lines into a break is not, since it loses a whole picture for those
+      # lines, so only that one is said as bad.
+      def self.power_on_pass_line(pass, printer, frames)
+        return if pass.nil?
+
+        unless pass.finished?
+          return printer.puts("  the first pass after power-on did not end in the #{counted(frames, 'frame')} measured. " \
+                              "To see how close it came to the break, measure more frames.")
+        end
+
+        later = pass.missed == 1 ? "a picture later" : "#{pass.missed} pictures later"
+        if pass.ended_before.negative?
+          lines = counted(-pass.ended_before, "line")
+          printer.puts("  the first pass after power-on ended #{lines} into the break between pictures, so " \
+                       "the game showed its first picture #{later}. Ending #{lines} sooner shows it a picture sooner.",
+                       severity: :bad)
+        elsif pass.missed.zero?
+          printer.puts("  the first pass after power-on ended #{counted(pass.ended_before, 'line')} before the break " \
+                       "between pictures")
+        else
+          printer.puts("  the first pass after power-on ran through #{counted(pass.missed, 'break')} between pictures, " \
+                       "so the game showed its first picture #{later}. It ended " \
+                       "#{counted(pass.ended_before, 'line')} before the next break")
+        end
+      end
+
+      # "1 line", "3 lines".
+      def self.counted(count, word) = count == 1 ? "1 #{word}" : "#{count} #{word}s"
 
       # What `late:` on a tear-free screen did over the measured frames: the pages it showed as
       # soon as they were done, which is what it buys, and how many of those were shown part way

@@ -712,6 +712,42 @@ module RubyGBA
           written.merge(lowered_routine_addresses)
                  .merge(@divide.divide_routine_addresses)
                  .merge(@mixer.mix_routine_addresses)
+                 .merge(setting_up_addresses)
+        end
+
+        # THE SETTING UP, AND THE LOOPS IN IT THAT FILL A LIST, as routines a profile can name.
+        # Neither is a routine: the setting up is everything the console runs from power-on to the
+        # top of the game loop, and runs once. But it can be most of the first frame, and a game
+        # that declares more grows it until the first picture is a whole picture late, so a profile
+        # of the first frames has to say whose it is rather than "code with no routine".
+        #
+        # A loop in the setting up that pushes into a list is named after the list, since it costs
+        # in proportion to the list's capacity and the author can see that number. Each sits inside
+        # the setting up's own span, and a profile gives an address to the narrowest span that
+        # holds it. Always in the cartridge: none of it runs twice, so none of it is moved.
+        def setting_up_addresses
+          base = ROM_START + RubyGBA::Cartridge::ROM::ENTRY_OFFSET
+          (@setting_up_spans || {}).transform_values { |span| (base + span.begin)...(base + span.end) }
+        end
+
+        # The program's own top level: what it sets up, then its game loop. Where each part of the
+        # setting up lands is remembered for #setting_up_addresses. A loop is named after the
+        # first list it pushes into, wherever in its body; a second loop filling the same list
+        # keeps no span of its own, and counts as setting up.
+        def emit_top_level(program)
+          @setting_up_spans = {}
+          setting_up = true
+          program.children.each do |stmt|
+            if setting_up && stmt.kind == :loop
+              @setting_up_spans[Placement::SETUP_ROUTINE] = 0...@emit.pos
+              setting_up = false
+            end
+            start = @emit.pos
+            @lowering.statement(stmt)
+            push = setting_up && stmt.kind == :repeat && stmt.walk.find { |node| node.kind == :list_push }
+            @setting_up_spans[RubyGBA::Messages::MadeNames.make(:setup_fill, list: push.name)] ||= start...@emit.pos if push
+          end
+          @setting_up_spans[Placement::SETUP_ROUTINE] ||= 0...@emit.pos
         end
 
         # Where one routine's first instruction really is. The moved block is copied whole and
@@ -922,7 +958,7 @@ module RubyGBA
           emit_tint_state_init if @palette_tint.moves_color_table? # the tables start as they were drawn
           @lowering.in_mode(@modes.default_mode) do
             @drawing.emit_default_screen(program) # a game with no `screen` line is on a bitmap one
-            program.children.each { |stmt| @lowering.statement(stmt) }
+            emit_top_level(program)
           end
           refuse_variables_overlapping_divide!
           emit_functions

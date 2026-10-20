@@ -762,12 +762,15 @@ module RubyGBAEmulator
     # while it ran, how many lines sooner it had to end to make that break. A game's pass waits
     # for the NEXT break, so such a pass sleeps a whole picture however few lines late it was.
     #
+    # +passes+ is every pass, late or not, in the order they ended (see {Pass}). The first can
+    # have begun before the run did, so it is a whole pass only on a run from power-on.
+    #
     # +touches+ is how many times the program read or wrote each word of the console's two working
     # memories, by the word's address. A byte or half counts against its word; fetching an
     # instruction is not a touch (that is +pc+), and a word the run never touched is not there.
     Profile = Data.define(:frames, :samples, :halted, :elsewhere, :finished, :pc, :cycles, :late,
-                          :cycles_per_frame, :touches) do
-      def initialize(touches: {}, **rest) = super
+                          :cycles_per_frame, :touches, :passes) do
+      def initialize(touches: {}, passes: [], **rest) = super
       # The addresses that came up most, dearest first.
       #
       # @return [Array<Array(Integer, Integer)>] pairs of [address, times seen]
@@ -821,6 +824,17 @@ module RubyGBAEmulator
 
       # True when the game did not finish its work in every frame of the run.
       def dropping_frames? = finished < frames
+    end
+
+    # ONE PASS OF THE GAME, from waking to going to sleep again. +missed+ is how many breaks
+    # between pictures began while it ran: each is a picture the game was not ready for, so the
+    # picture it was making came that many pictures later. +ended_before+ is how many lines before
+    # the next break it went to sleep, which is how close it came to missing one more. Below nothing
+    # for a pass asleep inside a break it missed: how many lines into that break it slept.
+    Pass = Data.define(:missed, :ended_before) do
+      # For a pass asleep inside a break it missed, how many lines sooner it had to end to make
+      # it; nil for any other.
+      def lines_late = ended_before.negative? ? -ended_before : nil
     end
 
     # WHAT THE RECORDED SOUND WAS FED, AND WHAT IT PLAYED: run +frames+ frames holding +keys+, and
@@ -897,9 +911,11 @@ module RubyGBAEmulator
       @frames_run += frames
       @prev_pixels = @pixels
       @pixels = @core.video_buffer
+      passes = raw[:passes].map { |missed, ended_before| Pass.new(missed:, ended_before:) }
       Profile.new(frames: raw[:frames], samples: raw[:samples], halted: raw[:halted],
                   elsewhere: raw[:elsewhere], finished: raw[:finished], pc: raw[:pc],
-                  cycles: raw[:cycles], late: raw[:late], cycles_per_frame: frame_cycles, touches: raw[:touches])
+                  cycles: raw[:cycles], late: passes.filter_map(&:lines_late), cycles_per_frame: frame_cycles,
+                  touches: raw[:touches], passes: passes)
     end
 
     # --- stopping inside a frame, for somebody debugging generated code ------

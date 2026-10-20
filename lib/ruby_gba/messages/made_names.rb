@@ -116,6 +116,12 @@ module RubyGBA
                                     words: ->(_) { "filling a run of a list, as a canvas clears or fills a rectangle" }),
         list_copy_routine: Kind.new(spelling: "__list_copy_bytes", parts: {},
                                     words: ->(_) { "copying a run of a table into a list" }),
+        # A loop in the setting up that pushes into a list, which costs with the list's capacity
+        # (see Backends::GBA#setting_up_addresses).
+        setup_fill: Kind.new(spelling: "__setup_fill_%{list}", parts: { list: ANY },
+                             words: lambda do |parts|
+                               "filling #{MadeNames.collection_words(parts[:list])} a push at a time, before the game loop"
+                             end),
         told_turn: Kind.new(spelling: "__bg_%{background}_told_%{part}", parts: { background: ANY, part: PLAIN },
                             words: nil),
         set_swap: Kind.new(spelling: "__set_swap_%{background}", parts: { background: ANY },

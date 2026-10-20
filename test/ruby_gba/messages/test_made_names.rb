@@ -28,6 +28,7 @@ class TestMadeNames < Minitest::Test
     pool_part: { pool: :guard, part: :active },
     list_fill_routine: {},
     list_copy_routine: {},
+    setup_fill: { list: :trail },
     pose_rows: { number: 2 },
     told_turn: { background: :field, part: :size },
     set_swap: { background: :ground },
@@ -71,6 +72,9 @@ class TestMadeNames < Minitest::Test
       MadeNames.make(:shared_rooms, number: 0, part: :let_go) => "taking back the room of a sprite that is not shown",
       MadeNames.make(:pool_part, pool: :guard, part: :remove) => "removing an instance of pool :guard",
       MadeNames.make(:pool_part, pool: :guard_walk, part: :unlink) => "taking an instance of pool :guard_walk out of its order",
+      MadeNames.make(:setup_fill, list: :trail) => "filling list :trail a push at a time, before the game loop",
+      MadeNames.make(:setup_fill, list: MadeNames.make(:pool_part, pool: :guard, part: :free)) =>
+        "filling pool :guard a push at a time, before the game loop",
     }
     said.each { |name, words| assert_equal words, MadeNames.words_for_made_name(name), name.inspect }
     assert_nil MadeNames.words_for_made_name(:jump), "a routine the author named is not one of these"

@@ -37,7 +37,10 @@ module RubyGBA
     # +routines+ is the span of addresses each routine really occupies while the console runs
     # it, which is what lets a profile of the finished cartridge be reported in the author's own
     # names. It cannot be recovered from the bytes: a routine kept in the console's quick memory
-    # was copied there at boot and runs nowhere near where it sits in the cartridge.
+    # was copied there at boot and runs nowhere near where it sits in the cartridge. The setting
+    # up before the game loop is in it too, though it is no routine, and so is each loop in that
+    # setting up that fills a list — inside the setting up's own span, which is the one place two
+    # spans here overlap (see IR::Backends::GBA#setting_up_addresses).
     # +video_memory+ is how much of the console's picture memory the sprites and background
     # tiles took, and how much the framework's own choice of storage saved. Nothing in a running
     # cartridge can say the second half: the pictures are there at the size the build chose them,

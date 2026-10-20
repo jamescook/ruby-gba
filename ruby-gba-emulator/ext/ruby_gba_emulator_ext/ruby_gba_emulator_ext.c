@@ -2741,8 +2741,8 @@ enum {
  * every odd slot empty. */
 #define PROF_GRAIN 2
 
-/* The most late passes one profile keeps: one a frame for longer than anybody profiles. */
-#define PROF_LATE_MAX 4096
+/* The most passes one profile keeps: one a frame for longer than anybody profiles. */
+#define PROF_PASSES_MAX 4096
 
 struct pc_tally {
     uint32_t *count[PROF_REGIONS];
@@ -2754,15 +2754,23 @@ struct pc_tally {
     uint64_t *cycles[PROF_REGIONS];
     uint64_t *copier;    /* where the copy now under way was started, or NULL */
     size_t    slots[PROF_REGIONS];
-    /* PASSES THAT ENDED A FEW LINES LATE. The wait at the end of a game's pass waits for the
-     * NEXT break between pictures, so a pass that goes to sleep a line after a break began sleeps
-     * a whole picture. +break_began+ says a break began while the game's own code was running;
-     * +last_line+ is the line the screen was on at the step before; +late+ holds, for each pass
-     * that then went to sleep inside that break, how many lines sooner it had to end to make it. */
-    int       break_began;
+    /* EACH PASS OF THE GAME, and how close it came. The wait at the end of a game's pass waits
+     * for the NEXT break between pictures, so a pass that goes to sleep a line after a break began
+     * sleeps a whole picture. +breaks_began+ counts the breaks that began while the game was
+     * awake; +last_line+ is the line the screen was on at the step before; +games_code_ran+ says
+     * the game's own code ran since it last woke, outside any interrupt's handler.
+     *
+     * Every pass is kept in the order they ended: +missed+ is how many breaks began while it ran,
+     * each a picture it was not ready for, and +ended_before+ how many lines before the next break
+     * it went to sleep, below nothing for one asleep inside a break it missed (see
+     * lines_before_break). That last is a pass a few lines late, and the Ruby side reads the late
+     * passes out of these. */
+    int       breaks_began;
     int       last_line;
-    int      *late;
-    size_t    late_count;
+    int       games_code_ran;
+    int      *missed;
+    int      *ended_before;
+    size_t    pass_count;
     uint64_t  samples;   /* instructions seen */
     uint64_t  halted;    /* CYCLES slept, not steps — see profile_one_frame */
     uint64_t  elsewhere; /* executing somewhere we have no room to count */
@@ -2807,8 +2815,10 @@ pc_tally_free(struct pc_tally *t)
         t->cycles[r] = NULL;
         t->slots[r] = 0;
     }
-    free(t->late);
-    t->late = NULL;
+    free(t->missed);
+    t->missed = NULL;
+    free(t->ended_before);
+    t->ended_before = NULL;
 }
 
 /* Flat arrays rather than a hash: an address maps straight to a slot, so the
@@ -2833,8 +2843,9 @@ pc_tally_init(struct pc_tally *t, size_t rom_bytes)
             return 0;
         }
     }
-    t->late = calloc(PROF_LATE_MAX, sizeof(int));
-    if (!t->late) {
+    t->missed = calloc(PROF_PASSES_MAX, sizeof(int));
+    t->ended_before = calloc(PROF_PASSES_MAX, sizeof(int));
+    if (!t->missed || !t->ended_before) {
         pc_tally_free(t);
         return 0;
     }
@@ -2903,6 +2914,24 @@ copies_under_way(struct GBA *gba)
     return mask;
 }
 
+/* HOW MANY LINES BEFORE THE NEXT BREAK A PASS WENT TO SLEEP, given the line it slept on and
+ * how many breaks began while it ran. The screen draws 160 lines of picture and then 68 of break,
+ * 228 in all.
+ *
+ * Counted from the line before the break: asleep on that line is nought to spare, and asleep on
+ * the break's first line is one late (one line sooner would have made it), so -1. A pass asleep in a
+ * break that began before it did (one woken by that break) is due by the break after, so it had
+ * the rest of this break and the whole next picture. Breaks the pass ran through before the one it
+ * slept near are not in this number: they are counted beside it. */
+static int
+lines_before_break(int breaks_began, int line)
+{
+    int before = GBA_VIDEO_VERTICAL_PIXELS - 1 - line;
+    if (line >= GBA_VIDEO_VERTICAL_PIXELS && breaks_began == 0)
+        before += VIDEO_VERTICAL_TOTAL_PIXELS;
+    return before;
+}
+
 /* Step one frame, writing down where the CPU was at each step.
  *
  * The frame is walked the same way measure_frame_split walks it — by global
@@ -2941,9 +2970,9 @@ profile_one_frame(struct mgba_core *mc, struct pc_tally *t)
             uint32_t pc = executing_pc(gba->cpu);
             uint64_t *spent = pc_tally_hit(t, pc);
             unsigned copying = copies_under_way(gba);
-            /* Read before the step: the break's own interrupt is taken a few cycles after the
-             * break begins, so a long step (a slow load, a copy) can cross the line AND enter
-             * the handler, and after it the game's code would not look like the game's. */
+            /* Read before the step: a long step (a slow load, a copy) can be followed straight
+             * away by an interrupt's handler, and after it the game's code would not look like
+             * the game's. */
             int games_code = gba->cpu->cpsr.priv != MODE_IRQ && pc >= SIZE_BIOS;
             /* mTimingGlobalTime, not globalCycles: the emulator brings globalCycles up to date
              * only when it next has something scheduled to do, so between two of those every
@@ -2968,13 +2997,16 @@ profile_one_frame(struct mgba_core *mc, struct pc_tally *t)
                 t->copier = NULL;
 
             /* The break between pictures begins as the screen reaches its first line below the
-             * picture. Only a break that begins while the GAME's code runs counts — not the
-             * console's own code, and not the handler the break itself wakes, which is how every
-             * pass after a sleep begins. */
+             * picture, and it counts against the pass whatever is running as it does: a timer's
+             * handler or the console's own divide, taken in the middle of a pass, is still that
+             * pass's time. The break that WAKES a sleeping game is not counted, because the line
+             * is brought up to date across the sleep below. */
             int line = gba->video.vcount;
-            if (t->last_line < GBA_VIDEO_VERTICAL_PIXELS && line >= GBA_VIDEO_VERTICAL_PIXELS && games_code)
-                t->break_began = 1;
+            if (t->last_line < GBA_VIDEO_VERTICAL_PIXELS && line >= GBA_VIDEO_VERTICAL_PIXELS)
+                t->breaks_began++;
             t->last_line = line;
+            if (games_code)
+                t->games_code_ran = 1;
             continue;
         }
 
@@ -2985,16 +3017,19 @@ profile_one_frame(struct mgba_core *mc, struct pc_tally *t)
         if (t->awake) {
             slept_this_frame = 1;
             int line = gba->video.vcount;
-            /* Asleep on the break's first line still missed it, so ending on the line before
-             * was one line sooner: that is why it is the line before the break that is
-             * counted from. */
-            if (t->break_began && line >= GBA_VIDEO_VERTICAL_PIXELS && t->late_count < PROF_LATE_MAX)
-                t->late[t->late_count++] = line - (GBA_VIDEO_VERTICAL_PIXELS - 1);
-            t->break_began = 0;
+            /* A wake that ran only an interrupt's handler and went back to sleep — a timer going
+             * off while the game waits for the screen — is not a pass of the game. */
+            if (t->games_code_ran && t->pass_count < PROF_PASSES_MAX) {
+                t->missed[t->pass_count] = t->breaks_began;
+                t->ended_before[t->pass_count++] = lines_before_break(t->breaks_began, line);
+            }
+            t->breaks_began = 0;
+            t->games_code_ran = 0;
         }
         t->awake = 0;
 
         core->step(core);
+        t->last_line = gba->video.vcount;
 
         /* Clamped to the frame's end, so the step that sleeps past the boundary
          * does not charge this frame for the next one's wait. */
@@ -3242,8 +3277,8 @@ touch_tally_hash(const struct touch_tally *t)
  *   :finished  of those, how many the game got its work done in
  *   :pc        { address => times seen }
  *   :cycles    { address => cycles it took }, a copy it started included
- *   :late      for each pass that went to sleep inside a break that began while it
- *              ran, how many lines sooner it had to end to make that break
+ *   :passes    for every pass, [breaks that began while it ran, lines before the next
+ *              break it went to sleep] — below nothing asleep inside a break it missed
  *   :touches   { word address => reads and writes } in the two working memories
  *
  * The caller decides what has settled and what to hold: run it after stepping
@@ -3297,10 +3332,10 @@ mgba_core_profile(VALUE self, VALUE rb_frames, VALUE rb_keys)
     rb_hash_aset(out, ID2SYM(rb_intern("pc")), pc);
     rb_hash_aset(out, ID2SYM(rb_intern("cycles")), cycles);
 
-    VALUE late = rb_ary_new_capa((long)tally.late_count);
-    for (size_t i = 0; i < tally.late_count; ++i)
-        rb_ary_push(late, INT2NUM(tally.late[i]));
-    rb_hash_aset(out, ID2SYM(rb_intern("late")), late);
+    VALUE passes = rb_ary_new_capa((long)tally.pass_count);
+    for (size_t i = 0; i < tally.pass_count; ++i)
+        rb_ary_push(passes, rb_ary_new_from_args(2, INT2NUM(tally.missed[i]), INT2NUM(tally.ended_before[i])));
+    rb_hash_aset(out, ID2SYM(rb_intern("passes")), passes);
     rb_hash_aset(out, ID2SYM(rb_intern("touches")), touch_tally_hash(&touched));
 
     pc_tally_free(&tally);

@@ -182,6 +182,123 @@ class TestProfiler < Minitest::Test
     assert_in_delta 60.0, in_time.fps, 0.5
   end
 
+  # A game whose setting up waits for the screen to reach each line of +lines+ in turn, so the pass
+  # from power-on ends on the last of them whatever the lowering emits. A line in the picture after
+  # one in the break is waited for from below it, so the setting up runs on into the next picture.
+  private def game_set_up_until(*lines)
+    RubyGBA.build("PPON", err: nil) do
+      extend RubyGBA::Builder::Debug
+      screen :bitmap
+      var :spin, 0
+      [0, *lines].each_cons(2) do |before, line|
+        repeat(100_000, stop_when: read_scanline < 160) { add! :spin, 1 } if line < before
+        repeat(100_000, stop_when: read_scanline >= line) { add! :spin, 1 }
+      end
+      game_loop {}
+    end
+  end
+
+  # [breaks it ran through, lines before the next break it ended], from a run from power-on.
+  private def first_pass_of(game)
+    pass = game.profile(out: StringIO.new, frames: 5, settle: 0).power_on_pass
+    [pass.missed, pass.ended_before]
+  end
+
+  # HOW CLOSE THE FIRST PASS CAME. A game that sets up a little more each time it grows is on time
+  # until one day it is not, and a whole picture later when it is; the lines it ended before the
+  # break say how near that day is.
+  def test_from_power_on_it_says_how_many_lines_before_the_break_the_first_pass_ended
+    missed, lines = first_pass_of(game_set_up_until(150))
+
+    assert_equal 0, missed
+    assert_includes 6..9, lines
+  end
+
+  def test_a_first_pass_that_ended_late_says_how_many_lines_after_the_break_began
+    missed, lines = first_pass_of(game_set_up_until(165))
+
+    assert_equal 1, missed
+    assert_includes(-9..-5, lines)
+  end
+
+  # Setting up that takes more than a frame runs through a break, and then the question is how
+  # near it is to running through one more.
+  def test_a_first_pass_that_ran_into_the_next_picture_says_the_lines_before_the_next_break
+    missed, lines = first_pass_of(game_set_up_until(165, 20))
+
+    assert_equal 1, missed
+    assert_includes 136..139, lines
+  end
+
+  def test_the_report_says_how_many_lines_the_first_pass_had_to_spare
+    out = StringIO.new
+    game_set_up_until(150).profile(out: out, frames: 5, settle: 0)
+
+    assert_match(/first pass after power-on ended \d+ lines before the break between pictures/, out.string)
+  end
+
+  def test_the_report_says_how_late_the_first_pass_was
+    out = StringIO.new
+    game_set_up_until(165).profile(out: out, frames: 5, settle: 0)
+
+    assert_match(/first pass after power-on ended \d+ lines into the break between pictures, so the game showed its first picture a picture later\. Ending \d+ lines sooner/, out.string)
+  end
+
+  # Setting up that is still running when the measuring stops is said, not left out: "we did not
+  # see it end" must never read as "there was nothing to see".
+  def test_a_first_pass_that_did_not_end_in_the_frames_measured_says_so
+    out = StringIO.new
+    result = game_set_up_until(165, 20, 165, 20).profile(out: out, frames: 1, settle: 0)
+
+    refute_predicate result.power_on_pass, :finished?
+    assert_match(/first pass after power-on did not end in the 1 frame measured/, out.string)
+  end
+
+  def test_the_report_says_how_many_breaks_the_first_pass_ran_through
+    out = StringIO.new
+    game_set_up_until(165, 20).profile(out: out, frames: 5, settle: 0)
+
+    assert_match(/first pass after power-on ran through 1 break between pictures.*It ended \d+ lines before the next break/, out.string)
+  end
+
+  def test_how_many_lines_the_first_pass_had_to_spare_comes_back_as_data_too
+    out = StringIO.new
+    game_set_up_until(150).profile(format: :json, out: out, frames: 5, settle: 0)
+    pass = JSON.parse(out.string)["power_on_pass"]
+
+    assert_equal 0, pass["missed"]
+    assert_includes 6..9, pass["ended_before"]
+  end
+
+  # Measured after the game has settled, the first pass the run sees began before it did.
+  def test_a_run_that_settles_first_says_nothing_about_the_first_pass
+    out = StringIO.new
+    settled = game_set_up_until(150).profile(out: out, frames: 5, settle: 5)
+
+    assert_nil settled.power_on_pass
+    refute_match(/power-on/, out.string)
+  end
+
+  # WHAT THE SETTING UP SPENT ITS TIME ON, by name. A loop in setup that fills a list a push at a
+  # time is named after the list, and the rest of the setting up has a name of its own, so neither
+  # reads as code nothing knows about.
+  def test_from_power_on_the_setting_up_and_its_fill_loops_are_named
+    game = RubyGBA.build("PPOW", err: nil) do
+      screen :bitmap
+      held = list :held, capacity: 2000
+      repeat(2000) { held.push 1 }
+      var :x, 0
+      repeat(2000) { add! :x, 1 }
+      game_loop {}
+    end
+    result = game.profile(out: StringIO.new, frames: 5, settle: 0)
+    shares = result.lines.to_h { |line| [line.label, line.share] }
+
+    assert_operator shares.fetch("filling list :held a push at a time, before the game loop"), :>, 20.0
+    assert_operator shares.fetch("setting the game up, before the game loop"), :>, 10.0
+    assert_operator result.unattributed, :<, 5.0, "what ran outside every named routine: #{shares.inspect}"
+  end
+
   def test_an_unknown_format_says_so
     assert_raises(ArgumentError) { lopsided_game.profile(format: :sideways, out: StringIO.new) }
   end

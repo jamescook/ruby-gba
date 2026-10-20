@@ -63,7 +63,7 @@ class TestPlainWords < Minitest::Test
   # ...and the machine names it answers to are the build's own, not a second copy of the two
   # symbols. Placement decides what a routine is called internally; PlainWords only says it.
   def test_the_names_it_answers_to_are_the_builds_own
-    assert_equal [Placement::FRAME_ROUTINE, Placement::IRQ_ROUTINE,
+    assert_equal [Placement::FRAME_ROUTINE, Placement::SETUP_ROUTINE, Placement::IRQ_ROUTINE,
                   RubyGBA::IR::Backends::GBA::Divide::ROUTINE,
                   RubyGBA::IR::Backends::GBA::Divide::FIX_ROUTINE,
                   RubyGBA::IR::Backends::GBA::Mixer::ROUTINE],

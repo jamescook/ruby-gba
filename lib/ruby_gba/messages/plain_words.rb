@@ -40,11 +40,13 @@ module RubyGBA
                            /\bIWRAM\b/, /\bfast on-chip\b/i] }
       )
 
-      # THE TWO ROUTINES THE AUTHOR NEVER WROTE. A game loop's body is statements rather than a
+      # THE ROUTINES THE AUTHOR NEVER WROTE. A game loop's body is statements rather than a
       # routine, and nobody types the routine the console jumps into when the display or a timer
       # announces something — but the build treats both as routines, because that is what lets
       # the same choosing and the same report cover them (see Backends::GBA::Placement). So both
       # turn up in a progress line and in `rom.profile`, and both need a name a reader can place.
+      # The setting up before the game loop is named the same way, for `rom.profile` alone: it is
+      # never placed, but it can be most of a game's first frame.
       #
       # Everything else on those lists is a routine somebody wrote, and its own name is already
       # the best one there is, so it is given back the way they would type it.
@@ -54,7 +56,7 @@ module RubyGBA
       # a table.
       # The symbols are written out rather than reached for, because this file is loaded long
       # before the backend that defines them. A test holds the two lists against each other.
-      ROUTINES = { __frame: "the game loop",
+      ROUTINES = { __frame: "the game loop", __setting_up: "setting the game up, before the game loop",
                    __interrupt: "the routine that answers the display and the timers, and plays the music " \
                                 "and the sound effects",
                    __divide_routine: "dividing",

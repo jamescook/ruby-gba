@@ -276,6 +276,75 @@ class TestRubyGBAEmulatorProfile < Minitest::Test
     end
   end
 
+  # A game whose every pass waits for each line of +lines+ in turn, the screen leaving the break
+  # first, so each pass goes to sleep on the last of them whatever the lowering emits. A line in
+  # the break is waited for from below it, so the pass crosses the break's start on the way.
+  # +busy_timer+ adds a timer whose handler takes about half of every line, so the break often
+  # begins while the handler is running rather than the game's own code.
+  private def rom_ending_on(lines, name, busy_timer: false)
+    build_rom(name, code: name) do
+      extend RubyGBA::Builder::Debug
+      screen :bitmap
+      var :spin, 0
+      if busy_timer
+        ticks = var :ticks, 0
+        busy = timer :busy, per_second: 15_000
+        busy.on_tick { repeat(40) { ticks.add! 1 } }
+      end
+      game_loop do
+        repeat(100_000, stop_when: read_scanline < 160) { add! :spin, 1 }
+        lines.each do |line|
+          repeat(100_000, stop_when: read_scanline < line) { add! :spin, 1 } if line < 160
+          repeat(100_000, stop_when: read_scanline >= line) { add! :spin, 1 }
+        end
+      end
+    end
+  end
+
+  # Each pass but the first, which began before the run did, as [missed, ended_before].
+  private def whole_passes(rom)
+    with_probe(rom) do |probe|
+      probe.profile(frames: 10, settle: 10).passes.drop(1).map { |pass| [pass.missed, pass.ended_before] }
+    end
+  end
+
+  def test_a_pass_that_ends_in_time_says_how_many_lines_it_had_to_spare
+    passes = whole_passes(rom_ending_on([150], "PSPR"))
+
+    refute_empty passes
+    assert(passes.all? { |missed, lines| missed.zero? && (6..9).cover?(lines) },
+           "each pass missed nothing and slept about nine lines before the break: #{passes.inspect}")
+  end
+
+  def test_a_late_pass_says_how_many_lines_after_the_break_began_it_ended
+    passes = whole_passes(rom_ending_on([165], "PAFT"))
+
+    refute_empty passes
+    assert(passes.all? { |missed, lines| missed == 1 && (-9..-5).cover?(lines) },
+           "each pass missed one break and slept about six lines into it: #{passes.inspect}")
+  end
+
+  # A break that begins while a timer's handler is running, in the middle of a pass, is still a
+  # break that pass missed; counted only under the game's own code, such a pass would read as one
+  # that started in the break and had nearly a whole picture to spare.
+  def test_a_break_that_begins_under_an_interrupt_still_counts_against_the_pass
+    passes = whole_passes(rom_ending_on([165], "PIRQ", busy_timer: true))
+
+    refute_empty passes
+    assert(passes.all? { |missed, lines| missed == 1 && (-12..-5).cover?(lines) },
+           "each pass missed one break and slept a few lines into it: #{passes.inspect}")
+  end
+
+  # A pass that runs past the break and on into the next picture missed that break, and then had
+  # the rest of the picture before it would miss the next one.
+  def test_a_pass_that_runs_into_the_next_picture_says_the_break_it_missed_and_the_lines_left_before_the_next
+    passes = whole_passes(rom_ending_on([165, 20], "PWRP"))
+
+    refute_empty passes
+    assert(passes.all? { |missed, lines| missed == 1 && (136..139).cover?(lines) },
+           "each pass missed one break and slept about 139 lines before the next: #{passes.inspect}")
+  end
+
   # WHAT A FRAME READS AND WRITES, word by word, beside what it runs. A number kept in the quick
   # memory and read 300 times a pass is touched 300 times a frame; one that a frame never reads is
   # not in the count at all. This is what lets a build weigh keeping a list in the quick memory

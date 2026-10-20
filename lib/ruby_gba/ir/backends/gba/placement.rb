@@ -64,6 +64,11 @@ module RubyGBA
           # which has no routines at all: 191 scanlines a frame down to 69.
           FRAME_ROUTINE = :__frame
 
+          # Everything the console runs from power-on to the top of the game loop. Not a routine
+          # and never placed — it runs once, from the cartridge — but named like one so a profile
+          # of the first frames can say whose time it was (see GBA#setting_up_addresses).
+          SETUP_ROUTINE = :__setting_up
+
           # The routine the console jumps into when the display or a timer announces
           # something. Like the game loop's body it is not a routine the author wrote, but
           # it is a routine in every way that matters here, so it is placed like one.
