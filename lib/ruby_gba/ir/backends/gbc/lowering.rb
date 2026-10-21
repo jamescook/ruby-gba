@@ -34,7 +34,10 @@ module RubyGBA
                                                if: :emit_if, loop: :emit_loop, repeat: :emit_repeat,
                                                every: :emit_beat, after: :emit_beat, call: :emit_call,
                                                call_one_of: :emit_call_one_of, case: :emit_case,
-                                               halt: :emit_halt, wait_vblank: :emit_wait_vblank
+                                               halt: :emit_halt, wait_vblank: :emit_wait_vblank,
+                                               list_new: :emit_list_new, list_push: :emit_list_push,
+                                               list_drop: :emit_list_drop, list_set: :emit_list_set,
+                                               list_fill: :emit_list_fill, list_copy: :emit_list_copy
                                              }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))
 
           VALUES = Ractor.make_shareable({
@@ -43,8 +46,23 @@ module RubyGBA
                                            absolute: :value_of_absolute, clamped: :value_of_clamped,
                                            mul_fix: :value_of_mul_fix, div_fix: :value_of_div_fix,
                                            shift_right: :value_of_shift_right, held: :value_of_held,
-                                           pressed: :value_of_pressed
+                                           pressed: :value_of_pressed, list_get: :value_of_list_get,
+                                           list_len: :value_of_list_len, table_get: :value_of_table_get
                                          })
+
+          # How a table keeps its entries, by the width the game declared and whether they are
+          # signed: bytes an entry, and the range that holds. Any other table keeps whole words.
+          TABLE_WIDTHS = Ractor.make_shareable({ [:byte, true] => [1, -128..127], [:byte, false] => [1, 0..255],
+                                                 [:half, true] => [2, -32_768..32_767], [:half, false] => [2, 0..65_535] })
+
+          # The number the runtime knows each way of keeping an entry by (Runtime::Lists' copy reads
+          # it), and the routine that reads an entry kept that way, by its bytes and its sign.
+          TABLE_KEPT = Ractor.make_shareable({ [1, true] => [0, "rt_read_int8"], [1, false] => [1, "rt_read_uint8"],
+                                               [2, true] => [2, "rt_read_int16"], [2, false] => [3, "rt_read_uint16"],
+                                               [4, true] => [4, "rt_read_int32"] })
+
+          # How many bytes a slot of a list takes, by the width it was declared with.
+          SLOT_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4, nil => 4 })
 
           # The runtime's sums on BCDE and the number at HL, by the operator of a binop.
           SUMS = Ractor.make_shareable({ :+ => "rt_add32", :- => "rt_sub32", :* => "rt_mul32", :/ => "rt_div32",
@@ -83,6 +101,9 @@ module RubyGBA
           # The label of the routine the program itself is, which the runtime calls at power-on.
           MAIN = "main"
 
+          # Where a label is, handed to a runtime routine as a number (a table it reads).
+          Address = Data.define(:label)
+
           # The routine the game names +name+.
           def self.routine_label(name) = "routine #{name}"
 
@@ -97,14 +118,21 @@ module RubyGBA
             Reach.routines(program).map { |name| funcs.fetch(name) }
           end
 
-          # Where each of the game's variables went, by its name, once #sections has placed them.
-          attr_reader :variables
+          # Where each of the game's variables went, by its name, and each of its lists — [its place,
+          # its capacity, the bytes a slot, its name] — once #sections has placed them.
+          attr_reader :variables, :lists
 
           def initialize(program, memory:)
             @program = program
             @memory = memory
             @funcs = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
             @called = Reach.routines(program)
+            @reachable = Reach.statements_from(program, *@called.map { |name| @funcs.fetch(name) })
+            # A list is there, empty, from power-on wherever it is declared (the interpreter gathers
+            # them before running), so its storage is the first declaration's.
+            @declared_lists = @reachable.reverse.select { |node| node.kind == :list_new }.to_h { |node| [node.name, node] }
+            @tables = program.walk.select { |node| node.kind == :table }.to_h { |node| [node.name, node] }
+            @lists = {}
             @handover = SceneHandover.of(program)
             @scenes = program.walk.select { |node| node.kind == :case }.flat_map { |node| node.clauses.map(&:last) }
                              .uniq.each_with_index.to_h
@@ -123,6 +151,12 @@ module RubyGBA
             refuse_color_answer_errors!
             refuse_routines_that_call_themselves!
             Reach.variables(@program).each { |name| @variables[name] = @memory.reserve("the variable #{name.inspect}", 4) }
+            @declared_lists.each_value do |node|
+              width = SLOT_BYTES.fetch(node.width)
+              # Named as the game names it, since running out of room says which list asked.
+              place = @memory.reserve("the list #{node.name.inspect}", Runtime::Lists::HEADER + (node.capacity * width))
+              @lists[node.name] = [place, node.capacity, width, node.name.to_s]
+            end
             @scene = keep_local(:scene, start: -1) unless @scenes.empty?
             routines = @called.map { |name| routine_section(self.class.routine_label(name), @funcs.fetch(name).children) }
             main = routine_section(MAIN, @program.children)
@@ -163,10 +197,16 @@ module RubyGBA
 
           # --- the data: in bank 0, where every routine can read it ---
 
-          # The tables of routines a call picks from by number, the places that do not start at
-          # nought (Runtime#emit_start reads them), and the lists' headers, none so far.
+          # The tables a run reads, the tables of routines a call picks from by number, the places
+          # that do not start at nought, and each list's place, capacity and slot (Runtime#emit_start
+          # reads the last two).
           def data_section
             asm = SM83.new("game data", home: :fixed, holds: DATA)
+            tables_read.each do |table|
+              asm.label(table_label(table.name))
+              bytes, = table_keeping(table)
+              table.values.each { |entry| asm.data_bytes(little_endian(Int32.wrap(entry), bytes)) }
+            end
             @routine_tables.each do |targets, label|
               asm.label(label)
               targets.each do |name|
@@ -182,8 +222,37 @@ module RubyGBA
             end
             asm.data_words(0)
             asm.label("game_lists")
+            @lists.each_value do |place, capacity, width, _|
+              asm.data_words(place)
+              asm.data_words(capacity)
+              asm.data_bytes(width)
+            end
             asm.data_words(0)
             asm.section
+          end
+
+          # The tables a run reads, by an entry or by copying a run of them into a list.
+          def tables_read
+            read = @reachable.filter_map do |node|
+              case node.kind
+              when :table_get then node.name
+              when :list_copy then node.table
+              end
+            end
+            @tables.values.select { |table| read.include?(table.name) }
+          end
+
+          def table_label(name) = "table #{name}"
+
+          # How +table+ keeps its entries — [bytes an entry, whether signed] — as the cartridge
+          # keeps it: at the width the game declared when every entry fits it, and whole words
+          # otherwise. Reading an entry widens it back to a whole number either way.
+          def table_keeping(table)
+            signed = table.signed ? true : false
+            bytes, range = TABLE_WIDTHS[[table.width, signed]]
+            return [bytes, signed] if bytes && table.values.all? { |entry| range.cover?(Int32.wrap(entry)) }
+
+            [4, true]
           end
 
           def little_endian(value, size) = Array.new(size) { |i| (value >> (8 * i)) & 0xFF }
@@ -439,6 +508,54 @@ module RubyGBA
             store(Frames::STEP)
           end
 
+          # --- lists (Runtime::Lists does the work and the checking) ---
+
+          def emit_list_new(node) = list_call("rg_list_empty", node)
+          def emit_list_push(node) = list_call("rg_list_push", node, node.value)
+          def emit_list_drop(node) = list_call("rg_list_drop", node, Build.int(node.from == :front ? 1 : 0))
+          def emit_list_set(node) = list_call("rg_list_set", node, node.index, node.value)
+          def emit_list_fill(node) = list_call("rg_list_fill", node, node.from, node.count, node.value)
+
+          # A run of a table's entries copied into a list: the table's place and how it keeps its
+          # entries, so the runtime reads them as a run does.
+          def emit_list_copy(node)
+            table = @tables.fetch(node.table) { raise LoweringError, "the table #{node.table.inspect} is copied and never declared" }
+            kept, = TABLE_KEPT.fetch(table_keeping(table))
+            list_call("rg_list_copy", node, Address.new(table_label(table.name)), Build.int(kept), Build.int(table.values.length),
+                      node.at, Build.int(node.count))
+          end
+
+          def value_of_list_get(node) = list_call("rg_list_get", node, node.index)
+          def value_of_list_len(node) = list_call("rg_list_length", node)
+
+          # The runtime's list routine +routine+ on the list +node+ names, the list's place first.
+          def list_call(routine, node, *args)
+            place, = @lists.fetch(node.name) { raise LoweringError, "the list #{node.name.inspect} is used and never declared" }
+            runtime_call(routine, [Build.int(place), *args])
+          end
+
+          # Reference#exec_table_get: an index out of range made safe — a table whose length is a
+          # power of two wraps it (what an angle wants), any other holds it to the ends.
+          def value_of_table_get(node)
+            table = @tables.fetch(node.name) { raise LoweringError, "the table #{node.name.inspect} is read and never declared" }
+            count = table.values.length
+            safe = if count.positive? && (count & (count - 1)).zero?
+                     Build.binop(:&, node.index, Build.int(count - 1))
+                   else
+                     Build.clamped(node.index, Build.int(0), Build.int(count - 1))
+                   end
+            bytes, signed = table_keeping(table)
+            value(safe)
+            # HL = the table + the index × the entry's size; the index is never past 16 bits.
+            (bytes / 2).times do
+              @asm.sla(:e)
+              @asm.rl(:d)
+            end
+            @asm.load(:hl, table_label(table.name))
+            @asm.add_hl(:de)
+            @asm.call(TABLE_KEPT.fetch([bytes, signed]).last)
+          end
+
           # --- tests: jump unless one holds ---
 
           def jump_if(condition, label)
@@ -676,7 +793,12 @@ module RubyGBA
           # The number +node+ worked out into BCDE and pushed, four bytes, high half first: the stack
           # then holds it as a number is kept anywhere else, lowest byte first.
           def push_value(node)
-            value(node)
+            if node.is_a?(Address)
+              @asm.load(:bc, 0)
+              @asm.load(:de, node.label)
+            else
+              value(node)
+            end
             @asm.push(:bc)
             @asm.push(:de)
           end

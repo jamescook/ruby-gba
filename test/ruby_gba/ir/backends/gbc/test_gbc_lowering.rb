@@ -47,6 +47,38 @@ class TestGBCLowering < Minitest::Test
     assert_operator run[:which], :>, 2, "the call picked past the end of its list called nothing and went on"
   end
 
+  # Lists of bytes and of words, grown, shrunk from both ends, written into, filled and copied from
+  # a table; a table of halves whose length is a power of two, read past its end (it wraps), and one
+  # of bytes read past its end (it is held to its last entry). 300 in a byte reads back as 44.
+  def test_lists_and_tables_play_as_the_interpreter_plays_them
+    game = program do
+      steps = table :steps, [3, -2, 300, 7], width: :half, signed: true
+      odd = table :odd, [5, 6, 7], width: :byte
+      trail = list :trail, capacity: 8, width: :byte
+      words = list :words, capacity: 4
+      bytes = list :bytes, capacity: 4, width: :byte
+      i = var :i, 0
+      sum = var :sum, 0
+      game_loop do
+        trail.push steps[i]
+        (trail.length > 5).then { trail.shift }
+        bytes.copy_from(odd, at: i % 2, count: 2)
+        words.push bytes[1]
+        words.push odd[i + 10]
+        words.push i
+        words.fill 9, from: 2, count: 1
+        words[0] = trail.last
+        sum.set! sum + words[0] + words[1] + words[2] + trail.first
+        3.times { words.pop }
+        i.add! 1
+      end
+    end
+
+    assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
+    run = GBC::CheckedRun.new.run(game, frames: 10)
+    assert_equal 5, run.list(:trail).length
+  end
+
   private
 
   def program(&game)

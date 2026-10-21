@@ -82,7 +82,7 @@ module RubyGBA
           game = lowering.sections
           runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art)
           linked = Linker.new(runtime + game + lowering.art.sections, fixed_from: Console::GBCHardware::HEADER_END).link
-          built = Places.new(variables: lowering.variables, lists: {}, runtime: runtime_places(memory),
+          built = Places.new(variables: lowering.variables, lists: lowering.lists, runtime: runtime_places(memory),
                              source_program: program, code: linked.places)
           Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: 0, built: built)
         end
