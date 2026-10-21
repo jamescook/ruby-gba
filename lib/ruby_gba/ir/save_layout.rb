@@ -190,6 +190,13 @@ module RubyGBA
       # The packed 32K memory, which a table is read from and written to unless it says otherwise.
       PACKED = memory(MEMORIES.first)
 
+      # The kinds that reach save memory. A program holding none of them has none.
+      KINDS = %i[save_init save_store save_write save_erase save_read save_sum].freeze
+
+      # Whether +program+ names save memory anywhere, which is when a run of it is worth handing
+      # a save file and its cartridge worth giving save memory at all.
+      def named_by?(program) = program.walk.any? { |node| KINDS.include?(node.kind) }
+
       # The save memory +program+ says it has (a `save_memory` node), or the 32K when it says
       # nothing. Every backend asks this, so none can run a program on memory another lays out
       # differently.

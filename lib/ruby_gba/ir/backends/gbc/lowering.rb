@@ -37,7 +37,9 @@ module RubyGBA
                                                halt: :emit_halt, wait_vblank: :emit_wait_vblank,
                                                list_new: :emit_list_new, list_push: :emit_list_push,
                                                list_drop: :emit_list_drop, list_set: :emit_list_set,
-                                               list_fill: :emit_list_fill, list_copy: :emit_list_copy
+                                               list_fill: :emit_list_fill, list_copy: :emit_list_copy,
+                                               save_init: :emit_save_init, save_store: :emit_save_store,
+                                               save_write: :emit_save_write, save_erase: :emit_save_erase
                                              }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))
 
           VALUES = Ractor.make_shareable({
@@ -47,8 +49,12 @@ module RubyGBA
                                            mul_fix: :value_of_mul_fix, div_fix: :value_of_div_fix,
                                            shift_right: :value_of_shift_right, held: :value_of_held,
                                            pressed: :value_of_pressed, list_get: :value_of_list_get,
-                                           list_len: :value_of_list_len, table_get: :value_of_table_get
+                                           list_len: :value_of_list_len, table_get: :value_of_table_get,
+                                           save_read: :value_of_save_read, save_sum: :value_of_save_sum
                                          })
+
+          # How many bytes of save memory a read or a write moves, by the width it names.
+          SAVE_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4 })
 
           # How a table keeps its entries, by the width the game declared and whether they are
           # signed: bytes an entry, and the range that holds. Any other table keeps whole words.
@@ -149,6 +155,7 @@ module RubyGBA
           # the program itself.
           def sections
             refuse_color_answer_errors!
+            refuse_unsupported_save_memory!
             refuse_routines_that_call_themselves!
             Reach.variables(@program).each { |name| @variables[name] = @memory.reserve("the variable #{name.inspect}", 4) }
             @declared_lists.each_value do |node|
@@ -172,6 +179,19 @@ module RubyGBA
           def refuse_color_answer_errors!
             refused = Guardrails::Checks::ColorAnswers.new.detect(@program).find { |finding| finding.severity == :error }
             raise LoweringError, refused.message if refused
+          end
+
+          # A Game Boy Color cartridge saves in 32K of battery-backed memory (Runtime::Saving): a game
+          # that asks for flash, an EEPROM or more memory is refused, naming what it asked for.
+          def refuse_unsupported_save_memory!
+            return unless SaveLayout.named_by?(@program)
+
+            memory = SaveLayout.memory_of(@program)
+            return if memory.chip == :battery && memory.size == Runtime::Saving::SIZE
+
+            raise LoweringError, "this game saves in #{memory.kilobytes}K of #{memory.kind_words}, and a Game Boy Color " \
+                                 "cartridge saves in 32K of battery-backed memory. To fix this, leave `save_memory:` " \
+                                 "out of RubyGBA.game, or say 32."
           end
 
           # A routine's own numbers are kept at fixed places, so a routine that can come round to
@@ -555,6 +575,55 @@ module RubyGBA
             @asm.add_hl(:de)
             @asm.call(TABLE_KEPT.fetch([bytes, signed]).last)
           end
+
+          # --- save memory (Runtime::Saving), laid out as IR::SaveLayout says ---
+
+          # Reference#exec_save_init: every `save_var` takes its saved number when save memory
+          # carries the game's marker, and the number it was declared with when it does not. Each
+          # is written back, and the marker after them, in that order, so a power cut lands on the
+          # byte it lands on in the interpreter.
+          def emit_save_init(node)
+            saved = keep_local(:saved)
+            marker_at = Build.int(SaveLayout::SAVE_VAR_MARKER_AT)
+            marker = Int32.wrap(node.magic)
+            value(Build.binop(:==, save_read(marker_at, :word), Build.int(marker)))
+            store(saved)
+            node.vars.each do |kept|
+              at = Build.int(SaveLayout.save_var_at(kept.slot))
+              declared = fresh("declared_number")
+              chosen = fresh("number_chosen")
+              jump_unless(Build.var_ref(saved), declared)
+              value(save_read(at, :word))
+              @asm.jump(chosen)
+              @asm.label(declared)
+              load_constant(Int32.wrap(kept.default))
+              @asm.label(chosen)
+              store(kept.name)
+              runtime_call("rg_save_write", [at, kept.name, Build.int(SAVE_BYTES.fetch(:word))])
+            end
+            runtime_call("rg_save_write", [marker_at, Build.int(marker), Build.int(SAVE_BYTES.fetch(:word))])
+          end
+
+          # Reference#exec_save_store: one `save_var`'s number into its place.
+          def emit_save_store(node)
+            at = Build.int(SaveLayout.save_var_at(node.slot))
+            runtime_call("rg_save_write", [at, node.var, Build.int(SAVE_BYTES.fetch(:word))])
+          end
+
+          # Reference#exec_save_write: the place worked out first and the value after it, as the
+          # interpreter works them out, which is the order they are pushed in.
+          def emit_save_write(node) = runtime_call("rg_save_write", [node.at, node.value, save_width(node)])
+
+          # Reference#exec_save_erase: the wipe is waited for unless the node says not to.
+          def emit_save_erase(node) = runtime_call("rg_save_erase", [node.at, Build.int(node.wait == false ? 0 : 1)])
+
+          def value_of_save_read(node) = runtime_call("rg_save_read", [node.at, save_width(node)])
+          def value_of_save_sum(node) = runtime_call("rg_save_sum", [node.at, node.length])
+
+          def save_width(node) = Build.int(SAVE_BYTES.fetch(node.width))
+
+          # A read of save memory, as a value for the statements above.
+          def save_read(at, width) = Build.save_read(at, width: width)
 
           # --- tests: jump unless one holds ---
 

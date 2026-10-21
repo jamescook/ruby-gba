@@ -79,6 +79,32 @@ class TestGBCLowering < Minitest::Test
     assert_equal 5, run.list(:trail).length
   end
 
+  # A number kept over the power going off, and a record saved, loaded back and checked by the game
+  # itself: the cartridge's save memory ends as the interpreter's, byte for byte.
+  def test_saves_play_as_the_interpreter_plays_them
+    game = program do
+      best = save_var :best, 5
+      score = var :score, 0
+      loaded = var :loaded, 0
+      files = save_data(:files) { keep score }
+      game_loop do
+        best.add! 2
+        score.add! 3
+        (score == 9).then { files[0].save }
+        (score == 15).then do
+          score.set! 0
+          files[0].load
+          loaded.set! score
+        end
+      end
+    end
+
+    assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
+    store = SaveImage.new
+    run = GBC::CheckedRun.new(save: store).run(game, frames: 40)
+    assert_equal 9, run[:loaded]
+  end
+
   private
 
   def program(&game)

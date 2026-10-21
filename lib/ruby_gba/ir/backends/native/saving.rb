@@ -15,12 +15,10 @@ module RubyGBA
         # (the Reference method is named beside each), against bytes laid out as IR::SaveLayout
         # says, so the game as C keeps the same bytes the interpreter's IR::SaveImage does.
         module Saving
-          # The kinds that reach save memory. A program holding none of them has none.
-          KINDS = %i[save_init save_store save_write save_erase save_read save_sum].freeze
+          # The kinds that reach save memory, and whether a program names any (IR::SaveLayout).
+          KINDS = SaveLayout::KINDS
 
-          # Whether +program+ names save memory anywhere, which is when a run of it is worth
-          # handing a save file.
-          def self.named_by?(program) = program.walk.any? { |node| KINDS.include?(node.kind) }
+          def self.named_by?(program) = SaveLayout.named_by?(program)
 
           private
 
