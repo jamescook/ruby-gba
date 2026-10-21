@@ -3,13 +3,13 @@
 require "test_helper"
 require "conformance_fixture"
 
-# The Game Boy Color lowering writes its statements with the native lowering's tables (GBC::Lowering
+# The Game Boy Color lowering writes its statements with the native lowering's tables (GBC::StatementLowering
 # inherits them, and test_native_kind_coverage.rb holds those to every kind). What it cannot make yet
 # is on a list of its own, said by what it is part of, and refused by name before anything is built.
 class TestGBCKindCoverage < Minitest::Test
   Nodes = RubyGBA::IR::Nodes
   Portability = RubyGBA::IR::Portability
-  Lowering = RubyGBA::IR::Backends::GBC::Lowering
+  Lowering = RubyGBA::IR::Backends::GBC::StatementLowering
   GBC = RubyGBA::IR::Backends::GBC
 
   private def portable_kinds

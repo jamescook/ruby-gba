@@ -10,7 +10,7 @@ require_relative "gbc/sound"
 require_relative "gbc/timers"
 require_relative "gbc/music"
 require_relative "gbc/compiler"
-require_relative "gbc/lowering"
+require_relative "gbc/statement_lowering"
 require_relative "gbc/headless_run"
 require_relative "gbc/checked_run"
 
@@ -23,7 +23,7 @@ module RubyGBA
       #
       # HOW IT IS MADE. The native lowering already says a program as a small tree of statements
       # and calls into a runtime, with no operator anywhere on a game's number (see the comment
-      # atop Native); GBC::Lowering builds that same tree, and GBC::Compiler turns it into SM83
+      # atop Native); GBC::StatementLowering builds that same tree, and GBC::Compiler turns it into SM83
       # machine code rather than text. The runtime the calls go to (runtime/*.rb) is written in
       # SM83 here, in Ruby, the way the GBA lowering writes its ARM: the arithmetic of IR::Int32 a
       # byte at a time (Runtime::Int32), the frame and the buttons, the lists, and the console's
@@ -70,7 +70,7 @@ module RubyGBA
 
         # +program+ as a cartridge (Cartridge::GBCROM), carrying its Places.
         def build(program, title: "RUBYGBA")
-          lowering = Lowering.new(program, title: title)
+          lowering = StatementLowering.new(program, title: title)
           statements = lowering.top_level
           memory = Memory.new
           # The runtime's places first, so they are in the half of work memory always in view.

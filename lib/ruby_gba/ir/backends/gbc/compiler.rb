@@ -6,7 +6,7 @@ module RubyGBA
       class GBC
         # THE NATIVE LOWERING'S STATEMENTS, AS SM83 MACHINE CODE.
         #
-        # GBC::Lowering says a program as Native::C says it: globals, lists, tables of numbers,
+        # GBC::StatementLowering says a program as Native::C says it: globals, lists, tables of numbers,
         # routines made of assignments, ifs, loops and calls, every number a 32-bit whole number
         # that goes through a runtime function. This turns that tree into sections of machine code
         # for the Linker, the way Native::Printer turns it into C text.

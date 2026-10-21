@@ -4,7 +4,7 @@ module RubyGBA
   module IR
     module Backends
       class GBC
-        # THE SOUND, said for a Game Boy Color. Mixed into Lowering, over Native's sound.
+        # THE SOUND, said for a Game Boy Color. Mixed into StatementLowering, over Native's sound.
         #
         # The Advance's square, wave and noise voices are the Game Boy's own, kept when the
         # Advance was made, so the Color plays a beep, a hit on the noise voice and a tone on the

@@ -6,7 +6,7 @@ module RubyGBA
       class GBC
         # THE PICTURE, said for a Game Boy Color: the statements that draw, as calls into
         # Runtime::Picture, and the art they draw with, made into tiles and palettes (GBC::Art).
-        # Mixed into Lowering, over Native's picture, which it borrows from where the two agree —
+        # Mixed into StatementLowering, over Native's picture, which it borrows from where the two agree —
         # which picture a sprite shows now, in which colours (Native::Picture#picture_drawn and the
         # rest) — and replaces where the Color draws for itself.
         #

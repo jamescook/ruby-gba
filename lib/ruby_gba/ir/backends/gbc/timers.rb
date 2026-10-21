@@ -4,7 +4,7 @@ module RubyGBA
   module IR
     module Backends
       class GBC
-        # A GAME'S TIMERS, said for a Game Boy Color. Mixed into Lowering, over Native's timers.
+        # A GAME'S TIMERS, said for a Game Boy Color. Mixed into StatementLowering, over Native's timers.
         #
         # A timer (`timer :beat, per_second: 10`) ticks so many times a second whatever the game is
         # doing, and runs what the game said to do on each tick. There is no clock in it: a frame is

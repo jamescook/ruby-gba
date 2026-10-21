@@ -251,7 +251,7 @@ alone. **A new test of such a thing goes there**, mirroring test/ (`test/advance
 in a file of its own beside the shared one (`test_fade_held_to_area_on_the_advance.rb`), rather
 than skipping on the Color. Don't bend a test to make it play on both: one about the Advance's
 picture is the Advance's. What the Color could do and its build does not make yet
-(`GBC::Lowering::NOT_LOWERED_YET`, "cannot make yet") fails on the Color run until it is made —
+(`GBC::StatementLowering::NOT_LOWERED_YET`, "cannot make yet") fails on the Color run until it is made —
 that failure is the work still owed. The one skip is a call its run cannot answer
 (`GBC::HeadlessRun::CannotAnswer`), counted by reason at the end; `skip_on_gbc` is there for a
 test the Color cannot play for a reason no folder says, and `test/ruby_gba/ir/backends/gbc/` is its

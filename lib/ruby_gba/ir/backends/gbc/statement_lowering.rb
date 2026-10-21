@@ -4,7 +4,9 @@ module RubyGBA
   module IR
     module Backends
       class GBC
-        # ONE PROGRAM, AS THE STATEMENTS A GAME BOY COLOR CARTRIDGE IS COMPILED FROM.
+        # ONE PROGRAM, AS THE STATEMENTS A GAME BOY COLOR CARTRIDGE IS COMPILED FROM — the way the
+        # Color was first built, being replaced by GBC::Lowering, which lowers the IR straight to
+        # SM83. A program that lowering cannot make yet is still built this way (GBC#build).
         #
         # It is the native lowering's own (Native::Lowering): the same STATEMENTS and VALUES tables,
         # the same semantics written down once — a `case` that reads its variable once, a `repeat`
@@ -13,7 +15,7 @@ module RubyGBA
         # checked run finds. What the Color does with the picture and the sound is its own, and is
         # said here as it is written; until it is, a program that reaches it is refused by name
         # (NOT_LOWERED_YET), as Native refused what it could not yet write.
-        class Lowering < Native::Lowering
+        class StatementLowering < Native::Lowering
           C = Native::C
 
           # EVERY KIND THIS LOWERING CANNOT MAKE YET, by what it is part of. A kind leaves the list
