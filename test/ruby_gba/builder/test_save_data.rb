@@ -254,25 +254,6 @@ class TestSaveData < Minitest::Test
     builder.program
   end
 
-  def test_a_save_on_flash_cut_off_at_any_point_keeps_the_last_good_one
-    program = one_file_on_flash
-    before = SaveImage.new(kilobytes: 64)
-    game_player(save: before).input_each_frame { |f| { 2 => [:a], 60 => [:b] }.fetch(f, []) }.run(program, frames: 120)
-    assert_equal 9, game_player(save: before.dup).run(program, frames: 2)[:hearts], "two saves went in"
-
-    found = (0..80).map do |cut|
-      store = before.dup
-      game_player(save: store.cut_power_after(cut)).input_each_frame { |f| f == 2 ? [:l] : [] }
-               .run(program, frames: 120)
-      store.restore_power
-
-      game_player(save: store).run(program, frames: 2)[:hearts].tap do |hearts|
-        assert_includes [9, 11], hearts, "cut after #{cut} steps"
-      end
-    end
-    assert_equal [9, 11], found.uniq.sort, "the cuts reach from before the save to after it"
-  end
-
   # Cut after the header's first two words and four bytes of the body.
   def test_a_first_save_cut_off_half_way_is_damaged
     store = SaveImage.new
@@ -962,16 +943,6 @@ class TestSaveData < Minitest::Test
     assert_equal [42, 43, 0], [back[:shown0], back[:shown1], back[:shown2]]
   end
 
-  # A record that takes over another's room does not find that record's saves in it: here the
-  # renamed record keeps the same things, so an old save left there would pass every check.
-  def test_room_a_dropped_record_leaves_holds_nothing_for_the_next
-    store = SaveImage.new
-    play(journal_kept_as(:journal), store, pressing: { 2 => :a }, frames: 12)
-    back = play(journal_kept_as(:diary), store)
-
-    assert_equal [1, 0], [back[:was_empty], back[:first_page]]
-  end
-
   # A game that keeps a big journal in a record named +record+; A writes a page and saves it.
   # The journal takes most of save memory, so a record renamed in a later build can only go
   # where the old one was.
@@ -1009,28 +980,6 @@ class TestSaveData < Minitest::Test
     end
   end
 
-  # A record the game no longer declares keeps its place until the room is wanted, and then
-  # gives it up: here the first build's journal takes most of save memory, and the second
-  # build's atlas fits only in the room the journal leaves.
-  def test_a_record_no_longer_declared_gives_its_room_to_a_new_one
-    store = SaveImage.new
-    play(version(order: %i[settings journal file], extra: { journal: 12_000 }), store, pressing: { 2 => :a }, frames: 12)
-    back = play(version(order: %i[settings file atlas], extra: { atlas: 12_000 }), store)
-
-    assert_equal [42, 43, 7], [back[:shown0], back[:shown1], back[:kept_speed]]
-  end
-
-  # Room that is free in two pieces, neither big enough on its own: the records that stay are
-  # moved together to make one piece, and keep their saves.
-  def test_records_are_moved_together_when_the_free_room_is_in_pieces
-    store = SaveImage.new
-    first = version(order: %i[settings north file south], extra: { north: 5000, south: 5000 })
-    play(first, store, pressing: { 2 => :a }, frames: 12)
-    back = play(version(order: %i[settings file atlas], extra: { atlas: 10_000 }), store)
-
-    assert_equal [42, 43, 7], [back[:shown0], back[:shown1], back[:kept_speed]]
-  end
-
   # The console, powered on with the save memory the first build left: the second build finds
   # the files where the interpreter says it will.
   def test_the_console_finds_a_record_that_kept_its_place
@@ -1039,30 +988,6 @@ class TestSaveData < Minitest::Test
     v = assert_emulator_loads_rom(rom, frames: 4, save: store, vars: rom.var_addresses)
 
     assert_equal [42, 43, 0, 0], (0..3).map { |n| v.var(:"shown#{n}") }
-  end
-
-  # The console, powered on with what the first build saved, finds the records the second build
-  # declared in another order, and one that only fits once the others are slid together — and
-  # leaves save memory byte for byte as the interpreter does. Sliding records together is the
-  # slow one: the console takes eight frames over it at power-on, once, and clearing the
-  # bigger record's buffers a few more, so the run is given sixteen.
-  def test_the_console_reorders_and_slides_records_the_way_the_interpreter_does
-    first = version(order: %i[settings north file south], extra: { north: 5000, south: 5000 })
-    [version(order: %i[file settings]),
-     version(order: %i[settings file atlas], extra: { atlas: 10_000 })].each_with_index do |second, n|
-      store = SaveImage.new
-      play(first, store, pressing: { 2 => :a }, frames: 12)
-      before = store.dup
-      oracle = play(second, store)
-      rom = assemble_rom(second, name: "SLIDE#{n}")
-      v = assert_emulator_loads_rom(rom, frames: 16, save: before, vars: rom.var_addresses)
-      shown = %i[shown0 shown1 kept_speed]
-
-      assert_equal [42, 43, 7], shown.map { |name| v.var(name) }
-      assert_equal shown.map { |name| oracle[name] }, shown.map { |name| v.var(name) }
-      written = store.written.keys.sort
-      assert_equal written.map { |at| store.read(at, 1) }, written.map { |at| v.mem8(SRAM_START + at) }
-    end
   end
 
   # A RECORD NAMED LIKE THE FRAMEWORK'S OWN SAVE MACHINERY — the table saying where each

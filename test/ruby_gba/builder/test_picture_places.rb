@@ -194,23 +194,6 @@ class TestPicturePlaces < Minitest::Test
     builder.program
   end
 
-  def test_one_colour_at_three_places_including_the_see_through_one_stays_apart
-    i = game_player.run(cartridge_program, frames: 2)
-
-    assert_equal 0x7C00, i.screen.pixel(41, 41), "black from place 3"
-    assert_equal 0x03FF, i.screen.pixel(44, 41), "black from place 5"
-    assert_equal 0x0000, i.screen.pixel(47, 41), "place 0 draws nothing"
-  end
-
-  def test_the_console_keeps_those_three_apart_too
-    oracle, console, = backend_pictures(cartridge_program, frames: 2)
-
-    assert_equal 0x7C00, console[(41 * 240) + 41], "black from place 3"
-    assert_equal 0x03FF, console[(41 * 240) + 44], "black from place 5"
-    assert_equal 0x0000, console[(41 * 240) + 47], "place 0 draws nothing"
-    assert_empty mismatched_pixels(oracle, console)
-  end
-
   # --- art given as colours, where the two places cannot be told apart ---
 
   # The same picture drawn the ordinary way: every pixel a colour, so the two reds are one

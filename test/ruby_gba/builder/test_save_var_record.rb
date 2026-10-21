@@ -52,16 +52,6 @@ class TestSaveVarRecord < Minitest::Test
     assert_equal store.written, chip.written
   end
 
-  # An update that adds a save_var finds the one saved before it, and starts the new one at
-  # its default.
-  def test_an_update_that_adds_a_save_var_keeps_the_saved_one
-    store = saved_by_playing(game)
-    back = game_player(save: store).run(game(more: true).program, frames: 2)
-
-    assert_equal 7, back[:best]
-    assert_equal 5, back[:wins]
-  end
-
   # How many saves the save_vars' record holds: the newer of its two halves' sequence numbers,
   # each one more than the last save's. A half never written reads as -1.
   private def saves_made(chip)

@@ -26,9 +26,10 @@ module RubyGBA
 
     # The same, on the Game Boy Color lowering's run: the game built as a Game Boy Color cartridge
     # and played in the emulator (GBC::CheckedRun), checked against the interpreter after every
-    # pass. A game the Color cannot play is a skip saying why, counted with the run's skips by
-    # reason — a game laid out for the Advance's larger screen that draws on it, a verb the Color
-    # refuses, one it does not do yet — rather than a failure: those are answers, not faults.
+    # pass, each test's program played as a Color program. A test of what the Color's hardware
+    # cannot do is not here to play at all: it lives with the Advance's tests, which this run
+    # never loads (TestSuites::ADVANCE_DIR in this repository). What the Color's build does not make
+    # yet fails, since it is still to be made; what the run cannot answer of it is a skip.
     class GBCCheckedPlayer < IR::Backends::GBC::CheckedRun
       include DisagreementFailsTest
 
@@ -54,19 +55,6 @@ module RubyGBA
       private
 
       def cannot_answer_reason(error) = "Game Boy Color cannot answer: #{error.message[/`(\w+\??)`/, 1] || error.message}"
-
-      # What a refusal says, short enough to count skips by: the parts of the picture or sound not
-      # made yet, which the refusal names in brackets, or the refusal itself.
-      def reason_not_made(message) = message[/cannot make yet \((.*)\)/, 1]&.then { |parts| "not made yet: #{parts}" } || message
-
-      # A program built for the Advance that draws, drawn on the Color's smaller screen, is not the
-      # game its test was written about.
-      def refuse_advance_picture!(program)
-        return if program.console == :gbc
-        return unless program.walk.any? { |node| node.category == :draw }
-
-        raise Minitest::Skip, "Game Boy Color: the game is laid out for the Advance's screen"
-      end
     end
   end
 end

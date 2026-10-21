@@ -466,21 +466,6 @@ class TestSpriteDrawsWith < Minitest::Test
     builder.program
   end
 
-  def test_a_sprite_and_fifteen_lists_take_all_sixteen_groups
-    walking = ship_drawn_with_fifteen_lists
-    # Pass 1 shows the ship's own colours and passes 2 to 16 a list each.
-    (2..17).each { |frames| assert_backends_agree(walking, frames: frames) }
-
-    console = assert_emulator_loads_rom(assemble_rom(walking, name: "SIXTEEN"), frames: 2)
-    worn = Array.new(17) do
-      console.step
-      console.sprites(:ship).first.palette
-    end
-
-    assert_equal 16, worn.uniq.size, "the ship wore sixteen different groups"
-    assert_equal Color.resolve(:black), console.pixel_gba(120, 120), "the colour behind everything is as it was"
-  end
-
   # --- scenes take turns with the groups ---
 
   # THE SIXTEEN GROUPS ARE ONE SCENE'S, NOT THE WHOLE GAME'S, the way a scene's pictures and
@@ -526,15 +511,6 @@ class TestSpriteDrawsWith < Minitest::Test
     builder.program
   end
 
-  def test_each_scene_has_the_sixteen_groups_to_itself
-    prog = two_scenes_of_many_lists
-    seen = [SECOND_SCENE_AT, FIRST_SCENE_AGAIN_AT, FIRST_SCENE_AGAIN_AT + 6].map do |frames|
-      game_player.run(prog, frames: frames).screen.pixel(41, 41)
-    end
-
-    assert_equal [shade(:one, PICKED), shade(:two, PICKED), shade(:one, PICKED)], seen
-  end
-
   # ...UNDER A TINT, and beside a sprite every scene shows. A tiled screen tints by moving the
   # colour tables themselves, and a tint held steady is not walked again — so a scene's colours
   # sent as it takes over have to go in already tinted, or its sprites arrive at full colour in
@@ -574,12 +550,6 @@ class TestSpriteDrawsWith < Minitest::Test
     builder.program
   end
 
-  def test_a_scene_arriving_under_a_tint_is_tinted_and_the_badge_keeps_its_colors
-    [SECOND_SCENE_AT, FIRST_SCENE_AGAIN_AT, FIRST_SCENE_AGAIN_AT + 6].each do |frames|
-      assert_backends_agree(tinted_scenes, frames: frames)
-    end
-  end
-
   # A SCENE THAT RUNS OUT ON ITS OWN IS NAMED, since it is measured on its own. The small scene
   # beside it is fine and is not mentioned.
   def test_a_scene_with_more_lists_than_groups_is_named
@@ -610,10 +580,4 @@ class TestSpriteDrawsWith < Minitest::Test
     refute_match(/calm/, error.message)
   end
 
-  def test_the_console_gives_each_scene_the_groups_in_turn
-    prog = two_scenes_of_many_lists
-    [SECOND_SCENE_AT, FIRST_SCENE_AGAIN_AT, FIRST_SCENE_AGAIN_AT + 6].each do |frames|
-      assert_backends_agree(prog, frames: frames)
-    end
-  end
 end

@@ -12,7 +12,8 @@ class TestNativeExamples < Minitest::Test
   ROOT = RubyGBA.root.to_s
   TOOL = File.join(ROOT, "tools", "native_examples.rb")
   RECORDED_RUNS = File.join(ROOT, "test", "ruby_gba", "ir", "backends", "native", "examples")
-  EXAMPLE_TESTS = File.join(ROOT, "test", "examples")
+  # The tests of the examples: those for both consoles, and those for the Advance alone.
+  EXAMPLE_TESTS = [File.join(ROOT, "test", "examples"), File.join(ROOT, "test", "advance", "examples")].freeze
 
   # The names of the examples that build, as the tool prints them: "name<tab>builds".
   private def examples_that_build
@@ -35,9 +36,9 @@ class TestNativeExamples < Minitest::Test
   # left behind: on a native run it would test the interpreter again, and it wants `game_player`.
   def test_every_test_of_an_example_that_builds_plays_it_as_c_too
     built = examples_that_build
-    left_behind = Dir.glob(File.join(EXAMPLE_TESTS, "test_*.rb")).select do |path|
+    left_behind = EXAMPLE_TESTS.flat_map { |dir| Dir.glob(File.join(dir, "test_*.rb")) }.select do |path|
       text = File.read(path)
-      examples = text.scan(%r{require_relative "\.\./\.\./examples/(\w+)"}).flatten
+      examples = text.scan(%r{RubyGBA\.root\.join\("examples/(\w+)"\)}).flatten
       examples.any? && (examples - built).empty? && left_to_the_interpreter?(text)
     end
 

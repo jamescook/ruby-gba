@@ -140,8 +140,11 @@ exception is a test of one lowering's own output, which lives in a folder that l
 is played by its run alone: `test/ruby_gba/ir/backends/gba/`, the cartridge-reading
 `diagnostics/` and `playthroughs/` for the GBA lowering, `test/ruby_gba/ir/backends/native/`
 for the native one, `test/ruby_gba/ir/backends/js/` for the JavaScript one and
-`test/ruby_gba/ir/backends/gbc/` for the Game Boy Color one (`TestSuites::LOWERING_FOLDERS` in `test/support/suites.rb`). `.claude/rules/testing.md` has the
-details.
+`test/ruby_gba/ir/backends/gbc/` for the Game Boy Color one (`TestSuites::LOWERING_FOLDERS` in `test/support/suites.rb`).
+What only the Advance can do — and every example game for the Advance alone — is tested in
+`test/advance/`, which the GBA, native and JavaScript runs load and the Color's never does: the
+Color run never sees a test it cannot make work, and a test is not bent to play on both.
+`.claude/rules/testing.md` has the details.
 
 The test tree mirrors the code's directories: a test of a file in `lib/ruby_gba/audio/`
 lives in `test/ruby_gba/audio/`, a test of an example in `test/examples/`, a test of a

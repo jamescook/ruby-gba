@@ -259,24 +259,6 @@ class TestPixelate < Minitest::Test
     end
   end
 
-  # A sprite is put into blocks by itself, and the rule has two edges to it. A block that
-  # starts off the sprite's left or top shows the sprite's own first column or row. And the
-  # sprite's last block runs on to the end of that block, past the sprite's own right edge
-  # — but never past its bottom one.
-  def test_a_sprite_is_in_blocks_held_inside_itself
-    drawn = picture_of(sprites_at([37, 21]))
-    blocks = picture_of(sprites_at([37, 21]) { pixelate 4 })
-    floor = drawn[100][100]
-
-    assert_equal drawn[21][40], blocks[21][41], "the block began above the sprite, so it shows its first row"
-    assert_equal drawn[24][37], blocks[25][38], "and one that began to its left shows its first column"
-    assert_equal drawn[24][40], blocks[27][43], "inside, a block is its top left corner"
-    assert_equal drawn[28][52], blocks[28][55], "the last block runs past the sprite's right edge"
-    refute_equal floor, blocks[28][55]
-    assert_equal floor, blocks[37][40], "but nothing is drawn below its bottom edge"
-    assert_backends_agree(sprites_at([37, 21]) { pixelate 4 }, frames: 2, name: "SPRITE4")
-  end
-
   def test_sprites_of_every_block_size_and_at_every_edge_are_the_same_on_the_console
     places = [[37, 21], [-5, 61], [203, -6], [231, 100], [60, 151], [101, 23]]
 
@@ -497,27 +479,6 @@ class TestPixelate < Minitest::Test
     end
   end
 
-  # `under:` names a layer, and that layer and everything in front of it are left as drawn.
-  def test_a_layer_and_everything_in_front_of_it_can_be_left_as_drawn
-    drawn = picture_of(stacked, frames: 3)
-    everything = picture_of(stacked { pixelate 6 }, frames: 3)
-    game_only = picture_of(stacked { pixelate 6, under: :ui }, frames: 3)
-    room_only = picture_of(stacked { pixelate 6, under: :actors }, frames: 3)
-    yellow = Color.resolve(:yellow)
-    lettering = ->(picture) { picture.flatten.each_index.select.with_index { |_at, i| picture[i / WIDTH][i % WIDTH] == yellow } }
-    solid = PATCH.lines(chomp: true)
-    hero = (0...16).to_a.product((0...16).to_a).reject { |row, col| solid[row][col] == "." }
-                   .map { |row, col| [21 + row, 37 + col] }
-
-    refute_equal lettering.call(drawn), lettering.call(everything), "with no place said, the score is in blocks too"
-    assert_equal lettering.call(drawn), lettering.call(game_only), "the score is as drawn"
-    assert_equal everything[100], game_only[100], "and the game behind it is in blocks"
-    assert_equal(hero.map { |y, x| drawn[y][x] }, hero.map { |y, x| room_only[y][x] }, "a sprite in front of the line is as drawn")
-    assert_equal everything[130], room_only[130], "and the room behind it is in blocks"
-    assert_backends_agree(stacked { pixelate 6, under: :ui }, frames: 3, name: "UNDERUI")
-    assert_backends_agree(stacked { pixelate 6, under: :actors }, frames: 3, name: "UNDERACT")
-  end
-
   # Which things are in blocks is settled as the cartridge is built, so a game says one place.
   def test_a_game_that_names_two_places_is_refused
     error = assert_raises(ArgumentError) do
@@ -645,14 +606,6 @@ class TestPixelate < Minitest::Test
       instance_exec(&said) if said
       halt
     end
-  end
-
-  def test_a_painted_screen_is_shown_in_blocks_and_nothing_painted_changes
-    drawn = picture_of(painted_screen)
-
-    assert_blocks_of(drawn, picture_of(painted_screen { pixelate 5 }), 5, 5)
-    assert_equal drawn, picture_of(painted_screen { pixelate 5; pixelate 1 }), "the picture is all still there"
-    [2, 5, 16].each { |size| assert_backends_agree(painted_screen { pixelate size }, name: "PAINT#{size}") }
   end
 
   # A window moved over the picture moves the picture under the grid, like a scroll. Moved

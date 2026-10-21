@@ -20,7 +20,7 @@ keeps a name of its own.
 |---|---|---|
 | a file in `lib/ruby_gba/<dir>/` | `test/ruby_gba/<dir>/` | `lib/ruby_gba/audio/score.rb` → `test/ruby_gba/audio/` |
 | a file at the top of `lib/ruby_gba/` | `test/ruby_gba/` | `cli.rb` → `test/ruby_gba/test_cli.rb` |
-| a program in `examples/` | `test/examples/` | `examples/pong.rb` → `test/examples/test_pong_title.rb` |
+| a program in `examples/` | `test/examples/`, or `test/advance/examples/` for a game for the Advance alone | `examples/pong.rb` → `test/examples/test_pong_title.rb` |
 | a script in `tools/` | `test/tools/` | `tools/emitted.rb` → `test/tools/test_emitted_tool.rb` |
 
 It mirrors lib's DIRECTORIES, not its files. Most tests here build a whole game
@@ -239,15 +239,23 @@ way — and last the Game Boy Color lowering's — the game built as a Color car
 test that does not pass on all four fails the run, so a new feature is not done until every
 lowering has it. It needs zig 0.17 and node 18 or later as well as the emulator.
 
-**The Game Boy Color run skips what the Color answers no to.** Its player (`GBCCheckedPlayer`,
-`GBC::CheckedRun`) compares variables, lists, the picture, sprites and save memory with the
-interpreter's — playing the interpreter as a Color, so a fade or a turned background the Color
-shows differently is checked as the Color shows it. A game the Color cannot play is a skip that
-says why, never a failure: one laid out for the Advance's larger screen that draws, a verb the
-Color refuses (`Console::GBCFeatures`), a part it does not make yet (`GBC::Lowering::NOT_LOWERED_YET`),
-or a call its run cannot answer (`GBC::HeadlessRun::CannotAnswer`). They are counted by reason at
-the end like the others'. `skip_on_gbc` is its own skip and `test/ruby_gba/ir/backends/gbc/` its
-own folder; a game built for both consoles (`consoles: %i[gba gbc]`) is played there as a Color
+**The Game Boy Color run plays every test it can make work, and never sees the rest.** Its player
+(`GBCCheckedPlayer`, `GBC::CheckedRun`) plays each test's program as a Color program and compares
+variables, lists, the picture, sprites and save memory with the interpreter's — playing the
+interpreter as a Color, so a fade or a turned background the Color shows differently is checked as
+the Color shows it. What the Color's hardware cannot do — fading part of the screen, a recording
+in a song, a save on flash, more colours, tiles or memory than it holds — is tested in
+`test/advance/` (`TestSuites::ADVANCE_DIR`), which every run of an Advance game loads (GBA, native,
+JavaScript) and the Color's never does; so is every example whose game says it is for the Advance
+alone. **A new test of such a thing goes there**, mirroring test/ (`test/advance/ruby_gba/builder/`),
+in a file of its own beside the shared one (`test_fade_held_to_area_on_the_advance.rb`), rather
+than skipping on the Color. Don't bend a test to make it play on both: one about the Advance's
+picture is the Advance's. What the Color could do and its build does not make yet
+(`GBC::Lowering::NOT_LOWERED_YET`, "cannot make yet") fails on the Color run until it is made —
+that failure is the work still owed. The one skip is a call its run cannot answer
+(`GBC::HeadlessRun::CannotAnswer`), counted by reason at the end; `skip_on_gbc` is there for a
+test the Color cannot play for a reason no folder says, and `test/ruby_gba/ir/backends/gbc/` is its
+own folder. A game built for both consoles (`consoles: %i[gba gbc]`) is played there as a Color
 game, as `examples/pong.rb` and `examples/pacman.rb` are.
 
 **The JavaScript run is the native run's twin.** Its game is the native lowering's statements
@@ -268,8 +276,11 @@ alone: `test/ruby_gba/ir/backends/gba/` (the ARM it emits), `test/ruby_gba/diagn
 GBA lowering, `test/ruby_gba/ir/backends/native/` (the C it writes) for the native one, and
 `test/ruby_gba/ir/backends/js/` (the JavaScript it writes, and the page that plays it) for the
 JavaScript one, and `test/ruby_gba/ir/backends/gbc/` (the SM83 code it emits, the Color
-cartridge, its saves and its profiler) for the Game Boy Color one. The list is `TestSuites::LOWERING_FOLDERS`, which the Rakefile and the tests both
-read. Anywhere else, a test is about the game, and plays on every lowering.
+cartridge, its saves and its profiler) for the Game Boy Color one. `test/advance/` is owned by the
+GBA, native and JavaScript lowerings together (what only the Advance can do, above). The list is
+`TestSuites::LOWERING_FOLDERS`, which the Rakefile and the tests both read; a folder several
+lowerings name is loaded by each of them (`Testing::Lowering.files_for`). Anywhere else, a test is
+about the game, and plays on every lowering.
 
 **A test makes its player with `game_player`**, never `Reference.new`, when the question is what
 the game does:

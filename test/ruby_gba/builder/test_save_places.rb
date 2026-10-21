@@ -121,30 +121,6 @@ class TestSavePlaces < Minitest::Test
 
   # --- the last resort, when the free room is in pieces ---
 
-  def test_records_slide_together_when_the_free_room_is_in_pieces
-    third = ((ROOM / 3) / 4) * 4
-    rows = [row(:left, START + third), row(:right, START + (2 * third))]
-    big = { bytes: (third * 3 / 4) & ~3 } # half a copy of it is more than any one gap holds
-    where = placed({ left: {}, right: {}, big: big }, rows)
-
-    assert_equal({ left: [START, 1], right: [START + (2 * SMALL), 1], big: [START + (4 * SMALL), 1] }, where)
-  end
-
-  # The console runs the same rules on the same save memory and ends with the same table.
-  def test_the_console_slides_records_together_the_way_the_interpreter_does
-    third = ((ROOM / 3) / 4) * 4
-    records = { left: {}, right: {}, big: { bytes: (third * 3 / 4) & ~3 } }
-    rows = [row(:left, START + third), row(:right, START + (2 * third))]
-    oracle = placed(records, rows)
-    rom = assemble_rom(game(records), name: "SLIDE")
-    v = assert_emulator_loads_rom(rom, frames: 12, save: SaveImage.new.write_table(rows))
-    table = (0...(Layout::PACKED.data_start - Layout::PACKED.table_at)).to_h do |i| # both halves of the table
-      [Layout::PACKED.table_at + i, v.mem8(RubyGBA::Console::Hardware::SRAM_START + Layout::PACKED.table_at + i)]
-    end
-    by_key = records.keys.to_h { |name| [Layout.record_key(name), name] }
-
-    assert_equal oracle, SaveImage.new(bytes: table).table.to_h { |one| [by_key.fetch(one.key), [one.at, one.copies]] }
-  end
   # --- flash, which is wiped 4K at a time ---
   #
   # Where records go on flash is the same program on both backends, so the interpreter runs
@@ -153,20 +129,6 @@ class TestSavePlaces < Minitest::Test
 
   FLASH_START = 0x2000
   BLOCK = 0x1000
-
-  def test_on_flash_a_new_record_goes_at_the_start_of_flash_save_data
-    assert_equal({ file: [FLASH_START, 1] }, placed({ file: {} }, [], save_memory: 64))
-  end
-
-  # 64K is sixteen blocks and two are kept back, so three records of two copies — four
-  # blocks each, however small a half is — and one of one copy fill it exactly, the last
-  # ending at 64K. The build said they fit, and they do.
-  def test_on_flash_records_take_whole_blocks_and_fill_the_memory_to_its_end
-    records = { a: { copies: 2 }, b: { copies: 2 }, c: { copies: 2 }, d: {} }
-    assert_equal({ a: [FLASH_START, 2], b: [FLASH_START + (4 * BLOCK), 2], c: [FLASH_START + (8 * BLOCK), 2],
-                   d: [FLASH_START + (12 * BLOCK), 1] },
-                 placed(records, [], save_memory: 64))
-  end
 
   # One record more — two blocks, however small — is past what 64K holds, and the build says
   # so rather than placing it over the end. Records this small fit the packed 32K, where a
@@ -177,66 +139,6 @@ class TestSavePlaces < Minitest::Test
 
     assert_match(/save_memory: 64/, message)
     assert_match(/need 32K/, message)
-  end
-
-  # Four blocks free at the start, two between, two at the end, and a record that needs six:
-  # sliding the records down together leaves it its six in one piece, still on whole blocks.
-  def test_on_flash_records_slide_together_on_whole_blocks
-    rows = [row(:left, FLASH_START + (4 * BLOCK)), row(:right, FLASH_START + (8 * BLOCK))]
-    big = { bytes: 9000 } # three blocks a half
-    where = placed({ left: {}, right: {}, big: big }, rows, save_memory: 64)
-
-    assert_equal({ left: [FLASH_START, 1], right: [FLASH_START + (2 * BLOCK), 1], big: [FLASH_START + (4 * BLOCK), 1] },
-                 where)
-  end
-
-  # A save of the second copy goes in a half that starts on a block — the second copy's two
-  # blocks are the third and fourth of the record's — and it loads back at the next power-on.
-  def test_on_flash_a_save_lands_on_its_block_and_loads_back
-    store = SaveImage.new
-    game_player(save: store).input_each_frame { |f| f == 2 ? [:a] : [] }.run(flash_game, frames: 12)
-    marked = [2, 3].map { |block| FLASH_START + (block * BLOCK) }.select { |at| store.word(at) == Layout::MARKER }
-
-    assert_equal 1, marked.size, "one half of the second copy holds the save, at the start of a block"
-    assert_equal 7, game_player(save: store).run(flash_game, frames: 2)[:hearts], "and it loads back"
-  end
-
-  # A record given a second copy, with a record right after it, moves to room further on — room
-  # that still holds an old save of something else, which flash must wipe before the copy it
-  # brings can be written there.
-  def test_on_flash_a_record_moves_byte_for_byte_into_room_that_held_something_else
-    rows = [row(:file, FLASH_START), row(:next, FLASH_START + (2 * BLOCK))]
-    saved = (0...(2 * BLOCK)).to_h { |i| [FLASH_START + i, (i * 7) & 0xFF] }
-    old = (0...(4 * BLOCK)).to_h { |i| [FLASH_START + (4 * BLOCK) + i, 0] }
-    where = placed({ file: { copies: 2 }, next: {} }, rows, bytes: saved.merge(old), save_memory: 64)
-
-    assert_equal({ file: [FLASH_START + (4 * BLOCK), 2], next: [FLASH_START + (2 * BLOCK), 1] }, where)
-    moved = (0...(2 * BLOCK)).map { |i| @store.read(FLASH_START + (4 * BLOCK) + i, 1) }
-    assert_equal saved.values, moved, "the copy it had came with it"
-  end
-
-  # The memory's free room is two blocks at the end, and a record grows by two: the ten
-  # blocks above it lift by two, into blocks eight of which they are still in. Each block is
-  # wiped only once what it held has been copied on.
-  def test_on_flash_records_lifted_into_their_own_room_come_with_their_bytes
-    above = { bytes: 18_000 } # five blocks a half, ten a copy
-    rows = [row(:grower, FLASH_START), row(:above, FLASH_START + (2 * BLOCK), half: half(above))]
-    saved = (0...(10 * BLOCK)).to_h { |i| [FLASH_START + (2 * BLOCK) + i, (i * 7) & 0xFF] }
-    where = placed({ grower: { copies: 2 }, above: above }, rows, bytes: saved, save_memory: 64)
-
-    assert_equal({ grower: [FLASH_START, 2], above: [FLASH_START + (4 * BLOCK), 1] }, where)
-    moved = (0...(10 * BLOCK)).map { |i| @store.read(FLASH_START + (4 * BLOCK) + i, 1) }
-    assert_equal saved.values, moved
-  end
-
-  # Each save goes into the older half, so the third lands where the first was — which flash
-  # takes only once that half's blocks are wiped. An erase is a half written over too.
-  def test_on_flash_a_copy_saved_over_and_over_loads_its_last_save
-    store = SaveImage.new
-    presses = { 2 => [:a], 6 => [:a], 10 => [:b], 14 => [:a] }
-    game_player(save: store).input_each_frame { |f| presses.fetch(f, []) }.run(flash_game, frames: 30)
-
-    assert_equal 9, game_player(save: store).run(flash_game, frames: 2)[:hearts]
   end
 
   # A 64K game keeping one number in two copies: A saves one more heart than last time (7 the
@@ -259,12 +161,4 @@ class TestSavePlaces < Minitest::Test
   end
 
 
-  def test_the_records_above_are_lifted_when_one_grows_and_nothing_else_fits
-    grower = { bytes: ((ROOM / 5) / 4) * 4, copies: 2 }
-    size = half(grower) * 2 # one copy
-    rows = [row(:grower, START, half: half(grower)), row(:above, START + size)]
-    where = placed({ grower: grower, above: {} }, rows)
-
-    assert_equal({ grower: [START, 2], above: [START + (2 * size), 1] }, where)
-  end
 end

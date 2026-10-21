@@ -23,11 +23,15 @@ class TestGBCSuite < Minitest::Test
     assert_match(/emulator/, skipped.message)
   end
 
-  # A game laid out for the Advance's screen that draws is not played here, and says why.
-  def test_a_game_drawing_on_the_advances_screen_skips_itself
-    program = RubyGBA::IR::Build.program(RubyGBA::IR::Build.screen(:bitmap), RubyGBA::IR::Build.pixel(1, 1, :red))
-    skipped = assert_raises(Minitest::Skip) { game_player.run(program) }
+  # A test's program that names no console is played here as a Color program, on the Color's
+  # screen, and checked against the interpreter playing it the same way. (A test of what only the
+  # Advance can do is not in this run at all: TestSuites::ADVANCE_DIR.)
+  def test_a_tests_program_is_played_as_a_color_program
+    program = RubyGBA::IR::Build.program(RubyGBA::IR::Build.screen(:bitmap), RubyGBA::IR::Build.pixel(1, 1, :red),
+                                         RubyGBA::IR::Build.halt)
+    screen = game_player.run(program, frames: 2).screen
 
-    assert_match(/laid out for the Advance/, skipped.message)
+    assert_equal [160, 144], [screen.width, screen.height]
+    assert_equal RubyGBA::Graphics::Color.resolve(:red), screen.pixel(1, 1)
   end
 end

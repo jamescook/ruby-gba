@@ -15,17 +15,27 @@ module TestSuites
   JS_DIR = "test/ruby_gba/ir/backends/js"
   GBC_DIR = "test/ruby_gba/ir/backends/gbc"
 
-  # THE FOLDERS THAT BELONG TO ONE LOWERING. A test there is about that lowering's own output —
-  # the ARM a cartridge is made of, the cartridge played in the emulator, the C the native
-  # lowering writes — and the other lowering's run never loads it. Every test outside them is
-  # about the game, and every lowering's run loads it. Each folder mirrors a part of lib that is
-  # that lowering's alone: the GBA backend; the diagnostics, which read back a finished
-  # cartridge; the playthroughs, which drive one in the emulator; the native backend; and the
-  # JavaScript backend.
+  # WHAT ONLY THE GAME BOY ADVANCE CAN DO: fading part of the screen, a recording in a song, a
+  # save on flash, more colours or memory than a Game Boy Color holds, and every example whose
+  # game is for the Advance alone (`consoles: %i[gba]`). Its tests are about the game, so every
+  # lowering that plays an Advance game plays them — the GBA lowering, the native one and the
+  # JavaScript one — and the Color's run never loads them, since the Color would only refuse each
+  # game. Inside, it mirrors test/ (examples/, ruby_gba/builder/, ...), so a test sits where it
+  # would sit if every console could do it, in a file named for the one it came out of.
+  ADVANCE_DIR = "test/advance"
+
+  # THE FOLDERS THAT BELONG TO ONE LOWERING, or to every lowering of one console. A test there is
+  # about that lowering's own output — the ARM a cartridge is made of, the cartridge played in
+  # the emulator, the C the native lowering writes — or about what only that console can do, and
+  # the other lowerings' runs never load it. Every test outside them is about the game, and every
+  # lowering's run loads it. Each folder mirrors a part of lib that is that lowering's alone: the
+  # GBA backend; the diagnostics, which read back a finished cartridge; the playthroughs, which
+  # drive one in the emulator; the native backend; and the JavaScript backend.
   LOWERING_FOLDERS = Ractor.make_shareable({
                                              gba: ["test/ruby_gba/ir/backends/gba", "test/ruby_gba/diagnostics",
-                                                   "test/ruby_gba/playthroughs"],
-                                             native: [NATIVE_DIR], js: [JS_DIR], gbc: [GBC_DIR]
+                                                   "test/ruby_gba/playthroughs", ADVANCE_DIR],
+                                             native: [NATIVE_DIR, ADVANCE_DIR], js: [JS_DIR, ADVANCE_DIR],
+                                             gbc: [GBC_DIR]
                                            })
 
   # The test of the program a player runs, with its window. It builds with SDL, whose first build

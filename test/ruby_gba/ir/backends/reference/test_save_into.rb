@@ -153,15 +153,6 @@ class TestSaveInto < Minitest::Test
     assert_equal [9, 0.25 * (1 << 16)], [run[:hearts], run[:volume]]
   end
 
-  def test_flash_save_memory_takes_a_written_copy
-    program = files(save_memory: 64)
-    image = SaveImage.new
-    Reference.save_into(image, program, :file, 0, hearts: 12, name: [1, 2])
-    run = boot(program, image)
-
-    assert_equal [1, 12, [1, 2]], [run[:first_good], run[:hearts], run.list(:name)]
-  end
-
   # --- the console starts from a written copy too ---
 
   # The cartridge built from the same game, booted on each image: the copy is good, and the

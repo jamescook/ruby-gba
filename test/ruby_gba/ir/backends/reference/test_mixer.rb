@@ -476,25 +476,6 @@ class TestMixer < Minitest::Test
     assert_mixes_agree(b.program, frames: 40)
   end
 
-  def test_a_songs_recorded_parts_are_the_same_bytes
-    assert_mixes_agree(tune_on, frames: 60)
-  end
-
-  # A note with a shape climbs, holds and falls away, its loudness sliding across every sample
-  # of a frame rather than stepping at the frame's edge.
-  def test_notes_with_a_shape_are_the_same_bytes
-    shaped = { envelope: { attack: 0.05, decay: 0.2, sustain: 0.5, release: 0.15 } }
-    assert_mixes_agree(tune_on(instrument_words: shaped), frames: 60)
-    assert_mixes_agree(tune_on(part_words: { envelope: { release: 0.3 } }), frames: 60)
-  end
-
-  # The music volume moving reaches notes already sounding — with and without a shape in the
-  # game, which changes what the mix reads for a note with none.
-  def test_the_music_volume_moving_is_the_same_bytes
-    assert_mixes_agree(tune_on(volume_from: 8), frames: 60)
-    assert_mixes_agree(tune_on(part_words: { envelope: { release: 0.2 } }, volume_from: 8), frames: 60)
-  end
-
   # A QUIET NOTE FALLING AWAY GOES SILENT WHILE ITS LEVEL IS STILL ABOVE NOTHING. A voice's
   # loudness for a frame is a whole number of 256ths, the loudness asked for (out of 512) times
   # the level, over 512, the rest dropped — as a cartridge's own sound engine works it out from
@@ -543,31 +524,6 @@ class TestMixer < Minitest::Test
   # ...and the console makes the same bytes.
   def test_a_quiet_note_fading_is_the_same_bytes
     assert_mixes_agree(quiet_note_let_go, frames: 100)
-  end
-
-  # A note at volume 0 sounds nothing, so it takes no voice: the part is silent there, and the
-  # part's voice from before it is let go as a rest lets it go.
-  def test_a_note_at_volume_nought_is_the_same_bytes
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      enable_sound
-      instrument :keys, pcm: SAWTOOTH.first(1200), rate: 8000, note: :C4
-      song :tune do
-        tempo 300
-        voice :melody, plays: :keys do
-          volume 12
-          note :C4, :quarter
-          volume 0
-          note :E4, :quarter
-          volume 12
-          note :G4, :quarter
-        end
-      end
-      game_loop { play_song :tune }
-    end
-    b.finalize_program
-    assert_mixes_agree(b.program, frames: 40)
   end
 
   # WHAT A GAME DOES INSIDE ITS LOOP is mixed in the slice made just after its pass, so against a

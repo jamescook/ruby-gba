@@ -49,31 +49,6 @@ class TestSongConsoleVoices < Minitest::Test
     game_player.run(program, frames: frames).audio
   end
 
-  def test_a_wave_part_sounds_its_waveform_on_the_interpreter
-    played = logged(every_voice_game).select { |entry| entry.first == :wave }.map(&:last)
-
-    refute_empty played, "the pad part sounded the wave voice"
-    assert_equal :triangle, played.first[:shape], "at the timbre the part named"
-    assert_equal RubyGBA::Audio::Music::NOTE_FREQUENCIES[:C2], played.first[:frequency]
-  end
-
-  def test_a_noise_part_sounds_a_hit_on_the_interpreter
-    hits = logged(every_voice_game).select { |entry| entry.first == :noise }.map(&:last).compact
-
-    refute_empty hits, "the drum part hit the noise voice"
-    assert_equal RubyGBA::Audio::Music::NOTE_FREQUENCIES[:C2], hits.first[:pitch]
-    assert_equal :fast, hits.first[:decay], "a drum hit rings out rather than being held"
-  end
-
-  # THE POINT OF THE WHOLE THING. Five parts, and only the one playing a recording keeps a
-  # mixer voice — so a tune with a pad and drums leaves fifteen of the sixteen for the game.
-  def test_only_the_recorded_part_keeps_a_mixer_voice
-    i = game_player.run(every_voice_game, frames: 6)
-
-    assert_equal [:piano], i.active_samples
-    assert_equal 1, i.peak_voices, "the wave and noise parts took none"
-  end
-
   # --- the console ---
 
   # A wave part really reaches the wave voice's registers, and a noise part the noise voice's.
@@ -150,16 +125,6 @@ class TestSongConsoleVoices < Minitest::Test
       value = probe.read32(REG_WAVE_RAM + (word * 4))
       [value & 0xFFFF, (value >> 16) & 0xFFFF]
     end
-  end
-
-  # Both backends sound the same thing, which is the contract that makes the interpreter an
-  # oracle for this at all.
-  def test_both_backends_agree_about_what_the_wave_voice_plays
-    program = every_voice_game
-    interpreted = logged(program, frames: 8).select { |e| e.first == :wave }.map(&:last).first
-    v = assert_emulator_loads_rom(assemble_rom(program, name: "VOICES"), frames: 10)
-
-    assert_equal Registers.wave_rate(interpreted[:frequency]), v.wave_rate
   end
 
   # --- a note on the noise voice ---

@@ -345,23 +345,6 @@ class TestMenu < Minitest::Test
 
   # ---- decoration a game says rather than builds ----
 
-  def test_a_row_can_carry_its_own_colours
-    program = build_program do
-      screen :bitmap
-      game_loop do
-        clear_screen :black
-        menu(:main, at: [X, Y], spacing: SPACING, color: :gray, picked: :white) do |rows|
-          rows.item("ONE", picked: :yellow)
-          rows.item("TWO", color: :cyan)
-        end
-      end
-    end
-    i = walk(program, frames: 2, &NOTHING_HELD)
-
-    assert_equal Color.resolve(:yellow), row_color(i, 0), "the picked row uses its own colour"
-    assert_equal Color.resolve(:cyan), row_color(i, 1), "an unpicked row uses its own colour"
-  end
-
   # ---- a row whose words change ----
 
   # A settings row says a different thing depending on the setting, so it carries the

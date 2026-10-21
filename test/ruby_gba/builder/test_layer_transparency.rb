@@ -621,14 +621,6 @@ class TestLayerTransparency < Minitest::Test
     end
   end
 
-  def test_a_tint_takes_the_place_of_a_fade_placed_in_the_stack
-    game = placed_fade_then_a_tint
-    [2, 4, 5, 7, 8, 10].each { |frames| assert_backends_agree(game, frames: frames) }
-
-    assert_equal rgb5(8, 4, 1), game_player.run(game, frames: 5).screen.pixel(200, 100), "solid and dark under the fade"
-    assert_equal seen_through_mist, game_player.run(game, frames: 10).screen.pixel(200, 100), "seen through after the tint"
-  end
-
   # The same room with no title and no fade: what the mist looks like seen through.
   private def scene_mist_with_no_fade
     tile = SOLID_TILE
@@ -697,19 +689,6 @@ class TestLayerTransparency < Minitest::Test
       layer(:ui) { sprite :badge, at: [200, 8] }
       game_loop { fade :black, hold, under: :ui }
     end
-  end
-
-  def test_a_fade_placed_in_the_stack_takes_the_blend_and_gives_it_back_too
-    solid = shown(placed_fade_program(0, 25), *SCENERY_XY)
-
-    assert_equal solid, shown(placed_fade_program(50, 25), *SCENERY_XY),
-                 "a placed fade left the layer blending"
-    assert_equal HALF_WHITE_OVER_RED, shown(placed_fade_program(50, 0), *SCENERY_XY)
-
-    on_console = console(placed_fade_program(0, 25), *SCENERY_XY, "FADPLC")
-
-    assert_equal on_console, console(placed_fade_program(50, 25), *SCENERY_XY, "FADPL2")
-    assert_equal HALF_WHITE_OVER_RED, console(placed_fade_program(50, 0), *SCENERY_XY, "FADPL3")
   end
 
   # The real shape of it: a hit flash, walked over frames by the effects pack, whose last

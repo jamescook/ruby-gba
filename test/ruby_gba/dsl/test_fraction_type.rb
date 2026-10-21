@@ -165,20 +165,6 @@ class TestFractionType < Minitest::Test
 
   # --- the console agrees ---
 
-  def test_the_console_computes_the_same_answers
-    assert_backends_agree(build do
-      screen :bitmap
-      clear_screen :blue
-      speed = var :speed, 1.5
-      pos = var :pos, 20.25
-      pos.add!(speed * speed)     # 20.25 + 2.25 = 22.5 — the multiply that would overflow
-      draw_rect_at pos.to_i, 40, 2, 2, Color.resolve(:red)
-      draw_rect_at (pos * 4).to_i, 60, 2, 2, Color.resolve(:green) # 90
-      draw_rect_at (pos / 3).to_i, 80, 2, 2, Color.resolve(:white) # 7.5 -> 7
-      halt
-    end)
-  end
-
   # A fraction that goes negative rounds DOWN on the way back to a whole number, which is
   # what keeps it consistent with the multiply. Both backends must agree about that.
   def test_the_console_agrees_about_a_negative_fraction

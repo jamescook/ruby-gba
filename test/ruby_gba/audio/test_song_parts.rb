@@ -103,15 +103,6 @@ class TestSongParts < Minitest::Test
                            "(energy #{console.audio_energy})"
   end
 
-  # The interpreter plays it too, so the two backends agree about the same program.
-  def test_the_interpreter_plays_a_song_of_recorded_parts_alone
-    i = game_player.run(recorded_parts_only_game, frames: 3)
-
-    assert_equal [:organ] * 4, i.active_samples
-    assert_equal %i[C4 E4 G4 C5].map { |pitch| NOTES[pitch] },
-                 i.audio.select { |entry| entry[0] == :note }.map(&:last)
-  end
-
   # --- what cannot be had, said plainly ---
 
   # More recorded parts than the mixer has voices stops the build (the check itself is

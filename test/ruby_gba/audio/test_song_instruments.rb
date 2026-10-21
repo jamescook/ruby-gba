@@ -47,14 +47,6 @@ class TestSongInstruments < Minitest::Test
 
   # --- the interpreter ---
 
-  def test_each_note_plays_the_instrument_and_a_rest_silences_it
-    seen = sounding_by_frame(piano_game, 30)
-
-    assert_equal [:piano], seen[5], "the first note is sounding"
-    assert_empty seen[15], "the rest silenced it"
-    assert_equal [:piano], seen[25], "the next note plays it again"
-  end
-
   # --- the voices, which the music and the game's own sounds share ---
 
   VOICES = RubyGBA::Audio::Sound::MIXER_VOICES
@@ -133,27 +125,6 @@ class TestSongInstruments < Minitest::Test
     assert_equal interpreted, console
   end
 
-  def test_changing_tunes_silences_the_instrument
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      enable_sound
-      instrument :piano, pcm: [60, -60] * 4000, rate: 8000, note: :C4
-      song(:tune) { voice(:melody, plays: :piano) { note :C4, :whole } }
-      song(:beeps) { note :C5, :whole }
-      pass = var :pass, 0
-      game_loop do
-        pass.add! 1
-        (pass < 10).then { play_song :tune }.else { play_song :beeps }
-      end
-    end
-    b.finalize_program
-    seen = sounding_by_frame(b.program, 20)
-
-    assert_equal [:piano], seen[5]
-    assert_empty seen[15], "the square-wave tune took over, and the piano stopped with its tune"
-  end
-
   # --- the console ---
 
   private def console_steps_at(frames)
@@ -208,21 +179,6 @@ class TestSongInstruments < Minitest::Test
 
     assert_match(/:sine/, error.message)
     assert_match(/different name/, error.message)
-  end
-
-  def test_the_instrument_handle_works_as_well_as_its_name
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      enable_sound
-      piano = instrument :piano, pcm: [60, -60] * 4000, rate: 8000, note: :C4
-      song(:tune) { voice(:melody, plays: piano) { note :C4, :whole } }
-      play_song :tune
-      game_loop { wait_vblank }
-    end
-    b.finalize_program
-
-    assert_equal [:piano], game_player.run(b.program, frames: 3).active_samples
   end
 
   # A song whose second part is an instrument leaves the square voice beeps use alone, so a

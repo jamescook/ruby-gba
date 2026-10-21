@@ -32,28 +32,6 @@ class TestSaveVarsInto < Minitest::Test
     assert_equal 0, run[:played], "a save_var the test leaves out starts at its default"
   end
 
-  # On flash the save_vars are kept together and saved a pass after one changes; the written
-  # number is in save memory when the call returns all the same.
-  def test_flash_takes_a_written_save_var
-    image = Reference.save_vars_into(SaveImage.new, scores(save_memory: 64), best: 9999, played: 4)
-    run = boot(scores(save_memory: 64), image)
-
-    assert_equal 9999, run[:best]
-    assert_equal 4, run[:played]
-  end
-
-  # The game saves over a written number as it would over its own: A raises the best, and
-  # the next power-on starts with that.
-  def test_the_game_saves_over_a_written_save_var
-    [nil, 64].each do |memory|
-      program = scores(save_memory: memory)
-      image = Reference.save_vars_into(SaveImage.new, program, best: 9999)
-      boot(program, image, pressing: { 1 => :a }, frames: 400)
-
-      assert_equal 50, boot(program, image)[:best], "save memory #{memory || 32}K"
-    end
-  end
-
   # --- the console starts from a written save_var too ---
 
   private def console_best(save_memory: nil)

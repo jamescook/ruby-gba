@@ -56,6 +56,16 @@ class TestSuitesSplit < Minitest::Test
     %i[gba native js].each { |other| refute_includes files_for(other), "test/ruby_gba/ir/backends/gbc/test_gbc_suite.rb" }
   end
 
+  # A test of what only the Advance can do — fading part of the screen, a recording in a song —
+  # is played by every lowering that plays an Advance game, and the Color's run never loads it.
+  def test_the_advance_folder_is_loaded_by_every_run_of_an_advance_game_and_not_the_colors
+    advance_test = Dir.glob("#{TestSuites::ADVANCE_DIR}/**/test_*.rb").first
+
+    refute_nil advance_test, "the Advance's folder holds tests"
+    %i[gba native js].each { |lowering| assert_includes files_for(lowering), advance_test, lowering }
+    refute_includes files_for(:gbc), advance_test
+  end
+
   # A test makes its player and runs a game the same way whichever lowering hands it the player,
   # so every player takes the interpreter's words. One added to the interpreter and not the
   # others fails here, on every run, rather than on the first native run that meets it.

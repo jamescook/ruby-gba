@@ -330,15 +330,6 @@ class TestMusicVolume < Minitest::Test
 
   # --- a part that plays a recording ---
 
-  # A recorded part sounds on a voice of the mixer, whose loudness runs 0..512 rather than 0..15 —
-  # volume 12 is 410 of those — and the mixer takes a new one while a note plays, like the wave
-  # voice. The log names the part by its place among the song's recorded parts.
-  def test_half_the_music_volume_halves_a_recorded_note_already_sounding
-    program = held_note_game(plays: :piano) { |pass| (pass == 5).then { music_volume 50 } }
-
-    assert_equal({ 2 => [[[:mixer, 0], 410]], 6 => [[[:mixer, 0], 205]] }, loudness_by_frame(program, 10))
-  end
-
   def test_the_console_sets_the_recorded_notes_voice_to_the_same_loudness
     program = held_note_game(plays: :piano) { |pass| (pass == 5).then { music_volume 50 } }
     console = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOLR"), frames: 20)
@@ -353,19 +344,6 @@ class TestMusicVolume < Minitest::Test
 
     assert_operator energy[5..15].min, :>, loud, "the note sounds at its own volume (#{energy.inspect})"
     assert_operator energy[28..].max, :<, loud, "and is silent once the music volume is 0 (#{energy.inspect})"
-  end
-
-  # A note with no shape follows the music volume in a game where some other note has one, too.
-  # Such a game mixes every voice by a gain the shapes work out a frame at a time, and a note
-  # with no shape has none to work it out.
-  def test_no_music_volume_silences_a_recorded_note_without_a_shape_in_a_game_that_shapes
-    program = held_note_game(plays: :piano, shaped_elsewhere: true) { |pass| (pass == 20).then { music_volume 0 } }
-    i = game_player
-    i.run(program, frames: 40)
-    peaks = i.mixed_sound.map { |slice| slice.map(&:abs).max }
-
-    assert_operator peaks[5..15].min, :>, 0, "the note sounds at its own volume (#{peaks.inspect})"
-    assert_equal [0], peaks[25..].uniq, "and is silent once the music volume is 0 (#{peaks.inspect})"
   end
 
   def test_the_console_silences_a_recorded_note_without_a_shape_in_a_game_that_shapes

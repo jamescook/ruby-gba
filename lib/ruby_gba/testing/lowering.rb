@@ -70,8 +70,13 @@ module RubyGBA
       # made of, the C the game is built as — and the other lowering's run never loads it.
       # +folders+ names them by lowering, `{ gba: [...], native: [...], js: [...] }`. Every test
       # outside them is about the game, and every lowering's run loads it.
+      #
+      # A folder several lowerings name is loaded by each of them and left out of the rest's runs:
+      # what only one CONSOLE can do is played by every lowering that plays a game for it (the
+      # Advance's folder is the GBA, native and JavaScript lowerings'), and never by the others.
       def files_for(lowering, files:, folders: {})
-        others = folders.reject { |owner, _| owner == lowering }.values.flatten
+        own = folders.fetch(lowering, [])
+        others = folders.reject { |owner, _| owner == lowering }.values.flatten - own
         files.reject { |path| others.any? { |dir| path.start_with?("#{dir}/") } }
       end
     end

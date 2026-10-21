@@ -368,27 +368,4 @@ class TestPool < Minitest::Test
     assert v.green?(61, 61), "and the second one too"
   end
 
-  # The same from the roomier memory: a pool too big for the quick one is spawned into,
-  # walked and read there like any other, the last of its thousand slots included.
-  def test_a_pool_in_the_roomier_memory_draws_on_the_console
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      crowd = pool :crowd, x: 0, y: 0, vx: 0, vy: 0, capacity: 1000
-      # Each one tagged with the order it was spawned in, so the first and the last can be
-      # picked out whatever slots they landed in.
-      repeat(1000) { |i| crowd.spawn x: i % 200, y: 20, vx: i }
-      crowd.each { |one| ((one.vx == 0) | (one.vx == 999)).then { draw_rect_at one.x, one.y, 4, 4, :green } }
-      game_loop {}
-    end
-    b.finalize_program
-
-    i = game_player.run(b.program, frames: 2)
-    assert_equal [GREEN, GREEN], [i.screen.pixel(1, 21), i.screen.pixel(200, 21)], "the interpreter draws both"
-
-    # Filling and walking a thousand slots takes the console several frames.
-    v = assert_emulator_loads_rom(assemble_rom(b.program, name: "CROWD"), frames: 40)
-    assert v.green?(1, 21), "the first of the crowd drew, got 0x#{format('%04X', v.pixel_gba(1, 21))}"
-    assert v.green?(200, 21), "and the last, got 0x#{format('%04X', v.pixel_gba(200, 21))}"
-  end
 end

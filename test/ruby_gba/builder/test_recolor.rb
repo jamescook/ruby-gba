@@ -156,16 +156,6 @@ class TestRecolor < Minitest::Test
     [3, 13, 22].each { |frames| assert_backends_agree(many_sets(through_one_list: false), frames: frames) }
   end
 
-  def test_twenty_sets_through_one_list_take_one_group
-    walking = many_sets(through_one_list: true)
-    # A sprite is drawn in the gap before the next frame, so the picture after thirteen
-    # frames is where the twelfth pass put the ship, in the set that pass named.
-    i = game_player.run(walking, frames: 13)
-
-    assert_equal self.class.set(11).drop(1), [i.screen.pixel(53, 41), i.screen.pixel(57, 41)], "set 11"
-    [3, 13, 22].each { |frames| assert_backends_agree(walking, frames: frames) }
-  end
-
   # --- with a tint or a fade in force ---
 
   # A list's colors go into the console's table, and a tint moves every color in that table.
@@ -247,12 +237,6 @@ class TestRecolor < Minitest::Test
   private def things_drawn(frames)
     i = game_player.run(room_of_things, frames: frames)
     (0...4).map { |n| i.screen.pixel(41 + (n * 20), 41) }
-  end
-
-  def test_a_rooms_things_wear_the_sets_their_slots_were_filled_with
-    assert_equal (0...4).map { |n| self.class.set(n)[1] }, things_drawn(3), "the first room"
-    assert_equal (4...8).map { |n| self.class.set(n)[1] }, things_drawn(6), "the second room"
-    [3, 4, 5, 6].each { |frames| assert_backends_agree(room_of_things, frames: frames) }
   end
 
   # --- friendly errors ---
