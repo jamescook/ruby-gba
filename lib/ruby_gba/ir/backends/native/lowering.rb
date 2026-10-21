@@ -20,10 +20,6 @@ module RubyGBA
           include Sound
           include Saving
 
-          # The variables the framework keeps the frame count in (see IR::Frames). Written at
-          # every frame boundary, where the interpreter writes them.
-          FRAME_VARIABLES = [Frames::COUNT, Frames::SEEN, Frames::STEP].freeze
-
           # The operators of a binop, by the rg_int32.h function that does each one.
           OPERATORS = Ractor.make_shareable({
                                               :+ => "rg_add", :- => "rg_sub", :* => "rg_mul",
@@ -34,22 +30,6 @@ module RubyGBA
                                               :>= => "rg_ge", :== => "rg_eq", :!= => "rg_ne",
                                               and: "rg_both", or: "rg_either"
                                             })
-
-          # Which kinds of statement name a variable, and where. The interpreter keeps a
-          # variable that has never been written as 0, so every one of these becomes a global
-          # starting at 0 and the program's own `set`s give it its first value.
-          VARIABLES_OF = Ractor.make_shareable({
-                                                 set: ->(n) { [n.var] }, add: ->(n) { [n.var] },
-                                                 sub: ->(n) { [n.var] }, negate: ->(n) { [n.var] },
-                                                 abs: ->(n) { [n.var] }, negate_abs: ->(n) { [n.var] },
-                                                 clamp: ->(n) { [n.var] }, copy: ->(n) { [n.dest, n.src] },
-                                                 var_ref: ->(n) { [n.name] }, repeat: ->(n) { [n.index].compact },
-                                                 every: ->(n) { [n.counter] }, after: ->(n) { [n.counter] },
-                                                 case: ->(n) { [n.var] }, scroll_rows: ->(n) { [n.row] },
-                                                 shade_outside: ->(n) { [n.row] },
-                                                 copy_owed_tiles: ->(n) { n.masks },
-                                                 save_init: ->(n) { n.vars.map(&:name) }, save_store: ->(n) { [n.var] }
-                                               })
 
           STATEMENTS = Ractor.make_shareable({
                                                program: :lower_children, set: :lower_set, add: :lower_add,
@@ -225,66 +205,16 @@ module RubyGBA
             [*(waits ? [eval_call("rg_screen_hold", C::Int.new(1))] : []), *sound_power_on]
           end
 
-          # The statements under +root+ and everything they hold, stopping at a routine's
-          # declaration, at a bend and at what a timer does when it ticks: a routine's body runs
-          # where it is called, a bend's as its lines are worked out and a tick's as its timer
-          # ticks, not where any of them is written. The bend or the handler itself is still a
-          # statement there; what it holds is found by asking for it as a root.
-          def statements_under(root)
-            found = [root]
-            (root.children + root.operand_nodes).each do |node|
-              found.concat(case node.kind
-                           when :func then []
-                           when :scroll_rows, :on_timer then [node]
-                           else statements_under(node)
-                           end)
-            end
-            found
-          end
-
-          def statements_from(*roots) = roots.flat_map { |root| statements_under(root) }
-
-          # The routines named by the statements in +nodes+.
-          def routines_named(nodes)
-            nodes.flat_map do |node|
-              case node.kind
-              when :call then [node.target]
-              when :call_one_of then node.targets
-              when :case then node.clauses.map(&:last)
-              else []
-              end
-            end
-          end
-
-          # Every routine a run can reach, following calls from the program, from what each bend
-          # runs and from what each timer does when it ticks into the routines they call, in the
-          # order the routines were declared.
-          def called_routines
-            reached = []
-            waiting = routines_named(statements_from(@program, *@bends.values, *@tick_handlers.values))
-            until waiting.empty?
-              name = waiting.shift
-              next if reached.include?(name) || !@funcs.key?(name)
-
-              reached << name
-              waiting.concat(routines_named(statements_under(@funcs.fetch(name))))
-            end
-            @funcs.keys & reached
-          end
+          # What a run can reach, as IR::Reach says it for every lowering: the statements under a
+          # root, the routines they name, every routine reached from the program, from what each
+          # bend runs and from what each timer does when it ticks, and every variable.
+          def statements_under(root) = Reach.statements_under(root)
+          def statements_from(*roots) = Reach.statements_from(*roots)
+          def routines_named(nodes) = Reach.routines_named(nodes)
+          def called_routines = Reach.routines(@program, also: [*@bends.values, *@tick_handlers.values])
+          def variable_names = Reach.variables(@program)
 
           def by_name(nodes, *kinds) = nodes.select { |node| kinds.include?(node.kind) }.to_h { |node| [node.name, node] }
-
-          # Every variable the program names, framework's own included, in the order they
-          # first appear.
-          def variable_names
-            names = FRAME_VARIABLES.dup
-            @program.walk do |node|
-              reader = VARIABLES_OF[node.kind]
-              names.concat(reader.call(node)) if reader
-              node.operand_nodes.each { |operand| names << operand if operand.is_a?(Symbol) }
-            end
-            names.uniq
-          end
 
           # Every variable and then every list the game keeps, for a test build to print.
           def dump_state

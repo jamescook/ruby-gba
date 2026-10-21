@@ -11,6 +11,7 @@ require_relative "gbc/timers"
 require_relative "gbc/music"
 require_relative "gbc/compiler"
 require_relative "gbc/statement_lowering"
+require_relative "gbc/lowering"
 require_relative "gbc/headless_run"
 require_relative "gbc/checked_run"
 
@@ -68,8 +69,27 @@ module RubyGBA
           def waits_counted_at = runtime.fetch(Runtime::Frame::PASSES)
         end
 
-        # +program+ as a cartridge (Cartridge::GBCROM), carrying its Places.
+        # +program+ as a cartridge (Cartridge::GBCROM), carrying its Places: lowered straight to SM83
+        # (Lowering) when that makes every step a run can reach, and through the statement path
+        # (StatementLowering) until it does.
         def build(program, title: "RUBYGBA")
+          return build_from_statements(program, title: title) unless Lowering.makes?(program)
+
+          memory = Memory.new
+          lowering = Lowering.new(program, memory: memory)
+          # The runtime's places first, so they are in the half of work memory always in view.
+          Runtime.reserve(memory, art: lowering.art)
+          game = lowering.sections
+          runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art)
+          linked = Linker.new(runtime + game + lowering.art.sections, fixed_from: Console::GBCHardware::HEADER_END).link
+          built = Places.new(variables: lowering.variables, lists: {}, runtime: runtime_places(memory),
+                             source_program: program, code: linked.places)
+          Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: 0, built: built)
+        end
+
+        private
+
+        def build_from_statements(program, title:)
           lowering = StatementLowering.new(program, title: title)
           statements = lowering.top_level
           memory = Memory.new
@@ -87,14 +107,15 @@ module RubyGBA
                                               built: places(lowering, compiled, memory, program, linked))
         end
 
-        private
-
         def places(lowering, compiled, memory, program, linked)
           variables = lowering.variable_names_in_statements.transform_values { |text| compiled.globals.fetch(text) }
           lists = lowering.list_names_in_statements.transform_values { |text| compiled.lists.fetch(text) }
-          runtime = memory.places.select { |name, _| name.start_with?("rt ") }
-          Places.new(variables: variables, lists: lists, runtime: runtime, source_program: program, code: linked.places)
+          Places.new(variables: variables, lists: lists, runtime: runtime_places(memory), source_program: program,
+                     code: linked.places)
         end
+
+        # Where the runtime keeps how the run stands (Runtime::Frame's names and the rest).
+        def runtime_places(memory) = memory.places.select { |name, _| name.start_with?("rt ") }
       end
     end
   end

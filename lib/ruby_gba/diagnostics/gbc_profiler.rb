@@ -102,12 +102,14 @@ module RubyGBA
         readable(@labels[at][1])
       end
 
-      # A label as the routine it is in: "game_f_update_ball" and "f_update_ball.end_if12" are both
-      # update_ball, and a routine cut into parts is one routine.
+      # A label as the routine it is in: "routine update_ball" and "routine update_ball.end_if12" are
+      # both update_ball, as are the statement path's "game_f_update_ball" and
+      # "f_update_ball.end_if12", and a routine cut into parts is one routine.
       def readable(label)
         routine = label.split(".").first.delete_prefix("game_").sub(/_part\d+\z/, "")
         case routine
-        when "rg_game_main" then "the game loop"
+        when "rg_game_main", IR::Backends::GBC::Lowering::MAIN then "the game loop"
+        when /\Aroutine (.+)\z/ then Regexp.last_match(1)
         when /\Af__scene_(\w+)\z/ then "scene :#{Regexp.last_match(1)}"
         when /\Af_(\w+)\z/ then Regexp.last_match(1)
         else routine
