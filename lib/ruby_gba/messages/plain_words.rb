@@ -73,7 +73,7 @@ module RubyGBA
       # THE VERB AN AUTHOR TYPED, for the few node kinds whose internal name is not that verb. A
       # message naming the kind back at somebody names something they never wrote: nobody types
       # `draw_digit`, they type `draw_number`, and a `blit_pose` is what a `sprite` became.
-      VERBS = { blit_pose: "sprite", draw_digit: "draw_number" }.freeze
+      VERBS = { blit_pose: "sprite", draw_digit: "draw_number", show_light_now: "light.show_now" }.freeze
 
       def self.verb(kind) = VERBS.fetch(kind) { kind.to_s }
     end

@@ -502,6 +502,12 @@ module RubyGBA
         Spotlights.work_out_half_width(self, light, @spotlight_tables, row: row, into: :"__spotlight_circle_#{@light_circles}")
       end
 
+      # THE HOOK BEHIND Spotlight#show_now: the light worked out again here, for the picture
+      # being drawn.
+      def show_light_now
+        record(Build.show_light_now)
+      end
+
       # Fill a rectangle at a fixed position and size.
       #
       # @param x [Integer] left edge

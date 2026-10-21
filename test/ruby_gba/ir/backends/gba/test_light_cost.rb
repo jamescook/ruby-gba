@@ -64,6 +64,17 @@ class TestLightCost < Minitest::Test
     assert_operator light_cost(light: moving), :>, CHEAP * 10
   end
 
+  # A light shown now on every pass that has not changed works nothing out: its darkness and its
+  # first row are said again, as in the gap.
+  def test_showing_a_light_that_stands_still_costs_next_to_nothing
+    shown = lambda {
+      light = spotlight at: [120, 80], radius: 40, dark: 75
+      once_a_frame { light.show_now }
+    }
+
+    assert_operator light_cost(light: shown), :<, CHEAP
+  end
+
   # In a scene that sees through a layer the light is switched off, and costs nothing there.
   def test_a_light_switched_off_in_a_scene_costs_next_to_nothing
     with_title = lambda do |iris|

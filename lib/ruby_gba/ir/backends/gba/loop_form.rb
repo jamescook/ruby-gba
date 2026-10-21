@@ -39,7 +39,10 @@ module RubyGBA
           # A statement kind that can reach code this loop does not control, and so can land
           # anywhere in the registers. `raw` is in the list because it is the escape hatch:
           # instructions the author wrote themselves, which may use any register they like.
-          REACHES_OTHER_CODE = %i[call call_one_of case repeat on_timer raw].freeze
+          # Showing the light now is here too: it lays the light's own working out in place, a
+          # loop over every row of the screen and whatever the game's shape holds, loops and
+          # divides included.
+          REACHES_OTHER_CODE = %i[call call_one_of case repeat on_timer raw show_light_now].freeze
 
           # ...and the lowerings that use the high registers for their own working: a
           # blitted image clips each row against the screen edges in them, the mixer sums
@@ -199,6 +202,7 @@ module RubyGBA
             when :repeat then "a loop inside it"
             when :on_timer then "a timer's handler inside it"
             when :raw then "instructions of your own inside it"
+            when :show_light_now then "the body shows the light now"
             when :div_fix then "a divide of numbers holding a fraction"
             when :pixels_overlap then "a per-pixel collision test"
             when :draw_column_at then "the body stretches a column of a picture"

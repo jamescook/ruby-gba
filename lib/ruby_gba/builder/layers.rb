@@ -103,6 +103,8 @@ module RubyGBA
         # ...and a light, which darkens the finished picture wherever its circle is not,
         # whatever depth each thing there sits at.
         shade_outside: :free,
+        # ...or worked out again for the picture being drawn.
+        show_light_now: :free,
         blit_pose: :free,
         save_region: :free,
         restore_region: :free,

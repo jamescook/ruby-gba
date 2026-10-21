@@ -80,6 +80,7 @@ module RubyGBA
                                                scroll_background: :lower_scroll_background,
                                                scroll_rows: :lower_scroll_rows,
                                                shade_outside: :lower_nothing,
+                                               show_light_now: :lower_show_light_now,
                                                set_tile: :lower_set_tile, show_map: :lower_show_map,
                                                background_colors: :lower_background_colors,
                                                color_list_holds: :lower_color_list_holds,
@@ -578,8 +579,12 @@ module RubyGBA
              assign(Frames::SEEN, count),
              assign(Frames::STEP, C::Int.new(1)),
              *(@bends.empty? ? [] : [eval_call("rg_screen_work_out_bends")]),
-             *(@shade ? [eval_call("rg_screen_work_out_shade")] : [])]
+             *lower_show_light_now(nil)]
           end
+
+          # The light worked out again where this is reached, so the picture shown at the next
+          # frame's end is read with it (Reference#exec_show_light_now) — as every gap does too.
+          def lower_show_light_now(_node) = @shade ? [eval_call("rg_screen_work_out_shade")] : []
 
           # --- lists (runtime/rg_list.h does the work and the checking) ---
 

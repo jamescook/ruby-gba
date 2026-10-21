@@ -481,6 +481,7 @@ module RubyGBA
             background: @drawing.method(:emit_background), scroll_background: @background_drawing.method(:emit_scroll_background),
             affine_background: @background_drawing.method(:emit_affine_background),
             scroll_rows: Lowering::NOTHING, shade_outside: Lowering::NOTHING,
+            show_light_now: @raster.method(:emit_light_now),
             camera: @effects.method(:emit_camera), fade: @effects.method(:emit_fade),
             tint: @effects.method(:emit_tint), pixelate: @effects.method(:emit_pixelate),
             see_through: @layer_blend.method(:emit_see_through),

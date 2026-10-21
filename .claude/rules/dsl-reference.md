@@ -51,7 +51,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 - `fade_level` → `Value`, 0..100: how far the screen is faded now (wait on it to swap scenes).
 - `pixelate 8` / `under:` — show the screen in blocks, 1..16.
 - `pixelate_out` / `pixelate_in` — the blocks walked over time; `pixelate_size` → `Value`, the walk's block size now.
-- `spotlight at:, radius:, dark:` → `Spotlight` — a light: picture inside a circle, darkened outside (tiled only, one per game); `light.shape { |row| … }` gives it a shape of the game's own, `light.circle(row)` the circle to build on.
+- `spotlight at:, radius:, dark:` → `Spotlight` — a light: picture inside a circle, darkened outside (tiled only, one per game); `light.shape { |row| … }` gives it a shape of the game's own, `light.circle(row)` the circle to build on, `light.show_now` a change on the picture being drawn.
 - `iris_out at:` / `iris_in` / `iris_shut?` — a circle closing to black and opening again, on the game's light; `from: 150, by: 4` (and `iris_in by:, to:`) walks it in pixels a frame.
 - `pulse sprite, to: 1.3` — a tiled sprite that grows and shrinks for ever.
 - `keep_showing :name do … end` → handle with `.changed`, `.draw`, `.cancel` — a picture painted only when it changes, right on a two-page screen.

@@ -61,8 +61,8 @@ class TestDslReference < Minitest::Test
   # remember_sprite_recolors and remember_background_draws_with are the hooks behind `recolor`:
   # a sprite, a pool and a background say which lists they draw with, so a list that changes
   # can find them. The reference documents `recolor`; nobody writes these.
-  # record_light_shape and light_circle are the hooks behind `shape` and `circle` on the light,
-  # documented on `spotlight`. game_pack_checks is what a build asks of `uses`, documented there.
+  # record_light_shape, light_circle and show_light_now are the hooks behind `shape`, `circle`
+  # and `show_now` on the light, documented on `spotlight`. game_pack_checks is what a build asks of `uses`, documented there.
   SKIP = %i[variables var_address debug_halted? make_object_rotatable make_object_scalable
             remember_sprite_recolors remember_background_draws_with
             record_row_bend make_background_affine screen_pages keep_showing_pictures
@@ -72,7 +72,7 @@ class TestDslReference < Minitest::Test
             make_object_layer_choosable refuse_unknown_layers! write_picked_choice
             lists_drawn_from list_drawn_from declared_colors name_of_colors pool_refill_nodes
             request_tile_copy canvas_font canvas_font_tables image_size image_pixels write_picked_pose
-            record_light_shape light_circle game_pack_checks].freeze
+            record_light_shape light_circle show_light_now game_pack_checks].freeze
 
   # …plus the verbs the loaded effect packs contribute. A pack's verb is an ordinary
   # DSL verb at the call site, so it has to be looked up in the same place.

@@ -719,6 +719,11 @@ module RubyGBA
                                     amount: to_value_node(amount))
       end
 
+      # Work the light out again now, for the picture being drawn.
+      def show_light_now
+        Nodes.build(:show_light_now)
+      end
+
       # Move the whole displayed picture. x/y are where the visible window's top-left
       # sits over the drawn image, in pixels, as run-time values — so (0, 0) shows the
       # picture as drawn, and a small changing offset jitters it (a screen shake).

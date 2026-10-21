@@ -12,7 +12,8 @@ require "midpoint_circle"
 # Measured on the real cartridge (frames from the game's own count): the closing circle is 146 at
 # the end of the frame it starts, 4 less every frame to 2, then 0; centred on (120, 80). The opening
 # one is 4 on the frame it starts, 4 more every frame, centred on (184, 96), and the light goes once
-# it passes 150. Each size is drawn on the next picture.
+# it passes 150. Each size is drawn on the next picture — but the opening's first, which that game
+# hands the console while the picture is drawn, so it shows on the picture of the turn it starts.
 class TestGameDefinedIris < Minitest::Test
   include Differential
   include MidpointCircle
@@ -33,6 +34,7 @@ class TestGameDefinedIris < Minitest::Test
       light.dark.set! 100
       light.radius.set! 0
       each_pass(:copied_iris_opening).start
+      light.show_now # that game hands the console its first circle as it asks for it
     end
 
     def iris_closed? = (spotlight.radius == 0) & (spotlight.dark == 100)
@@ -116,7 +118,7 @@ class TestGameDefinedIris < Minitest::Test
     seen = pictures(90)
 
     (2...90).each do |picture|
-      turn = picture - 1
+      turn = picture == OPENS ? OPENS : picture - 1 # the opening's first size is shown at once
       size = size_after(turn)
       expected = if size.nil? then Array.new(HEIGHT) { [0, WIDTH] }
                  else game_circle_spans_a_row_late(turn < OPENS ? 120 : 184, turn < OPENS ? 80 : 96, size)

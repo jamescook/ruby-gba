@@ -428,6 +428,35 @@ module RubyGBA
             @emitter.place_label(done)
           end
 
+          # THE LIGHT WORKED OUT DURING A PASS (Spotlight#show_now), for the picture being drawn:
+          # what a game does that hands the display its rows while it draws. The same as the gap
+          # does — the darkness, and the rows only where they show and have changed — into the
+          # same table, which the display goes on reading a line at a time, so every line it has
+          # not reached yet shows the new rows. Row 0 goes straight into the register only while
+          # the display is still between pictures; once it is drawing, the register is fed a line
+          # at a time from the table, and a write would land on the line being drawn.
+          #
+          # This is the lead the gap's own comment warns of — the light a picture ahead of the
+          # sprites — and that is the point: a game that asks for it is copying one that has it.
+          def emit_light_now(_node = nil)
+            return unless feeds_light? && row_bend_tables?
+
+            drawing = @emitter.gensym
+            emit_light_this_frame
+            emit_if_light_rows do
+              emit_first_row_into_table(LIGHT)
+              # Asked after row 0 is worked out, not before, so a long shape cannot carry the
+              # write past the gap.
+              @emitter.emit_number(ADDR, REG_VCOUNT)
+              @emitter.emit(ASM.load_halfword(TMP, ADDR))
+              @emitter.emit(ASM.cmp_imm(TMP, VISIBLE_LINES))
+              @emitter.emit_branch(:bcond, drawing, cond: :lt)
+              @primitives.store_halfword_acc(register_fed(LIGHT))
+              @emitter.place_label(drawing)
+              emit_fill_row_table(LIGHT)
+            end
+          end
+
           # The light's row 0: worked out, where the rows are; otherwise the one the table keeps.
           def emit_light_first_row
             kept = @emitter.gensym
@@ -462,11 +491,16 @@ module RubyGBA
           # alone, because the layer's scroll is already in every entry of the table (see
           # BackgroundDrawing#emit_scroll_background).
           def emit_first_row(key)
+            emit_first_row_into_table(key)
+            @primitives.store_halfword_acc(register_fed(key))
+          end
+
+          # ...into the table alone, its value left in r0.
+          def emit_first_row_into_table(key)
             @primitives.store_word_immediate(0, @primitives.var_addr(row_var(key)))
             emit_row_value(key)
             @emitter.emit_number(ADDR, @row_bend_table.fetch(key))
             @emitter.emit(ASM.store_halfword(ACC, ADDR))
-            @primitives.store_halfword_acc(register_fed(key))
           end
 
           # ...and the rest of its rows, 1 up. The loop keeps its count in the block's own

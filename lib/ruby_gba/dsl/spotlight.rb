@@ -64,6 +64,24 @@ module RubyGBA
       # light has until it is given one, for a shape to build on. Up to a radius of 150 it is
       # the midpoint circle the console's own games draw.
       def circle(row) = @builder.light_circle(self, row)
+
+      # SHOW THE LIGHT AS IT STANDS ON THE PICTURE BEING DRAWN, not the next one. A change to the
+      # light otherwise shows a picture later, like a sprite's place, because its rows are
+      # worked out in the gap before a frame. A game whose own light is handed to the display
+      # while the picture is drawn shows a change at once — an iris that opens on the frame it
+      # is asked for — and this is how a game copying one says so.
+      #
+      #   light.radius.set! 4
+      #   light.show_now
+      #
+      # On the console the rows are worked out where this is reached. Early in a pass that is
+      # still the gap before the picture, and the whole picture shows them; once the display has
+      # started drawing, only the lines it reaches after they are worked out do, so call it
+      # early. A light that has not changed costs nothing.
+      def show_now
+        @builder.show_light_now
+        self
+      end
     end
   end
 end

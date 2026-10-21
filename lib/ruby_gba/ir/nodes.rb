@@ -1007,6 +1007,15 @@ module RubyGBA
         operands row: :name, left: :value, right: :value, amount: :value
       end
 
+      # The light worked out again where this is reached, so the picture of this pass shows it
+      # as it stands rather than as it stood when the pass began. Nothing when the game has no
+      # light.
+      class ShowLightNow
+        include Node
+        kind :show_light_now
+        category :draw
+      end
+
       class ShiftRight
         include Node
         kind :shift_right

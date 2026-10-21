@@ -643,6 +643,7 @@ module RubyGBA
           color_list_holds: :exec_color_list_holds,
           scroll_rows: :exec_scroll_rows,
           shade_outside: :exec_shade_outside,
+          show_light_now: :exec_show_light_now,
           camera: :exec_camera,
           fade: :exec_fade,
           tint: :exec_tint,
@@ -912,6 +913,10 @@ module RubyGBA
         # A standing declaration, gathered up front (collect_definitions) and worked out at
         # every frame boundary — reaching the line itself does nothing.
         def exec_shade_outside(_node); end
+
+        # The light worked out again here: the picture being drawn is read with it, as the
+        # console's display reads rows handed to it while it draws.
+        def exec_show_light_now(_node) = work_out_shade
 
         # WHERE THE LIGHT IS ON EACH ROW, worked out in the gap before a frame, the moment the
         # console works its table out: every row's span from the program's own expressions,
