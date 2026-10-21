@@ -69,8 +69,9 @@ class TestBackingStore < Minitest::Test
     )).screen
     assert_equal Color.resolve(:red), s.pixel(1, 21), "on-screen detail wasn't restored"
     assert_equal Color.resolve(:blue), s.pixel(0, 18), "on-screen surround wasn't restored"
-    # nothing wrapped onto the far right of any of those rows
-    (18..25).each { |y| assert_equal Color.resolve(:blue), s.pixel(239, y), "a row wrapped to the right edge at y=#{y}" }
+    # nothing wrapped onto the far right of any of those rows, wherever the console's screen ends
+    right = 239.downto(0).find { |x| s.pixel(x, 18) }
+    (18..25).each { |y| assert_equal Color.resolve(:blue), s.pixel(right, y), "a row wrapped to the right edge at y=#{y}" }
   end
 
   # ---- moving: restore old, save new, draw new — the sprite loop, no trail ----

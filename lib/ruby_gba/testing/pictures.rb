@@ -125,11 +125,15 @@ module RubyGBA
       end
 
       # Every pixel the two pictures disagree on, as [x, y, interpreter_color, console_color].
+      # A picture is as wide as the screen of the console it was drawn for, the one whose
+      # screen has as many pixels as it does.
       def mismatched_pixels(oracle, console)
-        (0...PIXELS).filter_map do |i|
+        width = Console::DESCRIPTIONS.values.find { |d| d.screen_width * d.screen_height == oracle.length }&.screen_width
+        width ||= SCREEN_W
+        (0...[oracle.length, console.length].max).filter_map do |i|
           next if oracle[i] == console[i]
 
-          [i % SCREEN_W, i / SCREEN_W, oracle[i], console[i]]
+          [i % width, i / width, oracle[i], console[i]]
         end
       end
 
@@ -184,9 +188,13 @@ module RubyGBA
 
       # The interpreter's picture and the game as C's (or as JavaScript's) after +frames+ frames,
       # with +keys+ held.
+      # The interpreter plays the program as the lowered game's player does: on the Game Boy
+      # Color's run, as a Color program, on its screen.
       def lowered_pictures(program, frames, keys)
         native = Testing.player_class.new.hold(*keys).run(program, frames: frames).screen.shown
-        oracle = IR::Backends::Reference.new.hold(*keys).run(program, frames: frames).screen.shown
+        player = Testing.player_class
+        played = player.respond_to?(:program_played) ? player.program_played(program) : program
+        oracle = IR::Backends::Reference.new.hold(*keys).run(played, frames: frames).screen.shown
         [oracle, native, frames]
       end
 

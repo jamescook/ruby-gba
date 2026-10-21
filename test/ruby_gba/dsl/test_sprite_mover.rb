@@ -108,12 +108,17 @@ class TestSpriteMover < Minitest::Test
     [0, 60, :white],  # row0 col2 is transparent -> field shows through
     [0, 61, :red],    # row1 col2
     [2, 61, :red],    # row1 col4 (the rightmost visible column of that row)
-    [239, 59, nil],   # the col clipped off the left must NOT wrap onto the row above
+    [:right_edge, 59, nil], # the col clipped off the left must NOT wrap onto the row above
   ].freeze
+
+  # A column of EDGE_PIXELS, :right_edge being the last column of a screen +width+ wide.
+  private def edge_column(x, width) = x == :right_edge ? width - 1 : x
 
   def test_interpreter_clips_the_heart_at_the_left_edge
     screen = game_player.input_each_frame { [:left] }.run(heart_at_left_edge(frames: 3)).screen
+    width = RubyGBA::Console.described(game_console).screen_width
     EDGE_PIXELS.each do |x, y, color|
+      x = edge_column(x, width)
       assert_equal Color.resolve(color || :white), screen.pixel(x, y),
                    "interpreter: (#{x}, #{y}) should be #{color || 'background'}"
     end
@@ -126,6 +131,7 @@ class TestSpriteMover < Minitest::Test
     )
     v = assert_emulator_loads_rom(rom, frames: 5, keys: KEY_LEFT)
     EDGE_PIXELS.each do |x, y, color|
+      x = edge_column(x, RubyGBA::Console::ADVANCE.screen_width)
       assert v.pixel_is?(x, y, color || :white),
              "console: (#{x}, #{y}) should be #{color || 'background'}, got 0x#{format('%04X', v.pixel_gba(x, y))}"
     end

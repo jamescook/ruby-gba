@@ -33,11 +33,15 @@ module RubyGBA
     class GBCCheckedPlayer < IR::Backends::GBC::CheckedRun
       include DisagreementFailsTest
 
+      # +program+ as this run plays it: one that names no console, as a Color program.
+      def self.program_played(program)
+        return program unless program.kind == :program && program.console.nil?
+
+        program.copy.tap { |copy| copy.console = :gbc }
+      end
+
       def run(program, max_steps: nil, frames: nil)
-        if program.kind == :program && program.console.nil?
-          program = program.copy
-          program.console = :gbc
-        end
+        program = self.class.program_played(program)
         super
       rescue IR::Backends::GBC::HeadlessRun::CannotAnswer => e
         raise Minitest::Skip, cannot_answer_reason(e)

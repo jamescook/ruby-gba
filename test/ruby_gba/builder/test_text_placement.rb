@@ -118,12 +118,12 @@ class TestTextPlacement < Minitest::Test
   # meant — an `inside` block already says which part of the screen is being drawn.
   def test_an_inside_block_is_what_center_centres_on
     s = bitmap_screen do
-      inside 120, 0, 120, 160 do
+      inside 60, 0, 60, 144 do
         draw_text "IM", :center, Y, :white, font: :vari
       end
     end
 
-    assert_text_at s, "IM", 120 + ((120 - IM_WIDE) / 2), Y, font: :vari
+    assert_text_at s, "IM", 60 + ((60 - IM_WIDE) / 2), Y, font: :vari
   end
 
   # --- the built-in font, on the strings that started this ----------------------

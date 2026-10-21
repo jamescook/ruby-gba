@@ -137,7 +137,7 @@ class TestSprite < Minitest::Test
       frame = var :frame, 0
       game_loop do
         frame.add! 1
-        (frame == 2).then { front.move_to 200, 50 } # the front one leaves first...
+        (frame == 2).then { front.move_to 120, 50 } # the front one leaves first...
         (frame == 3).then { back.move_to 50, 130 }  # ...then the back one
       end
     end

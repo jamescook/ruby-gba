@@ -76,11 +76,11 @@ class TestInside < Minitest::Test
       game_loop do
         clear_screen :black
         inside(*AREA) { dma_fill_rect 0, 0, 240, 160, :red }
-        dma_fill_rect 0, 140, 240, 20, :blue
+        dma_fill_rect 0, 120, 240, 20, :blue
       end
     end, frames: 2)
 
-    assert_equal RubyGBA::Graphics::Color.resolve(:blue), run.screen.pixel(4, 150),
+    assert_equal RubyGBA::Graphics::Color.resolve(:blue), run.screen.pixel(4, 130),
                  "the panel is outside the area and draws"
   end
 
@@ -117,7 +117,7 @@ class TestInside < Minitest::Test
 
     assert_equal RubyGBA::Graphics::Color.resolve(:green), run.screen.pixel(10, 10), "the routine's own area held"
     assert_equal RubyGBA::Graphics::Color.resolve(:red), run.screen.pixel(50, 30), "the caller's area is painted after it"
-    assert_equal RubyGBA::Graphics::Color.resolve(:black), run.screen.pixel(200, 150),
+    assert_equal RubyGBA::Graphics::Color.resolve(:black), run.screen.pixel(150, 120),
                  "and the caller's edges are back in force for the fill that followed the call"
   end
 

@@ -17,7 +17,8 @@ class TestSpriteClearedField < Minitest::Test
   BLOCK = ("########\n" * SIDE).freeze
   START = [40, 40].freeze
   ONE = SIDE * SIDE
-  FIELD = 240 * 160
+  # The whole screen, in pixels, of the console this run plays the game on.
+  private def field = RubyGBA::Console.described(game_console).screen_size.reduce(:*)
 
   # A white field with a red block sprite declared above the loop. The block is the game
   # loop's body, handed the sprite and a counter of the passes so far.
@@ -57,7 +58,7 @@ class TestSpriteClearedField < Minitest::Test
 
     assert_equal 0, seen[:white], "a square of the old field came back where the sprite stood"
     assert_equal ONE, seen[:red], "and the sprite is on the new field, one copy of it"
-    assert_equal FIELD - ONE, seen[:blue]
+    assert_equal field - ONE, seen[:blue]
   end
 
   def test_a_sprite_hidden_after_a_clear_leaves_none_of_the_old_field
@@ -68,7 +69,7 @@ class TestSpriteClearedField < Minitest::Test
 
     seen = colors_after(prog, 8)
 
-    assert_equal FIELD, seen[:blue]
+    assert_equal field, seen[:blue]
   end
 
   # The field is more than the clear: a wall painted after it, where the sprite stands. The
@@ -86,7 +87,7 @@ class TestSpriteClearedField < Minitest::Test
 
     assert_equal ONE, seen[:green], "the wall under the sprite is whole once it steps off"
     assert_equal ONE, seen[:red]
-    assert_equal FIELD - (2 * ONE), seen[:blue]
+    assert_equal field - (2 * ONE), seen[:blue]
   end
 
   # A clear inside an area clears that area and leaves the rest of the picture, so a sprite
@@ -100,7 +101,7 @@ class TestSpriteClearedField < Minitest::Test
     seen = colors_after(prog, 8)
 
     assert_equal ONE, seen[:red], "more than one block of red is a trail"
-    assert_equal (120 * 160) - ONE, seen[:white]
+    assert_equal (120 * RubyGBA::Console.described(game_console).screen_height) - ONE, seen[:white]
   end
 
   # A sprite declared before its field was painted: it was drawn on the black screen the
@@ -119,7 +120,7 @@ class TestSpriteClearedField < Minitest::Test
     seen = colors_after(b.program, 6)
 
     assert_equal ONE, seen[:red]
-    assert_equal FIELD - ONE, seen[:blue]
+    assert_equal field - ONE, seen[:blue]
   end
 
   PLAY = 0
@@ -161,7 +162,7 @@ class TestSpriteClearedField < Minitest::Test
 
     seen = colors_after(prog, 8)
 
-    assert_equal FIELD, seen[:blue], "nothing the leaving scene's sprite remembered was put back"
+    assert_equal field, seen[:blue], "nothing the leaving scene's sprite remembered was put back"
   end
 
   def test_a_scenes_sprite_moved_after_its_scene_clears_leaves_none_of_the_old_field
@@ -174,6 +175,6 @@ class TestSpriteClearedField < Minitest::Test
 
     assert_equal 0, seen[:white]
     assert_equal ONE, seen[:red]
-    assert_equal FIELD - ONE, seen[:blue]
+    assert_equal field - ONE, seen[:blue]
   end
 end

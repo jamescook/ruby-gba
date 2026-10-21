@@ -34,6 +34,7 @@ module RubyGBA
             @backgrounds = @program.walk.select { |node| node.kind == :background }.to_h { |bg| [bg.name, 0] }
             @drawing_arrays = []
             @drawn_sprites = Native::DrawnSprites.new(@program) # the names a run says its sprites by
+            @patches = by_name(@program.walk, :backing_buffer) # what sprites on a painted screen cover
           end
 
           # --- the screen ---
@@ -43,18 +44,29 @@ module RubyGBA
                                              draw_rect_at: %i[color], pixel: %i[color], draw_text: %i[color picked],
                                              draw_digit: %i[color] })
 
+          # THE KINDS THAT PUT A PICTURE DOWN, and the field naming the picture (or pictures):
+          # each paints in every colour its picture draws.
+          PUTTING_DOWN = Ractor.make_shareable({ blit: :name, blit_pose: :poses, draw_column_at: :name })
+
           # The colours this program paints a screen in, black first — the colour a painted screen
           # starts in — or nil for a program that paints nothing.
           def paint_colors
-            painting = @program.walk.select { |node| PAINTING.key?(node.kind) }
+            painting = @program.walk.select { |node| PAINTING.key?(node.kind) || PUTTING_DOWN.key?(node.kind) }
             return nil if painting.empty?
 
             [0, *colors_painted.map { |name| Graphics::Color.resolve(name) & 0x7FFF }].uniq
           end
 
           def colors_painted
-            painting = @program.walk.select { |node| PAINTING.key?(node.kind) }
-            painting.flat_map { |node| PAINTING.fetch(node.kind).filter_map { |field| node.public_send(field) } }
+            @program.walk.flat_map do |node|
+              if PAINTING.key?(node.kind)
+                PAINTING.fetch(node.kind).filter_map { |field| node.public_send(field) }
+              elsif PUTTING_DOWN.key?(node.kind)
+                Array(node.public_send(PUTTING_DOWN.fetch(node.kind))).flat_map { |name| picture_named(name).colors_drawn }
+              else
+                []
+              end
+            end
           end
 
           # A painted screen on a Color holds four colours at once (Runtime::Paint), so a program
@@ -62,7 +74,10 @@ module RubyGBA
           def refuse_too_many_paint_colors!
             return if @paint_colors.nil? || @paint_colors.length <= Art::PLACES
 
-            names = colors_painted.uniq.map { |name| name.is_a?(Symbol) ? name.inspect : name.to_s }
+            names = @paint_colors.drop(1).map do |value|
+              name = Graphics::Color.name_for(value)
+              name.is_a?(Symbol) ? name.inspect : name
+            end
             raise LoweringError, "this program paints its screen in #{@paint_colors.length} colours (black and " \
                                  "#{names.join(', ')}), and a painted Game Boy Color screen holds #{Art::PLACES} " \
                                  "at once, black among them. To fix this, paint it in fewer colours."
@@ -95,6 +110,21 @@ module RubyGBA
           # --- painting ---
 
           def lower_clear_screen(node) = [eval_call("rg_gbc_paint_clear", ink(node.color))]
+
+          # Reference#exec_inside: what the block paints is held to the edges, which are numbers
+          # written in the program, and the area held to before is put back after it — a routine
+          # with an area of its own can be called from inside another's. A program that paints
+          # nothing has no area to hold.
+          def lower_inside(node)
+            return body_of(node) unless @paint_colors
+
+            outer = local_name("area")
+            edges = [node.x, node.y, node.x + node.w, node.y + node.h]
+            limits = Runtime::Paint::WHOLE_SCREEN.values_at(2, 3, 2, 3)
+            area = edges.zip(limits).each_with_index.sum { |(edge, limit), at| edge.clamp(0, limit) << (8 * at) }
+            [C::Block.new([C::Local.new(name: outer, value: call("rg_gbc_paint_area", C::Int.new(Int32.wrap(area)))),
+                           *body_of(node), eval_call("rg_gbc_paint_area", outer)])]
+          end
 
           # Framebuffer#fill_rect: from the corner up to the corner past the far edge.
           def lower_fill_rect(node)
@@ -158,6 +188,121 @@ module RubyGBA
           end
 
           def moved(place, by) = by.zero? ? place : call("rg_add", place, C::Int.new(by))
+
+          # Reference#blit_image: a picture with its top left at (x, y), its see-through pixels
+          # leaving the screen as it was. A pixel of a painted screen is one of four colours, so
+          # the picture goes down as one picture of a bit a pixel for each colour it draws.
+          def lower_blit(node) = picture_put_down(picture_named(node.name), node.x, node.y)
+
+          # Reference#exec_blit_pose: the one of the pictures the number names, and none for a
+          # number outside them.
+          def lower_blit_pose(node)
+            which = local_name("pose")
+            puts_down = node.poses.each_with_index.map do |name, at|
+              C::If.new(condition: call("rg_eq", which, C::Int.new(at)),
+                        body: picture_put_down(picture_named(name), node.x, node.y))
+            end
+            [C::Block.new([C::Local.new(name: which, value: value(node.index)), *puts_down])]
+          end
+
+          # Reference#exec_draw_column_at: one column of a picture stretched to a height worked
+          # out as the game runs. What is drawn is handed over in five numbers the program keeps
+          # once (COLUMN), the height first — a height of nought or less draws nothing, and the
+          # others are not worked out — and the picture's own routine walks it (#column_routine).
+          COLUMN = %i[height slice x top width].freeze
+
+          def lower_draw_column_at(node)
+            routine = column_routine(node.name)
+            column = column_numbers
+            int = ->(n) { C::Int.new(n) }
+            [C::Assign.new(column.fetch(:height), value(node.height)),
+             C::If.new(condition: call("rg_gt", column.fetch(:height), int.(0)), body: [
+               C::Assign.new(column.fetch(:slice), value(node.slice)),
+               C::Assign.new(column.fetch(:x), value(node.x)),
+               C::Assign.new(column.fetch(:top), value(node.top)),
+               C::Assign.new(column.fetch(:width), int.(node.width || 1)),
+               C::Eval.new(C::Call.new(function: routine, args: []))
+             ])]
+          end
+
+          # The numbers a column is handed over in, by COLUMN's names.
+          def column_numbers = @column_numbers ||= COLUMN.to_h { |what| [what, @names.own("column_#{what}")] }
+
+          # The routine that draws a column of the picture +name+, made the first time one is
+          # drawn: walked down the screen a row at a time, each row the picture's row the step in
+          # 65536ths lands it on, painted across the strip's width, a see-through one left as it
+          # was. Only the rows on the screen are walked.
+          def column_routine(name)
+            @column_routines ||= {}
+            routine = @column_routines[name] ||= begin
+              image = picture_named(name)
+              places = drawing_array("column_places", "int16_t", Array.new(image.width * image.height) do |at|
+                image.drawn_at?(at) ? @art.paint_place(image.color_at(at)) : -1
+              end)
+              C::Function.new(name: @names.own("column_#{name}"), body: column_walk(image, places))
+            end
+            routine.name
+          end
+
+          def column_walk(image, places)
+            height, x, top, width = column_numbers.values_at(:height, :x, :top, :width)
+            slice, step, row, last, place = %w[slice step row last place].map { |what| local_name(what) }
+            int = ->(n) { C::Int.new(n) }
+            down = call("rg_add", top, row)
+            source = call("rg_clamp", call("rg_shr", call("rg_mul", row, step), int.(Reference::FIXED)), int.(0),
+                          int.(image.height - 1))
+            [C::Local.new(name: slice, value: call("rg_clamp", column_numbers.fetch(:slice), int.(0), int.(image.width - 1))),
+             C::Local.new(name: step, value: call("rg_div", int.(image.height << Reference::FIXED), height)),
+             C::Local.new(name: row, value: call("rg_clamp", call("rg_neg", top), int.(0), int.(Int32::MAX))),
+             C::Local.new(name: last, value: call("rg_clamp", height, int.(Int32::MIN),
+                                                  call("rg_sub", int.(Console::GBCHardware::SCREEN_HEIGHT), top))),
+             C::While.new(condition: call("rg_lt", row, last), body: [
+               C::Local.new(name: place, value: C::Index.new(places, call("rg_add", call("rg_mul", source, int.(image.width)), slice))),
+               C::If.new(condition: call("rg_ne", place, int.(-1)),
+                         body: [eval_call("rg_gbc_paint_rect", x, down, call("rg_add", x, width), call("rg_add", down, int.(1)), place)]),
+               C::Assign.new(row, call("rg_add", row, int.(1)))
+             ])]
+          end
+
+          # The column routines and the numbers they are handed, for the program to keep.
+          def column_top_level
+            return [] unless @column_routines
+
+            [*column_numbers.values.map { |name| C::Global.new(name: name) }, *@column_routines.values]
+          end
+
+          # Reference#exec_save_region and #exec_restore_region: a patch of the picture kept in the
+          # buffer the program declared for it, and painted back (Runtime::Paint's
+          # rg_gbc_paint_save and rg_gbc_paint_restore).
+          def lower_save_region(node) = [patch_statement("rg_gbc_paint_save", node)]
+          def lower_restore_region(node) = [patch_statement("rg_gbc_paint_restore", node)]
+
+          def patch_statement(function, node)
+            buffer = @patches.fetch(node.buffer) do
+              raise LoweringError, "backing buffer #{node.buffer.inspect} is used and never declared"
+            end
+            eval_call(function, C::AddressOf.new(patch_name(node.buffer)), C::Int.new(buffer.width),
+                      C::Int.new(buffer.height), value(node.x), value(node.y))
+          end
+
+          # The memory each patch is kept in, a byte a pixel: the storage of a list, which the
+          # cartridge places in work memory as it places the game's own.
+          def patch_storage
+            @patches.values.map do |buffer|
+              C::ListStorage.new(name: patch_name(buffer.name), items: @names.own("patch_#{buffer.name}_items"),
+                                 capacity: buffer.width * buffer.height, width: 1, label: "patch #{buffer.name}")
+            end
+          end
+
+          def patch_name(name) = @names.own("patch_#{name}")
+
+          def picture_put_down(image, x, y)
+            points = Hash.new { |by_color, color| by_color[color] = [] }
+            (image.width * image.height).times do |at|
+              points[image.color_at(at)] << at.divmod(image.width).reverse if image.drawn_at?(at)
+            end
+            points.map { |color, drawn| paint_bits(x, y, C::Int.new(@art.paint_place(color)), drawn) }
+          end
 
           # The place a painted colour is kept at (GBC::Art#paint_place).
           def ink(name) = C::Int.new(@art.paint_place(Graphics::Color.resolve(name)))

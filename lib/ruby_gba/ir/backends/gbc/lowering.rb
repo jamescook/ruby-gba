@@ -19,7 +19,7 @@ module RubyGBA
           # EVERY KIND THIS LOWERING CANNOT MAKE YET, by what it is part of. A kind leaves the list
           # the day the Color does it; test_gbc_kind_coverage.rb holds the list to every kind.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            "the picture" => %i[inside camera blit blit_pose draw_column_at save_region restore_region
+            "the picture" => %i[camera
                                 scroll_rows shade_outside set_tile show_map background_colors
                                 copy_tiles copy_owed_tiles pixelate],
             "sound" => %i[play_from_list play_sound_effect play_sample stop_sample]
@@ -32,7 +32,8 @@ module RubyGBA
           # The kinds of the picture and the sound the Color makes, which come off NOT_LOWERED_YET as
           # each is made.
           MADE = %i[screen background scroll_background present_objects pixels_overlap color_list_holds
-                    clear_screen fill_rect dma_fill_rect draw_rect_at pixel draw_text draw_digit fade tint
+                    clear_screen fill_rect dma_fill_rect draw_rect_at pixel draw_text draw_digit blit blit_pose draw_column_at inside save_region restore_region
+                    fade tint
                     affine_background
                     enable_sound beep noise wave stop_wave play_song stop_music
                     save_init save_store save_write save_erase save_read save_sum].freeze
@@ -66,8 +67,8 @@ module RubyGBA
             main = C::Function.new(name: @names.own("main"), body: lower(@program), exported: true)
             [*variable_names.map { |name| C::Global.new(name: variable(name)) },
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),
-             *held_colors_globals, *timer_globals, *list_storage, *constant_arrays, *@drawing_arrays,
-             *routine_table_declarations, *routines, *timer_routines, main]
+             *held_colors_globals, *timer_globals, *list_storage, *patch_storage, *constant_arrays, *@drawing_arrays,
+             *routine_table_declarations, *routines, *timer_routines, *column_top_level, main]
           end
 
           private

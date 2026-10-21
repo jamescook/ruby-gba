@@ -56,7 +56,8 @@ class TestSceneSprite < Minitest::Test
   end
 
   ONE = SIDE * SIDE
-  FIELD = 240 * 160
+  # The whole screen, in pixels, of the console this run plays the game on.
+  private def field = RubyGBA::Console.described(game_console).screen_size.reduce(:*)
 
   def test_a_sprite_declared_inside_a_scene_leaves_no_trail
     prog = scenes_program do |_state, _step|
@@ -67,7 +68,7 @@ class TestSceneSprite < Minitest::Test
     seen = colors_after(prog, 8)
 
     assert_equal ONE, seen[:red], "one block of red is one sprite; more is a trail"
-    assert_equal FIELD - ONE, seen[:blue], "the field it passed over is put back"
+    assert_equal field - ONE, seen[:blue], "the field it passed over is put back"
   end
 
   def test_it_comes_off_the_picture_when_another_scene_takes_over
@@ -82,7 +83,7 @@ class TestSceneSprite < Minitest::Test
     seen = colors_after(prog, 8)
 
     assert_equal 0, seen[:red], "the sprite belongs to the scene that left"
-    assert_equal FIELD, seen[:blue], "and the field under it is put back"
+    assert_equal field, seen[:blue], "and the field under it is put back"
   end
 
   # The state changed at the top of the pass, after the sprite was drawn for that frame and
@@ -97,7 +98,7 @@ class TestSceneSprite < Minitest::Test
     seen = colors_after(prog, 8)
 
     assert_equal 0, seen[:red]
-    assert_equal FIELD, seen[:blue]
+    assert_equal field, seen[:blue]
   end
 
   def test_it_is_painted_again_when_its_scene_comes_back
@@ -112,7 +113,7 @@ class TestSceneSprite < Minitest::Test
     seen = colors_after(prog, 12)
 
     assert_equal ONE, seen[:red], "one sprite, and no copy left where it stood when its scene went"
-    assert_equal FIELD - ONE, seen[:blue]
+    assert_equal field - ONE, seen[:blue]
   end
 
   # Each scene's sprite stands where the other's does, so a sprite painted a frame early or
@@ -133,7 +134,7 @@ class TestSceneSprite < Minitest::Test
 
     assert_equal ONE, seen[:red]
     assert_equal 0, seen[:green], "the other scene's sprite went with its scene"
-    assert_equal FIELD - ONE, seen[:blue]
+    assert_equal field - ONE, seen[:blue]
   end
 
   # Two sprites that overlap and then part: where they lay over each other, each remembers
@@ -151,7 +152,7 @@ class TestSceneSprite < Minitest::Test
 
     assert_equal ONE, seen[:red]
     assert_equal ONE, seen[:green]
-    assert_equal FIELD - (2 * ONE), seen[:blue]
+    assert_equal field - (2 * ONE), seen[:blue]
   end
 
   # A sprite every scene shows, declared above the loop, crossing a scene's sprite.
@@ -176,7 +177,7 @@ class TestSceneSprite < Minitest::Test
 
     assert_equal ONE, seen[:red]
     assert_equal ONE, seen[:green]
-    assert_equal FIELD - (2 * ONE), seen[:blue]
+    assert_equal field - (2 * ONE), seen[:blue]
   end
 
   def test_a_scenes_sprite_hides_and_shows
@@ -191,7 +192,7 @@ class TestSceneSprite < Minitest::Test
 
     assert_equal 0, colors_after(prog, 5)[:red], "hidden, it is off the picture"
     assert_equal ONE, colors_after(prog, 9)[:red], "shown again, it is back"
-    assert_equal FIELD - ONE, colors_after(prog, 9)[:blue]
+    assert_equal field - ONE, colors_after(prog, 9)[:blue]
   end
 
   def test_a_scenes_sprite_can_start_hidden
@@ -221,7 +222,7 @@ class TestSceneSprite < Minitest::Test
     seen = colors_after(prog, 9)
 
     assert_equal ONE, seen[:red]
-    assert_equal FIELD - ONE, seen[:green], "the new field is whole"
+    assert_equal field - ONE, seen[:green], "the new field is whole"
     assert_equal 0, seen[:blue], "no square of the last scene's field came back"
   end
 
@@ -236,7 +237,7 @@ class TestSceneSprite < Minitest::Test
 
     seen = colors_after(prog, 8)
 
-    assert_equal FIELD, seen[:green], "nothing the sprite remembered was put back over the new field"
+    assert_equal field, seen[:green], "nothing the sprite remembered was put back over the new field"
   end
 
   FLOOR = ([("#." * 15)] * 20).freeze
@@ -300,7 +301,7 @@ class TestSceneSprite < Minitest::Test
 
     assert_empty mismatched_pixels(oracle, console).first(5)
     assert_equal ONE, oracle.count(Color.resolve(:red))
-    assert_equal FIELD - ONE, oracle.count(Color.resolve(:blue)), "nothing of the tiled screen was put back"
+    assert_equal field - ONE, oracle.count(Color.resolve(:blue)), "nothing of the tiled screen was put back"
   end
 
   # The same two scenes with the red sprite declared ABOVE the loop, so it belongs to every
@@ -374,7 +375,7 @@ class TestSceneSprite < Minitest::Test
 
     assert_empty mismatched_pixels(oracle, console).first(5)
     assert_equal ONE, oracle.count(Color.resolve(:red))
-    assert_equal FIELD - ONE, oracle.count(Color.resolve(:blue)), "nothing of the tiled screen was put back"
+    assert_equal field - ONE, oracle.count(Color.resolve(:blue)), "nothing of the tiled screen was put back"
   end
 
   # `show` paints a sprite on the spot, and the tiled scene is up when this one is shown.
@@ -402,6 +403,6 @@ class TestSceneSprite < Minitest::Test
     seen = colors_after(b.program, 8)
 
     assert_equal ONE, seen[:red]
-    assert_equal FIELD - ONE, seen[:blue]
+    assert_equal field - ONE, seen[:blue]
   end
 end

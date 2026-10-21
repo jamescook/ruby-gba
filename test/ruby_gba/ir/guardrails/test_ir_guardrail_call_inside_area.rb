@@ -41,12 +41,12 @@ class TestIRGuardrailCallInsideArea < Minitest::Test
   def test_the_console_does_not_clip_a_routine_called_from_inside_an_area
     prog = game_with_call_that_draws
     interp = game_player.run(prog, frames: 2)
-    assert_equal 0, interp.screen.pixel(200, 50),
+    assert_equal 0, interp.screen.pixel(120, 50),
                  "the interpreter clips the routine's fill to the area"
 
     rom = ROM.assemble(GBA.new.lower(prog), title: "CIAR", code: "BCIA", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: 3)
-    assert v.red?(200, 50),
+    assert v.red?(120, 50),
            "the console draws the routine's fill everywhere — the bug this check exists for"
   end
 
