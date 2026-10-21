@@ -223,10 +223,10 @@ module RubyGBA
           # first statement has run. A stale word there would copy sixteen colours from
           # wherever it pointed, and nothing would ever put them right. Every copy of a set
           # goes in through the tint in force, so a build that never tints reads that too.
-          # Nothing for a build with no list that changes.
+          # Nothing for a build with no list that changes and no group lent to a list.
           def emit_changed_lists_at_power_on
             lists = @layout.screen.color_lists
-            return if lists.empty?
+            return if lists.empty? && @layout.screen.lending.nil?
 
             emit_tint_state_init
             @emitter.emit_number(ACC, 0)
@@ -497,7 +497,7 @@ module RubyGBA
           # through it: the tables a screen draws through, and the list of colours a layer
           # that can be recoloured is drawing from (see #emit_colors_into_bank).
           def emit_blend_run(dest, units)
-            @emitter.emit_number(TINT_DST, dest)
+            @emitter.emit_number(TINT_DST, dest) if dest # nil: the caller has put it there
             @primitives.emit_add_const(TINT_END, TINT_SRC, units * 2, ACC)
 
             top = @emitter.gensym
@@ -537,6 +537,10 @@ module RubyGBA
             emit_tint_shares_from_state
             emit_blend_run(dest, units)
           end
+
+          # The same, for a caller that has already put where the group sits in TINT_DST, which
+          # working out the tint's shares leaves alone: one copy serving several groups.
+          def emit_colors_into_bank_held(units) = emit_colors_into_bank(nil, units)
 
           # ...and the other half of the same agreement: once a tint has walked the tables,
           # the entries it has just written over a recoloured layer's group are the colours

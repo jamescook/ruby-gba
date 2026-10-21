@@ -111,6 +111,12 @@ module RubyGBA
 
         class LoweringError < StandardError; end
 
+        # The sprites' colours do not fit the console's table however they are arranged. A
+        # LoweringError like any other to the author; told apart so that when a layout giving
+        # every list a group of its own fails this way, one that lends groups is tried (see
+        # ScreenLayout#build_shared_object_palette).
+        class SpriteColorsOverflow < LoweringError; end
+
         # A routine the author insisted on did not fit in the quick memory beside the rest — the
         # one refusal the build can still answer, by giving each scene a share of its own (see
         # SceneQuickMemory), before it lets the author see it.
@@ -937,6 +943,7 @@ module RubyGBA
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
           @palette_tint.emit_changed_lists_at_power_on # before the screen is set up, which may read them
+          @sprite_drawing.emit_lent_colors_at_power_on # ...and so may the groups lent to lists
           @palette_tint.emit_clear_remembered_tint if @palette_tint.tint_crosses_screens? # ...as setting it up reads this
           @drawing.emit_boot_screen if @modes.switched_per_scene? # set the boot mode (+ palette for buffered)
           # Upload the tiled assets once at boot only when the program stays in tiled
@@ -977,6 +984,7 @@ module RubyGBA
           @buffered.emit_digit_routines # ...and its tear-free counterpart
           @background_drawing.emit_set_swap_routines # bringing another set of tiles in, a routine a background
           @sprite_drawing.emit_shared_room_routines # giving a sprite a room for its pose, two routines a set of rooms
+          @sprite_drawing.emit_lend_colors_routine # lending a group of sprite colours to the list a sprite wears
           @lists.emit_fill_routine # the one routine every list_fill calls, for the same reason
           @lists.emit_copy_routine # ...and every list_copy
           emit_swap_routine # copying a scene's own routines in as it takes over

@@ -149,10 +149,11 @@ class TestRecolor < Minitest::Test
     end
   end
 
-  def test_twenty_lists_a_sprite_draws_with_do_not_fit_the_console
-    error = assert_raises(GBA::LoweringError) { GBA.new.lower(many_sets(through_one_list: false)) }
-
-    assert_match(/16 groups/, error.message)
+  # Told to draw with each of the twenty in turn, the ship fits too: a list borrows a group
+  # while the ship wears it (see ScreenLayout::LentColors). Recoloring one list is the way
+  # that costs one group and no lending.
+  def test_twenty_lists_a_sprite_draws_with_borrow_their_groups
+    [3, 13, 22].each { |frames| assert_backends_agree(many_sets(through_one_list: false), frames: frames) }
   end
 
   def test_twenty_sets_through_one_list_take_one_group

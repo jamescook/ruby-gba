@@ -162,6 +162,14 @@ module RubyGBA
           def narrow_count = @placements.count { |_key, place| place.narrow? }
           def wide_count = @placements.count { |_key, place| !place.narrow? }
 
+          # Every group of sixteen something here draws from: a narrow picture's bank, and each
+          # group a wide picture's colours sit in.
+          def banks_used
+            @placements.each_value.flat_map do |place|
+              place.narrow? ? [place.bank] : place.indices.values.map { |slot| slot / BANK_SIZE }
+            end.uniq
+          end
+
           protected
 
           # What a table going on from this one needs to know about it.

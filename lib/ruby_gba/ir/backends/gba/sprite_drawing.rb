@@ -211,6 +211,7 @@ module RubyGBA
           # free — there's nothing to erase, unlike a software sprite.
           def emit_present_objects(node)
             by_scene = @layout.scene_sprites
+            emit_count_lending_frame
             emit_write_sprite_rows(node.names - @layout.movement.still - by_scene.flat_map(&:names))
             by_scene.each { |group| emit_scene_sprites(group) }
             emit_refresh_still_sprites
@@ -559,7 +560,10 @@ module RubyGBA
           # own, and draws the sprite in front of every background whose number is the same
           # or bigger. Putting the sprite in another layer is changing those two bits.
           def emit_store_object_picked_attr2(obj)
-            emit_pick_from_table(obj.recolor, obj.recolor_banks) if obj.recolor_banks
+            if obj.recolor_banks
+              emit_pick_from_table(obj.recolor, obj.recolor_banks)
+              emit_borrow_group_if_lent if obj.recolor_banks.lends
+            end
             if obj.layer_depths
               store_var(ACC, OBJ_PICKED_ATTR2) if obj.recolor_banks
               emit_pick_layer_depth(obj.layer_pick, obj.layer_depths)
@@ -716,6 +720,146 @@ module RubyGBA
               end
               emit_shared_room_routine(rooms, :take) { emit_give_room_holding_pose(rooms) }
             end
+          end
+
+          # r0 = the bank the list just picked out of a sprite's table is drawn from, for a word
+          # that names a list borrowing its group rather than a bank (see
+          # ScreenLayout::LENT_MARK). A bank goes straight through.
+          def emit_borrow_group_if_lent
+            bank = gensym
+            emit(ASM.cmp_imm(ACC, ScreenLayout::LENT_MARK))
+            emit_branch(:bcond, bank, cond: :lo)
+            emit_call_cold_routine(LEND_COLORS)
+            place_label(bank)
+          end
+
+          LEND_COLORS = :__lend_sprite_colors
+
+          # The frame number the groups lent out are stamped with, counted once a frame as the
+          # sprites are written; and how many times a list found no group to borrow.
+          LENT_COLORS_FRAME = :__lent_colors_frame
+          LENT_COLORS_MISSED = :__lent_colors_missed
+
+          # Count one more frame of sprites being written, for the groups lent to lists.
+          def emit_count_lending_frame
+            return unless @layout.screen.lending
+
+            load_var(ACC, LENT_COLORS_FRAME)
+            emit(ASM.add_imm(ACC, ACC, 1))
+            store_var(ACC, LENT_COLORS_FRAME)
+          end
+
+          # AT POWER-ON no group is lent to any list, and nothing has been drawn.
+          def emit_lent_colors_at_power_on
+            lending = @layout.screen.lending
+            return unless lending
+
+            emit_number(ACC, 0)
+            [LENT_COLORS_FRAME, LENT_COLORS_MISSED].each { |name| store_var(ACC, name) }
+            lending.banks.each_index do |k|
+              store_var(ACC, lending.last_drawn_var(k))
+              store_var(ACC, lending.source_var(k))
+            end
+            emit_number(ACC, -1)
+            lending.banks.each_index { |k| store_var(ACC, lending.holder_var(k)) }
+          end
+
+          # LEND A GROUP OF SPRITE COLOURS TO THE LIST A SPRITE IS WEARING, the way the console's
+          # own games hand their groups out. Called as a sprite's row is written, with r0 the
+          # word its table holds for the list (LENT_MARK plus the list's number); returns r0 the
+          # bank to draw it from, shifted to where the row carries it.
+          #
+          # A group already holding the list is the answer, and is stamped with this frame. A
+          # list holding none takes a group nothing was drawn with on this frame or the one
+          # before — so a group still in use, by a sprite written later in this frame, is never
+          # taken from under it — and its colours are copied in, through any tint in force.
+          # Since the rows are written in the gap between frames, the colours and the row that
+          # first reads them reach the screen together. A list that finds every group in use
+          # is drawn from the first one, in whatever colours that holds, and counted, which is
+          # what the console's own games do when they run out.
+          #
+          # WHERE IT FALLS SHORT OF THEM. Their groups go back the moment the last thing
+          # wearing one is removed. Here a group goes back once a whole frame has passed
+          # without anything drawn with it, since the rows are written one sprite at a time
+          # and nothing says, part way through, which lists the rest will wear. So with every
+          # group lent out, a thing arriving on the very frame another leaves is drawn for that
+          # one frame in colours not its own.
+          #
+          # Each group is a few variables of its own rather than a slot in a table, so the
+          # groups are walked by code written once per group: there are at most sixteen. The
+          # usual call finds its list holding a group already, and puts back only the three
+          # registers that search uses.
+          #
+          # Registers: everything it touches is put back but r0 and r12.
+          #   r1  the list's number
+          #   r2  this frame's number
+          #   r3  a group's variable being compared; then where the group to fill sits
+          #   r11 the answer, kept across the copy (which uses r0 to r10)
+          def emit_lend_colors_routine
+            lending = @layout.screen.lending
+            return unless lending
+
+            groups = lending.banks.each_index.to_a
+            held = groups.map { gensym }
+            free = groups.map { gensym }
+            copy = gensym
+            lent = gensym
+            done = gensym
+            emit(ASM.loop_forever) # fall-through guard: only ever entered by the call
+            place_label(LEND_COLORS)
+            emit(ASM.push(1, 2, 3))
+            emit(ASM.sub_imm(1, ACC, ScreenLayout::LENT_MARK))
+            load_var(2, LENT_COLORS_FRAME)
+            groups.each do |k|
+              load_var(3, lending.holder_var(k))
+              emit(ASM.cmp_reg(3, 1))
+              emit_branch(:bcond, held[k], cond: :eq)
+            end
+            emit(ASM.push(4, 5, 6, 7, 8, 9, 10, 11, 14))
+            groups.each do |k|
+              load_var(3, lending.holder_var(k))
+              emit(ASM.cmp_imm(3, 0))
+              emit_branch(:bcond, free[k], cond: :lt)
+              load_var(3, lending.last_drawn_var(k))
+              emit(ASM.add_imm(3, 3, 1))
+              emit(ASM.cmp_reg(3, 2))
+              emit_branch(:bcond, free[k], cond: :lo)
+            end
+            load_var(3, LENT_COLORS_MISSED)
+            emit(ASM.add_imm(3, 3, 1))
+            store_var(3, LENT_COLORS_MISSED)
+            emit_number(ACC, lending.banks.first << OBJ_BANK_SHIFT)
+            emit_branch(:b, lent)
+            groups.each do |k|
+              place_label(free[k])
+              store_var(1, lending.holder_var(k))
+              store_var(2, lending.last_drawn_var(k))
+              emit_load_data_address(ACC, lending.blob)
+              emit(ASM.lsl_imm(3, 1, COLOR_SET_SHIFT))
+              emit(ASM.add_reg(ACC, ACC, 3))
+              store_var(ACC, lending.source_var(k))
+              emit_number(11, lending.banks[k] << OBJ_BANK_SHIFT)
+              emit_number(3, lending.group_at(k))
+              emit_branch(:b, copy)
+            end
+            place_label(copy)
+            @palette_tint.emit_colors_into_bank_held(PaletteTint::COLORS_IN_A_BANK)
+            emit(ASM.mov_reg(ACC, 11))
+            place_label(lent)
+            emit(ASM.pop(4, 5, 6, 7, 8, 9, 10, 11, 14))
+            emit_branch(:b, done)
+            groups.each do |k|
+              place_label(held[k])
+              store_var(2, lending.last_drawn_var(k))
+              emit_number(ACC, lending.banks[k] << OBJ_BANK_SHIFT)
+              emit_branch(:b, done) unless k == groups.last
+            end
+            place_label(done)
+            emit(ASM.pop(1, 2, 3))
+            emit(ASM.bx(14))
+            # Where it ends, so a profile of the finished game can name it (see
+            # GBA#lowered_routine_addresses).
+            place_label(:"#{LEND_COLORS}_end")
           end
 
           def emit_shared_room_routine(rooms, part)

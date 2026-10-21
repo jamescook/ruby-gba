@@ -71,10 +71,10 @@ class TestColorsInUse < Minitest::Test
     (0...PER_ROOM).map { |n| i.screen.pixel(41 + (n * 20), 41) }
   end
 
-  def test_twenty_lists_without_saying_which_are_in_use_do_not_fit_the_console
-    error = assert_raises(GBA::LoweringError) { GBA.new.lower(entering_next_room(say_which: false)) }
-
-    assert_match(/16 groups/, error.message)
+  # Saying which lists are in use is a hint the console no longer needs: without it, each list
+  # borrows a group while a thing on screen wears it, and the picture is the same.
+  def test_twenty_lists_without_saying_which_are_in_use_fit_too
+    [3, 6].each { |frames| assert_backends_agree(entering_next_room(say_which: false), frames: frames) }
   end
 
   def test_each_thing_wears_its_own_list_in_the_room_that_uses_it

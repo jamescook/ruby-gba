@@ -417,19 +417,27 @@ class TestSpriteDrawsWith < Minitest::Test
     assert_match(/2 to 16 colors/, long.message)
   end
 
-  # Every different list takes one of the console's sixteen groups of sprite colours, and so
-  # does the sprite's own. Seventeen is one too many.
-  def test_more_lists_than_the_console_has_groups_for_is_a_friendly_error
+  # More lists than groups is fine: a list borrows a group while something on screen wears it.
+  # What cannot fit is sprites whose own colours take every group, leaving none to lend: here
+  # the ship's and fifteen badges', each of a colour no other has.
+  BADGES = 15
+
+  def test_sprites_whose_own_colors_take_every_group_leave_none_to_lend
     error = refused(GBA::LoweringError) do
       screen :tiled
       image :ship, width: 8, height: 8, data: SHIP, colors: OWN
+      BADGES.times do |n|
+        image :"badge#{n}", width: 8, height: 8, data: Array.new(64, :white),
+                            colors: [:transparent, RubyGBA::Graphics::Color.rgb(n, 9, 31 - n), :white]
+        sprite :"badge#{n}", at: [n * 8, 100]
+      end
       names = (1..16).map { |n| colors :"pulse#{n}", [:transparent, RubyGBA::Graphics::Color.rgb(n, 0, 0), :white] }
       ship = sprite :ship, at: [40, 40]
       step = var :step, 0
       game_loop { ship.draw_with names, showing: step }
     end
 
-    assert_match(/groups of colors/, error.message)
+    assert_match(/no group is left/, error.message)
   end
 
   # SIXTEEN IS EXACTLY ENOUGH: the ship's own colours and fifteen lists, one group each, with
@@ -581,6 +589,11 @@ class TestSpriteDrawsWith < Minitest::Test
       step = var :step, 0
       scene(:calm) { sprite :ship, at: [40, 40] }
       scene(:busy) do
+        BADGES.times do |n|
+          image :"badge#{n}", width: 8, height: 8, data: Array.new(64, :white),
+                              colors: [:transparent, RubyGBA::Graphics::Color.rgb(n, 9, 31 - n), :white]
+          sprite :"badge#{n}", at: [n * 8, 100]
+        end
         names = (1..16).map { |n| colors :"pulse#{n}", [:transparent, RubyGBA::Graphics::Color.rgb(n, 0, 0), :white] }
         sprite(:ship, at: [40, 40]).draw_with names, showing: step
       end

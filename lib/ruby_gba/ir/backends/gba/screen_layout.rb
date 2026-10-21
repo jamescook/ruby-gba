@@ -148,8 +148,32 @@ module RubyGBA
           # fill that group with a rotation matrix built from the angle.
           MAX_AFFINE_GROUPS = 32
 
-          # Where a sprite's banks are kept, and which entry is its own colours.
-          RecolorBanks = Data.define(:table, :own)
+          # Where a sprite's banks are kept, which entry is its own colours, and whether any entry
+          # is a list that borrows its group as the game runs (see LentColors).
+          RecolorBanks = Data.define(:table, :own, :lends)
+
+          # LISTS OF SPRITE COLOURS THAT BORROW A GROUP, for a game whose things between them
+          # draw with more lists than the console has groups. +blob+ holds each such list's
+          # colours, sixteen to a list, in the order the lists are numbered; +banks+ are the
+          # groups nothing else uses in any scene, which the lists take turns in. Which list
+          # holds which group is worked out as the game runs (see
+          # SpriteDrawing#emit_lend_colors_routine).
+          LentColors = Data.define(:blob, :banks) do
+            # Where the colours of the group lent out as number +k+ are written.
+            def group_at(k) = OBJ_PALETTE + (banks[k] * PaletteBanks::BANK_SIZE * 2)
+
+            # The variables that say, for that group: which list holds it (-1 for none), the
+            # frame it was last drawn with, and where in +blob+ its colours were read from (0
+            # for none, which is how a tint putting colours back knows to leave it alone).
+            def holder_var(k) = :"__lent_colors_#{k}_list"
+            def last_drawn_var(k) = :"__lent_colors_#{k}_last"
+            def source_var(k) = :"__lent_colors_#{k}_at"
+          end
+
+          # A sprite's table of banks holds this plus a list's number, in place of a bank, for a
+          # list that borrows its group. A bank there is at most 15 shifted twelve places, so
+          # the two never meet.
+          LENT_MARK = 0x10000
 
           # WHERE A LIST OF COLOURS THAT CHANGES LANDED (see IR::Nodes::ColorList). +blob+ is the
           # sets it can hold, laid end to end in the cartridge sixteen colours each, with the
@@ -300,10 +324,12 @@ module RubyGBA
           # written into, in the same four parts, so whatever rewrites the sprite colours — a
           # tint, a scene sending its own — can put the set in force back.
           def obj_recolor_restore_banks
-            @color_lists.each_value.map { |list| [list.group_at, list.source_var, 0, list.scene] }
+            lent = @lending ? @lending.banks.each_index.map { |k| [@lending.group_at(k), @lending.source_var(k), 0, nil] } : []
+            @color_lists.each_value.map { |list| [list.group_at, list.source_var, 0, list.scene] } + lent
           end
 
           attr_reader :color_lists # name -> where a changing list of sprite colours landed (see ChangingColors)
+          attr_reader :lending # where groups lent to lists come from, or nil when every list has its own (see LentColors)
 
           attr_reader :picture, :screenfuls # how the picture stacks, whole and one screen at a time
           attr_reader :handover # what each scene puts up as it takes over (see IR::SceneHandover)
@@ -366,8 +392,15 @@ module RubyGBA
           #   fade sits in the stack is a number the game moves. The twin is filled in from the
           #   sprite's own numbers on the way past, so it can only be written when the sprite
           #   is.
+          #
+          #   A SPRITE DRAWN WITH A LIST THAT BORROWS ITS GROUP says it still needs the group by
+          #   being written: a group nothing was drawn with on the frame before is free to lend
+          #   to another list (see SpriteDrawing#emit_lend_colors_routine).
           def written_every_frame
-            @objects.each_key.select { |name| @objects[name].frames || @placed_fade.fade_window_for(name) }
+            @objects.each_key.select do |name|
+              object = @objects[name]
+              object.frames || @placed_fade.fade_window_for(name) || object.recolor_banks&.lends
+            end
           end
 
           # WHERE EACH PIECE OF A SPRITE STANDS, pose by pose: for every pose, one
@@ -1787,14 +1820,20 @@ module RubyGBA
           # whose sprites belong to no scene has the one table, exactly as before.
           def build_shared_object_palette(nodes)
             homes = changing_color_list_homes(nodes)
-            everywhere = nodes.reject(&:scene)
-            @obj_banks = { nil => object_banks(everywhere, lists: homes.select { |_name, scene| scene.nil? }.keys) }
-            scene_palettes = {}
-            nodes.filter_map(&:scene).uniq.each_with_index do |scene, index|
-              in_scene = nodes.select { |node| node.scene == scene }
-              @obj_banks[scene] = object_banks(in_scene, after: @obj_banks[nil], scene: scene,
-                                                         lists: homes.select { |_name, home| home == scene }.keys)
-              scene_palettes[scene] = :"__obj_palette_scene_#{index}"
+            @lent_lists = {}
+            @lending = nil
+            # Every list with a group of its own, the way a game that fits is laid out. Too many
+            # lists can spill so many colours into the big way of storing them that even that
+            # runs out, which is the same news: borrow.
+            scene_palettes = begin
+              lay_out_object_tables(nodes, homes)
+            rescue SpriteColorsOverflow
+              nil
+            end
+            unless scene_palettes && nodes.all? { |node| recolor_banks_narrow?(node) }
+              @lent_lists = lists_to_lend(nodes)
+              scene_palettes = lay_out_object_tables(nodes, homes)
+              lend_spare_groups
             end
             nodes.each { |node| recolor_banks_fit!(node) }
             place_changing_color_lists(homes)
@@ -1813,6 +1852,53 @@ module RubyGBA
               record_scene_send(scene, obj_palette: blob)
             end
           end
+
+          # The table every scene shows, then each scene's own going on from it; returns the
+          # name each scene's table is sent under. +homes+ is #changing_color_list_homes.
+          def lay_out_object_tables(nodes, homes)
+            everywhere = nodes.reject(&:scene)
+            @obj_banks = { nil => object_banks(everywhere, lists: homes.select { |_name, scene| scene.nil? }.keys) }
+            nodes.filter_map(&:scene).uniq.each_with_index.to_h do |scene, index|
+              in_scene = nodes.select { |node| node.scene == scene }
+              @obj_banks[scene] = object_banks(in_scene, after: @obj_banks[nil], scene: scene,
+                                                         lists: homes.select { |_name, home| home == scene }.keys)
+              [scene, :"__obj_palette_scene_#{index}"]
+            end
+          end
+
+          # MORE LISTS THAN GROUPS: the lists that borrow a group as the game runs, numbered.
+          #
+          # The original games hand groups out this way — a thing takes one as it is made and
+          # gives it back as it goes — so what has to fit is what is on screen at once, never a
+          # room or a scene. Here the framework does it for the game: every list a sprite can
+          # draw with borrows, except two kinds that keep a group of their own. A list told to
+          # hold other colours as the game runs already is a group that takes turns. And a list
+          # the same as a sprite's own colours shares that sprite's group for nothing, so
+          # borrowing would only cost one.
+          def lists_to_lend(nodes)
+            own = nodes.filter_map { |node| authored_palette(node) }
+            nodes.flat_map { |node| node.recolors.grep(Array) }.uniq.reject { |list| own.include?(list) }
+                 .each_with_index.to_h
+          end
+
+          # The groups no table uses in any scene are the ones lent out, and the borrowed
+          # lists' colours go in the cartridge for the copy into them.
+          def lend_spare_groups
+            used = @obj_banks.each_value.flat_map(&:banks_used)
+            spare = (0...PaletteBanks::BANKS).to_a - used
+            return @lending = nil if spare.empty?
+
+            blob = :__lent_colors
+            @blobs[blob] = @lent_lists.keys.flat_map { |list| pad_to_bank(list) }.pack("v*")
+            keep_unpacked!(blob) # read from the middle, by the list being lent
+            @lending = LentColors.new(blob: blob, banks: spare)
+          end
+
+          # Does the list of colours +list+ borrow its group?
+          def lent?(list) = @lent_lists.key?(list)
+
+          # Does +node+ draw with a list that borrows its group?
+          def lends?(node) = node.recolors.any? { |list| lent?(list) }
 
           # WHICH TABLE EACH CHANGING LIST'S GROUP GOES IN: name -> the scene, or nil for the table
           # every scene shows. A list only one scene's sprites draw with takes a group while
@@ -1879,7 +1965,7 @@ module RubyGBA
             # group is a group like any other.
             PaletteBanks.new(pictures, after: after, first_entry_shown: false)
           rescue PaletteBanks::Overflow
-            raise LoweringError, object_colors_overflow_message(pictures, scene)
+            raise SpriteColorsOverflow, object_colors_overflow_message(pictures, scene)
           end
 
           # The table a sprite's colours are in: its scene's, or the one every screen shows.
@@ -1896,6 +1982,7 @@ module RubyGBA
             nodes.flat_map do |node|
               node.recolors.each_with_index.filter_map do |list, index|
                 next if list.is_a?(Symbol) # a list that changes has one group, its own (see below)
+                next if lent?(list) # ...and one that borrows has whichever it is lent
 
                 PaletteBanks::Picture.new(key: [:recolor, node.name, index], colors: [], authored: list)
               end
@@ -1918,10 +2005,7 @@ module RubyGBA
           # list — a bank is the only thing its table entry can name. When the banks ran out,
           # one of them was stored the big way instead, and that is a friendly error.
           def recolor_banks_fit!(node)
-            return if node.recolors.empty?
-
-            keys = [node.name, *node.recolors.each_index.map { |index| recolor_key(node, index) }]
-            return if keys.all? { |key| obj_banks_for(node).placement(key).narrow? }
+            return if recolor_banks_narrow?(node) && (@lending || !lends?(node))
 
             shared = scene_lists_in_use(node.scene)
             unless shared.empty?
@@ -1932,6 +2016,15 @@ module RubyGBA
                     "#{@color_list_nodes.fetch(shared.first).busiest_set}. Each list in no set takes one group, " \
                     "and so does each sprite with different colors.#{shared_sprites_note(node.scene)} To fix " \
                     "this, give that set fewer lists, or tell sprites to draw_with fewer lists that are in no set."
+            end
+            unless @lent_lists.empty?
+              raise LoweringError,
+                    "#{whose_sprites(node.scene)} draw with more lists of colors than the console can hold. The " \
+                    "console holds #{PaletteBanks::BANKS} groups of colors for sprites. Each sprite with " \
+                    "different colors takes one group, and so does each list told to `recolor` or given to " \
+                    "`colors_in_use`.#{shared_sprites_note(node.scene)} The other lists use the groups that " \
+                    "are left, in turn, but no group is left. To fix this, give more sprites the same " \
+                    "`colors:` list."
             end
             raise LoweringError,
                   "#{whose_sprites(node.scene)} and the lists of colors they draw with need more than the " \
@@ -1950,6 +2043,16 @@ module RubyGBA
             @picture.objects.select { |node| node.scene.nil? || node.scene == scene }
                     .flat_map { |node| node.recolors.grep(Symbol) }
                     .select { |name| IR::Nodes::ColorList.shared?(name) }.uniq
+          end
+
+          # Is +node+, and every list it draws with that has a group of its own, stored the small
+          # way? A list that borrows has no group yet to ask about.
+          def recolor_banks_narrow?(node)
+            return true if node.recolors.empty?
+
+            keys = [node.name, *node.recolors.each_index.reject { |index| lent?(node.recolors[index]) }
+                                                       .map { |index| recolor_key(node, index) }]
+            keys.all? { |key| obj_banks_for(node).placement(key).narrow? }
           end
 
           # Which sprites ran out. Only one scene's sprites are on screen at a time, so a scene
@@ -1975,12 +2078,17 @@ module RubyGBA
           def sprite_recolor_bank_table(node)
             return nil if node.recolors.empty?
 
-            banks = [*node.recolors.each_index.map { |index| obj_banks_for(node).placement(recolor_key(node, index)).bank },
-                     obj_banks_for(node).placement(node.name).bank]
-            blob = :"__recolor_banks_#{banks.join('_')}"
-            @blobs[blob] = banks.map { |bank| bank << OBJ_BANK_SHIFT }.pack("V*")
+            words = node.recolors.each_with_index.map do |list, index|
+              next LENT_MARK + @lent_lists.fetch(list) if lent?(list)
+
+              obj_banks_for(node).placement(recolor_key(node, index)).bank << OBJ_BANK_SHIFT
+            end
+            words << (obj_banks_for(node).placement(node.name).bank << OBJ_BANK_SHIFT)
+            named = words.map { |word| word >= LENT_MARK ? "lent#{word - LENT_MARK}" : word >> OBJ_BANK_SHIFT }
+            blob = :"__recolor_banks_#{named.join('_')}"
+            @blobs[blob] = words.pack("V*")
             keep_unpacked!(blob) # read from the middle, by the list the game picked
-            RecolorBanks.new(table: blob, own: banks.length - 1)
+            RecolorBanks.new(table: blob, own: words.length - 1, lends: lends?(node))
           end
 
           # The depth each of the other layers a sprite can be put in puts it at, in the order
