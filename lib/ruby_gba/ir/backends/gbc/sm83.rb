@@ -70,13 +70,24 @@ module RubyGBA
           # A named run of bytes, with the labels it defines and the holes it leaves. +home+ says
           # where it must go: :fixed for the part of the cartridge always in view, :banked for any
           # bank of the rest, or a label, which puts it in the same bank as that label's section.
-          Section = Data.define(:name, :bytes, :labels, :fixups, :home)
+          # +holds+ is what of the GAME's it keeps (a Holding), so a cartridge too full for the game
+          # can say which of the game's parts is too big and how to make it smaller; nil for the
+          # framework's own code, which is not the author's to change.
+          Section = Data.define(:name, :bytes, :labels, :fixups, :home, :holds) do
+            def size = bytes.bytesize
+          end
+
+          # One of the game's parts, in words the author knows: +what+ it is ("the game's songs",
+          # always plural, since it is said as "the game's songs take 900 bytes"), and +fix+, what
+          # the author can do to make it smaller ("make its songs shorter, or use fewer of them").
+          Holding = Data.define(:what, :fix)
 
           attr_reader :bytes
 
-          def initialize(name, home: :banked)
+          def initialize(name, home: :banked, holds: nil)
             @name = name
             @home = home
+            @holds = holds
             @bytes = +"".b
             @labels = {}
             @fixups = []
@@ -96,7 +107,7 @@ module RubyGBA
 
           def section
             Section.new(name: @name, bytes: @bytes.dup.freeze, labels: @labels.dup.freeze, fixups: @fixups.dup.freeze,
-                        home: @home)
+                        home: @home, holds: @holds)
           end
 
           # --- data ---

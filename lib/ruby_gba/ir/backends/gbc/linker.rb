@@ -35,7 +35,15 @@ module RubyGBA
             def bytes = banks.join
           end
 
+          # Raised for a fault of the lowering's own: two sections on one place, a label defined
+          # twice, a jump that cannot reach. Nothing the author wrote can mend it.
           class Error < StandardError; end
+
+          # Raised when the GAME is more than the cartridge has room for: its tables, songs or
+          # pictures too big for the part always in view, or one of them bigger than a bank. It is
+          # the game's to fix, so it is a refusal like the lowering's others (see Memory::Full),
+          # and it names the game's parts by what they are, never by the sections they went in.
+          class TooBig < Native::LoweringError; end
 
           # Where each section went: its bank and the address of its first byte.
           Placed = Data.define(:section, :bank, :address)
@@ -71,7 +79,7 @@ module RubyGBA
               placed << Placed.new(section: section, bank: 0, address: next_fixed)
               next_fixed += section.bytes.bytesize
             end
-            raise Error, "the part of the cartridge always in view is #{next_fixed} bytes, over #{BANK_SIZE}" if next_fixed > fixed_free
+            refuse_too_big_for_view!(placed, next_fixed) if next_fixed > fixed_free
 
             place_banked(placed, banked)
             refuse_overlaps!(placed)
@@ -85,8 +93,8 @@ module RubyGBA
             label_bank = {}
             placed.each { |p| p.section.labels.each_key { |l| label_bank[l] = p.bank } }
             banked.each do |section|
-              size = section.bytes.bytesize
-              raise Error, "section #{section.name} is #{size} bytes, more than a bank holds" if size > BANK_SIZE
+              size = section.size
+              refuse_bigger_than_bank!(section) if size > BANK_SIZE
 
               align = section.home == :aligned16 ? 16 : 1
               start_in = ->(b) { ((room[b - 1] || 0) + align - 1) / align * align }
@@ -95,6 +103,7 @@ module RubyGBA
                      else
                        (1..).find { |b| start_in.call(b) + size <= BANK_SIZE }
                      end
+              refuse_too_many_banks!(banked) if bank >= MOST_BANKS
               used = start_in.call(bank)
               raise Error, "section #{section.name} does not fit in bank #{bank} beside what is there" if used + size > BANK_SIZE
 
@@ -103,6 +112,62 @@ module RubyGBA
               section.labels.each_key { |l| label_bank[l] = bank }
             end
           end
+
+          # HOW MANY BANKS A CARTRIDGE HAS AT MOST, as this one is driven. The cartridge's memory bank
+          # controller (an MBC5) can switch between 512, but the runtime only ever writes the low
+          # eight bits of the bank number, so bank 256 would come up as bank 0. A game that needs
+          # more is refused here rather than built with jumps that land in the wrong bank.
+          MOST_BANKS = 256
+
+          DOES_NOT_FIT = "This game does not fit in a Game Boy Color cartridge."
+
+          # The part always in view holds the runtime and everything the game reads while it runs
+          # without switching a bank in: its tables of numbers, its songs, what its pictures are
+          # made of. +needed+ is how far it came to. It is the game's to fix only when the
+          # framework's own code would fit there on its own; a part always in view that the
+          # framework fills by itself is the framework's fault, and stays an internal error.
+          def refuse_too_big_for_view!(placed, needed)
+            own = needed - placed.select { |p| p.section.holds }.sum { |p| p.section.size }
+            raise Error, "the part of the cartridge always in view is #{needed} bytes, over #{BANK_SIZE}" if own > BANK_SIZE
+
+            raise TooBig, "#{DOES_NOT_FIT} The part of the cartridge that is always in view holds #{BANK_SIZE} " \
+                          "bytes. The game needs #{needed} bytes there. Of those, " \
+                          "#{taken_words(placed.map(&:section))}, and the framework's own code takes the rest. " \
+                          "To fix this, #{biggest(placed.map(&:section)).fix}."
+          end
+
+          # One section bigger than a bank, which no placing can mend: the game's, when it is one of
+          # the game's parts, and the framework's own fault otherwise.
+          def refuse_bigger_than_bank!(section)
+            raise Error, "section #{section.name} is #{section.size} bytes, more than a bank holds" unless section.holds
+
+            raise TooBig, "#{DOES_NOT_FIT} A bank of the cartridge holds #{BANK_SIZE} bytes, and part of " \
+                          "#{section.holds.what} needs #{section.size} bytes in one bank. To fix this, " \
+                          "#{section.holds.fix}."
+          end
+
+          # More of the game than every bank of the cartridge holds together.
+          def refuse_too_many_banks!(banked)
+            raise Error, "the framework's own code needs more than #{MOST_BANKS} banks" if banked.none?(&:holds)
+
+            raise TooBig, "#{DOES_NOT_FIT} A cartridge holds #{MOST_BANKS} banks of #{BANK_SIZE} bytes. Of " \
+                          "what goes in them, #{taken_words(banked)}. To fix this, #{biggest(banked).fix}."
+          end
+
+          # Bytes taken by each of the game's parts among +sections+, the biggest first.
+          def game_parts(sections)
+            sections.select(&:holds).group_by(&:holds).transform_values { |parts| parts.sum(&:size) }
+                    .reject { |_, bytes| bytes.zero? }.sort_by { |_, bytes| -bytes }
+          end
+
+          # "the game's tables take 900 bytes and the game's songs take 40 bytes"
+          def taken_words(sections)
+            shares = game_parts(sections).map { |holding, bytes| "#{holding.what} take #{bytes} bytes" }
+            shares.length == 1 ? shares.first : "#{shares[0...-1].join(', ')} and #{shares.last}"
+          end
+
+          # The game's biggest part among +sections+: the one worth making smaller.
+          def biggest(sections) = game_parts(sections).first.first
 
           def refuse_overlaps!(placed)
             placed.group_by(&:bank).each_value do |in_bank|

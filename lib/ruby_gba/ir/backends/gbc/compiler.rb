@@ -79,6 +79,13 @@ module RubyGBA
 
           class Error < StandardError; end
 
+          # What the compiled parts are to the author, for a cartridge too full for them (see
+          # Linker::TooBig). The game's data is mostly its tables; the rest is a few bytes for each
+          # variable that does not start at nought, and each list.
+          DATA = SM83::Holding.new(what: "the game's tables of numbers and its variables' starting values",
+                                   fix: "make its tables shorter, or use fewer of them")
+          ROUTINES = SM83::Holding.new(what: "the game's routines", fix: "make its routines shorter, or use fewer of them")
+
           # What compiling made: the sections for the Linker, and where each global and list went
           # (by its name in the C), for whatever reads a running game back.
           Compiled = Data.define(:sections, :globals, :lists, :starts)
@@ -141,7 +148,7 @@ module RubyGBA
           # Tables of numbers, the tables of routines and the lists' headers' starting values, all
           # in bank 0.
           def data_section(top_level)
-            asm = SM83.new("game data", home: :fixed)
+            asm = SM83.new("game data", home: :fixed, holds: DATA)
             top_level.grep(C::ConstArray).each do |array|
               asm.label(@arrays.fetch(array.name.text).first)
               size, = TYPES.fetch(array.type)
@@ -197,7 +204,7 @@ module RubyGBA
           end
 
           def begin_routine(label, name)
-            @asm = SM83.new(label, home: :banked)
+            @asm = SM83.new(label, home: :banked, holds: ROUTINES)
             @function = name
             @loops = []
             @labels = 0

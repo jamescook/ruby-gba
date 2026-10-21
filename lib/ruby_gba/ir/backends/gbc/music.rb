@@ -23,6 +23,9 @@ module RubyGBA
           # A note's tuning that says the part rests there.
           REST = 0xFFFF
 
+          # What the songs are to the author, for a cartridge too full for them (see Linker::TooBig).
+          SONGS = SM83::Holding.new(what: "the game's songs", fix: "make its songs shorter, or use fewer of them")
+
           def initialize(program)
             @songs = program.walk.select { |node| node.kind == :song }.uniq(&:name)
           end
@@ -38,7 +41,7 @@ module RubyGBA
           # how long it is, where it comes round from, whether it ends, how many parts, and for
           # each part its voice, what the voice sounds like, and its two lists of notes.
           def section
-            asm = SM83.new("music", home: :fixed)
+            asm = SM83.new("music", home: :fixed, holds: SONGS)
             asm.label("music_songs")
             @songs.each_index { |i| asm.data_words("music_song_#{i}") }
             @songs.each_with_index { |song, i| emit_song(asm, song, i) }

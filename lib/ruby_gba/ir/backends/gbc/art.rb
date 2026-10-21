@@ -174,20 +174,35 @@ module RubyGBA
 
           # --- the cartridge's copy ---
 
+          # What each of the art's sections is to the author, for a cartridge too full for them (see
+          # Linker::TooBig). The tables hold every list of colours, and for each sprite picture the
+          # pieces it is cut into and the outline it collides by, so sprite pictures are what grow it.
+          SPRITE_PICTURES = SM83::Holding.new(what: "the game's sprite pictures", fix: "use fewer or smaller sprite pictures")
+          PICTURE_TABLES = SM83::Holding.new(what: "the colours and outlines of the game's pictures",
+                                             fix: "use fewer or smaller sprite pictures")
+          BACKGROUND_TILES = SM83::Holding.new(what: "the game's background tiles",
+                                               fix: "use fewer different tiles in its backgrounds")
+          BACKGROUND_MAPS = SM83::Holding.new(what: "the game's background maps",
+                                              fix: "make its background maps smaller, or use fewer of them")
+
           # The sections the art is kept in: the tiles and the grids in banks of their own (each a
           # copy the runtime puts the bank in view for), and everything read as the game runs —
           # the palettes, the pieces, the masks, where each grid is — in the part always in view.
           def sections
             refuse_too_many_tiles!
-            [tables_section, data_section("art sprite tiles", "art_sprite_tiles", @sprite_tiles.flatten),
-             data_section("art background tiles", "art_background_tiles", @background_tiles.flatten),
-             *@grids.each_with_index.map { |bytes, i| data_section("art grid #{i}", "art_grid_#{i}", bytes) }]
+            [tables_section,
+             data_section("art sprite tiles", "art_sprite_tiles", @sprite_tiles.flatten, holds: SPRITE_PICTURES),
+             data_section("art background tiles", "art_background_tiles", @background_tiles.flatten,
+                          holds: BACKGROUND_TILES),
+             *@grids.each_with_index.map do |bytes, i|
+               data_section("art grid #{i}", "art_grid_#{i}", bytes, holds: BACKGROUND_MAPS)
+             end]
           end
 
           private
 
           def tables_section
-            asm = SM83.new("art tables", home: :fixed)
+            asm = SM83.new("art tables", home: :fixed, holds: PICTURE_TABLES)
             asm.label("art_palettes")
             backgrounds = @background_palettes.dup
             backgrounds[PAINTING_PALETTES] = padded(@paint_colors) if painting?
@@ -233,8 +248,8 @@ module RubyGBA
 
           # A copy the console's own copying (Runtime::Picture) reads 16 bytes at a time, from an
           # address that is a multiple of 16 — which a bank's first byte is.
-          def data_section(name, label, bytes)
-            asm = SM83.new(name, home: :aligned16)
+          def data_section(name, label, bytes, holds:)
+            asm = SM83.new(name, home: :aligned16, holds: holds)
             asm.label(label)
             asm.data_bytes(bytes)
             asm.data_bytes(0) if bytes.empty? # a label has to be somewhere

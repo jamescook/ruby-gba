@@ -591,6 +591,32 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # And when the game's tables are more than the part of the Color's cartridge always in view
+  # holds: the refusal names the tables, not the linker's sections.
+  def test_build_refuses_a_game_too_big_for_the_colors_cartridge_without_a_backtrace
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "atlas.rb"), <<~GAME)
+        require "ruby_gba"
+        RubyGBA.game("ATLAS", consoles: %i[gba gbc]) do
+          heights = table :heights, Array.new(20_000) { |i| i % 100 }, width: :byte
+          at = var :at, 0
+          height = var :height, 0
+          game_loop do
+            height.set! heights[at]
+            at.add! 1
+          end
+        end
+      GAME
+      out, status = cli("build", "atlas.rb", "--console", "gbc", dir: dir)
+
+      refute status.success?, out
+      assert_match(/does not fit in a Game Boy Color cartridge/, out)
+      assert_match(/tables/, out)
+      refute_match(/section/, out, "the linker's own words stay inside")
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+    end
+  end
+
   # A game built for the web is one page beside it, holding the game and what plays it, with
   # nothing to fetch.
   def test_format_web_writes_one_page_that_plays_the_game
