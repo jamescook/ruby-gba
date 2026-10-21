@@ -80,7 +80,7 @@ module RubyGBA
           # The runtime's places first, so they are in the half of work memory always in view.
           Runtime.reserve(memory, art: lowering.art)
           game = lowering.sections
-          runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art)
+          runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art, frame_begins: lowering.frame_begins)
           linked = Linker.new(runtime + game + lowering.art.sections, fixed_from: Console::GBCHardware::HEADER_END).link
           built = Places.new(variables: lowering.variables, lists: lowering.lists, runtime: runtime_places(memory),
                              source_program: program, code: linked.places)

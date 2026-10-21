@@ -39,7 +39,10 @@ module RubyGBA
                                                list_drop: :emit_list_drop, list_set: :emit_list_set,
                                                list_fill: :emit_list_fill, list_copy: :emit_list_copy,
                                                save_init: :emit_save_init, save_store: :emit_save_store,
-                                               save_write: :emit_save_write, save_erase: :emit_save_erase
+                                               save_write: :emit_save_write, save_erase: :emit_save_erase,
+                                               timer_start: :emit_timer_start, timer_stop: :emit_timer_stop,
+                                               # a timer's handler runs as its timer ticks, not where it is written
+                                               on_timer: :emit_nothing
                                              }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))
 
           VALUES = Ractor.make_shareable({
@@ -50,7 +53,8 @@ module RubyGBA
                                            shift_right: :value_of_shift_right, held: :value_of_held,
                                            pressed: :value_of_pressed, list_get: :value_of_list_get,
                                            list_len: :value_of_list_len, table_get: :value_of_table_get,
-                                           save_read: :value_of_save_read, save_sum: :value_of_save_sum
+                                           save_read: :value_of_save_read, save_sum: :value_of_save_sum,
+                                           timer_ticks: :value_of_timer_ticks
                                          })
 
           # How many bytes of save memory a read or a write moves, by the width it names.
@@ -115,25 +119,38 @@ module RubyGBA
 
           # Whether this lowering makes every step a run of +program+ can reach.
           def self.makes?(program)
-            kinds = Reach.statements_from(program, *reached_routines(program)).map(&:kind)
+            handlers = Nodes::OnTimer.of(program).values
+            kinds = Reach.statements_from(program, *reached_routines(program), *handlers).map(&:kind)
             kinds.all? { |kind| STATEMENTS.key?(kind) || VALUES.key?(kind) || kind == :else }
           end
 
+          # The routines a run of +program+ can reach, from the program and from what each timer does
+          # when it ticks.
           def self.reached_routines(program)
             funcs = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
-            Reach.routines(program).map { |name| funcs.fetch(name) }
+            Reach.routines(program, also: Nodes::OnTimer.of(program).values).map { |name| funcs.fetch(name) }
           end
 
           # Where each of the game's variables went, by its name, and each of its lists — [its place,
-          # its capacity, the bytes a slot, its name] — once #sections has placed them.
-          attr_reader :variables, :lists
+          # its capacity, the bytes a slot, its name] — once #sections has placed them; and the label
+          # of the routine the runtime runs at each frame boundary, or nil for a game with no timers.
+          attr_reader :variables, :lists, :frame_begins
 
           def initialize(program, memory:)
             @program = program
             @memory = memory
             @funcs = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
-            @called = Reach.routines(program)
-            @reachable = Reach.statements_from(program, *@called.map { |name| @funcs.fetch(name) })
+            # What each timer does when it ticks, wherever that is written, and the number each is
+            # known by here, in the order the program first names them.
+            @tick_handlers = Nodes::OnTimer.of(program)
+            @timers = program.walk.filter_map do |node|
+              case node.kind
+              when :timer_start, :timer_stop, :timer_ticks then node.name
+              when :on_timer then node.timer
+              end
+            end.uniq.each_with_index.to_h
+            @called = Reach.routines(program, also: @tick_handlers.values)
+            @reachable = Reach.statements_from(program, *@called.map { |name| @funcs.fetch(name) }, *@tick_handlers.values)
             # A list is there, empty, from power-on wherever it is declared (the interpreter gathers
             # them before running), so its storage is the first declaration's.
             @declared_lists = @reachable.reverse.select { |node| node.kind == :list_new }.to_h { |node| [node.name, node] }
@@ -165,9 +182,12 @@ module RubyGBA
               @lists[node.name] = [place, node.capacity, width, node.name.to_s]
             end
             @scene = keep_local(:scene, start: -1) unless @scenes.empty?
+            keep_timer_numbers
             routines = @called.map { |name| routine_section(self.class.routine_label(name), @funcs.fetch(name).children) }
+            timers = timer_sections
             main = routine_section(MAIN, @program.children)
-            [data_section, *routines, main]
+            # The data last of all, since the routines are what find the tables of routines in it.
+            [data_section, *routines, *timers, main]
           end
 
           private
@@ -279,6 +299,8 @@ module RubyGBA
 
           # --- routines ---
 
+          # A routine of +body+'s statements, or of what the block emits for one this lowering makes
+          # for itself.
           def routine_section(label, body)
             @asm = SM83.new(label, home: :banked, holds: ROUTINES)
             @routine = label
@@ -286,6 +308,7 @@ module RubyGBA
             @constants = {}
             @asm.label(label)
             body.each { |node| statement(node) }
+            yield if block_given?
             @asm.ret
             @constants.each do |value, at|
               @asm.label(at)
@@ -624,6 +647,121 @@ module RubyGBA
 
           # A read of save memory, as a value for the statements above.
           def save_read(at, width) = Build.save_read(at, width: width)
+
+          # --- timers ---
+          #
+          # A timer (`timer :beat, per_second: 10`) ticks so many times a second whatever the game is
+          # doing, and runs what the game said to do on each tick. There is no clock in it: a frame is
+          # the interpreter's sixtieth of a second, so at every frame boundary a running timer gains
+          # its rate in sixtieths of a tick, and each whole tick that comes to is a tick
+          # (Reference#accrue_timer). The Color's own hardware timer counts its own clock, which is
+          # not the frame — a pass that runs late would tick it more than the interpreter ticks — so
+          # this counts frames, as the interpreter does.
+          #
+          # Each timer keeps: when it was first started, as a count (nought for never), since timers
+          # move on in the order they were first started, as the interpreter walks them; whether it is
+          # running; its rate, as the whole ticks and the sixtieths of a tick a frame adds, kept apart
+          # so that adding them never goes round at any rate a game can ask for; the sixtieths of a
+          # tick it is through, always under sixty; and its whole ticks, coming round at 65536 as the
+          # interpreter's count does. The runtime runs this lowering's routine at each frame boundary
+          # (Runtime's rt_frame_begins), which moves every running timer on and runs its ticks.
+
+          # The numbers each timer keeps (see above).
+          TIMER_NUMBERS = %i[order running whole_rate part_rate parts ticks].freeze
+
+          # A frame is a sixtieth of a second, as the interpreter counts one.
+          FRAMES_A_SECOND = Reference::FRAME_RATE
+
+          def keep_timer_numbers
+            return if @timers.empty?
+
+            @timer_numbers = @timers.values.to_h { |number| [number, TIMER_NUMBERS.to_h { |what| [what, keep_local(:"timer#{number}_#{what}")] }] }
+            @timers_started = keep_local(:timers_started)
+            @timer_crossed = keep_local(:timer_crossed)
+          end
+
+          def timer_number(name, what) = @timer_numbers.fetch(@timers.fetch(name)).fetch(what)
+
+          # Reference#exec_timer_start: running at its rate, its count from nought — and, the first
+          # time, given its place in the order the timers move on in.
+          def emit_timer_start(node)
+            order = timer_number(node.name, :order)
+            started = fresh("started_before")
+            jump_unless(Build.binop(:==, Build.var_ref(order), Build.int(0)), started)
+            add_in_place(place_of(@timers_started), 1)
+            value(@timers_started)
+            store(order)
+            @asm.label(started)
+            whole, part = node.hz.divmod(FRAMES_A_SECOND)
+            { running: 1, whole_rate: whole, part_rate: part, parts: 0, ticks: 0 }.each do |what, number|
+              load_constant(number)
+              store(timer_number(node.name, what))
+            end
+          end
+
+          # Reference#exec_timer_stop: its count is kept. A timer never started has nothing to stop.
+          def emit_timer_stop(node)
+            load_constant(0)
+            store(timer_number(node.name, :running))
+          end
+
+          # Reference#timer_ticks: nought for a timer never started, which is what its count starts at.
+          def value_of_timer_ticks(node) = value(timer_number(node.name, :ticks))
+
+          # THE ROUTINES THE RUNTIME RUNS AT EACH FRAME BOUNDARY: one that moves every running timer
+          # on, in the order the timers were first started — the k-th started is looked for k-th —
+          # and one for each timer, which moves it on and runs its handler, so each handler is made
+          # once however many timers there are. None for a game with no timers.
+          def timer_sections
+            return [] if @timers.empty?
+
+            each_timer = @timers.map { |name, number| timer_section(name, number) }
+            @frame_begins = "timers frame"
+            in_order = routine_section(@frame_begins, []) do
+              (1..@timers.size).each do |place_in_order|
+                @timers.each_key do |name|
+                  skip = fresh("not_this_one")
+                  jump_unless(Build.binop(:==, Build.var_ref(timer_number(name, :order)), Build.int(place_in_order)), skip)
+                  jump_unless(Build.var_ref(timer_number(name, :running)), skip)
+                  call_routine(timer_label(name))
+                  @asm.label(skip)
+                end
+              end
+            end
+            [*each_timer, in_order]
+          end
+
+          def timer_label(name) = "timer #{name} frame"
+
+          # One timer, a frame on: its sixtieths, the whole ticks they come to, and its handler run
+          # once for each. How many that is is settled before the first of them runs, so a handler
+          # that stops or restarts its own timer still finishes the ticks this frame crossed, as the
+          # interpreter's does.
+          def timer_section(name, _number)
+            parts = timer_number(name, :parts)
+            ticks = timer_number(name, :ticks)
+            sixtieths = Build.binop(:+, Build.var_ref(parts), Build.var_ref(timer_number(name, :part_rate)))
+            rate = Build.int(FRAMES_A_SECOND)
+            routine_section(timer_label(name), []) do
+              value(Build.binop(:+, Build.var_ref(timer_number(name, :whole_rate)), Build.binop(:/, sixtieths, rate)))
+              store(@timer_crossed)
+              value(Build.binop(:%, sixtieths, rate))
+              store(parts)
+              value(Build.binop(:&, Build.binop(:+, Build.var_ref(ticks), Build.var_ref(@timer_crossed)), Build.int(0xFFFF)))
+              store(ticks)
+              handler = @tick_handlers[name]
+              if handler
+                top = fresh("tick")
+                done = fresh("ticks_done")
+                @asm.label(top)
+                jump_unless(Build.binop(:>, Build.var_ref(@timer_crossed), Build.int(0)), done)
+                handler.children.each { |child| statement(child) }
+                add_in_place(place_of(@timer_crossed), -1)
+                @asm.jump(top)
+                @asm.label(done)
+              end
+            end
+          end
 
           # --- tests: jump unless one holds ---
 

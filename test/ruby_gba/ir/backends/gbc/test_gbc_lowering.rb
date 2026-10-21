@@ -105,6 +105,27 @@ class TestGBCLowering < Minitest::Test
     assert_equal 9, run[:loaded]
   end
 
+  # Two timers: a slow one read by its ticks, and a fast one whose ticks call a routine and stop it
+  # once enough have gone by — a pass crossing two of its ticks runs its handler twice.
+  def test_timers_play_as_the_interpreter_plays_them
+    game = program do
+      fast_count = var :fast_count, 0
+      func(:count_tick) { add! :fast_count, 1 }
+      slow = timer :slow, per_second: 7
+      fast = timer :fast, per_second: 90
+      fast.on_tick do
+        call :count_tick
+        (fast_count >= 20).then { fast.stop }
+      end
+      var :seen, 0
+      game_loop { set! :seen, slow.ticks }
+    end
+
+    assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
+    run = GBC::CheckedRun.new.run(game, frames: 30)
+    assert_equal 21, run[:fast_count], "stopped on the 20th tick, the first of a frame's two, and the second still ran"
+  end
+
   private
 
   def program(&game)
