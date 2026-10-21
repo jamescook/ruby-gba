@@ -104,12 +104,17 @@ module RubyGBA
       # Every list named here so far, each once.
       def names = @names.uniq
 
-      # From now on the objects hold the NAME of each list in +changing+ where they held its
-      # colours: what such a list holds is settled as the game runs, so the colours it was
-      # declared with are not what the object is drawn in. Called once the whole program is
-      # declared, when it is known which lists change.
-      def name_changing_lists!(changing)
-        @lists = @lists.each_with_index.map { |list, at| changing.include?(@names[at]) ? @names[at] : list }
+      # The scenes the objects drawn with these lists belong to, nil standing for none.
+      def scenes = @objects.map(&:scene).uniq
+
+      # From now on the objects hold a NAME where they held the colours of a list in +held+,
+      # which maps a list's name to the changing list it is drawn through: itself, for a list
+      # told to `recolor`, or the shared list it takes turns in (see
+      # Builder::ColorLists#colors_in_use). What such a list holds is settled as the game runs,
+      # so the colours it was declared with are not what the object is drawn in. Called once
+      # the whole program is declared, when it is known which lists change.
+      def name_changing_lists!(held)
+        @lists = @lists.each_with_index.map { |list, at| held.fetch(@names[at], list) }
         @objects.each { |node| node.recolors = @lists }
       end
 

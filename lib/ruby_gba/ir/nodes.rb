@@ -356,6 +356,26 @@ module RubyGBA
         # there otherwise is that target's business alone. Named here so the program and
         # the target name the same one.
         def self.source_var(name) = :"__colors_#{name}_at"
+
+        SHARED_PREFIX = "__shared_colors_"
+
+        # The name of a list that lists a game says are never in use together take turns in.
+        # Several such lists are drawn through one of these, so they need one place between
+        # them where each would have needed its own. +family+ counts the lists placed
+        # together (one scene's, or the lists every scene draws with), and +number+ counts
+        # within it.
+        def self.shared_name(family, number) = :"#{SHARED_PREFIX}#{family}_#{number}"
+
+        # Is +name+ one of those?
+        def self.shared?(name) = name.to_s.start_with?(SHARED_PREFIX)
+
+        # Which family the shared list +name+ belongs to.
+        def self.shared_family(name) = name.to_s.delete_prefix(SHARED_PREFIX).split("_").first.to_i
+
+        # For one of those: the set of lists, in the author's words, that needs the most of its
+        # family at once — what to point at when they do not fit. Not part of what the program
+        # does, so not an operand.
+        attr_accessor :busiest_set
       end
 
       # A ColorList holds another set of colours from now on, and everything drawn with it

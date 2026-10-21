@@ -136,6 +136,7 @@ module RubyGBA
       @color_lists = {}        # `colors` name → its colours, see-through first, for a sprite told to draw with it
       @changing_color_lists = {} # `colors` name → what the build keeps about a list told to hold other colours (see ColorLists)
       @sprite_recolors = []    # every sprite's and pool's other colours, to find who draws with a changing list
+      @lists_in_use = []       # each set of lists `colors_in_use` named, in the order the game counts them
       @lists_backgrounds_draw_with = {} # `colors` name → the background drawn with it, which a changing list cannot reach
       @tilesets = {}           # tileset name → { by_key:, by_number:, tile_w:, tile_h:, solid_images: } — a tile-image map addressable by the tileset's own keys or by number (a sheet cell)
       @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend

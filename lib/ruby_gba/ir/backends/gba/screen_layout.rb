@@ -1923,13 +1923,33 @@ module RubyGBA
             keys = [node.name, *node.recolors.each_index.map { |index| recolor_key(node, index) }]
             return if keys.all? { |key| obj_banks_for(node).placement(key).narrow? }
 
+            shared = scene_lists_in_use(node.scene)
+            unless shared.empty?
+              raise LoweringError,
+                    "#{whose_sprites(node.scene)} and the lists of colors they draw with need more than the " \
+                    "#{PaletteBanks::BANKS} groups of colors the console holds for sprites. The sets given to " \
+                    "`colors_in_use` take #{shared.length} of these groups. The biggest is " \
+                    "#{@color_list_nodes.fetch(shared.first).busiest_set}. Each list in no set takes one group, " \
+                    "and so does each sprite with different colors.#{shared_sprites_note(node.scene)} To fix " \
+                    "this, give that set fewer lists, or tell sprites to draw_with fewer lists that are in no set."
+            end
             raise LoweringError,
                   "#{whose_sprites(node.scene)} and the lists of colors they draw with need more than the " \
                   "#{PaletteBanks::BANKS} groups of colors the console holds for sprites. Each different list " \
                   "takes one group, and so does each sprite with different colors.#{shared_sprites_note(node.scene)} " \
                   "To fix this, tell sprites to draw_with fewer different lists, or give more sprites the same " \
                   "`colors:` list. Or tell the sprites to draw_with one list. Then change the colors that " \
-                  "list holds with `recolor`."
+                  "list holds with `recolor`. If no one room uses all these lists, say which lists each room " \
+                  "uses with `colors_in_use`."
+          end
+
+          # The lists that lists never in use together take turns in (see
+          # IR::Nodes::ColorList.shared_name) which the sprites of +scene+, and the sprites
+          # every scene shows, are drawn through. Each takes a group of its own.
+          def scene_lists_in_use(scene)
+            @picture.objects.select { |node| node.scene.nil? || node.scene == scene }
+                    .flat_map { |node| node.recolors.grep(Symbol) }
+                    .select { |name| IR::Nodes::ColorList.shared?(name) }.uniq
           end
 
           # Which sprites ran out. Only one scene's sprites are on screen at a time, so a scene
