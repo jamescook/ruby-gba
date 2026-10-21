@@ -88,12 +88,12 @@ class TestSaveInto < Minitest::Test
       name = list :name, capacity: 6, width: :byte
       file = save_data(:file, copies: 2) { keep hearts, name }
       file[0].load
-      game_loop { pressed(:l).then { file[1].load } }
+      game_loop { pressed(:b).then { file[1].load } }
     end.program
     image = SaveImage.new
     Reference.save_into(image, program, :file, 0, hearts: 12, name: [5, 6])
     Reference.save_into(image, program, :file, 1, hearts: 2)
-    run = game_player(save: image).input_each_frame { |f| f == 2 ? [:l] : [] }.run(program, frames: 4)
+    run = game_player(save: image).input_each_frame { |f| f == 2 ? [:b] : [] }.run(program, frames: 4)
 
     assert_equal [2, []], [run[:hearts], run.list(:name)]
   end

@@ -25,8 +25,8 @@ module RubyGBA
             "sound" => %i[play_from_list play_sound_effect play_sample stop_sample]
           })
 
-          # The kinds the Color cannot do at all, each refused in words of its own: a layer seen
-          # through another (Picture#refuse_see_through_layers!).
+          # The kinds the Color cannot do at all, refused in the words its answers have
+          # (#refuse_color_answer_errors!): a layer seen through another.
           REFUSED = %i[see_through].freeze
 
           # The kinds of the picture and the sound the Color makes, which come off NOT_LOWERED_YET as
@@ -55,7 +55,7 @@ module RubyGBA
           # routines a call by number picks from, and every routine, the program itself last.
           def top_level
             refuse_unlowered_kinds!
-            refuse_see_through_layers!
+            refuse_color_answer_errors!
             refuse_too_many_paint_colors!
             refuse_unsupported_save_memory!
             refuse_routines_that_call_themselves!
@@ -98,6 +98,16 @@ module RubyGBA
             uses = missing.values.flatten & kinds
             raise LoweringError, "this program uses #{uses.map(&:inspect).join(', ')}, which #{build_name} cannot " \
                                  "make yet (#{missing.keys.join(', ')})."
+          end
+
+          # What a Color cannot do at all — a shoulder button, one layer seen through another, a
+          # light — refused as a game's build refuses it (Guardrails::Checks::ColorAnswers, the one
+          # place those answers are said). A program handed straight to the lowering, as a test's
+          # is, never passes through the build's checks, and without this it would play on without
+          # what it asked for.
+          def refuse_color_answer_errors!
+            refused = Guardrails::Checks::ColorAnswers.new.detect(@program).find { |finding| finding.severity == :error }
+            raise LoweringError, refused.message if refused
           end
 
           # A Game Boy Color cartridge saves in 32K of battery-backed memory (Runtime::Saving): a game

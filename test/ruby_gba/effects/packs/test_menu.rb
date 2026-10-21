@@ -818,7 +818,7 @@ class TestMenu < Minitest::Test
       game_loop do
         clear_screen :black if on == :bitmap
         t.add! 1
-        pressed(:l).then { open.set! 1 - open }
+        pressed(:select).then { open.set! 1 - open }
         (t == opens_at).then { open.set! 1 } if opens_at
         options = { at: [X, Y], spacing: SPACING, color: :gray, picked: :white, disabled: :red }
         options[:repeat_every] = repeat_every if repeat_every
@@ -841,7 +841,7 @@ class TestMenu < Minitest::Test
   end
 
   def test_the_same_row_can_be_picked_once_the_game_opens_it
-    i = walk(changing_menu, frames: 5) { |f| { 1 => [:l], 3 => [:down] }.fetch(f, []) }
+    i = walk(changing_menu, frames: 5) { |f| { 1 => [:select], 3 => [:down] }.fetch(f, []) }
 
     assert_equal 1, cursor_row(i)
     assert_equal PICKED, row_color(i, 1)
@@ -857,7 +857,7 @@ class TestMenu < Minitest::Test
   # The cursor is on a row when the game shuts it: the row goes dim, and the button does
   # nothing there.
   def test_a_row_shut_under_the_cursor_does_not_run
-    i = walk(changing_menu, frames: 9) { |f| { 1 => [:l], 3 => [:down], 5 => [:l], 7 => [:a] }.fetch(f, []) }
+    i = walk(changing_menu, frames: 9) { |f| { 1 => [:select], 3 => [:down], 5 => [:select], 7 => [:a] }.fetch(f, []) }
 
     assert_equal 0, i[:chose]
     assert_equal DIMMED, row_color(i, 1)

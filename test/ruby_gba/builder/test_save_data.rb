@@ -37,7 +37,7 @@ class TestSaveData < Minitest::Test
           progress[0].save
         end
         pressed(:b).then { hearts.set! 9 }
-        pressed(:l).then { progress[0].load }
+        pressed(:start).then { progress[0].load }
       end
     end
   end
@@ -72,7 +72,7 @@ class TestSaveData < Minitest::Test
   end
 
   def test_loading_puts_back_what_was_saved
-    run = play(one_save, SaveImage.new, pressing: { 2 => :a, 3 => :b, 4 => :l })
+    run = play(one_save, SaveImage.new, pressing: { 2 => :a, 3 => :b, 4 => :start })
     assert_equal 7, run[:hearts]
   end
 
@@ -86,7 +86,7 @@ class TestSaveData < Minitest::Test
     v.step(2, keys: KEY_B)
     v.step(2)
     assert_equal 9, v.var(:hearts), "changed without saving"
-    v.step(2, keys: KEY_L)
+    v.step(2, keys: KEY_START)
     v.step(2)
     assert_equal 7, v.var(:hearts), "loaded back"
   end
@@ -114,8 +114,8 @@ class TestSaveData < Minitest::Test
           files[slot].save
         end
         pressed(:b).then { files[slot].erase }
-        pressed(:l).then { files[slot].load }
-        pressed(:r).then { files.copy 0, to: slot }
+        pressed(:start).then { files[slot].load }
+        pressed(:left).then { files.copy 0, to: slot }
         pressed(:select).then { files.reset }
         pressed(:right).then do
           hearts.set! 99
@@ -153,7 +153,7 @@ class TestSaveData < Minitest::Test
   def test_loading_a_copy_picked_by_a_worked_out_number
     store = SaveImage.new
     files_after(store, :a, :up, :a)
-    back = files_after(store, :up, :l)
+    back = files_after(store, :up, :start)
 
     assert_equal 11, back[:hearts]
     assert_equal [0, 1], back.list(:name), "the list comes back as it was saved"
@@ -162,7 +162,7 @@ class TestSaveData < Minitest::Test
   def test_an_erased_copy_says_so_and_loads_nothing
     store = SaveImage.new
     files_after(store, :a, :up, :a, :b)
-    back = files_after(store, :up, :l)
+    back = files_after(store, :up, :start)
 
     assert_equal [2, 1, 0], (0..2).map { |n| back[:"state#{n}"] }, "good, erased, never saved"
     assert_equal 3, back[:hearts], "an erased copy loads nothing"
@@ -170,7 +170,7 @@ class TestSaveData < Minitest::Test
 
   def test_one_copy_can_be_copied_over_another
     store = SaveImage.new
-    files_after(store, :a, :up, :up, :r)
+    files_after(store, :a, :up, :up, :left)
     back = files_after(store)
 
     assert_equal [10, 0, 10], (0..2).map { |n| back[:"shown#{n}"] }
@@ -247,7 +247,7 @@ class TestSaveData < Minitest::Test
       game_loop do
         pressed(:a).then { hearts.set! 7; file[0].save }
         pressed(:b).then { hearts.set! 9; file[0].save }
-        pressed(:l).then { hearts.set! 11; file[0].save }
+        pressed(:start).then { hearts.set! 11; file[0].save }
       end
     end
     builder.finalize_program
@@ -266,10 +266,10 @@ class TestSaveData < Minitest::Test
   end
 
   def test_the_console_keeps_three_copies_the_way_the_interpreter_does
-    buttons = %i[a up a up a down b up r select]
+    buttons = %i[a up a up a down b up left select]
     store = SaveImage.new
     oracle = files_after(store, *buttons)
-    keys = { a: KEY_A, b: KEY_B, up: KEY_UP, down: KEY_DOWN, r: KEY_R, select: KEY_SELECT }
+    keys = { a: KEY_A, b: KEY_B, up: KEY_UP, down: KEY_DOWN, left: KEY_LEFT, select: KEY_SELECT }
     schedule = presses(*buttons).transform_values { |button| keys.fetch(button) }
     rom = assemble_rom(three_files, name: "FILES3")
     v = assert_emulator_loads_rom(rom, frames: (buttons.length * 2) + 8, keys: ->(f) { schedule.fetch(f, 0) },
@@ -350,20 +350,20 @@ class TestSaveData < Minitest::Test
           rolled.set! rand(1..1000)
           (first == 0).then { first.set! rolled }
         end
-        pressed(:l).then { files[0].load }
+        pressed(:start).then { files[0].load }
         pressed(:select).then { files.reset }
       end
     end
   end
 
-  ROLLING = %i[up up up a b up up l b].freeze
+  ROLLING = %i[up up up a b up up start b].freeze
 
   def test_a_load_puts_the_random_numbers_back_on_both_backends
     oracle = play(rolling_after_a_load, SaveImage.new, pressing: presses(*ROLLING), frames: (ROLLING.length * 2) + 4)
     refute_equal 0, oracle[:first]
     assert_equal oracle[:first], oracle[:rolled], "the roll after the load is the roll after the save"
 
-    keys = { a: KEY_A, b: KEY_B, up: KEY_UP, l: KEY_L }
+    keys = { a: KEY_A, b: KEY_B, up: KEY_UP, start: KEY_START }
     schedule = presses(*ROLLING).transform_values { |button| keys.fetch(button) }
     rom = assemble_rom(rolling_after_a_load, name: "ROLLBACK")
     v = assert_emulator_loads_rom(rom, frames: (ROLLING.length * 2) + 8, keys: ->(f) { schedule.fetch(f, 0) },
@@ -409,8 +409,8 @@ class TestSaveData < Minitest::Test
           guards.spawn(x: 9, hp: 9)
           guards.each { |g| (g.x == 1).then { g.remove } }
         end
-        pressed(:l).then { files[0].load }
-        pressed(:r).then { guards.spawn(x: 4, hp: 8) }
+        pressed(:start).then { files[0].load }
+        pressed(:left).then { guards.spawn(x: 4, hp: 8) }
         pressed(:select).then { files.reset }
         signature.set! 0
         guards.each { |g| signature.add!((g.index + 1) * ((g.x * 100) + g.hp)) }
@@ -425,8 +425,8 @@ class TestSaveData < Minitest::Test
   private def guards_of(run) = [run.pool(:guard, :x), run.pool(:guard, :hp), run[:guard_count]]
 
   def test_a_load_puts_a_pool_back_slot_for_slot
-    undisturbed = guards_after(:a, :r)
-    loaded = guards_after(:a, :b, :l, :r)
+    undisturbed = guards_after(:a, :left)
+    loaded = guards_after(:a, :b, :start, :left)
 
     assert_equal undisturbed.pool(:guard, :x), loaded.pool(:guard, :x)
     assert_equal undisturbed.pool(:guard, :hp), loaded.pool(:guard, :hp)
@@ -435,9 +435,9 @@ class TestSaveData < Minitest::Test
   end
 
   def test_the_console_puts_a_pool_back_the_way_the_interpreter_does
-    buttons = %i[a b l r]
+    buttons = %i[a b start left]
     oracle = guards_after(*buttons)
-    keys = { a: KEY_A, b: KEY_B, l: KEY_L, r: KEY_R }
+    keys = { a: KEY_A, b: KEY_B, start: KEY_START, left: KEY_LEFT }
     schedule = presses(*buttons).transform_values { |button| keys.fetch(button) }
     rom = assemble_rom(guards_saved, name: "GUARDS")
     v = assert_emulator_loads_rom(rom, frames: (buttons.length * 2) + 10, keys: ->(f) { schedule.fetch(f, 0) },
@@ -447,14 +447,14 @@ class TestSaveData < Minitest::Test
 
   # A new game empties the pool, and the pool still works afterwards.
   def test_a_reset_empties_a_kept_pool_and_it_still_spawns
-    run = guards_after(:a, :select, :r)
+    run = guards_after(:a, :select, :left)
     assert_equal [4], run.pool(:guard, :x).compact
     assert_equal [8], run.pool(:guard, :hp).compact
   end
 
   # One field kept on its own comes back; the rest of the pool is left as the game has it.
   def test_one_field_of_a_pool_can_be_kept_on_its_own
-    run = guards_after(:a, :b, :l, keeping: :field)
+    run = guards_after(:a, :b, :start, keeping: :field)
     hurt_again = guards_after(:a, :b, keeping: :field)
 
     assert_equal hurt_again.pool(:guard, :x), run.pool(:guard, :x), "where they stand is not kept"
@@ -481,14 +481,14 @@ class TestSaveData < Minitest::Test
           files[0].save
         end
         pressed(:b).then { guards.each { |g| g.face :right } }
-        pressed(:l).then { files[0].load }
+        pressed(:start).then { files[0].load }
       end
     end
   end
 
   def test_a_load_puts_back_which_way_each_pooled_thing_faces
     undisturbed = play(facing_guards, SaveImage.new, pressing: presses(:a), frames: 11)
-    loaded = play(facing_guards, SaveImage.new, pressing: presses(:a, :b, :l), frames: 11)
+    loaded = play(facing_guards, SaveImage.new, pressing: presses(:a, :b, :start), frames: 11)
 
     assert_equal undisturbed.sprites(:guard).map(&:picture), loaded.sprites(:guard).map(&:picture)
     assert_equal :l1, loaded.sprites(:guard).first.picture
@@ -531,8 +531,8 @@ class TestSaveData < Minitest::Test
           files[slot].save
         end
         pressed(:b).then { files[slot].erase }
-        pressed(:l).then { files[slot].load }
-        pressed(:r).then { files.copy 0, to: slot }
+        pressed(:start).then { files[slot].load }
+        pressed(:left).then { files.copy 0, to: slot }
         pressed(:select).then { files.reset }
         3.times do |n|
           shown[n].set! files[n].peek(:hearts)
@@ -569,14 +569,14 @@ class TestSaveData < Minitest::Test
     assert_equal [0, 0, 0], (0..2).map { |n| back[:"first#{n}"] }
     assert_equal [2, 2, 0], (0..2).map { |n| back[:"state#{n}"] }
 
-    loaded = screen_first_after(store, :up, :l)
+    loaded = screen_first_after(store, :up, :start)
     assert_equal 11, loaded[:hearts]
     assert_equal [0, 1], loaded.list(:name)
   end
 
   def test_a_record_declared_before_what_it_keeps_erases_copies_and_resets
     store = SaveImage.new
-    screen_first_after(store, :a, :up, :up, :r, :down, :b)
+    screen_first_after(store, :a, :up, :up, :left, :down, :b)
     back = screen_first_after(store)
 
     assert_equal [10, 0, 10], (0..2).map { |n| back[:"shown#{n}"] }
@@ -595,9 +595,9 @@ class TestSaveData < Minitest::Test
   end
 
   def test_the_console_runs_a_record_declared_before_what_it_keeps
-    buttons = %i[a up a up up r down b]
+    buttons = %i[a up a up up left down b]
     oracle = screen_first_after(SaveImage.new, *buttons)
-    keys = { a: KEY_A, b: KEY_B, up: KEY_UP, down: KEY_DOWN, r: KEY_R }
+    keys = { a: KEY_A, b: KEY_B, up: KEY_UP, down: KEY_DOWN, left: KEY_LEFT }
     schedule = presses(*buttons).transform_values { |button| keys.fetch(button) }
     rom = assemble_rom(file_screen_first, name: "FILESFIRST")
     v = assert_emulator_loads_rom(rom, frames: (buttons.length * 2) + 8, keys: ->(f) { schedule.fetch(f, 0) },
@@ -654,7 +654,7 @@ class TestSaveData < Minitest::Test
           settings[0].save
         end
         pressed(:b).then { repeat(1196) { |i| flags[i] = 0 } }
-        pressed(:l).then do
+        pressed(:start).then do
           files[2].load
           checked.set! flags[1195] + flags[5] + hearts
         end
@@ -664,13 +664,13 @@ class TestSaveData < Minitest::Test
 
   def test_three_full_size_files_and_settings_on_both_backends
     store = SaveImage.new
-    play(full_size, store, pressing: { 2 => :a, 4 => :b, 6 => :l }, frames: 16)
-    back = play(full_size, store, pressing: { 2 => :l }, frames: 4)
+    play(full_size, store, pressing: { 2 => :a, 4 => :b, 6 => :start }, frames: 16)
+    back = play(full_size, store, pressing: { 2 => :start }, frames: 4)
     assert_equal 3, back[:speed], "the settings record is kept apart from the files"
     assert_equal (1195 & 0x7F) + 5 + 20, back[:checked]
 
     # Three files' buffers are filled as the console starts, so it is given a few frames first.
-    schedule = { 4 => KEY_A, 6 => KEY_B, 8 => KEY_L }
+    schedule = { 4 => KEY_A, 6 => KEY_B, 8 => KEY_START }
     rom = assemble_rom(full_size, name: "FULLSIZE")
     v = assert_emulator_loads_rom(rom, frames: 14, keys: ->(f) { schedule.fetch(f, 0) }, vars: rom.var_addresses)
     assert_equal (1195 & 0x7F) + 5 + 20, v.var(:checked)

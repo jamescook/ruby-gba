@@ -180,4 +180,12 @@ class TestMixerOnTheAdvance < Minitest::Test
 
   # --- level control ---
 
+
+  # A recording declared and never played is nothing to mix, so there is no mix at all, as on
+  # the cartridge, which brings its mixer up only for a game that plays one.
+  def test_a_game_that_only_declares_a_recording_mixes_nothing
+    declared = playing { sample(:saw, pcm: SAWTOOTH, rate: 8000) }
+
+    assert_empty game_player.run(declared, frames: 5).mixed_sound
+  end
 end
