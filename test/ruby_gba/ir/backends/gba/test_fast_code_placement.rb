@@ -497,7 +497,7 @@ class TestFastCodePlacement < Minitest::Test
   # crosses too once the save's own routine moves. Short, a game with a big list on 128K
   # stopped building where the same game on 64K built.
   def test_a_routine_saving_on_128k_is_charged_at_least_what_it_comes_out_at
-    program = RubyGBA.game("CHARGE", save_memory: 128) do
+    program = RubyGBA.game("CHARGE", consoles: %i[gba], save_memory: 128) do
       screen :bitmap
       hearts = var :hearts, 3
       file = save_data(:file) { keep hearts }
@@ -510,7 +510,7 @@ class TestFastCodePlacement < Minitest::Test
   # ...and a digit drawn from a timer's tick, whose call to the font's digit routine is written
   # in the routine the console interrupts into.
   def test_a_digit_drawn_from_a_tick_is_charged_to_the_interrupt
-    program = RubyGBA.game("CHARGE") do
+    program = RubyGBA.game("CHARGE", consoles: %i[gba]) do
       screen :bitmap
       shown = var :shown, 0
       timer(:clock, per_second: 4000).on_tick { shown.add! 1; draw_number shown, 8, 8, :white, digits: 3 }

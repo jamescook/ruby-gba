@@ -10,7 +10,7 @@ class WalkerTest < Minitest::Test
   include RubyGBA::Testing
 
   def test_holding_right_walks_the_walker
-    game = RubyGBA.game "WALKER" do
+    game = RubyGBA.game "WALKER", consoles: %i[gba] do
       x = var :x, 0
       game_loop do
         held(:right).then { x.add! 1 }

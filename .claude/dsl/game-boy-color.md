@@ -1,10 +1,11 @@
 # The Game Boy Color — what every verb does there
 
 A game built for the Color too (`RubyGBA.game "NAME", consoles: %i[gba gbc]`, then
-`ruby-gba build --format=gbc`) is the same game on a smaller machine: a 160×144 screen
-(`screen_width`, `screen_height`), eight buttons, one background, forty sprites (ten on a
-row of the screen), and lists of four colours. Every verb has one of three answers there,
-decided once in `Console::GBCFeatures`:
+`ruby-gba build`, which makes both cartridges, or `--console gbc` for the Color's alone) is
+the same game on a smaller machine: a 160×144 screen (`screen_width`, `screen_height`),
+eight buttons, one background, forty sprites (ten on a row of the screen), and lists of
+four colours. Every verb has one of three answers there, decided once in
+`Console::GBCFeatures`:
 
 - **works** — the same game, played the same way. The Game Boy Color lowering's run of
   `rake test` holds the cartridge to the interpreter on every frame.

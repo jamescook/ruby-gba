@@ -267,7 +267,7 @@ class TestJSPage < Minitest::Test
 
   # A game that goes wrong stops where it is, and the page says why under the picture.
   def test_a_game_that_goes_wrong_says_so_under_the_picture
-    game = RubyGBA.game "FULL" do
+    game = RubyGBA.game "FULL", consoles: %i[gba] do
       screen :bitmap
       trail = list :trail, capacity: 2
       game_loop { trail.push 1 }

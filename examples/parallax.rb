@@ -49,7 +49,7 @@ module Parallax
     end.join
   end)
 
-  GAME = RubyGBA.game("PARALLAX") do
+  GAME = RubyGBA.game("PARALLAX", consoles: %i[gba]) do
     screen :tiled # tile mode: two background layers, composited by the hardware
 
     # --- FAR layer tiles: sky and clouds (fully opaque; it's the backmost layer) ---

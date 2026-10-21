@@ -22,7 +22,7 @@ class TestCheckedRun < Minitest::Test
   GAME_OF_ITS_OWN = <<~RUBY
     require "ruby_gba"
 
-    game = RubyGBA.game "CHECKED" do
+    game = RubyGBA.game "CHECKED", consoles: %i[gba] do
       x = var :x, 0
       game_loop { held(:right).then { x.add! 1 } }
     end
@@ -42,7 +42,7 @@ class TestCheckedRun < Minitest::Test
     end
     RubyGBA::IR::Backends::Reference::Framebuffer.prepend(OnePixelOff)
 
-    game = RubyGBA.game "CHECKED" do
+    game = RubyGBA.game "CHECKED", consoles: %i[gba] do
       game_loop { pixel 10, 10, :red }
     end
     begin

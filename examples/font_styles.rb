@@ -15,7 +15,7 @@
 require_relative "../lib/ruby_gba"
 
 module FontStyles
-  GAME = RubyGBA.game("FONTSTY") do
+  GAME = RubyGBA.game("FONTSTY", consoles: %i[gba]) do
     screen :bitmap
     clear_screen :black
 

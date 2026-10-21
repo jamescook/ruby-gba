@@ -79,7 +79,7 @@ class TestNativeRefusals < Minitest::Test
   # The desktop build checks a game the way the cartridge build does, so a game the console
   # would refuse is refused here too, by the same friendly error.
   def test_a_game_the_cartridge_build_refuses_is_refused_for_the_desktop
-    game = RubyGBA.game("REFUSED") do
+    game = RubyGBA.game("REFUSED", consoles: %i[gba]) do
       screen :tiled
       game_loop { pixel 10, 10, :red } # painting on a tiled screen: a black screen on the console
     end

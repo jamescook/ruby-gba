@@ -51,8 +51,12 @@ module RubyGBA
         # the console would refuse can be built for a desktop instead: a desktop has room for
         # what the console does not, and a game that only works there is not this library's.
         # Guardrail warnings are printed to +err+, as the cartridge build prints them.
+        #
+        # It is the ADVANCE's cartridge whatever else the game is for, because the runtime draws
+        # the Advance's 240×160 screen (RG_SCREEN_WIDTH, RG_SCREEN_HEIGHT), and a game laid out
+        # for the Color's would be drawn in one corner of it.
         def checked_program(game, settings: {}, err: $stderr)
-          game.build_rom(profile: false, out: nil, err: err, settings: settings).built.source_program
+          game.build_rom(profile: false, out: nil, err: err, settings: settings, console: :gba).built.source_program
         end
 
         # The runtime's C files each kind of build compiles beside the game's. The desktop build

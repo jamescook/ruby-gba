@@ -30,7 +30,7 @@ class TestSaveChip < Minitest::Test
   # The filler is never read in play, so it goes in the roomy memory: in the quick memory it
   # would push the save code out to the cartridge, and power-on would take longer to read it.
   private def saving_game(save_memory, pad: 0)
-    RubyGBA.game("FLASHSAV", save_memory: save_memory) do
+    RubyGBA.game("FLASHSAV", consoles: %i[gba], save_memory: save_memory) do
       screen :bitmap
       hearts = var :hearts, 3
       if pad.positive?
@@ -119,7 +119,7 @@ class TestSaveChip < Minitest::Test
   # filler's halves are five blocks each, which puts the file's three-block halves at 0xC000
   # and 0xF000. The first save goes in the first half and the second save across the line.
   def test_a_save_across_the_line_between_banks_comes_back
-    rom = RubyGBA.game("FLASHBNK", save_memory: 128) do
+    rom = RubyGBA.game("FLASHBNK", consoles: %i[gba], save_memory: 128) do
       screen :bitmap
       filler = list :filler, capacity: 18_000, width: :byte
       save_data(:filler) { keep filler }
@@ -151,7 +151,7 @@ class TestSaveChip < Minitest::Test
   # How many passes of the game loop a 5K save leaves the game in 200 frames, with the save
   # asked for on the first — and whether it went in.
   private def passes_while_saving(save_memory)
-    rom = RubyGBA.game("FLASHPAS", save_memory: save_memory) do
+    rom = RubyGBA.game("FLASHPAS", consoles: %i[gba], save_memory: save_memory) do
       screen :bitmap
       flags = list :flags, capacity: 5000, width: :byte, fast: false
       saving = var :saving, 0
@@ -182,7 +182,7 @@ class TestSaveChip < Minitest::Test
   # anywhere near full. (The pass that asks for the save copies the record aside, which is
   # dear for 20K on any memory, so the frames measured start after it.)
   def test_wiping_a_big_half_of_flash_spreads_over_frames
-    rom = RubyGBA.game("FLASHWIP", save_memory: 64) do
+    rom = RubyGBA.game("FLASHWIP", consoles: %i[gba], save_memory: 64) do
       screen :bitmap
       flags = list :flags, capacity: 20_000, width: :byte, fast: false
       file = save_data(:file) { keep flags }
@@ -225,7 +225,7 @@ class TestSaveChip < Minitest::Test
   # A save_var on the EEPROM is kept in a record, as on flash, and comes back the same way. The
   # record is 64 words, so its save takes a few dozen passes at a block a pass.
   def test_a_save_var_on_the_eeprom_comes_back_after_the_power_goes_off
-    rom = RubyGBA.game("EEPROMVR", save_memory: 8) do
+    rom = RubyGBA.game("EEPROMVR", consoles: %i[gba], save_memory: 8) do
       screen :bitmap
       best = save_var :best, 3
       game_loop { pressed(:a).then { best.set! 7 } }
@@ -240,7 +240,7 @@ class TestSaveChip < Minitest::Test
   # half beside it, and a block of the EEPROM is written for each eight bytes of either — not
   # for each byte, which is what a save that read the other half as it went would cost.
   def test_a_second_save_on_the_eeprom_costs_what_the_first_did
-    rom = RubyGBA.game("EEPROMTW", save_memory: 8) do
+    rom = RubyGBA.game("EEPROMTW", consoles: %i[gba], save_memory: 8) do
       screen :bitmap
       flags = list :flags, capacity: 600, width: :byte, fast: false
       file = save_data(:file) { keep flags }

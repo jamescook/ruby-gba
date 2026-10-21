@@ -25,7 +25,7 @@ class TestMeasuredPlacement < Minitest::Test
   # The work lives in the second scene. Nothing reaches it by holding a button — a scene is
   # switched by a press, and a held button is one press however long it is held.
   private def game_with_work_in_a_later_scene
-    RubyGBA.game("MPLC", code: "MPLC", maker: "01") do
+    RubyGBA.game("MPLC", consoles: %i[gba], code: "MPLC", maker: "01") do
       screen :bitmap
       clear_screen :black
       var :state, 0
@@ -89,7 +89,7 @@ class TestMeasuredPlacement < Minitest::Test
   # Here :everywhere does 300 steps on each of four screens and :one_screen 800 on one: less
   # than it on the one screen, and far more than it across the game.
   private def game_with_a_routine_on_every_screen
-    RubyGBA.game("MPL3", maker: "01") do
+    RubyGBA.game("MPL3", consoles: %i[gba], maker: "01") do
       screen :bitmap
       clear_screen :black
       var :state, 0
@@ -170,7 +170,7 @@ class TestMeasuredPlacement < Minitest::Test
   # The measurement decides what the framework picks; it never overrules the author. A routine
   # insisted on is placed before anything the chooser wanted, measured or not.
   def test_an_author_still_overrules_the_measurement
-    game = RubyGBA.game("MPL2", code: "MPL2", maker: "01") do
+    game = RubyGBA.game("MPL2", consoles: %i[gba], code: "MPL2", maker: "01") do
       screen :bitmap
       clear_screen :black
       var :x, 0

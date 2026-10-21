@@ -47,7 +47,7 @@ module Scroll
     end.join
   end)
 
-  GAME = RubyGBA.game("SCROLL") do
+  GAME = RubyGBA.game("SCROLL", consoles: %i[gba]) do
     screen :tiled # tile mode: one big background layer we slide the window over
 
     image :grass, "." => rgb(3, 18, 5), "'" => rgb(5, 24, 7) do

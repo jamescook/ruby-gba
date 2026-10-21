@@ -26,7 +26,7 @@ module RubyGBA
     # the author hears about it while building, not while playing.
     #
     # A GAME SAYS WHICH CONSOLES IT IS FOR (`RubyGBA.game "PONG", consoles: %i[gba gbc]`), and is
-    # built for the Advance alone unless it says so. A game written for a 240×160 screen that is
+    # built for the Color only when it names it. A game written for a 240×160 screen that is
     # built for a 160×144 one has a third of its picture cut away, which no warning would make
     # right; so reaching the second console is a decision the author makes once, in the game's
     # first line, having read the screen's size from the builder (`screen_width`, `screen_height`)
@@ -220,10 +220,11 @@ module RubyGBA
           # The Game Boy Color — what every verb does there
 
           A game built for the Color too (`RubyGBA.game "NAME", consoles: %i[gba gbc]`, then
-          `ruby-gba build --format=gbc`) is the same game on a smaller machine: a 160×144 screen
-          (`screen_width`, `screen_height`), eight buttons, one background, forty sprites (ten on a
-          row of the screen), and lists of four colours. Every verb has one of three answers there,
-          decided once in `Console::GBCFeatures`:
+          `ruby-gba build`, which makes both cartridges, or `--console gbc` for the Color's alone) is
+          the same game on a smaller machine: a 160×144 screen (`screen_width`, `screen_height`),
+          eight buttons, one background, forty sprites (ten on a row of the screen), and lists of
+          four colours. Every verb has one of three answers there, decided once in
+          `Console::GBCFeatures`:
 
           - **works** — the same game, played the same way. The Game Boy Color lowering's run of
             `rake test` holds the cartridge to the interpreter on every frame.

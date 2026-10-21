@@ -16,14 +16,14 @@ class TestGame < Minitest::Test
 
 
   def test_it_returns_a_handle_carrying_the_title_and_codes
-    g = RubyGBA.game("MYGAME", code: "BMYG", maker: "01") { screen :bitmap }
+    g = RubyGBA.game("MYGAME", consoles: %i[gba], code: "BMYG", maker: "01") { screen :bitmap }
     assert_equal "MYGAME", g.title
     assert_equal "BMYG", g.code
     assert_equal "01", g.maker
   end
 
   def test_program_runs_on_the_interpreter
-    g = RubyGBA.game("FILL", code: "BFIL", maker: "01") do
+    g = RubyGBA.game("FILL", consoles: %i[gba], code: "BFIL", maker: "01") do
       screen :bitmap
       clear_screen :red
       halt
@@ -38,7 +38,7 @@ class TestGame < Minitest::Test
   # program.
   def test_a_local_variable_is_captured_by_the_block
     fill = :green
-    g = RubyGBA.game("LOCAL", code: "BLOC", maker: "01") do
+    g = RubyGBA.game("LOCAL", consoles: %i[gba], code: "BLOC", maker: "01") do
       screen :bitmap
       clear_screen fill
       halt
@@ -52,7 +52,7 @@ class TestGame < Minitest::Test
   # block but the block parameter ties it to where it was written.
   module GameAroundBlock
     def self.declare(title, &subject)
-      RubyGBA.game(title) do
+      RubyGBA.game(title, consoles: %i[gba]) do
         screen :bitmap
         var :made, subject ? subject.call : -1
         halt
@@ -61,7 +61,7 @@ class TestGame < Minitest::Test
 
     # The same, with the game's block reading the block parameter one block further in.
     def self.declare_nested(title, &subject)
-      RubyGBA.game(title) do
+      RubyGBA.game(title, consoles: %i[gba]) do
         screen :bitmap
         var :made, 0
         func(:make) { set! :made, subject ? subject.call : -1 }
@@ -73,7 +73,7 @@ class TestGame < Minitest::Test
     # The same, with the game declared one block inside the method that took the block.
     def self.declare_from_a_block(title, &subject)
       [title].map do |name|
-        RubyGBA.game(name) do
+        RubyGBA.game(name, consoles: %i[gba]) do
           screen :bitmap
           var :made, subject ? subject.call : -1
           halt
@@ -83,7 +83,7 @@ class TestGame < Minitest::Test
 
     # A game whose block reaches for nothing, written beside a block parameter it never reads.
     def self.declare_beside_a_block(title, &_unread)
-      RubyGBA.game(title) do
+      RubyGBA.game(title, consoles: %i[gba]) do
         screen :bitmap
         var :made, 3
         halt
@@ -125,13 +125,13 @@ class TestGame < Minitest::Test
 
   # A block made from a symbol was never written anywhere, so it has no surroundings to read.
   def test_a_block_made_from_a_symbol_is_still_a_game
-    g = RubyGBA.game("FROMSYMBOL", &:halt)
+    g = RubyGBA.game("FROMSYMBOL", consoles: %i[gba], &:halt)
 
     refute game_player.run(g.program).stopped_at_budget?, "the game is its one verb, and it ran"
   end
 
   def test_build_rom_returns_a_written_cartridge
-    g = RubyGBA.game("ROMTEST", code: "BRMT", maker: "01") do
+    g = RubyGBA.game("ROMTEST", consoles: %i[gba], code: "BRMT", maker: "01") do
       screen :bitmap
       clear_screen :blue
       halt
@@ -143,18 +143,18 @@ class TestGame < Minitest::Test
 
   def test_declaring_a_game_registers_it
     before = RubyGBA.registered_games.length
-    g = RubyGBA.game("REG", code: "BREG", maker: "01") { screen :bitmap }
+    g = RubyGBA.game("REG", consoles: %i[gba], code: "BREG", maker: "01") { screen :bitmap }
     assert_equal g, RubyGBA.registered_games.last
     assert_equal before + 1, RubyGBA.registered_games.length
   end
 
   def test_default_filename_from_the_title
-    g = RubyGBA.game("Space Blast!", code: "BSPB", maker: "01") { screen :bitmap }
+    g = RubyGBA.game("Space Blast!", consoles: %i[gba], code: "BSPB", maker: "01") { screen :bitmap }
     assert_equal "space_blast.gba", g.default_filename
   end
 
   def test_a_block_is_required
-    err = assert_raises(ArgumentError) { RubyGBA.game("NOBLOCK", code: "BNOB", maker: "01") }
+    err = assert_raises(ArgumentError) { RubyGBA.game("NOBLOCK", consoles: %i[gba], code: "BNOB", maker: "01") }
     assert_match(/needs a block/, err.message)
   end
 
@@ -163,7 +163,7 @@ class TestGame < Minitest::Test
   # with, so a required/loaded file (a test, or the `ruby-gba` command) stays silent.
   def test_declaring_a_game_writes_nothing
     out, = capture_io do
-      RubyGBA.game("QUIET", code: "BQUI", maker: "01") do
+      RubyGBA.game("QUIET", consoles: %i[gba], code: "BQUI", maker: "01") do
         screen :bitmap
         halt
       end
@@ -172,7 +172,7 @@ class TestGame < Minitest::Test
   end
 
   def test_main_script_guard_matches_only_the_running_script
-    g = RubyGBA.game("GUARD", code: "BGRD", maker: "01") { screen :bitmap }
+    g = RubyGBA.game("GUARD", consoles: %i[gba], code: "BGRD", maker: "01") { screen :bitmap }
     refute g.send(:main_script?, "/nowhere/not_the_runner.rb"), "a foreign file is not the main script"
     # The library's own record of it, read once when it loaded — asking Ruby directly is
     # reading a global, which a worker may not do, and these tests run in a pool.

@@ -15,7 +15,7 @@ class TestSaveVarsInto < Minitest::Test
       save_var :played, 0
       game_loop { pressed(:a).then { best.set! 50 } }
     end
-    save_memory ? RubyGBA.game("SAVEVARS", save_memory: save_memory, &block) : RubyGBA.game("SAVEVARS", &block)
+    save_memory ? RubyGBA.game("SAVEVARS", consoles: %i[gba], save_memory: save_memory, &block) : RubyGBA.game("SAVEVARS", consoles: %i[gba], &block)
   end
 
   private def scores(save_memory: nil) = scores_game(save_memory: save_memory).program
@@ -85,7 +85,7 @@ class TestSaveVarsInto < Minitest::Test
   end
 
   def test_a_program_with_no_save_var
-    program = RubyGBA.game("NOSAVES") { screen :bitmap; var :best, 0; game_loop { wait_vblank } }.program
+    program = RubyGBA.game("NOSAVES", consoles: %i[gba]) { screen :bitmap; var :best, 0; game_loop { wait_vblank } }.program
     err = assert_raises(ArgumentError) { Reference.save_vars_into(SaveImage.new, program, best: 5) }
     assert_match(/no save_var/, err.message)
   end

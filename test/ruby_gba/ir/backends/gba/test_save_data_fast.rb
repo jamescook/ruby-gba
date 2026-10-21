@@ -29,7 +29,7 @@ class TestSaveDataFast < Minitest::Test
   # keeps with `save_var`.
   private def saving_game(fast: nil, asks: [], saves: true, work: 0, save_vars: 0, **words)
     said = fast.nil? ? {} : { fast: fast }
-    RubyGBA.game("SAVEFAST", **words) do
+    RubyGBA.game("SAVEFAST", consoles: %i[gba], **words) do
       screen :bitmap
       hearts = var :hearts, 3
       spin = var :spin, 0
@@ -98,7 +98,7 @@ class TestSaveDataFast < Minitest::Test
   # ONE RECORD'S WORD IS ABOUT THAT RECORD. A second record that says nothing is left to the
   # measurement, which here leaves its routines in the cartridge.
   def test_one_records_word_does_not_keep_another_records_routines
-    game = RubyGBA.game("SAVETWO") do
+    game = RubyGBA.game("SAVETWO", consoles: %i[gba]) do
       screen :bitmap
       hearts = var :hearts, 3
       volume = var :volume, 5
@@ -197,7 +197,7 @@ class TestSaveDataFast < Minitest::Test
 
   # A list that takes nearly all of the quick memory, so no save routine fits beside it.
   private def game_with_no_room(&saving)
-    RubyGBA.game("SAVEFULL") do
+    RubyGBA.game("SAVEFULL", consoles: %i[gba]) do
       screen :bitmap
       hearts = var :hearts, 3
       hoard = list :hoard, capacity: 6800, fast: true
@@ -233,7 +233,7 @@ class TestSaveDataFast < Minitest::Test
 
   private def game_crowding_its_loop(fast, pile_size: CROWDING_LIST)
     said = fast.nil? ? {} : { fast: fast }
-    RubyGBA.game("SAVELOOP") do
+    RubyGBA.game("SAVELOOP", consoles: %i[gba]) do
       screen :bitmap
       enable_sound
       hearts = var :hearts, 3

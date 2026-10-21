@@ -99,7 +99,7 @@ module Dive
   # is always worth it.
   BREATH = 6
 
-  GAME = Ractor.make_shareable(RubyGBA.game("DIVE") do
+  GAME = Ractor.make_shareable(RubyGBA.game("DIVE", consoles: %i[gba]) do
     screen :tiled
 
     # The stack, back to front. One line saying what is in front of what, for a picture

@@ -456,7 +456,7 @@ class TestQuickMemoryByScene < Minitest::Test
   # of +pile+ words fills most of the room — the shape of a real game's build, where data takes
   # most of the quick memory and the game loop and the music want much of the rest.
   private def files_beside_growing_play(adds, pile: CROWDING_PILE)
-    RubyGBA.game("GROWING") do
+    RubyGBA.game("GROWING", consoles: %i[gba]) do
       enable_sound
       b = var :b, 0
       spin = var :spin, 0

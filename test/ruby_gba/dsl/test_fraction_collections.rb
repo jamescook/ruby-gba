@@ -15,7 +15,7 @@ class TestFractionCollections < Minitest::Test
   ONE = 1 << RubyGBA::DSL::Fraction::DEFAULT_BITS
 
   private def run_program(&block)
-    prog = RubyGBA.game("FRAC", code: "ZFRC", maker: "01") do
+    prog = RubyGBA.game("FRAC", consoles: %i[gba], code: "ZFRC", maker: "01") do
       screen :bitmap
       instance_eval(&block)
     end.program
@@ -187,7 +187,7 @@ class TestFractionCollections < Minitest::Test
   # about it in principle. This is the proof that they do not in practice: a mark whose
   # position on screen is worked out from a list and a pool field that both hold fractions.
   def test_the_console_puts_the_mark_where_the_interpreter_does
-    prog = RubyGBA.game("FRACH", code: "ZFRH", maker: "01") do
+    prog = RubyGBA.game("FRACH", consoles: %i[gba], code: "ZFRH", maker: "01") do
       screen :bitmap
       steps = list :steps, capacity: 4, holds: 0.0
       movers = pool :mover, x: 0.0, capacity: 4

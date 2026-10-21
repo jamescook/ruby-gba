@@ -262,6 +262,23 @@ class TestCommandLineCompare < Minitest::Test
     end
   end
 
+  # A GAME FILE FOR TWO CONSOLES is asked which cartridge to compare, and ends with 2 until
+  # --console says; then it is compared like any other. Only the Advance's is offered, since a
+  # comparison lines screens up at the Advance's size.
+  def test_a_game_file_for_two_consoles_is_compared_on_the_console_said
+    with_cartridges do |dir|
+      File.write(File.join(dir, "both.rb"), GAME.sub("consoles: %i[gba]", "consoles: %i[gba gbc]"))
+
+      asked, asked_status = cli("compare", "both.rb", "walker.gba", "--script", "walk.rb", dir: dir)
+      out, status = cli("compare", "both.rb", "walker.gba", "--console", "gba", "--script", "walk.rb", dir: dir)
+
+      assert_equal NOT_COMPARED, asked_status.exitstatus, asked
+      assert_match(/WALKER is for the Game Boy Advance and the Game Boy Color/, asked)
+      assert_match(/add --console gba\.$/, asked)
+      assert_equal AGREED, status.exitstatus, out
+    end
+  end
+
   # THE BUILT-IN HELP describes the command, and has a flag of the same name for every
   # setting a comparison takes: a setting added to the library with no flag fails here.
   def test_help_has_a_flag_for_every_setting_of_a_comparison

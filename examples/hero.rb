@@ -113,7 +113,7 @@ module Hero
     end.join
   end)
 
-  GAME = RubyGBA.game("HERO") do
+  GAME = RubyGBA.game("HERO", consoles: %i[gba]) do
     screen :tiled # tile mode: a scrolling background for the world + a hardware sprite on top
 
     # Pixels the hero walks per frame while a direction is held. A setting rather than a

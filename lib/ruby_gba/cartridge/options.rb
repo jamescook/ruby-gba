@@ -4,7 +4,7 @@ module RubyGBA
   module Cartridge
     # HOW A GAME IS BUILT, as one value: what a game says about its cartridge beside its name.
     #
-    # A game says these where it is named (`RubyGBA.game "NAME", save_memory: 128`) or where it
+    # A game says these where it is named (`RubyGBA.game "NAME", consoles: %i[gba], save_memory: 128`) or where it
     # is built (`RubyGBA.build`), and they are needed a long way from there — the frame pacing and
     # the save memory by the Builder running the game's block, the two speed settings by the
     # lowering. Passed as loose keywords they had to be written into every signature on the way

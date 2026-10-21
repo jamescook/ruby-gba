@@ -415,7 +415,7 @@ class TestProgress < Minitest::Test
   # never a pause with nothing on the screen.
   def test_a_measured_build_says_each_phase_once
     out = StringIO.new
-    game = RubyGBA.game("MEASURED", &MANY_STATEMENTS)
+    game = RubyGBA.game("MEASURED", consoles: %i[gba], &MANY_STATEMENTS)
     game.build_rom(out: StringIO.new, err: StringIO.new, progress: Progress.to(out))
     phases = phases_in(out)
 
@@ -448,7 +448,7 @@ class TestProgress < Minitest::Test
   # with the real build still to come.
   def test_a_measured_build_says_a_slow_scene_after_every_phase
     said = StringIO.new
-    game = RubyGBA.game("SLOW") do
+    game = RubyGBA.game("SLOW", consoles: %i[gba]) do
       screen :bitmap
       x = var :x, 0
       game_loop { repeat(30_000) { x.add! 1 } }
@@ -465,7 +465,7 @@ class TestProgress < Minitest::Test
   # and the real build's second measurement is said as such.
   def test_a_measured_build_that_measures_again_says_each_phase_once
     out = StringIO.new
-    game = RubyGBA.game("FARMEAS") do
+    game = RubyGBA.game("FARMEAS", consoles: %i[gba]) do
       screen :bitmap
       vars = Array.new(1200) { |n| var :"v#{n}", 0 }
       func(:count) { 200.times { vars.last.add! 1 } }
@@ -500,7 +500,7 @@ class TestProgress < Minitest::Test
 
   def test_a_game_can_be_asked_to_report_when_it_builds_its_rom
     out = StringIO.new
-    game = RubyGBA.game("SPEAK", code: "ASPK", maker: "01") do
+    game = RubyGBA.game("SPEAK", consoles: %i[gba], code: "ASPK", maker: "01") do
       screen :bitmap
       fill_rect 0, 0, 8, 8, :red
       halt

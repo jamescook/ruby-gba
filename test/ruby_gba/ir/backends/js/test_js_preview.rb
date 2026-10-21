@@ -13,7 +13,7 @@ class TestJSPreview < Minitest::Test
 
   private def game_source(title, color)
     <<~RUBY
-      RubyGBA.game #{title.inspect} do
+      RubyGBA.game #{title.inspect}, consoles: %i[gba] do
         screen :bitmap
         game_loop { clear_screen #{color.inspect} }
       end
@@ -51,7 +51,7 @@ class TestJSPreview < Minitest::Test
     Dir.mktmpdir do |dir|
       file = File.join(dir, "game.rb")
       File.write(file, <<~RUBY)
-        RubyGBA.game "SETTINGS" do
+        RubyGBA.game "SETTINGS", consoles: %i[gba] do
           screen :bitmap
           setting :first
           setting :second
@@ -83,7 +83,7 @@ class TestJSPreview < Minitest::Test
   def test_a_build_that_stops_says_why_in_the_page
     Dir.mktmpdir do |dir|
       file = File.join(dir, "game.rb")
-      File.write(file, "RubyGBA.game \"BROKEN\" do\n  screen :bitmap\n  game_loop { clear_screen :no_such_color }\nend\n")
+      File.write(file, "RubyGBA.game \"BROKEN\", consoles: %i[gba] do\n  screen :bitmap\n  game_loop { clear_screen :no_such_color }\nend\n")
       serving(file) do |fetch|
         page = fetch.call.body.force_encoding(Encoding::UTF_8)
 

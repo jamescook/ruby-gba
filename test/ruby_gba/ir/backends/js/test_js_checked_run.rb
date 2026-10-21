@@ -23,7 +23,7 @@ class TestJSCheckedRun < Minitest::Test
     end
     RubyGBA::IR::Backends::Reference::Framebuffer.prepend(OnePixelOff)
 
-    game = RubyGBA.game "CHECKED" do
+    game = RubyGBA.game "CHECKED", consoles: %i[gba] do
       game_loop { pixel 10, 10, :red }
     end
     begin

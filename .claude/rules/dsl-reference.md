@@ -27,7 +27,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 
 ## Build / screen — `.claude/dsl/screen.md`
 
-- `RubyGBA.game "NAME" do … end` — the name is all a cartridge needs; its four-character code is worked out from it (`code:`/`maker:` optional, a real cartridge's code refused). `stack_room:` sets the stack's bytes of quick memory (1024 by default, more for deep calls).
+- `RubyGBA.game "NAME", consoles: %i[gba] do … end` — every game names its consoles (`%i[gba gbc]` for the Color too; none is a friendly error), and `ruby-gba build` makes a cartridge for each. The name is all a cartridge needs besides; its four-character code is worked out from it (`code:`/`maker:` optional, a real cartridge's code refused). `stack_room:` sets the stack's bytes of quick memory (1024 by default, more for deep calls).
 - `screen :bitmap` / `screen :bitmap, tear_free: true` / `screen :tiled` / `screen :rotozoom` — pick the display; per scene, and a turning background on `:tiled` is picked by the build. No `screen` line means `screen :bitmap`.
 - `screen :bitmap, tear_free: true, colors: [...]` — give the colour table in an imported picture's own order.
 - `screen :bitmap, tear_free: true, late: :show_now` (or a row, `late: 40`; `pace: 30` for a game aiming at thirty) — show a page finished too late at once instead of a frame later, at the cost of a tear; per scene, `:wait` by default.
@@ -200,7 +200,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 
 ## The Game Boy Color — `.claude/dsl/game-boy-color.md`
 
-- `RubyGBA.game "NAME", consoles: %i[gba gbc]` + `ruby-gba build --format=gbc` — the game on a Color too; what every verb does there (works, degrades, refused), and what its build does not make yet.
+- `RubyGBA.game "NAME", consoles: %i[gba gbc]` + `ruby-gba build` (both cartridges) or `--console gbc` — the game on a Color too; what every verb does there (works, degrades, refused), and what its build does not make yet.
 
 ## Effects a game writes — `.claude/dsl/effects.md`
 

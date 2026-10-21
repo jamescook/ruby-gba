@@ -83,7 +83,7 @@ module Corridor
   # sixty rays it ships with the console spends about four fifths of a frame, and at eighty it
   # does not fit at all. A test plays both sides on the console to show it.
   def self.game(name: "CORRIDOR", cols: NUM_COLS, col_w: COL_W)
-    RubyGBA.game(name) do
+    RubyGBA.game(name, consoles: %i[gba]) do
       screen :bitmap, tear_free: true # double-buffered: the whole view is repainted each frame
       enable_sound
       define_sound :chime, frequency: 1400, duty: :half, decay: :fast

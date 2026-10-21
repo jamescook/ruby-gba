@@ -26,7 +26,7 @@ class TestRecordedEffectCost < Minitest::Test
   # the square wave).
   private def answering_routine(parts, effects)
     notes = %i[C4 E4].each_with_index.map { |key, n| Score::Note.new(at: n * 10, key: key) }
-    game = RubyGBA.game "COST" do
+    game = RubyGBA.game "COST", consoles: %i[gba] do
       screen :bitmap
       enable_sound
       instrument :piano, pcm: [60, -60] * 400, rate: 8000, note: :C4

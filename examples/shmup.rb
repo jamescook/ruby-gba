@@ -41,7 +41,7 @@ module Shmup
   # again, so the pulse rises and falls; the two share their colours on the console too.
   WARM = %i[warm_yellow warm_orange warm_red warm_orange_again].freeze
 
-  GAME = RubyGBA.game("SHMUP") do
+  GAME = RubyGBA.game("SHMUP", consoles: %i[gba]) do
     screen :tiled
     # The stack, back to front — one line saying what is in front of what, for a picture
     # whose parts are declared in three different files. The fade below then sits UNDER

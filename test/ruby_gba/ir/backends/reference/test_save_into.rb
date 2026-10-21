@@ -8,7 +8,7 @@ require "test_helper"
 # and copied like any other.
 class TestSaveInto < Minitest::Test
   private def built(save_memory: nil, &block)
-    save_memory ? RubyGBA.game("PUTSAVE", save_memory: save_memory, &block) : RubyGBA.game("PUTSAVE", &block)
+    save_memory ? RubyGBA.game("PUTSAVE", consoles: %i[gba], save_memory: save_memory, &block) : RubyGBA.game("PUTSAVE", consoles: %i[gba], &block)
   end
 
   private def files(save_memory: nil) = files_game(save_memory: save_memory).program

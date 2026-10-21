@@ -77,7 +77,7 @@ class TestJSCreateGame < Minitest::Test
   # What the page says in words — a game that went wrong, a controller — goes to the host's
   # onMessage, which the page's own notes are one use of.
   def test_a_game_that_goes_wrong_tells_the_host
-    game = RubyGBA.game "FULL" do
+    game = RubyGBA.game "FULL", consoles: %i[gba] do
       screen :bitmap
       trail = list :trail, capacity: 2
       game_loop { trail.push 1 }
@@ -94,7 +94,7 @@ class TestJSCreateGame < Minitest::Test
   # A stopped game lets go of the page: its keys go back to the page (the arrows scroll again, F
   # does nothing), and a save not yet written is written as it stops.
   def test_a_stopped_game_lets_go_of_the_page_and_keeps_its_save
-    game = RubyGBA.game "KEEPER" do
+    game = RubyGBA.game "KEEPER", consoles: %i[gba] do
       screen :bitmap
       count = save_var :count, 0
       game_loop { count.add! 1 }
@@ -113,7 +113,7 @@ class TestJSCreateGame < Minitest::Test
   # The handle reads the save memory as it stands and writes it — a page's own "export my save" and
   # "import a save" — and refuses bytes that are not the size of the game's save memory.
   def test_the_handle_reads_and_writes_the_save
-    game = RubyGBA.game "KEEPER" do
+    game = RubyGBA.game "KEEPER", consoles: %i[gba] do
       screen :bitmap
       count = save_var :count, 0
       game_loop { count.add! 1 }
@@ -198,7 +198,7 @@ class TestJSCreateGame < Minitest::Test
 
   # The save is kept under the name the host gives, in place of the game's.
   def test_a_host_can_name_the_save
-    game = RubyGBA.game "SAVER" do
+    game = RubyGBA.game "SAVER", consoles: %i[gba] do
       screen :bitmap
       count = save_var :count, 0
       count.add! 1
@@ -218,7 +218,7 @@ class TestJSCreateGame < Minitest::Test
 
   # The save goes where the host says, under the game's name unless the host names it.
   def test_the_save_goes_where_the_host_keeps_it
-    game = RubyGBA.game "SAVER" do
+    game = RubyGBA.game "SAVER", consoles: %i[gba] do
       screen :bitmap
       count = save_var :count, 0
       count.add! 1

@@ -16,7 +16,7 @@ class TestPoolWalkOrder < Minitest::Test
   # loop; +pass+ runs in the loop before the walk, given the pool and the pass number;
   # +visit+ runs on each thing in the walk, given the pool, it and the pass number.
   private def walking_game(capacity: 4, on_full: :drop, setup: nil, pass: nil, visit: nil, newest_first: false)
-    RubyGBA.game("WALKORDER") do
+    RubyGBA.game("WALKORDER", consoles: %i[gba]) do
       screen :bitmap
       order = var :order, 0
       first = var :first, 0
@@ -188,7 +188,7 @@ class TestPoolWalkOrder < Minitest::Test
   # A routine of the pool's, called from a newest-first walk, is handed each thing in that
   # order, and the slot it is handed is the thing's own: :first_slot is where C sits.
   def test_a_pool_routine_called_from_a_newest_first_walk_gets_each_thing_in_turn
-    game = RubyGBA.game("WALKROUTINE") do
+    game = RubyGBA.game("WALKROUTINE", consoles: %i[gba]) do
       screen :bitmap
       order = var :order, 0
       first_slot = var :first_slot, -1
@@ -223,7 +223,7 @@ class TestPoolWalkOrder < Minitest::Test
   # removes 7 and then 9 on passes of their own, which hands 1 a lower slot than 2 — so walked
   # by slot, the two games would roll in opposite orders.
   private def rolling_game(shuffled:)
-    RubyGBA.game("WALKROLL") do
+    RubyGBA.game("WALKROLL", consoles: %i[gba]) do
       screen :bitmap
       seed 42
       first_roll = var :first_roll, 0
@@ -277,7 +277,7 @@ class TestPoolWalkOrder < Minitest::Test
   # then saves; the second run loads that save at power-on and its first walk goes 2, 3, 4.
   # The save is made on the interpreter, and both backends start from it.
   def test_a_saved_pool_loads_back_in_its_order
-    game = RubyGBA.game("WALKSAVE") do
+    game = RubyGBA.game("WALKSAVE", consoles: %i[gba]) do
       screen :bitmap
       order = var :order, 0
       first = var :first, 0
@@ -310,7 +310,7 @@ class TestPoolWalkOrder < Minitest::Test
   # Loaded at power-on, the next spawn into the full pool still appears: 1 was removed, so
   # there is room for 4 without recycling 2.
   def test_a_spawn_after_loading_a_save_made_during_a_walk_appears
-    game = RubyGBA.game("WALKSAVE2") do
+    game = RubyGBA.game("WALKSAVE2", consoles: %i[gba]) do
       screen :bitmap
       first = var :first, 0
       order = var :order, 0
@@ -369,7 +369,7 @@ class TestPoolWalkOrder < Minitest::Test
   # A pool bigger than a byte's half holds slot numbers past 127, and still walks in order.
   # Each thing is visited where its id says: :in_place counts the ones that were.
   def test_a_large_pool_walks_in_order
-    game = RubyGBA.game("WALKBIG") do
+    game = RubyGBA.game("WALKBIG", consoles: %i[gba]) do
       screen :bitmap
       in_place = var :in_place, 0
       expected = var :expected, 0

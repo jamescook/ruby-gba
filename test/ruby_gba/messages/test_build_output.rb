@@ -28,7 +28,7 @@ class TestBuildOutput < Minitest::Test
   # screen by hand is harmless and the build says so, which is all this needs: a
   # warning, on a build that otherwise does nothing.
   private def game_that_warns
-    RubyGBA.game "OUTPUT" do
+    RubyGBA.game "OUTPUT", consoles: %i[gba] do
       screen :bitmap
       var :n, 0
       game_loop do
@@ -127,7 +127,7 @@ class TestBuildOutput < Minitest::Test
   # The flag stays false because the game's own block never ran.
   def test_a_name_that_cannot_be_opened_stops_the_build_before_it_reads_the_game
     read = false
-    game = RubyGBA.game "OUTPUT" do
+    game = RubyGBA.game "OUTPUT", consoles: %i[gba] do
       read = true
       screen :bitmap
       game_loop { halt }

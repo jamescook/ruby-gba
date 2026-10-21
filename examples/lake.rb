@@ -102,7 +102,7 @@ module Lake
     end.join
   end)
 
-  GAME = Ractor.make_shareable(RubyGBA.game("LAKE") do
+  GAME = Ractor.make_shareable(RubyGBA.game("LAKE", consoles: %i[gba]) do
     screen :tiled # tile mode: two background layers the console composites for us
 
     # --- the scene above the water ---

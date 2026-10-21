@@ -52,7 +52,7 @@ class TestNativeDesktop < Minitest::Test
   # press of A. Made where it is used, since a game is not something a test may keep in a
   # constant.
   private def game_that_keeps_a_count
-    RubyGBA.game("KEEPER") do
+    RubyGBA.game("KEEPER", consoles: %i[gba]) do
       screen :bitmap
       best = save_var :best, 5
       game_loop do

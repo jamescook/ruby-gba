@@ -83,7 +83,7 @@ module Jukebox
     Note.new(at: 0, key: :G5, length: 4), Note.new(at: 4, key: :C6, length: 4),
   ])]))
 
-  GAME = Ractor.make_shareable(RubyGBA.game("JUKEBOX") do
+  GAME = Ractor.make_shareable(RubyGBA.game("JUKEBOX", consoles: %i[gba]) do
     # Double-buffered so the full repaint each frame can't tear: we draw the whole
     # menu to a hidden screen and show it all at once.
     screen :bitmap, tear_free: true

@@ -20,7 +20,7 @@ module Sparks
 
   # The game as a block the builder runs, so a test can drive the exact program that
   # ships — the headless interpreter runs THIS, the console runs the ROM.
-  GAME = RubyGBA.game("SPARKS") do
+  GAME = RubyGBA.game("SPARKS", consoles: %i[gba]) do
     screen :bitmap
     seed 0x5EED # a fixed stream, so every run is the same run
 

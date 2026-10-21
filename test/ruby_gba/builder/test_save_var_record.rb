@@ -15,7 +15,7 @@ class TestSaveVarRecord < Minitest::Test
   # +every_frame+, goes up by one every frame. +more+ declares a second save_var after it, the
   # way an update to the game would.
   private def game(every_frame: false, more: false)
-    RubyGBA.game("FLASHVAR", save_memory: 64) do
+    RubyGBA.game("FLASHVAR", consoles: %i[gba], save_memory: 64) do
       screen :bitmap
       best = save_var :best, 3
       save_var :wins, 5 if more

@@ -13,7 +13,7 @@ class TestGameConsoles < Minitest::Test
     game_loop { wait_vblank }
   end
 
-  ADVANCE_ONLY = RubyGBA.game("ADVANCE") { var :x, 1 }
+  ADVANCE_ONLY = RubyGBA.game("ADVANCE", consoles: %i[gba]) { var :x, 1 }
 
   private def interpreted(program) = Reference.new.run(program, frames: 1)
 
@@ -42,6 +42,16 @@ class TestGameConsoles < Minitest::Test
 
     assert_match(/written for the Game Boy Advance, not the Game Boy Color/, error.message)
     assert_match(/160×144/, error.message)
+    assert_match(/consoles: %i\[gba gbc\]/, error.message)
+  end
+
+  # Nothing is taken to be for the Advance: a game that names no console is refused where it is
+  # named, saying what to write.
+  def test_a_game_that_names_no_console_is_refused_saying_what_to_write
+    error = assert_raises(ArgumentError) { RubyGBA.game("SILENT") { var :x, 1 } }
+
+    assert_match(/SILENT does not say which consoles it is for/, error.message)
+    assert_match(/consoles: %i\[gba\]/, error.message)
     assert_match(/consoles: %i\[gba gbc\]/, error.message)
   end
 

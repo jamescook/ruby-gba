@@ -27,7 +27,7 @@ require "test_helper"
 class TestNamedSprites < Minitest::Test
   # Two sprites, still, at places nothing else on screen shares.
   private def two_sprites
-    RubyGBA.game "CAST" do
+    RubyGBA.game "CAST", consoles: %i[gba] do
       screen :tiled
       image(:hero, "#" => :red)    { SOLID_TILE }
       image(:coin, "#" => :yellow) { SOLID_TILE }
@@ -75,7 +75,7 @@ class TestNamedSprites < Minitest::Test
   # A sprite the game switched off is not in the table at all, which is the answer a test
   # wants: the picture cannot tell a hidden sprite from one drawn in the backdrop colour.
   def test_a_hidden_sprite_is_absent
-    game = RubyGBA.game "CAST" do
+    game = RubyGBA.game "CAST", consoles: %i[gba] do
       screen :tiled
       image(:hero, "#" => :red)    { SOLID_TILE }
       image(:coin, "#" => :yellow) { SOLID_TILE }
@@ -95,7 +95,7 @@ class TestNamedSprites < Minitest::Test
   # row — which piece is which is the framework's business, and "where is he" wants all of it.
   def test_a_big_picture_comes_back_as_several_rows_under_one_name
     wide = (["#" * 96] * 32).join("\n")
-    game = RubyGBA.game "BOSS" do
+    game = RubyGBA.game "BOSS", consoles: %i[gba] do
       screen :tiled
       image(:boss, "#" => :red) { wide }
       sprite :boss, at: [8, 24]
@@ -115,7 +115,7 @@ class TestNamedSprites < Minitest::Test
   # The case the other ways of guessing cannot do at all: a sprite drawn with another list of
   # colours. Matching a row by which colours it draws from finds nothing once they are swapped.
   def test_a_sprite_being_drawn_in_other_colours_is_still_found_by_name
-    game = RubyGBA.game "HURT" do
+    game = RubyGBA.game "HURT", consoles: %i[gba] do
       screen :tiled
       image(:hero, colors: [:transparent, :red], "#" => :red) { SOLID_TILE }
       colors :hurt, [:transparent, :white]
@@ -134,7 +134,7 @@ class TestNamedSprites < Minitest::Test
   # declared, so the pool's name gives back every instance that is live — which is the case a
   # game with a cast asks about most.
   def test_a_pool_gives_back_the_instances_that_are_live
-    game = RubyGBA.game "SWARM" do
+    game = RubyGBA.game "SWARM", consoles: %i[gba] do
       screen :tiled
       image(:bullet, "#" => :white) { SOLID_TILE }
       shots = pool :shot, x: 0, y: 0, capacity: 8, image: :bullet
@@ -157,7 +157,7 @@ class TestNamedSprites < Minitest::Test
   # A hero with two letters of text over him. Text is drawn as a sprite per letter, and the
   # author named no sprite for any of them.
   private def hero_and_text
-    RubyGBA.game "HUD" do
+    RubyGBA.game "HUD", consoles: %i[gba] do
       screen :tiled
       image(:hero, "#" => :red) { SOLID_TILE }
       sprite :hero, at: [40, 40]
@@ -202,7 +202,7 @@ class TestNamedSprites < Minitest::Test
   # table does — and it is the whole reason to ask the oracle this rather than read its screen,
   # which cannot tell a hidden sprite from one drawn in the backdrop colour.
   def test_the_oracle_leaves_out_a_sprite_the_game_switched_off
-    game = RubyGBA.game "CAST" do
+    game = RubyGBA.game "CAST", consoles: %i[gba] do
       screen :tiled
       image(:hero, "#" => :red)    { SOLID_TILE }
       image(:coin, "#" => :yellow) { SOLID_TILE }
@@ -220,7 +220,7 @@ class TestNamedSprites < Minitest::Test
   # Every slot of a pool is a thing of its own and all of them are the one thing the author
   # declared, so the pool's name gives back the instances that are live.
   def test_the_oracle_gives_a_pool_the_instances_that_are_live
-    game = RubyGBA.game "SWARM" do
+    game = RubyGBA.game "SWARM", consoles: %i[gba] do
       screen :tiled
       image(:bullet, "#" => :white) { SOLID_TILE }
       shots = pool :shot, x: 0, y: 0, capacity: 8, image: :bullet
@@ -243,7 +243,7 @@ class TestNamedSprites < Minitest::Test
   # Which pose a sprite is showing, said as the picture the author drew rather than as a number
   # counting into its set of them — the same reason a slot number is not here.
   def test_the_oracle_says_which_picture_a_sprite_is_showing
-    game = RubyGBA.game "WALK" do
+    game = RubyGBA.game "WALK", consoles: %i[gba] do
       screen :tiled
       image(:step_a, "#" => :red)   { SOLID_TILE }
       image(:step_b, "#" => :white) { SOLID_TILE }
@@ -276,7 +276,7 @@ class TestNamedSprites < Minitest::Test
   def test_the_oracle_finds_a_sprite_the_scenery_is_covering
     brick = (["########"] * 8).join("\n")
     wall = ([("#" * 30)] * 20).join("\n")
-    game = RubyGBA.game "BEHIND" do
+    game = RubyGBA.game "BEHIND", consoles: %i[gba] do
       screen :tiled
       layers :actors, :fence
       image(:brick, "#" => :gray) { brick }
@@ -323,7 +323,7 @@ class TestNamedSprites < Minitest::Test
   private def two_facings
     facing_right = blob_rows(10, 17)
     facing_left = blob_rows(4, 11)
-    RubyGBA.game "FACING" do
+    RubyGBA.game "FACING", consoles: %i[gba] do
       screen :tiled
       image(:runner, "." => :transparent, "#" => :red)   { facing_right }
       image(:turner, "." => :transparent, "#" => :green) { facing_left }
@@ -414,7 +414,7 @@ class TestNamedSprites < Minitest::Test
   # its picture starts rather than where its tiles were put.
   def test_the_rows_follow_a_sprite_from_one_frame_to_the_next
     art = blob_rows(10, 17)
-    game = RubyGBA.game "MOVE" do
+    game = RubyGBA.game "MOVE", consoles: %i[gba] do
       screen :tiled
       image(:hero, "." => :transparent, "#" => :red) { art }
       hero = sprite :hero, at: [40, 40]

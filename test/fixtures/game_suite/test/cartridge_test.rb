@@ -14,7 +14,7 @@ class CartridgeTest < Minitest::Test
   # The walker is drawn where holding RIGHT has moved it, so the pictures agree only if the
   # button reaches the cartridge as it reaches the interpreter, on each frame compared.
   def test_the_cartridge_draws_what_the_interpreter_draws
-    game = RubyGBA.game "WALKER" do
+    game = RubyGBA.game "WALKER", consoles: %i[gba] do
       screen :bitmap
       x = var :x, 10
       game_loop do

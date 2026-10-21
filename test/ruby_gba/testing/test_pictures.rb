@@ -19,7 +19,7 @@ class TestPictures < Minitest::Test
 
     advice = RubyGBA::Diagnostics::Emulator.send(:missing_advice, "cannot load such file -- ruby_gba_emulator",
                                                  bundled: false)
-    program = RubyGBA.game("NOEMU") do
+    program = RubyGBA.game("NOEMU", consoles: %i[gba]) do
       screen :bitmap
       game_loop { pixel 10, 10, :red }
     end.program

@@ -38,7 +38,7 @@
 require_relative "../lib/ruby_gba"
 
 module Tiles
-  GAME = RubyGBA.game("TILES") do
+  GAME = RubyGBA.game("TILES", consoles: %i[gba]) do
     screen :tiled # tile mode: the console draws the background layer from tiles + a map
 
   # Four 8x8 tiles, hand-drawn like any other image. A second character in each

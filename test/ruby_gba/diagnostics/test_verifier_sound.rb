@@ -13,7 +13,7 @@ class TestVerifierSound < Minitest::Test
   # A tune and not one held note, so that a frame read back out of its place is a different
   # sound from the frame that belongs there.
   private def tune
-    game = RubyGBA.game "TUNE" do
+    game = RubyGBA.game "TUNE", consoles: %i[gba] do
       screen :bitmap
       enable_sound
       song(:scale) do

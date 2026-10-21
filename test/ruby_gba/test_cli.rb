@@ -37,17 +37,32 @@ class TestCLI < Minitest::Test
       assert status.success?, out
       assert File.exist?(File.join(dir, "demo.rb")), "new should write demo.rb"
 
+      assert_match(/consoles: %i\[gba gbc\]/, File.read(File.join(dir, "demo.rb")), "the starter is for both consoles")
+
       build_out, build_status = cli("build", "demo.rb", dir: dir)
       assert build_status.success?, build_out
-      assert File.exist?(File.join(dir, "demo.gba")), "build should write demo.gba"
       assert_match(/Built demo\.gba \(\d+ bytes\)/, build_out)
+      assert_match(/Built demo\.gbc \(\d+ bytes\)/, build_out)
+      refute_match(/warning/, build_out, "the starter builds with nothing to warn about")
+    end
+  end
+
+  # `ruby demo.rb` builds what `ruby-gba build demo.rb` builds: a cartridge for each console.
+  def test_running_the_starter_with_ruby_writes_a_cartridge_for_each_console
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = run_ruby("demo.rb", dir: dir)
+
+      assert status.success?, out
+      assert File.exist?(File.join(dir, "demo.gba")), out
+      assert File.exist?(File.join(dir, "demo.gbc")), out
     end
   end
 
   def test_build_honors_the_output_path
     Dir.mktmpdir do |dir|
       cli("new", "demo", dir: dir)
-      out, status = cli("build", "demo.rb", "-o", "roms/custom.gba", dir: dir)
+      out, status = cli("build", "demo.rb", "-o", "roms/custom.gba", "--console", "gba", dir: dir)
       # -o points at a subdir the CLI does not create, so this proves -o is read; a
       # bare build (no -o) writes beside the source, covered above.
       if status.success?
@@ -73,7 +88,7 @@ class TestCLI < Minitest::Test
   # text as, so the game reads it itself.)
   NEEDS_A_SETTING = <<~RUBY
     require "ruby_gba"
-    RubyGBA.game "SETS" do
+    RubyGBA.game "SETS", consoles: %i[gba] do
       screen :bitmap
       var :floors, Integer(setting(:floors))
       game_loop { wait_vblank }
@@ -118,7 +133,7 @@ class TestCLI < Minitest::Test
   # A scened game with SCENE, so `build`'s content is the same across the scene tests.
   SCENED = <<~RUBY
     require "ruby_gba"
-    Scened = RubyGBA.game "SCENED", code: "BSCN", maker: "01" do
+    Scened = RubyGBA.game "SCENED", consoles: %i[gba], code: "BSCN", maker: "01" do
       screen :bitmap
       var :state, 0
       scene(:title) { clear_screen :blue }
@@ -159,7 +174,7 @@ class TestCLI < Minitest::Test
   # A game that reads a button, for the --keys tests.
   HELD = <<~RUBY
     require "ruby_gba"
-    Held = RubyGBA.game "HELD", code: "BHLD", maker: "01" do
+    Held = RubyGBA.game "HELD", consoles: %i[gba], code: "BHLD", maker: "01" do
       screen :bitmap
       var :x, 0
       game_loop do
@@ -185,7 +200,7 @@ class TestCLI < Minitest::Test
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "packy.rb"), <<~RUBY)
         require "ruby_gba"
-        Packy = RubyGBA.game "PACKY", code: "BPKY", maker: "01" do
+        Packy = RubyGBA.game "PACKY", consoles: %i[gba], code: "BPKY", maker: "01" do
           screen :tiled
           image(:red_t, "#" => :red) { (["########"] * 8).join("\\n") }
           tiles :set, "R" => :red_t
@@ -206,7 +221,7 @@ class TestCLI < Minitest::Test
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "loopy.rb"), <<~RUBY)
         require "ruby_gba"
-        Loopy = RubyGBA.game "LOOPY", code: "BLPY", maker: "01" do
+        Loopy = RubyGBA.game "LOOPY", consoles: %i[gba], code: "BLPY", maker: "01" do
           screen :bitmap
           clear_screen :black
           t = var :t, 0
@@ -240,7 +255,7 @@ class TestCLI < Minitest::Test
   def test_profile_prints_the_report_without_building_a_cartridge
     Dir.mktmpdir do |dir|
       cli("new", "demo", dir: dir)
-      out, status = cli("profile", "demo.rb", dir: dir)
+      out, status = cli("profile", "demo.rb", "--console", "gba", dir: dir)
       assert status.success?, out
       assert_match(/where your frames went/, out)
       refute File.exist?(File.join(dir, "demo.gba")), "profile should not write a .gba"
@@ -252,7 +267,7 @@ class TestCLI < Minitest::Test
   def test_profile_format_json_prints_one_parseable_document
     Dir.mktmpdir do |dir|
       cli("new", "demo", dir: dir)
-      out, err, status = Open3.capture3(RUBY, BIN, "profile", "demo.rb", "--format=json", chdir: dir)
+      out, err, status = Open3.capture3(RUBY, BIN, "profile", "demo.rb", "--console", "gba", "--format=json", chdir: dir)
       assert status.success?, out + err
       data = JSON.parse(out)
       assert_operator data["frames"], :>, 0
@@ -341,34 +356,180 @@ class TestCLI < Minitest::Test
     end
   end
 
-  # A game for the Color too builds a .gbc beside it; one for the Advance alone is refused,
-  # saying what to write.
-  def test_format_gbc_writes_a_game_boy_color_cartridge
+  # A game that does not say which consoles it is for does not build, and the command says
+  # what to write.
+  def test_build_refuses_a_game_that_names_no_console
     Dir.mktmpdir do |dir|
-      File.write(File.join(dir, "both.rb"), <<~GAME)
+      File.write(File.join(dir, "silent.rb"), <<~GAME)
         require "ruby_gba"
-        RubyGBA.game("BOTH", consoles: %i[gba gbc]) do
-          x = var :x, screen_width / 2
-          game_loop { x.add! 1 }
+        RubyGBA.game("SILENT") do
+          game_loop { clear_screen :blue }
         end
       GAME
-      out, status = cli("build", "both.rb", "--format", "gbc", dir: dir)
-      assert status.success?, out
-      assert_match(/Built both\.gbc \(\d+ bytes\)/, out)
-      cartridge = File.binread(File.join(dir, "both.gbc"))
-      assert_equal RubyGBA::Console::GBCHardware::CGB_ONLY, cartridge.getbyte(RubyGBA::Console::GBCHardware::CGB_FLAG_AT),
-                   "the cartridge says it is for a Game Boy Color"
+      out, status = cli("build", "silent.rb", dir: dir)
 
-      cli("new", "demo", dir: dir)
-      refused, refused_status = cli("build", "demo.rb", "--format", "gbc", dir: dir)
-      refute refused_status.success?
-      assert_match(/consoles: %i\[gba gbc\]/, refused)
+      refute status.success?, out
+      assert_match(/SILENT does not say which consoles it is for/, out)
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+      assert_empty Dir.children(dir) - ["silent.rb"], "no cartridge is written"
     end
   end
 
-  # A game the Color cannot play is refused in the build's own words, and the command ends
-  # there: no backtrace under the words, and no cartridge written.
-  def test_format_gbc_refuses_a_game_the_color_cannot_play_without_a_backtrace
+  BOTH = <<~GAME
+    require "ruby_gba"
+    RubyGBA.game("BOTH", consoles: %i[gba gbc]) do
+      x = var :x, screen_width / 2
+      game_loop { x.add! 1 }
+    end
+  GAME
+
+  ADVANCE_ONLY = <<~GAME
+    require "ruby_gba"
+    RubyGBA.game("ADVANCE", consoles: %i[gba]) do
+      game_loop { clear_screen :blue }
+    end
+  GAME
+
+  private def assert_color_cartridge(path)
+    cartridge = File.binread(path)
+    assert_equal RubyGBA::Console::GBCHardware::CGB_ONLY, cartridge.getbyte(RubyGBA::Console::GBCHardware::CGB_FLAG_AT),
+                 "the cartridge says it is for a Game Boy Color"
+  end
+
+  # A game for both consoles builds a cartridge for each, side by side, with nothing said.
+  def test_build_writes_a_cartridge_for_each_console_the_game_names
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "both.rb"), BOTH)
+      out, status = cli("build", "both.rb", dir: dir)
+
+      assert status.success?, out
+      assert_match(/Built both\.gba \(\d+ bytes\)/, out)
+      assert_match(/Built both\.gbc \(\d+ bytes\)/, out)
+      assert RubyGBA::Cartridge::ROM.header?(File.binread(File.join(dir, "both.gba")))
+      assert_color_cartridge(File.join(dir, "both.gbc"))
+    end
+  end
+
+  # --console builds one of them; a console the game is not for is refused, saying what to write.
+  def test_build_console_builds_the_one_cartridge_it_names
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "both.rb"), BOTH)
+      out, status = cli("build", "both.rb", "--console", "gbc", dir: dir)
+
+      assert status.success?, out
+      assert_color_cartridge(File.join(dir, "both.gbc"))
+      refute File.exist?(File.join(dir, "both.gba")), "only the Color's is built"
+
+      File.write(File.join(dir, "advance.rb"), ADVANCE_ONLY)
+      refused, refused_status = cli("build", "advance.rb", "--console", "gbc", dir: dir)
+      refute refused_status.success?
+      assert_match(/consoles: %i\[gba gbc\]/, refused)
+      refute_match(/\.rb:\d+:in/, refused, "should not leak a backtrace")
+    end
+  end
+
+  COLOR_ONLY = <<~GAME
+    require "ruby_gba"
+    RubyGBA.game("COLORONLY", consoles: %i[gbc]) do
+      game_loop { clear_screen :blue }
+    end
+  GAME
+
+  # A web page and a desktop program draw the Advance's screen, so they are made from the
+  # Advance's game, and a game for the Color alone is refused saying what to write.
+  def test_web_and_native_refuse_a_game_for_the_color_alone
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "coloronly.rb"), COLOR_ONLY)
+
+      %w[web native ir].each do |format|
+        out, status = cli("build", "coloronly.rb", "--format", format, dir: dir)
+
+        refute status.success?, "#{format}: #{out}"
+        assert_match(/Game Boy Color alone/, out, format)
+        assert_match(/consoles: %i\[gbc gba\]/, out, format)
+        refute_match(/\.rb:\d+:in/, out, "#{format}: should not leak a backtrace")
+      end
+      assert_empty Dir.children(dir) - ["coloronly.rb"], "nothing is written"
+    end
+  end
+
+  # When every console's build fails for one reason, it is said once, with no advice about
+  # leaving a console out: the game itself is what needs changing.
+  def test_build_says_a_reason_every_console_shares_once
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "broken.rb"), <<~GAME)
+        require "ruby_gba"
+        RubyGBA.game("BROKEN", consoles: %i[gba gbc]) do
+          var :floors, Integer(setting(:floors))
+          game_loop { clear_screen :blue }
+        end
+      GAME
+      out, status = cli("build", "broken.rb", "--set", "flors=1", dir: dir)
+
+      refute status.success?
+      assert_equal 1, out.scan(/flors/).size, out
+      refute_match(/take :/, out)
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+    end
+  end
+
+  # A measuring the command refuses comes after every cartridge is written, so a bad --scene
+  # costs the profile and never a cartridge.
+  def test_build_writes_every_cartridge_before_a_refused_profile
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "both.rb"), BOTH)
+      out, status = cli("build", "both.rb", "--scene", "nope", dir: dir)
+
+      refute status.success?
+      assert File.exist?(File.join(dir, "both.gba")), out
+      assert File.exist?(File.join(dir, "both.gbc")), out
+    end
+  end
+
+  # A profile runs one cartridge, so a game for two consoles is asked which.
+  def test_profile_asks_which_console_for_a_game_of_two
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "both.rb"), BOTH)
+      out, status = cli("profile", "both.rb", dir: dir)
+
+      refute status.success?
+      assert_match(/BOTH is for the Game Boy Advance and the Game Boy Color/, out)
+      assert_match(/--console gba or --console gbc/, out)
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+    end
+  end
+
+  # --format=gbc was how a Color cartridge was asked for before --console; it says what to write now.
+  def test_format_gbc_is_refused_naming_console
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "both.rb"), BOTH)
+      out, status = cli("build", "both.rb", "--format", "gbc", dir: dir)
+
+      refute status.success?
+      assert_match(/--console gbc/, out)
+    end
+  end
+
+  # --output names one file, so a game for two consoles needs --console beside it.
+  def test_build_output_for_a_game_of_two_consoles_needs_console
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "both.rb"), BOTH)
+      out, status = cli("build", "both.rb", "-o", "game.gba", dir: dir)
+
+      refute status.success?
+      assert_match(/--console gba or --console gbc/, out)
+      refute File.exist?(File.join(dir, "game.gba"))
+
+      built, built_status = cli("build", "both.rb", "-o", "game.gba", "--console", "gba", dir: dir)
+      assert built_status.success?, built
+      assert File.exist?(File.join(dir, "game.gba"))
+    end
+  end
+
+  # A game for both consoles that the Color cannot play still gets its Advance cartridge. The
+  # command then ends as a failure, in the build's own words and with the two ways to stop
+  # asking for the Color's: no backtrace under the words, and no Color cartridge written.
+  def test_build_writes_the_advance_cartridge_when_the_color_refuses_and_says_how_to_leave_it_out
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "shoulders.rb"), <<~GAME)
         require "ruby_gba"
@@ -377,17 +538,23 @@ class TestCLI < Minitest::Test
           game_loop { held(:l).then { count.add! 1 } }
         end
       GAME
-      out, status = cli("build", "shoulders.rb", "--format", "gbc", dir: dir)
+      out, status = cli("build", "shoulders.rb", dir: dir)
 
       refute status.success?, out
+      assert_match(/Built shoulders\.gba/, out)
       assert_match(/no shoulder buttons/, out)
+      assert_match(/SHOULDERS was not built for the Game Boy Color/, out)
+      assert_match(/take :gbc out of consoles:/, out)
+      assert_match(/--console gba/, out)
       refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+      assert File.exist?(File.join(dir, "shoulders.gba"))
       refute File.exist?(File.join(dir, "shoulders.gbc"))
     end
   end
 
-  # The same when it is the Color's lowering that refuses, after the checks have passed.
-  def test_format_gbc_refuses_what_the_color_lowering_cannot_make_without_a_backtrace
+  # The same when it is the Color's lowering that refuses, after the checks have passed. Asked
+  # for the Color's alone, it does not suggest asking for the other.
+  def test_build_console_gbc_refuses_what_the_color_lowering_cannot_make_without_a_backtrace
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "again.rb"), <<~GAME)
         require "ruby_gba"
@@ -396,16 +563,18 @@ class TestCLI < Minitest::Test
           game_loop { call :again }
         end
       GAME
-      out, status = cli("build", "again.rb", "--format", "gbc", dir: dir)
+      out, status = cli("build", "again.rb", "--console", "gbc", dir: dir)
 
       refute status.success?, out
       assert_match(/can call itself again/, out)
+      assert_match(/take :gbc out of consoles:/, out)
+      refute_match(/--console gba/, out)
       refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
     end
   end
 
   # And when the game keeps more than the Color has memory for.
-  def test_format_gbc_refuses_a_game_too_big_for_the_colors_memory_without_a_backtrace
+  def test_build_refuses_a_game_too_big_for_the_colors_memory_without_a_backtrace
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "hoard.rb"), <<~GAME)
         require "ruby_gba"
@@ -414,7 +583,7 @@ class TestCLI < Minitest::Test
           game_loop { trail.push 1 }
         end
       GAME
-      out, status = cli("build", "hoard.rb", "--format", "gbc", dir: dir)
+      out, status = cli("build", "hoard.rb", "--console", "gbc", dir: dir)
 
       refute status.success?, out
       assert_match(/:trail/, out)
@@ -501,7 +670,7 @@ class TestCLI < Minitest::Test
   def test_format_web_writes_big_tables_to_a_data_file_when_asked
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "tabled.rb"), <<~RUBY)
-        RubyGBA.game "TABLED" do
+        RubyGBA.game "TABLED", consoles: %i[gba] do
           screen :bitmap
           places = table :places, (0...300).map { |i| i % 200 }, width: :half
           n = var :n, 0
@@ -550,7 +719,7 @@ class TestCLI < Minitest::Test
         require "ruby_gba"
         require_relative "extra_state"
 
-        Multi = RubyGBA.game "MULTI", code: "BMLT", maker: "01" do
+        Multi = RubyGBA.game "MULTI", consoles: %i[gba], code: "BMLT", maker: "01" do
           screen :bitmap
           ExtraState.declare(self)
           game_loop { add! :score, 1 }
@@ -573,7 +742,7 @@ class TestCLI < Minitest::Test
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "lettered.rb"), <<~RUBY)
         require "ruby_gba"
-        Lettered = RubyGBA.game "LETTERED", code: "BLET", maker: "01" do
+        Lettered = RubyGBA.game "LETTERED", consoles: %i[gba], code: "BLET", maker: "01" do
           screen :bitmap
           font :blocky do
             glyph "A", <<~ART

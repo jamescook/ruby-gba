@@ -44,7 +44,7 @@ class TestJSOutputs < Minitest::Test
   # A square walked along 300 places kept in a table — big enough to go to the data file when the
   # data is separate — so the picture is wrong if the table is.
   private def table_walker
-    RubyGBA.game "TABLED" do
+    RubyGBA.game "TABLED", consoles: %i[gba] do
       screen :bitmap
       places = table :places, (0...300).map { |i| (i * 7) % 200 }, width: :half
       n = var :n, 0

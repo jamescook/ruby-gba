@@ -23,7 +23,7 @@ class TestNativeZig < Minitest::Test
   # A program for another computer is asked for by name, and a name there is no build for is
   # refused before anything is built, saying which there are.
   def test_a_computer_there_is_no_build_for_is_refused
-    game = RubyGBA.game("NOWHERE") do
+    game = RubyGBA.game("NOWHERE", consoles: %i[gba]) do
       screen :bitmap
       game_loop { clear_screen :red }
     end

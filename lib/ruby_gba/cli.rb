@@ -19,6 +19,9 @@ module RubyGBA
     DRIFTED = 1
     NOT_COMPARED = 2
 
+    # What --console takes: every console a game can name.
+    CONSOLES = RubyGBA::Console::DESCRIPTIONS.keys.map(&:to_s).freeze
+
     def self.start(given_args = ARGV, config = {})
       super(given_args, config.merge(debug: true))
     rescue Thor::Error => e
@@ -29,8 +32,10 @@ module RubyGBA
     end
 
     # The options `play` and `compare` both take: what says which buttons to press, and the
-    # settings a game file is built with.
+    # settings and the console a game file is built with.
     def self.options_for_playing(tape:)
+      option :console, banner: "NAME", enum: CONSOLES,
+                       desc: "Which console's cartridge a game file is built as: gba or gbc (needed for a game for both)"
       option :script, banner: "PATH", desc: "A Ruby file that declares playthroughs with RubyGBA.playthrough"
       option :playthrough, banner: "NAME", desc: "Which playthrough in the script file to play, when it declares several"
       option :tape, banner: "PATH", desc: tape
@@ -38,17 +43,24 @@ module RubyGBA
                    desc: "Tell every game file a setting it reads with `setting` (for example --set floors=1)"
     end
 
-    desc "build GAME_FILE", "Build a game file into a .gba cartridge"
+    desc "build GAME_FILE", "Build a game file into a cartridge for each console it is for"
     long_desc <<~TEXT
-      Build the game declared in GAME_FILE into a Game Boy Advance cartridge. The file
-      declares its game with:
+      Build the game declared in GAME_FILE into a cartridge for each console it says it is
+      for. The file declares its game with:
 
-        RubyGBA.game "NAME" do
+        RubyGBA.game "NAME", consoles: %i[gba gbc] do
           # ...the game...
         end
 
-      The .gba is written next to the game file, named from the title, unless you pass
-      --output.
+      consoles: names the consoles: gba for the Game Boy Advance, gbc for the Game Boy Color.
+      Each cartridge is written next to the game file, named from the title: a .gba for the
+      Advance and a .gbc for the Color. --console builds one of them only, and --output says
+      where to write it. When one console's cartridge cannot be built, the others are still
+      written, and the build says why and ends as a failure.
+
+      A Game Boy Color cartridge needs a game that lays itself out from `screen_width` and
+      `screen_height`. The build says, as it goes, what the Color shows differently and what
+      it cannot do.
 
       --format=ir emits the game's intermediate representation instead of a cartridge:
       a standalone Ruby class that reconstructs the IR and lowers it to machine code,
@@ -68,24 +80,20 @@ module RubyGBA
       A step only the console can run (raw instructions given with `entry`) cannot be
       built for the web; the build names each such line.
 
-      --format=gbc builds a Game Boy Color cartridge instead, a .gbc beside the game file. The
-      game says it is for the Color too (`RubyGBA.game "NAME", consoles: %i[gba gbc]`) and lays
-      itself out from `screen_width` and `screen_height`. The build says, as it goes, what the
-      Color shows differently and what it cannot do.
-
       A game that saves keeps its save in a file, in the folder your computer has for
       each program's own files. To keep it in a different file, start the program with
       --save-file PATH. The file holds the bytes of a cartridge's save memory, so a .sav
       file from an emulator starts the same game there.
     TEXT
     option :output, aliases: "-o", banner: "PATH",
-                    desc: "Where to write the .gba, the IR under --format=ir, the program under --format=native, " \
-                          "the page under --format=web, or the .gbc under --format=gbc (default: beside the game " \
-                          "file, named from its title; the pager for IR)"
+                    desc: "Where to write the cartridge (one console's: say which with --console for a game for " \
+                          "two), the IR under --format=ir, the program under --format=native, or the page under " \
+                          "--format=web (default: beside the game file, named from its title; the pager for IR)"
     option :format, banner: "NAME", default: "game",
-                    desc: "What to emit: game (a .gba cartridge), ir (a standalone Ruby class holding the IR), " \
-                          "native (a program for this computer), web (a page that plays it in a browser), or gbc " \
-                          "(a Game Boy Color cartridge)"
+                    desc: "What to emit: game (a cartridge for each console), ir (a standalone Ruby class holding " \
+                          "the IR), native (a program for this computer), or web (a page that plays it in a browser)"
+    option :console, banner: "NAME", enum: CONSOLES,
+                     desc: "Build this console's cartridge alone: gba or gbc (default: one for each console the game names)"
     option :profile, type: :boolean, default: false,
                      desc: "Also run the game and report what the build made and what it cost (see `profile`)"
     option :stats, type: :boolean, default: false,
@@ -111,14 +119,20 @@ module RubyGBA
                         "from a disk) or separate (a .data file beside it, fetched when the game starts; serve it)"
     def build(game_file)
       refuse_web_options_out_of_place!
+      # (--format=gbc is let through here so that it gets its own message, below.)
+      if options[:console] && !%w[game gbc].include?(options[:format])
+        raise Thor::Error, "--console works only with cartridges (--format=game). Remove --console, or remove --format."
+      end
+
       case options[:format]
-      when "game" then build_cartridge(game_file)
+      when "game" then build_cartridges(game_file)
       when "ir" then build_ir(game_file)
       when "native" then build_native(game_file)
       when "web" then build_web(game_file)
-      when "gbc" then build_color_cartridge(game_file)
+      when "gbc"
+        raise Thor::Error, "There is no --format=gbc now. To build a Game Boy Color cartridge, use --console gbc."
       else
-        raise Thor::Error, "#{options[:format].inspect} is not a build format. The formats are: game, ir, native, web, gbc."
+        raise Thor::Error, "#{options[:format].inspect} is not a build format. The formats are: game, ir, native, web."
       end
     rescue ArgumentError, RubyGBA::ROMError => e
       # A setting the game does not ask for, or one it cannot read, or a build the guardrails
@@ -154,13 +168,14 @@ module RubyGBA
 
       --format=json prints the same numbers as data, for comparing two builds.
 
-      --console=gbc profiles the game's Game Boy Color cartridge instead: where its frames went,
-      by routine, the frame rate it played at, and how much of the time it slept.
+      A game for one console is profiled on that console. A game for both needs --console:
+      --console=gba, or --console=gbc for its Game Boy Color cartridge, which reports where its
+      frames went, by routine, the frame rate it played at, and how much of the time it slept.
     TEXT
     option :format, banner: "NAME", default: "human",
                     desc: "What to print: human (the report) or json (the same numbers as data)"
-    option :console, banner: "NAME", default: "gba",
-                     desc: "Which console's cartridge to profile: gba, or gbc for a game built for the Color too"
+    option :console, banner: "NAME", enum: CONSOLES,
+                     desc: "Which console's cartridge to profile: gba or gbc (needed for a game for both)"
     option :frames, type: :numeric, banner: "N", default: RubyGBA::Diagnostics::Profiler::FRAMES,
                     desc: "How many frames to measure over"
     option :settle, type: :numeric, banner: "N", default: RubyGBA::Diagnostics::Profiler::SETTLE,
@@ -179,7 +194,7 @@ module RubyGBA
       game = load_game(game_file)
       # Built the same way `build` builds it — measured placement included — so this reports on
       # the cartridge somebody would actually ship, not a differently-placed one.
-      game.build_rom(settings: given_settings, console: options[:console].to_sym)
+      game.build_rom(settings: given_settings, console: console_to_run(game, "profile"))
           .profile(format: format, frames: options[:frames], settle: options[:settle], scene: options[:scene],
                    from: options[:from], keys: held_buttons || [])
     rescue ArgumentError => e
@@ -191,8 +206,9 @@ module RubyGBA
       Play CARTRIDGE with nobody at the controls, and say how many frames went by and the
       frame each named moment fell on. CARTRIDGE is a game file (a .rb that declares a
       game, which is built first) or a cartridge file (a .gba, yours or somebody else's, or
-      a Game Boy Color .gbc). --console=gbc builds a game file as its Game Boy Color
-      cartridge, for a game built for the Color too.
+      a Game Boy Color .gbc). A game file for one console is built for that console. A game
+      file for both needs --console: --console=gba, or --console=gbc for its Game Boy Color
+      cartridge.
 
       What to press comes from a script or from a tape.
 
@@ -224,16 +240,16 @@ module RubyGBA
     option :pictures_in, banner: "DIR", desc: "Write the screen at each named moment into this folder"
     option :write_tape, banner: "PATH", desc: "Write the presses that were made to this file, as a tape"
     option :write_save, banner: "PATH", desc: "Write the save memory as the last frame left it to this file"
-    option :console, banner: "NAME", enum: %w[gba gbc],
-                     desc: "Which console's cartridge a game file is built as: gba, or gbc for a game built for the Color too"
     def play(cartridge_file)
-      with_playthroughs_command_line { |command| command.play(cartridge_file) }
+      with_playthroughs_command_line("play") { |command| command.play(cartridge_file) }
     end
 
     desc "compare FIRST SECOND", "Play two cartridges on the same presses, and say where they drift"
     long_desc <<~TEXT
       Play the cartridges FIRST and SECOND side by side and say the first frame on which
-      they differ. Each is a game file (a .rb, built first) or a cartridge file (a .gba).
+      they differ. Each is a game file (a .rb, built first) or a cartridge file (a .gba). A
+      game file for both consoles needs --console gba: a comparison compares Game Boy Advance
+      cartridges only.
 
       HOW IT ENDS, for another program to act on: with 0 when the two agree, with 1 when
       they drift, and with 2 when they could not be compared (a file that is not there, a
@@ -288,7 +304,10 @@ module RubyGBA
     option :lead_ins, type: :array, banner: "NAME", desc: "A playthrough for each cartridge to play first, or - for none"
     option :reports_in, banner: "DIR", desc: "Write a folder for each drift into this folder"
     def compare(first_file, second_file)
-      result = with_playthroughs_command_line { |command| command.compare(first_file, second_file) }
+      # A comparison lines screens up at the Advance's size, so the Advance's is the one to offer.
+      result = with_playthroughs_command_line("compare", offered: [:gba]) do |command|
+        command.compare(first_file, second_file)
+      end
       exit DRIFTED if result.drift?
     end
 
@@ -344,9 +363,14 @@ module RubyGBA
     # `play` and `compare` are done by the library (see Playthroughs::CommandLine), which is
     # handed the options, somewhere to print, and how a game file is built here. What it
     # refuses, it refuses in a sentence, and that sentence is what the command ends with.
-    def with_playthroughs_command_line
-      console = (options[:console] || "gba").to_sym # not said (and `compare` has no --console): the Advance
-      build = ->(file) { load_game(file).build_rom(settings: given_settings, console: console) }
+    #
+    # +doing+ is what the command does with a game file ("play", "compare"), for the question a
+    # game for two consoles is asked when --console does not say which.
+    def with_playthroughs_command_line(doing, offered: nil)
+      build = lambda do |file|
+        game = load_game(file)
+        game.build_rom(settings: given_settings, console: console_to_run(game, doing, offered: offered || game.consoles))
+      end
       yield RubyGBA::Playthroughs::CommandLine.new(options, out: $stdout, build: build)
     rescue RubyGBA::Playthroughs::CommandLine::Refused => e
       raise Thor::Error, e.message
@@ -354,30 +378,97 @@ module RubyGBA
 
     # --- build and profile ---
 
-    # The "game" format (--format=game, the default): the .gba cartridge itself.
-    def build_cartridge(game_file)
+    # The "game" format (--format=game, the default): a cartridge for each console the game names,
+    # or for the one --console says.
+    #
+    # EACH IS BUILT WHATEVER HAPPENS TO THE OTHER. A game for both consoles that the Color cannot
+    # play still gets its Advance cartridge, and the command then ends saying why the Color's was
+    # not made and how to stop asking for it — which may be all the game needs, since not every
+    # game is for the Color. It still ends as a failure: a console the game names was not built.
+    # A profile asked for comes after every cartridge is written, so refusing one costs no cartridge.
+    def build_cartridges(game_file)
       game = load_game(game_file)
-      # Somebody is sitting there waiting for this, so it says what it is doing.
-      rom = game.build_rom(progress: RubyGBA::Messages::Progress.to($stderr), settings: given_settings)
-      path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename)
-      rom.write(path)
-      say "Built #{File.basename(path)} (#{rom.size} bytes)"
-      say rom.compression.summary_line if options[:stats] && rom.compression&.any?
-      say placement_line(rom) if options[:stats] && rom.placement&.funcs&.any?
-      profile_rom(rom) if options[:profile] || options[:scene] || options[:keys].any?
+      consoles = options[:console] ? [options[:console].to_sym] : game.consoles
+      refuse_one_output_for_two_consoles!(game) if options[:output] && consoles.size > 1
+      built = {}
+      failed = {}
+      consoles.each do |console|
+        built[console] = write_cartridge_for(game, game_file, console)
+      rescue RubyGBA::ROMError, RubyGBA::IR::Backends::GBC::LoweringError => e
+        # A build the guardrails stopped (their reasons are printed already), or something the
+        # checks let through that a lowering cannot make.
+        failed[console] = e.message
+      end
+      built.each_value { |rom| profile_rom(rom) } if options[:profile] || options[:scene] || options[:keys].any?
+      raise Thor::Error, not_built_message(game, failed, built.keys) unless failed.empty?
     end
 
-    # The "gbc" format: a Game Boy Color cartridge, for a game that says it is for the Color too.
-    def build_color_cartridge(game_file)
-      game = load_game(game_file)
-      rom = game.build_rom(progress: RubyGBA::Messages::Progress.to($stderr), settings: given_settings,
-                           console: :gbc)
-      path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename(console: :gbc))
+    # One console's cartridge, written beside the game file or to --output, and handed back.
+    def write_cartridge_for(game, game_file, console)
+      # Somebody is sitting there waiting for this, so it says what it is doing.
+      rom = game.build_rom(progress: RubyGBA::Messages::Progress.to($stderr), settings: given_settings, console: console)
+      path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename(console: console))
       rom.write(path)
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
-    rescue RubyGBA::IR::Backends::GBC::LoweringError => e
-      # Something the checks let through and the Color's lowering cannot make: its own words.
-      raise Thor::Error, e.message
+      # What asset packing and the quick memory did is the Advance's to say: the Color's build
+      # packs nothing and has no quick memory to choose for.
+      if options[:stats] && console == :gba
+        say rom.compression.summary_line if rom.compression&.any?
+        say placement_line(rom) if rom.placement&.funcs&.any?
+      end
+      rom
+    end
+
+    # Why the consoles in +failed+ (console => reason) were not built, and the ways to stop
+    # asking for each. A reason every console gave alike is the game's own fault, so it is said
+    # once and with no advice about leaving a console out. +built+ are the consoles that were.
+    def not_built_message(game, failed, built)
+      reasons = failed.values.uniq
+      return reasons.first if reasons.size == 1 && (failed.size > 1 || game.consoles.size == 1)
+
+      failed.map do |console, reason|
+        title = RubyGBA::Console.described(console).title
+        advice = "#{game.title} was not built for the #{title}. If the game is not for the #{title}, " \
+                 "take :#{console} out of consoles: where the game is named."
+        if built.size == 1
+          advice += " To build the #{RubyGBA::Console.described(built.first).title} cartridge alone, " \
+                    "use --console #{built.first}."
+        end
+        "#{reason}\n\n#{advice}"
+      end.join("\n\n")
+    end
+
+    def refuse_one_output_for_two_consoles!(game)
+      raise Thor::Error, "--output names one file, and #{consoles_choice_message(game, 'write', game.consoles)}"
+    end
+
+    # The console a command that runs one cartridge runs +game+ on: the one --console names, or the
+    # game's only one. A game for two with neither said is asked which, since nothing is taken to
+    # be for the Advance. +doing+ is what the command does with it ("profile", "play"), and
+    # +offered+ the consoles it can do that on, which `compare` holds to the Advance.
+    def console_to_run(game, doing, offered: game.consoles)
+      return options[:console].to_sym if options[:console]
+      return game.consoles.first if game.consoles.size == 1
+
+      raise Thor::Error, consoles_choice_message(game, doing, offered)
+    end
+
+    # "PONG is for the Game Boy Advance and the Game Boy Color. Say which cartridge to play: add
+    # --console gba or --console gbc."
+    def consoles_choice_message(game, doing, offered)
+      named = game.consoles.map { |name| RubyGBA::Console.described(name).title }.join(" and the ")
+      "#{game.title} is for the #{named}. Say which cartridge to #{doing}: add --console #{offered.join(' or --console ')}."
+    end
+
+    # A web page, a desktop program and the IR dump are all made from the game as the Advance plays
+    # it, since the two runtimes draw the Advance's 240×160 screen. So they need a game for the
+    # Advance; one for the Color alone is refused, saying what to write.
+    def refuse_game_not_for_advance!(game, made)
+      return if game.consoles.include?(:gba)
+
+      raise Thor::Error, "#{made} is made from the Game Boy Advance's game, and #{game.title} is for the Game Boy " \
+                         "Color alone. To make one, lay the game out from `screen_width` and `screen_height`, and " \
+                         "say `consoles: %i[#{(game.consoles + [:gba]).join(' ')}]` where the game is named."
     end
 
     # The "ir" format (--format=ir): the game's IR as a standalone Ruby class, instead
@@ -387,7 +478,8 @@ module RubyGBA
     # ROM bytes themselves are simply not written anywhere.
     def build_ir(game_file)
       game = load_game(game_file)
-      rom = game.build_rom(settings: given_settings)
+      refuse_game_not_for_advance!(game, "The IR")
+      rom = game.build_rom(settings: given_settings, console: :gba)
       source = RubyGBA::IR::Dump.class_source(rom.source_program, class_name: "#{constantize(game.title)}IR",
                                             **game.options.lowering)
       if options[:output]
@@ -403,14 +495,15 @@ module RubyGBA
     # the end where that name is already a folder, as a game split across files often has.
     def build_native(game_file)
       game = load_game(game_file)
-      target = options[:target]&.tr("-", "_")&.to_sym
+      refuse_game_not_for_advance!(game, "A program for this computer")
+      target =options[:target]&.tr("-", "_")&.to_sym
       if target && !RubyGBA::IR::Backends::Native::TARGETS.key?(target)
         names = RubyGBA::IR::Backends::Native::TARGETS.keys.map { |name| name.to_s.tr("_", "-") }
         raise Thor::Error, "There is no build for #{options[:target]}. A game can be built for " \
                            "#{names.join(', ')}. To build for this computer, leave out --target."
       end
       path = options[:output] || begin
-        plain = File.join(File.dirname(File.expand_path(game_file)), game.default_filename.delete_suffix(".gba"))
+        plain = File.join(File.dirname(File.expand_path(game_file)), game.default_filename(console: :gba).delete_suffix(".gba"))
         plain = "#{plain}-#{options[:target]}" if target
         plain = "#{plain}-desktop" if File.directory?(plain)
         target == :windows ? "#{plain}.exe" : plain
@@ -447,9 +540,11 @@ module RubyGBA
     # the cartridge with the output's ending in place of .gba.
     def build_web(game_file)
       game = load_game(game_file)
+      refuse_game_not_for_advance!(game, "A web page")
       js = options[:js]
       path = options[:output] ||
-             File.join(File.dirname(File.expand_path(game_file)), game.default_filename.delete_suffix(".gba") + WEB_OUTPUTS.fetch(js))
+             File.join(File.dirname(File.expand_path(game_file)),
+                       game.default_filename(console: :gba).delete_suffix(".gba") + WEB_OUTPUTS.fetch(js))
       web = RubyGBA::IR::Backends::JS.new
       data = options[:data].to_sym
       case js
@@ -520,7 +615,7 @@ module RubyGBA
       load path
       RubyGBA.registered_games.last || raise(Thor::Error, <<~MSG.chomp)
         #{game_file} does not declare a game. Add:
-          RubyGBA.game "NAME" do
+          RubyGBA.game "NAME", consoles: %i[gba gbc] do
             # ...the game...
           end
       MSG
@@ -538,17 +633,18 @@ module RubyGBA
         # frozen_string_literal: true
         #
         # #{title} — a starter game. Run it with `ruby #{name}.rb`, or build it with
-        # `ruby-gba build #{name}.rb`.
+        # `ruby-gba build #{name}.rb`, which makes a cartridge for each console it names:
+        # #{name}.gba for the Game Boy Advance and #{name}.gbc for the Game Boy Color.
 
         require "ruby_gba"
 
-        #{const} = RubyGBA.game "#{title}" do
+        #{const} = RubyGBA.game "#{title}", consoles: %i[gba gbc] do
           screen :bitmap
 
           game_loop do
-            wait_vblank
             clear_screen :black
-            draw_text "#{title}", 40, 76, :white
+            # The middle of whichever screen it is built for: the two are not the same size.
+            draw_text "#{title}", :center, (screen_height - text_height) / 2, :white
           end
         end
 

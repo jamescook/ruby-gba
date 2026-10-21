@@ -72,7 +72,7 @@ class TestCommandLinePlay < Minitest::Test
   def test_play_takes_a_game_boy_color_cartridge_file
     with_game_and_scripts do |dir|
       File.write(File.join(dir, "color_walker.rb"), COLOR_WALKER)
-      built, = cli("build", "color_walker.rb", "--format", "gbc", dir: dir)
+      built, = cli("build", "color_walker.rb", "--console", "gbc", dir: dir)
 
       out, status = cli("play", "color_walker.gbc", "--script", "walk.rb", dir: dir)
 
@@ -95,6 +95,20 @@ class TestCommandLinePlay < Minitest::Test
       assert status.success?, out
       assert_match(/on COLOR WALKE\./, out)
       assert_match(/arrived +frame 30$/, out)
+    end
+  end
+
+  # A playing plays one cartridge, so a game file for two consoles is asked which.
+  def test_play_asks_which_console_for_a_game_file_of_two
+    with_game_and_scripts do |dir|
+      File.write(File.join(dir, "color_walker.rb"), COLOR_WALKER)
+
+      out, status = cli("play", "color_walker.rb", "--script", "walk.rb", dir: dir)
+
+      refute status.success?
+      assert_match(/COLOR WALKER is for the Game Boy Advance and the Game Boy Color/, out)
+      assert_match(/--console gba or --console gbc/, out)
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
     end
   end
 

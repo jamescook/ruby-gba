@@ -12,7 +12,7 @@ module WebPage
 
   # Right moves the square, a pixel a frame.
   private def walking_game
-    RubyGBA.game "PAGE <&>" do
+    RubyGBA.game "PAGE <&>", consoles: %i[gba] do
       screen :bitmap
       x = var :x, 0
       game_loop do
@@ -25,7 +25,7 @@ module WebPage
 
   # The square moves a pixel every frame, so the picture says how many frames were played.
   private def ticking_game
-    RubyGBA.game "TICKING" do
+    RubyGBA.game "TICKING", consoles: %i[gba] do
       screen :bitmap
       x = var :x, 0
       game_loop do
@@ -73,7 +73,7 @@ module WebPage
   # IR::Buttons::NAMES order, so one picture says which are held.
   private def buttons_game
     buttons = RubyGBA::IR::Buttons::NAMES
-    RubyGBA.game "BUTTONS" do
+    RubyGBA.game "BUTTONS", consoles: %i[gba] do
       screen :bitmap
       game_loop do
         clear_screen :black

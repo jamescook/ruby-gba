@@ -217,7 +217,7 @@ class TestRoomyMemory < Minitest::Test
   # A list every frame writes to once, and a routine every frame runs a few thousand instructions
   # of, where the quick memory has room for one of the two.
   private def trickle_beside_busy_work
-    RubyGBA.game("TRICKLE") do
+    RubyGBA.game("TRICKLE", consoles: %i[gba]) do
       screen :bitmap
       trickle = list :trickle, capacity: TRICKLE_WORDS
       spin = var :spin, 0
@@ -252,7 +252,7 @@ class TestRoomyMemory < Minitest::Test
   # frame, so it is the busier. The two routines do not fit together; the left one fits beside the
   # list, and the right one does not.
   private def trickle_beside_two_busy_screens
-    RubyGBA.game("TRICKLE2") do
+    RubyGBA.game("TRICKLE2", consoles: %i[gba]) do
       screen :bitmap
       trickle = list :trickle, capacity: SHARED_TRICKLE_WORDS
       spin = var :spin, 0

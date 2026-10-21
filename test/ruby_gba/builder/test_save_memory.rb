@@ -113,7 +113,7 @@ class TestSaveMemory < Minitest::Test
 
   # Said on the line that names the game, beside its cartridge code, it reaches the build.
   def test_the_size_can_be_named_where_the_game_is_named
-    named = RubyGBA.game("SAVEMEM", save_memory: 64) do
+    named = RubyGBA.game("SAVEMEM", consoles: %i[gba], save_memory: 64) do
       screen :bitmap
       flags = list :flags, capacity: 10, width: :byte
       save_data(:file) { keep flags }

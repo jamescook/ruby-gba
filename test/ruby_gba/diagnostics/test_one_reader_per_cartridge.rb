@@ -26,7 +26,7 @@ class TestOneReaderPerCartridge < Minitest::Test
   # A character wearing somebody else's colours, which is what a game does while you cannot be
   # hit. His art is drawn in red; the list he is told to draw with puts white in the same place.
   private def hurt_hero
-    RubyGBA.game "HURT" do
+    RubyGBA.game "HURT", consoles: %i[gba] do
       screen :tiled
       image(:hero, colors: [:transparent, :red], "#" => :red) { SOLID_TILE }
       colors :hurt, [:transparent, :white]
@@ -44,7 +44,7 @@ class TestOneReaderPerCartridge < Minitest::Test
   # this one program because the question below is whether a row can be asked for the colours it
   # is drawing from without the caller having to know which kind it is holding.
   private def two_kinds_of_picture
-    RubyGBA.game "TWOWAY" do
+    RubyGBA.game "TWOWAY", consoles: %i[gba] do
       screen :tiled
       image(:hero, "#" => :red) { SOLID_TILE }
       image :signpost, width: 8, height: 8, data: (0...64).map { |i| MANY[i % MANY.length] }
@@ -125,7 +125,7 @@ class TestOneReaderPerCartridge < Minitest::Test
   private def hero_behind_a_fence
     brick = (["########"] * 8).join("\n")
     wall = ([("#" * 30)] * 20).join("\n")
-    RubyGBA.game "BEHIND" do
+    RubyGBA.game "BEHIND", consoles: %i[gba] do
       screen :tiled
       layers :actors, :fence
       image(:brick, "#" => :gray) { brick }
@@ -163,7 +163,7 @@ class TestOneReaderPerCartridge < Minitest::Test
   # --- leaving a voice out of the sound ---
 
   private def humming
-    RubyGBA.game "HUM" do
+    RubyGBA.game "HUM", consoles: %i[gba] do
       screen :bitmap
       enable_sound
       wave :triangle, :C4

@@ -20,7 +20,7 @@ module CLIPlaying
   GAME = <<~RUBY
     require "ruby_gba"
 
-    RubyGBA.game "WALKER" do
+    RubyGBA.game "WALKER", consoles: %i[gba] do
       screen :bitmap
       speed = setting :speed, 2
       red_at = setting :red_at, 100_000

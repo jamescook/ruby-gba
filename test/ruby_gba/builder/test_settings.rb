@@ -9,7 +9,7 @@ require "stringio"
 # other's. Before this the only way in was the environment, which the whole process shares.
 class TestSettings < Minitest::Test
   # A game whose number of floors is a setting, kept in a variable so a run can read it back.
-  CUTS = RubyGBA.game("CUTS", maker: "01") do
+  CUTS = RubyGBA.game("CUTS", consoles: %i[gba], maker: "01") do
     screen :bitmap
     var :floors, setting(:floors, 60)
     var :start, setting(:start, :title) == :title ? 0 : 1
@@ -50,7 +50,7 @@ class TestSettings < Minitest::Test
   end
 
   def test_a_setting_with_no_default_has_to_be_given
-    required = RubyGBA.game("NEEDS", maker: "01") do
+    required = RubyGBA.game("NEEDS", consoles: %i[gba], maker: "01") do
       screen :bitmap
       var :floors, setting(:floors)
       game_loop { wait_vblank }

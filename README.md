@@ -15,7 +15,7 @@ require_relative "lib/ruby_gba"
 
 # A trimmed slice of examples/snake.rb — see that file for the full, commented game.
 # (Grid constants like CELL, MIN_COL, BODY_CAP and the STEP beat are defined there.)
-Snake = RubyGBA.game("SNAKE") do
+Snake = RubyGBA.game("SNAKE", consoles: %i[gba]) do
   screen :bitmap
   enable_sound
   define_sound :eat, frequency: 880, duty: :quarter, decay: :fast
@@ -72,11 +72,11 @@ end
 Snake.write_if_main   # `ruby snake.rb` writes snake.gba; guardrails run at build time
 ```
 
-Build it and run it in any GBA emulator:
+Every game says which consoles it is for — `consoles: %i[gba]` for the Game Boy Advance alone, `%i[gba gbc]` for the Game Boy Color too — and a game that says nothing does not build. A build makes a cartridge for each console the game names. Build it and run it in any GBA emulator:
 
 ```bash
 ruby examples/snake.rb             # => writes snake.gba
-ruby-gba build examples/snake.rb   # the same, via the CLI (adds -o / --profile / --stats)
+ruby-gba build examples/snake.rb   # the same, via the CLI (adds -o / --console / --profile / --stats)
 rake test                          # unit + emulator integration tests (builds the emulator first)
 ```
 
@@ -205,8 +205,12 @@ end
 ```
 
 ```bash
-ruby-gba build examples/pong.rb --format=gbc   # pong.gbc, beside the game
+ruby-gba build examples/pong.rb                   # pong.gba and pong.gbc, beside the game
+ruby-gba build examples/pong.rb --console gbc     # pong.gbc alone
+ruby-gba play examples/pong.rb --console gbc --script walk.rb   # play, profile and compare need --console for a game of two
 ```
+
+When the Color cannot play a game that names it, `build` still writes the Advance's cartridge, says why the Color's was not made, and ends as a failure; take `:gbc` out of `consoles:` if the game is not for the Color.
 
 The Color is a smaller machine: a 160×144 screen, eight buttons, one background, forty sprites and ten on a row of the screen, and lists of four colours. What every verb does there is decided once, in `Console::GBCFeatures`, and written out in [`.claude/dsl/game-boy-color.md`](.claude/dsl/game-boy-color.md): it **works**, it **degrades** — the build goes on and says once what will look different (a turning background is shown as drawn) — or it is **refused** in plain words before anything is made (a recording, the shoulder buttons). A painted screen works too, holding four colours at once; fades and tints move the Color's colours, the only way it has. `examples/pong.rb` and `examples/pacman.rb` build for both consoles, and `rake test` plays them on the Color against the interpreter, frame by frame (`rake test:lowering:gbc`).
 

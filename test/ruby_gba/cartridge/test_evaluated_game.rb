@@ -18,7 +18,7 @@ class TestEvaluatedGame < Minitest::Test
   # A game that stops half way through itself. The blue clear is in the program; the red
   # one is written after the `debug_halt` and never happened.
   private def truncated_game
-    RubyGBA.game("DBGHLT", code: "ZDBG", maker: "01") do
+    RubyGBA.game("DBGHLT", consoles: %i[gba], code: "ZDBG", maker: "01") do
       screen :bitmap
       clear_screen :blue
       debug_halt
@@ -58,7 +58,7 @@ class TestEvaluatedGame < Minitest::Test
   # one of those used to be another run of somebody else's code.
   def test_asking_a_game_for_its_program_runs_its_block_once_however_often_you_ask
     runs = 0
-    game = RubyGBA.game("ONCE", code: "ZONC", maker: "01") do
+    game = RubyGBA.game("ONCE", consoles: %i[gba], code: "ZONC", maker: "01") do
       runs += 1
       screen :bitmap
       clear_screen :black
@@ -73,7 +73,7 @@ class TestEvaluatedGame < Minitest::Test
   # ...and it is the same tree each time, which is what lets the profiler and a cost report
   # share one without either paying for it twice.
   def test_the_program_a_game_answers_is_the_same_tree_every_time
-    game = RubyGBA.game("SAME", code: "ZSAM", maker: "01") do
+    game = RubyGBA.game("SAME", consoles: %i[gba], code: "ZSAM", maker: "01") do
       screen :bitmap
       clear_screen :black
       halt
@@ -96,7 +96,7 @@ class TestEvaluatedGame < Minitest::Test
   end
 
   private def a_small_game
-    RubyGBA.game("SMALL", code: "ZSML", maker: "01") do
+    RubyGBA.game("SMALL", consoles: %i[gba], code: "ZSML", maker: "01") do
       screen :bitmap
       x = var :x, 10
       game_loop do
@@ -111,7 +111,7 @@ class TestEvaluatedGame < Minitest::Test
   # the cartridge is or a test measures a game nobody ships. Counted the way frame timing is
   # always counted here: how many passes the loop makes over five frames.
   def test_a_game_keeps_its_own_frame_timing_when_something_asks_what_it_is
-    unpaced = RubyGBA.game("MANUAL", code: "ZMAN", maker: "01", frame_sync: :manual) do
+    unpaced = RubyGBA.game("MANUAL", consoles: %i[gba], code: "ZMAN", maker: "01", frame_sync: :manual) do
       screen :bitmap
       n = var :n, 0
       game_loop { n.add! 1 }
@@ -140,7 +140,7 @@ class TestEvaluatedGame < Minitest::Test
   # stream is equally what a listening build looks like half way through.
   def test_a_game_says_nothing_while_something_asks_what_it_is
     heard = nil
-    game = RubyGBA.game("QUIET", code: "ZQUI", maker: "01") do
+    game = RubyGBA.game("QUIET", consoles: %i[gba], code: "ZQUI", maker: "01") do
       heard = progress
       screen :bitmap
       clear_screen :black
@@ -153,7 +153,7 @@ class TestEvaluatedGame < Minitest::Test
   end
 
   private def talkative_game
-    RubyGBA.game("TALKY", code: "ZTLK", maker: "01") do
+    RubyGBA.game("TALKY", consoles: %i[gba], code: "ZTLK", maker: "01") do
       progress.step "reading the floors"
       screen :bitmap
       clear_screen :black
