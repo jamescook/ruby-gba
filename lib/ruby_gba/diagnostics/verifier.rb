@@ -38,6 +38,12 @@ module RubyGBA
     class Verifier
       include Console::Hardware
 
+      # The reader for +rom+'s console: a GBCVerifier for a Game Boy Color cartridge, which reads
+      # what the Color keeps its own way, and a Verifier for an Advance one. Takes what new takes.
+      def self.for(rom, **)
+        (rom.console == :gbc ? GBCVerifier : self).new(rom, **)
+      end
+
       # @param rom [RubyGBA::Cartridge::ROM] a finalized ROM
       # @param frames [Integer] how many frames to run before reading pixels (default: 2)
       # @param keys [Integer, #call, nil] held-button input for each frame — an
@@ -451,13 +457,21 @@ module RubyGBA
         whole = @probe.palette
         return whole if half.nil?
 
-        from = PALETTE_HALVES.fetch(half) do
+        # The layout is the console's, so it is asked of the reader's own class (a Color's is
+        # another size: see GBCVerifier).
+        layout = self.class
+        from = layout::PALETTE_HALVES.fetch(half) do
           raise ArgumentError, "There is no #{half.inspect} half of the colour table. " \
-                               "The halves are: #{PALETTE_HALVES.keys.map(&:inspect).join(', ')}."
+                               "The halves are: #{layout::PALETTE_HALVES.keys.map(&:inspect).join(', ')}."
         end
-        return whole[from, PALETTE_HALF] if group.nil?
+        return whole[from, layout::PALETTE_HALF] if group.nil?
 
-        whole[from + (group * PALETTE_GROUP), PALETTE_GROUP]
+        groups = layout::PALETTE_HALF / layout::PALETTE_GROUP
+        unless group.is_a?(Integer) && group.between?(0, groups - 1)
+          raise ArgumentError, "Each half of the colour table has #{groups} groups of #{layout::PALETTE_GROUP}, " \
+                               "numbered 0 to #{groups - 1}. #{group.inspect} is not one of them."
+        end
+        whole[from + (group * layout::PALETTE_GROUP), layout::PALETTE_GROUP]
       end
 
       # DRAW THE PICTURE WITHOUT SOME OF IT, so a test can ask which layer drew what.

@@ -68,6 +68,113 @@ class TestPlaythroughColor < Minitest::Test
     end
   end
 
+  # WHAT A MOMENT CAN ASK OF A COLOR GAME: the sprites it drew, by the names the game gave them
+  # and where the game put them; the colours the Color draws from, in its own lists of four;
+  # and how many times round the game loop it got, which is the count of ticks.
+  def test_a_moment_asks_a_color_game_for_its_sprites_colours_and_passes
+    looked = {}
+    RubyGBA.playthrough "walk and look" do
+      wait frames: 10
+      hold :right, frames: 20
+      wait frames: 5
+      moment :looked
+    end.play(color_cartridge) do |_, game|
+      looked[:sprites] = game.sprites(:block).map { |row| [row.name, row.x, row.y] }
+      looked[:everything] = game.sprites.map(&:name)
+      looked[:palette] = game.palette
+      looked[:sprite_colours] = game.palette(:sprites)
+      looked[:one_list] = game.palette(:sprites, 0)
+      looked[:passes] = game.passes
+      looked[:ticks] = game.var(:ticks)
+    end
+
+    assert_equal [[:block, 40, 60]], looked[:sprites]
+    assert_equal [:block], looked[:everything]
+    assert_equal 64, looked[:palette].size, "eight lists of four for the backgrounds, eight for the sprites"
+    assert_equal 32, looked[:sprite_colours].size
+    assert_includes looked[:sprite_colours], Color.resolve(:white), "the block is white"
+    assert_equal looked[:sprite_colours].first(4), looked[:one_list]
+    assert_equal looked[:ticks], looked[:passes]
+  end
+
+  # WHILE THE BLOCK WALKS, the sprite stands where the last pass put it, two pixels behind the
+  # number the pass that is still to be shown has counted to — as on the Advance, and as the
+  # interpreter says it.
+  def test_a_walking_sprite_stands_where_the_last_pass_put_it
+    seen = nil
+    RubyGBA.playthrough "walk" do
+      wait frames: 10
+      hold :right, frames: 10
+      moment :walking
+      hold :right, frames: 5
+    end.play(color_cartridge) { |_, game| seen = [game.sprites(:block).first.x, game.var(:x)] }
+
+    sprite_x, counted = seen
+    assert_equal counted - 2, sprite_x
+  end
+
+  # The count of passes is the Color runtime's count of waits for the screen, which is one a pass
+  # only for a game loop that waits for it once, at its top. A game that waits anywhere else is
+  # refused the count in plain words rather than given a wrong one.
+  def test_passes_is_refused_for_a_game_that_waits_for_the_screen_itself
+    manual = RubyGBA.game("WAITS", consoles: %i[gba gbc], frame_sync: :manual) do
+      ticks = var :ticks, 0
+      game_loop do
+        ticks.add! 1
+        wait_vblank
+      end
+    end
+    game = RubyGBA::Playthroughs::Playthrough.power_on(manual.build_rom(console: :gbc, out: nil, err: nil, profile: false))
+    game.step(20)
+    error = assert_raises(ArgumentError) { game.passes }
+
+    assert_match(/waits for the screen/, error.message)
+    assert_match(/Game Boy Color/, error.message)
+  end
+
+  # Out of the Color's eight lists, a list number that is not one is refused, not answered with
+  # another list's colours or with nothing.
+  def test_palette_refuses_a_list_the_color_does_not_have
+    game = color_game_now
+
+    assert_match(/8 groups of 4/, assert_raises(ArgumentError) { game.palette(:sprites, 8) }.message)
+    assert_match(/numbered 0 to 7/, assert_raises(ArgumentError) { game.palette(:sprites, -1) }.message)
+  end
+
+  # What only an Advance's reader can say — the processor's registers, the wave voice's pitch,
+  # where its routines start, how often the game read the pad — is refused by name on a Color
+  # game, never answered wrong or with a backtrace from inside. The layers and the sound
+  # channels are the Color's own, and are answered. A Color game plays no recordings at all, so
+  # what the Advance's mixer of recordings is asked is answered for one that plays none.
+  def test_a_moment_is_refused_what_only_an_advance_answers
+    refusals = {}
+    answers = {}
+    RubyGBA.playthrough("look") { wait frames: 20; moment :still }.play(color_cartridge) do |_, game|
+      %i[registers wave_rate pad_reads].each do |question|
+        refusals[question] = assert_raises(ArgumentError) { game.public_send(question) }.message
+      end
+      refusals[:run_until] = assert_raises(ArgumentError) { game.run_until(:game) }.message
+      answers[:layers] = game.layers
+      answers[:alone] = game.showing(only: :sprites) { game.step.only_color }
+      answers[:recordings] = [game.voices, game.sounding, game.sample_clock, game.sound_drops.measured?]
+    end
+
+    refusals.each do |question, words|
+      assert_match(/Game Boy Color/, words, question)
+      assert_match(/`#{question}`/, words, question)
+    end
+    assert_includes answers[:layers], :sprites
+    assert_nil answers[:alone], "the block is drawn on an empty screen, so the picture is not one colour"
+    assert_equal [[], [], nil, false], answers[:recordings]
+    assert_match(/no sprite :nobody/, assert_raises(ArgumentError) { color_game_now.sprites(:nobody) }.message)
+  end
+
+  private def color_game_now
+    game = RubyGBA::Playthroughs::Playthrough.power_on(color_cartridge)
+    game.step(20)
+    game
+  end
+
   # A comparison lines two screens up as the Advance's, so two Color cartridges are refused in
   # plain words rather than compared wrong.
   def test_a_comparison_refuses_a_color_cartridge

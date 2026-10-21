@@ -222,23 +222,11 @@ module RubyGBA
 
           def read_variables = @places.variables.transform_values { |address| word(address) }
 
-          # The sprites the game placed in its last pass (Runtime::Picture::DRAWN), back to front: the
-          # runtime writes them front-most first, as the console draws them.
-          def read_sprites
-            at = runtime_place(Runtime::Picture::DRAWN)
-            count = @core.bus_read8(at)
-            rows = Array.new(count) do |i|
-              place = at + 1 + (i * Runtime::Picture::DRAWN_BYTES)
-              whose, picture, x, y = [[0, 1], [1, 2], [3, 2], [5, 2]].map { |from, width| little(place + from, width) }
-              line = "sprite #{whose - 1} #{picture} #{signed16(x)} #{signed16(y)}"
-              @drawn_sprites.row_from(line)
-            end
-            rows.reverse
-          end
+          # The sprites the game placed in its last pass, back to front (GBC::Places#drawn_sprite_rows).
+          def read_sprites = @places.drawn_sprite_rows(@drawn_sprites, @core.method(:bus_read8))
 
           # The +width+ bytes at +address+ as one number, lowest byte first, as the Color keeps them.
           def little(address, width) = (0...width).sum { |i| @core.bus_read8(address + i) << (8 * i) }
-          def signed16(value) = value >= 0x8000 ? value - 0x10000 : value
 
           def read_lists
             @places.lists.to_h do |name, (address, _capacity, width, _label)|

@@ -12,6 +12,7 @@ require_relative "diagnostics/func_dumper"
 require_relative "diagnostics/emulator" # the one seam to the emulator backend; swap emulators here
 require_relative "diagnostics/recorded_sound" # the sound of a run, the older part of it in a scratch file
 require_relative "diagnostics/verifier" # ...and reading real pixels and real sound back through it
+require_relative "diagnostics/gbc_verifier" # ...and what a Game Boy Color cartridge keeps its own way
 require_relative "diagnostics/tearing"
 require_relative "diagnostics/flicker"
 require_relative "diagnostics/tick_rate"

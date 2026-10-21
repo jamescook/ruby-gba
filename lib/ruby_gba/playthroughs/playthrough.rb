@@ -122,7 +122,7 @@ module RubyGBA
       # handed over is as it was afterwards and can start another.
       def self.power_on(cartridge, save: nil)
         cartridge = cartridge_from(cartridge)
-        Diagnostics::Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses, save: save&.dup)
+        Diagnostics::Verifier.for(cartridge, frames: 0, vars: cartridge.var_addresses, save: save&.dup)
       end
 
       # A CONSOLE SWITCHED ON AND BROUGHT TO WHERE PLAYING SHOULD BEGIN: holding +save+, and

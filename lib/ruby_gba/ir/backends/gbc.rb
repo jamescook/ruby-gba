@@ -44,7 +44,28 @@ module RubyGBA
         # every variable by the game's name, every list (its place, its capacity, its slot width),
         # where the runtime keeps how the run stands (Runtime::Frame's names), and where every
         # label of the code went (the Linker's places), for a profile to say whose time it was.
-        Places = Data.define(:variables, :lists, :runtime, :source_program, :code)
+        Places = Data.define(:variables, :lists, :runtime, :source_program, :code) do
+          # THE SPRITES THE GAME PLACED IN ITS LAST PASS, as the interpreter says them
+          # (Reference#sprites): who each is, which picture it shows and where, back to front. The
+          # runtime keeps them in a table of its own (Runtime::Picture::DRAWN), front-most first as
+          # the console draws them, so anything reading a running cartridge asks the same of it.
+          # +drawn+ is a Native::DrawnSprites of the program, which turns the table's numbers into
+          # names; +read8+ reads one byte of the running cartridge's memory, given its address.
+          def drawn_sprite_rows(drawn, read8)
+            at = runtime.fetch(Runtime::Picture::DRAWN)
+            little = ->(address, width) { (0...width).sum { |i| read8.call(address + i) << (8 * i) } }
+            signed16 = ->(value) { value >= 0x8000 ? value - 0x10000 : value }
+            rows = Array.new(read8.call(at)) do |i|
+              place = at + 1 + (i * Runtime::Picture::DRAWN_BYTES)
+              whose, picture, x, y = [[0, 1], [1, 2], [3, 2], [5, 2]].map { |from, width| little.call(place + from, width) }
+              drawn.row_from("sprite #{whose - 1} #{picture} #{signed16.call(x)} #{signed16.call(y)}")
+            end
+            rows.reverse
+          end
+
+          # Where the runtime counts the times the game has waited for the screen (32 bits).
+          def waits_counted_at = runtime.fetch(Runtime::Frame::PASSES)
+        end
 
         # +program+ as a cartridge (Cartridge::GBCROM), carrying its Places.
         def build(program, title: "RUBYGBA")
