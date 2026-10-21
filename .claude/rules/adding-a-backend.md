@@ -46,11 +46,12 @@ a console of its own needs beyond a lowering:
 - **Its own cartridge, emulator reading and profiler** (`Cartridge::GBCROM`,
   `Diagnostics::GBCProfiler`): the Advance's never learn about it.
 
-`GBC::Lowering < Native::Lowering` starts from the native statements like the JavaScript one,
-and swaps in its own picture and sound (`GBC::Picture`, `GBC::Sound`), since the Color draws
-with tiles and sprites alone; `GBC::Compiler` turns the statements into SM83 code and its runtime
-is written in SM83 through the Ruby assembler (`GBC::SM83`). The comment atop `Backends::GBC`
-says the rest.
+`GBC::Lowering` is a peer of the GBA lowering, not of the native one: it walks the IR and emits
+SM83 machine code itself (its picture and sound in `GBC::Lowering::Picture` and
+`GBC::Lowering::Sound`), through the Ruby assembler (`GBC::SM83`), calling a runtime written in
+SM83 the same way. It shares with the other lowerings only what the IR says (`IR::Reach`,
+`IR::Frames`, `IR::SceneHandover`, `IR::SaveLayout`), never another lowering's code. The comment
+atop `Backends::GBC` says the rest.
 
 ## Start from the native lowering's statements
 

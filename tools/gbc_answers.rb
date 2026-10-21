@@ -6,5 +6,5 @@
 require_relative "../lib/ruby_gba"
 
 path = RubyGBA.root.join(".claude/dsl/game-boy-color.md")
-File.write(path, RubyGBA::Console::GBCFeatures.reference(not_yet: RubyGBA::IR::Backends::GBC::StatementLowering::NOT_LOWERED_YET))
+File.write(path, RubyGBA::Console::GBCFeatures.reference(not_yet: RubyGBA::IR::Backends::GBC::Lowering::NOT_LOWERED_YET))
 puts "Wrote #{path.relative_path_from(RubyGBA.root)}"

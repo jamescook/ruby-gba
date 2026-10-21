@@ -48,7 +48,7 @@ module RubyGBA
 
           # Raised when the game keeps more than there is room for. It is the game's to fix, so it
           # is a refusal like the lowering's others, said to the author in the same way.
-          class Full < Native::LoweringError; end
+          class Full < LoweringError; end
 
           attr_reader :scratch
 

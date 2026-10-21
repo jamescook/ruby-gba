@@ -43,7 +43,7 @@ module RubyGBA
           # pictures too big for the part always in view, or one of them bigger than a bank. It is
           # the game's to fix, so it is a refusal like the lowering's others (see Memory::Full),
           # and it names the game's parts by what they are, never by the sections they went in.
-          class TooBig < Native::LoweringError; end
+          class TooBig < LoweringError; end
 
           # Where each section went: its bank and the address of its first byte.
           Placed = Data.define(:section, :bank, :address)

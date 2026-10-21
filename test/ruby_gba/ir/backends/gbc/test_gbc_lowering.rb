@@ -2,17 +2,16 @@
 
 require "test_helper"
 
-# THE COLOR'S LOWERING, the IR straight to SM83 (GBC::Lowering). Each game here is built by it —
-# the cartridge carries its `main`, which the statement path never names — and played as a Color
-# cartridge against the interpreter after every pass (GBC::CheckedRun), so a variable that differs
-# anywhere fails the test besides what it asserts.
+# THE COLOR'S LOWERING, the IR straight to SM83 (GBC::Lowering). Each game here is built by it and
+# played as a Color cartridge against the interpreter after every pass (GBC::CheckedRun), so a
+# variable or a pixel that differs anywhere fails the test besides what it asserts.
 class TestGBCLowering < Minitest::Test
   GBC = RubyGBA::IR::Backends::GBC
 
-  def test_game_of_numbers_alone_is_lowered_straight_to_sm83
-    assert GBC::Lowering.makes?(program { var :n, 1 })
-    assert GBC::Lowering.makes?(program { clear_screen :blue })
-    refute GBC::Lowering.makes?(program { camera 3, 4 }), "a camera on a painted screen is not made yet"
+  def test_step_not_made_yet_is_refused_by_name
+    error = assert_raises(GBC::LoweringError) { GBC.new.build(program { camera 3, 4 }) }
+
+    assert_match(/:camera, which the Game Boy Color build cannot make yet \(the picture\)/, error.message)
   end
 
   # A tiled screen: a background, a sprite moved by a held button and drawn from another colour
@@ -41,7 +40,6 @@ class TestGBCLowering < Minitest::Test
       end
     end
 
-    assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
     GBC::CheckedRun.new.hold(:right).run(game, frames: 12)
   end
 
@@ -72,7 +70,6 @@ class TestGBCLowering < Minitest::Test
       end
     end
 
-    assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
     run = GBC::CheckedRun.new.hold(:a).run(game, frames: 12)
     assert_equal 4, run[:beats]
     assert_operator run[:which], :>, 2, "the call picked past the end of its list called nothing and went on"
@@ -105,7 +102,6 @@ class TestGBCLowering < Minitest::Test
       end
     end
 
-    assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
     run = GBC::CheckedRun.new.run(game, frames: 10)
     assert_equal 5, run.list(:trail).length
   end
@@ -130,7 +126,6 @@ class TestGBCLowering < Minitest::Test
       end
     end
 
-    assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
     store = SaveImage.new
     run = GBC::CheckedRun.new(save: store).run(game, frames: 40)
     assert_equal 9, run[:loaded]
@@ -152,7 +147,6 @@ class TestGBCLowering < Minitest::Test
       game_loop { set! :seen, slow.ticks }
     end
 
-    assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
     run = GBC::CheckedRun.new.run(game, frames: 30)
     assert_equal 21, run[:fast_count], "stopped on the 20th tick, the first of a frame's two, and the second still ran"
   end
@@ -178,7 +172,6 @@ class TestGBCLowering < Minitest::Test
       end
     end
 
-    assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
     GBC::CheckedRun.new.run(game, frames: 12)
   end
 
@@ -196,7 +189,6 @@ class TestGBCLowering < Minitest::Test
       console: :gbc
     )
 
-    assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
     run = GBC::CheckedRun.new.run(game, frames: 6)
     assert_equal 250, run[:third]
   end

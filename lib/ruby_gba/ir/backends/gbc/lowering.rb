@@ -24,8 +24,8 @@ module RubyGBA
         # part of the cartridge always in view; routines go in the banks, and one in another bank is
         # called through bank 0 (Runtime::Calls's rt_far_call).
         #
-        # It makes the kinds in its two tables so far. GBC#build hands any other program to the
-        # statement path (StatementLowering) until this one makes it too.
+        # It makes the kinds in its two tables, and refuses by name a program that reaches one it does
+        # not make yet (NOT_LOWERED_YET) or one a Color cannot do at all (REFUSED).
         class Lowering
           STATEMENTS = Ractor.make_shareable({
                                                program: :emit_children, set: :emit_set, add: :emit_add,
@@ -61,6 +61,19 @@ module RubyGBA
 
           include Picture
           include Sound
+
+          # EVERY KIND THIS LOWERING CANNOT MAKE YET, by what it is part of. A kind leaves the list the
+          # day the Color does it; test_gbc_kind_coverage.rb holds the list and the tables above to
+          # every kind there is.
+          NOT_LOWERED_YET = Ractor.make_shareable({
+            "the picture" => %i[camera scroll_rows shade_outside set_tile show_map background_colors
+                                copy_tiles copy_owed_tiles pixelate],
+            "sound" => %i[play_from_list play_sound_effect play_sample stop_sample]
+          })
+
+          # The kinds the Color cannot do at all, refused in the words its answers have
+          # (#refuse_color_answer_errors!): a layer seen through another.
+          REFUSED = %i[see_through].freeze
 
           # How many bytes of save memory a read or a write moves, by the width it names.
           SAVE_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4 })
@@ -129,20 +142,6 @@ module RubyGBA
           # The routine the game names +name+.
           def self.routine_label(name) = "routine #{name}"
 
-          # Whether this lowering makes every step a run of +program+ can reach.
-          def self.makes?(program)
-            handlers = Nodes::OnTimer.of(program).values
-            kinds = Reach.statements_from(program, *reached_routines(program), *handlers).map(&:kind)
-            kinds.all? { |kind| STATEMENTS.key?(kind) || VALUES.key?(kind) || kind == :else }
-          end
-
-          # The routines a run of +program+ can reach, from the program and from what each timer does
-          # when it ticks.
-          def self.reached_routines(program)
-            funcs = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
-            Reach.routines(program, also: Nodes::OnTimer.of(program).values).map { |name| funcs.fetch(name) }
-          end
-
           # Where each of the game's variables went, by its name, and each of its lists — [its place,
           # its capacity, the bytes a slot, its name] — once #sections has placed them; and the label
           # of the routine the runtime runs at each frame boundary, or nil for a game with no timers.
@@ -183,6 +182,7 @@ module RubyGBA
           # The game's code, as sections for the Linker: its data, every routine a run can reach, and
           # the program itself.
           def sections
+            refuse_unlowered_kinds!
             refuse_color_answer_errors!
             refuse_unsupported_save_memory!
             refuse_too_many_paint_colors!
@@ -211,6 +211,25 @@ module RubyGBA
           private
 
           # --- refusals ---
+
+          # What a run can reach and this lowering cannot make, refused by name before anything is
+          # made: a step that only means something on the Advance, and one the Color does not do
+          # yet. A step in a routine nothing calls never runs, and is not refused.
+          def refuse_unlowered_kinds!
+            kinds = @reachable.map(&:kind).uniq
+            hardware = kinds.select { |kind| Portability.hardware_only?(kind) }
+            unless hardware.empty?
+              raise LoweringError, "this program uses #{hardware.map(&:inspect).join(', ')}, which only means " \
+                                   "something on the Game Boy Advance, so the Game Boy Color build cannot make it."
+            end
+
+            missing = NOT_LOWERED_YET.select { |_, listed| listed.intersect?(kinds) }
+            return if missing.empty?
+
+            uses = missing.values.flatten & kinds
+            raise LoweringError, "this program uses #{uses.map(&:inspect).join(', ')}, which the Game Boy Color build " \
+                                 "cannot make yet (#{missing.keys.join(', ')})."
+          end
 
           # What a Color cannot do at all, refused as a game's build refuses it (Checks::ColorAnswers).
           # A program handed straight to a lowering, as a test's is, never passes the build's checks.

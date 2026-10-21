@@ -19,7 +19,7 @@ require "prism"
 # silence. So the claim is a test now: reach into Registers from outside the lowerings that write
 # cartridges and this fails, naming the file and what it asked for. The Game Boy Color's voices
 # are the ones the Advance kept from it, so its lowering asks for the Advance's writes and says
-# each again for its own registers (GBC::Sound).
+# each again for its own registers (GBC::SoundRegisters).
 class TestRegistersSeam < Minitest::Test
   LIB = RubyGBA.root.join("lib").to_s
 

@@ -1,16 +1,24 @@
 # frozen_string_literal: true
 
+module RubyGBA
+  module IR
+    module Backends
+      class GBC
+        # Raised when a program cannot be made into a Game Boy Color cartridge: it reaches something
+        # the Color cannot do, or something its build does not make yet, or it is too big for the
+        # cartridge or its memory. Said to the author in plain words.
+        class LoweringError < StandardError; end
+      end
+    end
+  end
+end
+
 require_relative "gbc/sm83"
 require_relative "gbc/linker"
 require_relative "gbc/memory"
 require_relative "gbc/runtime"
 require_relative "gbc/art"
-require_relative "gbc/picture"
-require_relative "gbc/sound"
-require_relative "gbc/timers"
 require_relative "gbc/music"
-require_relative "gbc/compiler"
-require_relative "gbc/statement_lowering"
 require_relative "gbc/sound_registers"
 require_relative "gbc/lowering/picture"
 require_relative "gbc/lowering/sound"
@@ -25,13 +33,12 @@ module RubyGBA
       # to the SM83, the Color's 8-bit processor, and laid out in a cartridge with a memory bank
       # controller.
       #
-      # HOW IT IS MADE. The native lowering already says a program as a small tree of statements
-      # and calls into a runtime, with no operator anywhere on a game's number (see the comment
-      # atop Native); GBC::StatementLowering builds that same tree, and GBC::Compiler turns it into SM83
-      # machine code rather than text. The runtime the calls go to (runtime/*.rb) is written in
-      # SM83 here, in Ruby, the way the GBA lowering writes its ARM: the arithmetic of IR::Int32 a
-      # byte at a time (Runtime::Int32), the frame and the buttons, the lists, and the console's
-      # own picture and sound.
+      # HOW IT IS MADE. GBC::Lowering walks the IR and emits SM83 machine code, as the GBA lowering
+      # emits ARM, sharing only what the IR itself says with the other lowerings (IR::Reach,
+      # IR::Frames, IR::SceneHandover and the rest). The runtime the code calls (runtime/*.rb) is
+      # written in SM83 here, in Ruby: the arithmetic of IR::Int32 a byte at a time
+      # (Runtime::Int32), the frame and the buttons, the lists, and the console's own picture and
+      # sound.
       #
       # What the picture is made of is the Color's, not the Advance's: a background of tiles of
       # four colours, forty sprites, eight lists of colours of each kind. What a game asks for that
@@ -42,9 +49,6 @@ module RubyGBA
       # interpreter, given the Color's screen, and comparing every variable, list and pixel after
       # every pass of the game loop (GBC::CheckedRun).
       class GBC
-        # Raised when a program cannot be made into a Game Boy Color cartridge.
-        LoweringError = Native::LoweringError
-
         # WHERE A RUNNING CARTRIDGE KEEPS WHAT A READER WANTS, which nothing in its bytes says:
         # every variable by the game's name, every list (its place, its capacity, its slot width),
         # where the runtime keeps how the run stands (Runtime::Frame's names), and where every
@@ -72,12 +76,8 @@ module RubyGBA
           def waits_counted_at = runtime.fetch(Runtime::Frame::PASSES)
         end
 
-        # +program+ as a cartridge (Cartridge::GBCROM), carrying its Places: lowered straight to SM83
-        # (Lowering) when that makes every step a run can reach, and through the statement path
-        # (StatementLowering) until it does.
+        # +program+ as a cartridge (Cartridge::GBCROM), carrying its Places.
         def build(program, title: "RUBYGBA")
-          return build_from_statements(program, title: title) unless Lowering.makes?(program)
-
           memory = Memory.new
           lowering = Lowering.new(program, memory: memory)
           # The runtime's places first, so they are in the half of work memory always in view.
@@ -94,31 +94,6 @@ module RubyGBA
         end
 
         private
-
-        def build_from_statements(program, title:)
-          lowering = StatementLowering.new(program, title: title)
-          statements = lowering.top_level
-          memory = Memory.new
-          # The runtime's places first, so they are in the half of work memory always in view.
-          Runtime.reserve(memory, art: lowering.art)
-          compiled = Compiler.new(memory: memory).compile(statements)
-          level = lowering.music_level_name&.then { |text| compiled.globals.fetch(text) }
-          runtime = Runtime.sections(memory, main: "game_#{lowering.main_routine}", art: lowering.art,
-                                             music_level: level, songs: lowering.music.any?,
-                                             frame_begins: lowering.timer_frame_routine&.then { |name| "game_#{name}" })
-          data = [*lowering.art.sections, *(lowering.music.any? ? [lowering.music.section] : [])]
-          linked = Linker.new(runtime + compiled.sections + data, fixed_from: Console::GBCHardware::HEADER_END).link
-          save_bytes = Native::Saving.named_by?(program) ? Runtime::Saving::SIZE : 0
-          Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: save_bytes,
-                                              built: places(lowering, compiled, memory, program, linked))
-        end
-
-        def places(lowering, compiled, memory, program, linked)
-          variables = lowering.variable_names_in_statements.transform_values { |text| compiled.globals.fetch(text) }
-          lists = lowering.list_names_in_statements.transform_values { |text| compiled.lists.fetch(text) }
-          Places.new(variables: variables, lists: lists, runtime: runtime_places(memory), source_program: program,
-                     code: linked.places)
-        end
 
         # Where the runtime keeps how the run stands (Runtime::Frame's names and the rest).
         def runtime_places(memory) = memory.places.select { |name, _| name.start_with?("rt ") }
