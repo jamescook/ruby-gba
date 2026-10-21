@@ -27,14 +27,20 @@ class TestGBCKindCoverage < Minitest::Test
     assert_equal not_yet.uniq, not_yet
   end
 
-  # Every statement of the picture and the sound is either one the Color makes or one it says it
-  # does not make yet: none slips through to a runtime call the cartridge has no routine for. (A
-  # declaration — a sprite, a song — is made by the statements that use it.)
+  # Every statement of the picture and the sound is one the Color makes, one it says it does not
+  # make yet, or one it refuses because a Color cannot do it: none slips through to a runtime call
+  # the cartridge has no routine for. (A declaration — a sprite, a song — is made by the statements
+  # that use it.)
   def test_every_kind_of_the_picture_and_the_sound_is_made_or_listed
     steps = (Nodes.of_role(:statement) + Nodes.of_role(:value)).reject { |kind| Portability.hardware_only?(kind) }
-    picture_and_sound = steps.select { |kind| %i[draw sound].include?(Nodes.by_kind.fetch(kind).category) }
+    categories = %i[draw sound]
+    picture_and_sound = steps.select { |kind| categories.include?(Nodes.by_kind.fetch(kind).category) }
 
-    assert_empty picture_and_sound - not_yet - Lowering::MADE
+    assert_empty picture_and_sound - not_yet - Lowering::MADE - Lowering::REFUSED
+  end
+
+  def test_no_kind_is_both_refused_and_not_made_yet
+    assert_empty Lowering::REFUSED & not_yet
   end
 
   # The conformance fixture touches every kind, so building it names everything not made yet.

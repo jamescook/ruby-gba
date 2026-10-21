@@ -72,7 +72,10 @@ module RubyGBA
             case node.kind
             when :raw then [:entry, "This line hands the Advance's processor raw instructions (`entry`)"]
             when :shade_outside then [:spotlight, "This game has a light (`spotlight`)"]
-            when :see_through then [:layers, "This game shows one layer through another (`transparency:`)"]
+            # The layers' declaration, which every see-through layer is in: one whose amounts are
+            # written in the program is told to the console once and has no step of its own.
+            when :layers
+              [:layers, "This game shows one layer through another (`transparency:`)"] unless node.see_through.empty?
             when :camera then [:camera, "This line moves a camera over a painted picture"]
             when :sample, :play_sample then [:sample, "This game plays a recording"]
             when :held, :pressed

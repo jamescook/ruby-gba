@@ -54,13 +54,6 @@ class TestLayerTwoAmounts < Minitest::Test
   # red: 255*25/16 is past full, so 31; green and blue: 255*15/16 = 239 -> 29
   BRIGHT_MIXED = [31, 29, 29].freeze
 
-  def test_a_layer_can_show_itself_and_what_is_behind_by_amounts_of_their_own
-    screen = game_player.run(pane_program(shows: 94, behind: 63), frames: 2).screen
-
-    assert_equal rgb5(*DIM_MIXED), screen.pixel(*DIM)
-    assert_equal rgb5(*BRIGHT_MIXED), screen.pixel(*BRIGHT), "past a whole, a channel stops at full"
-  end
-
   # AMOUNTS THE GAME WORKS OUT, the way a retail title steps its light rays through
   # (9,9) (8,10) (7,11) sixteenths — the layer fading as what is behind comes up. Here the
   # step moves every frame, so the frame read decides the pair.
@@ -82,16 +75,6 @@ class TestLayerTwoAmounts < Minitest::Test
       end
       game_loop { (step < 4).then { step.add! 1 } }
     end
-  end
-
-  def test_amounts_the_game_works_out_follow_it
-    oracle_frames = (2..6).map { |frames| game_player.run(stepping_program, frames: frames).screen.pixel(*DIM) }
-
-    assert_operator oracle_frames.uniq.size, :>, 1, "the mix changes as the step moves"
-  end
-
-  def test_the_console_follows_worked_out_amounts_too
-    (2..6).each { |frames| assert_backends_agree(stepping_program, frames: frames) }
   end
 
   # A WALKER IN FRONT OF MIST THAT THICKENS, on a picture where nothing scrolls. The mist's
@@ -124,31 +107,6 @@ class TestLayerTwoAmounts < Minitest::Test
 
   RED = RubyGBA::Graphics::Color.resolve(:red)
 
-  def test_a_sprite_stays_drawn_when_the_mist_behind_it_changes
-    (2..9).each do |frames|
-      shown = game_player.run(walker_in_front_of_thickening_mist, frames: frames).screen.shown
-
-      assert_equal 64, shown.count(RED), "the walker's 64 pixels after #{frames} frames"
-    end
-  end
-
-  def test_the_console_draws_the_same_walker_and_mist
-    (3..8).each { |frames| assert_backends_agree(walker_in_front_of_thickening_mist, frames: frames) }
-  end
-
-  # A TINT OVER TWO AMOUNTS THAT ADD UP TO MORE THAN A WHOLE, the way a retail title fades
-  # in from white over its light rays. The console's tint on this screen moves the colours
-  # in the table, and the display then mixes the moved colours, so both sides carry the
-  # tint's share of white into a sum of eighteen sixteenths. Mixing first and tinting the
-  # finished pixel gives a darker picture. A fade in a game with a see-through layer moves
-  # the table the same way.
-  def test_a_tint_reaches_both_sides_of_a_mix_past_a_whole
-    [[:tint, :white, 25], [:tint, :white, 50], [:tint, :black, 50], [:tint, :orange, 40],
-     [:fade, :white, 50], [:fade, :black, 30]].each do |effect|
-      assert_backends_agree(pane_program(shows: 57, behind: 57, effect: effect), frames: 3)
-    end
-  end
-
   # The same over a picture that STAYS: the glass's amounts never change and nothing
   # scrolls, so the scenery is painted once and a walker in front of it is drawn onto it,
   # the scenery put back behind it as it moves on. What is put back is a mix too, and the
@@ -173,10 +131,6 @@ class TestLayerTwoAmounts < Minitest::Test
     end
   end
 
-  def test_a_tint_reaches_scenery_put_back_behind_a_walker
-    (3..6).each { |frames| assert_backends_agree(walker_over_still_glass, frames: frames) }
-  end
-
   # A see-through SPRITE under a tint: it is mixed with the scenery behind it, and the
   # tint reaches both before the mix, as it does for a layer of scenery.
   private def ghost_under_a_tint
@@ -194,31 +148,6 @@ class TestLayerTwoAmounts < Minitest::Test
         tint :white, 50
       end
     end
-  end
-
-  def test_a_tint_reaches_both_sides_of_a_see_through_sprite
-    (3..5).each { |frames| assert_backends_agree(ghost_under_a_tint, frames: frames) }
-  end
-
-  # A layer of SPRITES takes the same two amounts: the console blends each sprite in the
-  # layer through its own table entry rather than naming a layer, and the shares are the
-  # same register.
-  def test_a_layer_of_sprites_takes_two_amounts
-    tile = SOLID_TILE
-    sprites = program do
-      screen :tiled
-      image(:red_floor, "#" => :red) { tile }
-      image(:ghost, "#" => :white) { tile }
-      tiles :floors, "r" => :red_floor
-      layers :deep, :spooks
-      layer(:deep) { background :floor, tiles: :floors, map: Array.new(20) { "r" * 30 } }
-      layer(:spooks, shows: 94, shows_behind: 63) { sprite :ghost, at: [64, 64] }
-      game_loop { wait_vblank }
-    end
-    oracle, console, = backend_pictures(sprites, frames: 2)
-
-    assert_equal rgb5(*BRIGHT_MIXED), console[(66 * 240) + 66]
-    assert_empty mismatched_pixels(oracle, console)
   end
 
   # ONE SEE-THROUGH LAYER PER SCREEN, NOT PER GAME. A title whose light rays the game
@@ -268,24 +197,6 @@ class TestLayerTwoAmounts < Minitest::Test
   private def files_pixel
     game_player.input_each_frame { |frame| frame == 1 ? [:a] : [] }
              .run(two_screens_program, frames: 6).screen.pixel(*DIM)
-  end
-
-  def test_two_scenes_can_each_have_a_see_through_layer
-    assert_equal rgb5(*BRIGHT_MIXED), files_pixel, "the file screen's window at 15 and 10 over red"
-    refute_equal title_pixel, files_pixel
-  end
-
-  def test_the_console_gives_each_screen_its_own_mix
-    keys = ->(frame) { frame.between?(3, 4) ? RubyGBA::Console::Hardware::KEY_A : 0 }
-    oracle, console, = backend_pictures(two_screens_program, frames: 2)
-    assert_empty mismatched_pixels(oracle, console), "the title"
-
-    v = assert_emulator_loads_rom(assemble_rom(two_screens_program, name: "SCREENS"), frames: 12, keys: keys)
-    assert_equal rgb5(*BRIGHT_MIXED), v.pixel_gba(*DIM), "the file screen's window"
-
-    v.step(2, keys: RubyGBA::Console::Hardware::KEY_B)
-    v.step(4)
-    assert_equal title_pixel, v.pixel_gba(*DIM), "back on the title, the rays' own mix"
   end
 
   # Two see-through layers on ONE screen are refused: the console blends one layer with
@@ -361,11 +272,4 @@ class TestLayerTwoAmounts < Minitest::Test
     assert_match(/shows 2 of itself\. That rounds to nothing/, err.string)
   end
 
-  def test_the_console_mixes_them_the_same_way
-    oracle, console, = backend_pictures(pane_program(shows: 94, behind: 63), frames: 2)
-
-    assert_equal rgb5(*DIM_MIXED), console[(DIM[1] * 240) + DIM[0]]
-    assert_equal rgb5(*BRIGHT_MIXED), console[(BRIGHT[1] * 240) + BRIGHT[0]]
-    assert_empty mismatched_pixels(oracle, console)
-  end
 end

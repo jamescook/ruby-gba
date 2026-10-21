@@ -28,7 +28,24 @@ class TestColorAnswers < Minitest::Test
     game_loop { wait_vblank }
   end
 
+  # A layer seen through by an amount written in the program is told to the console once, at boot,
+  # so there is no step of the game's for it: only the layers' declaration says it.
+  GHOST = RubyGBA.game("GHOST", consoles: %i[gba gbc]) do
+    screen :tiled
+    image(:ghost, "#" => :white) { "########\n" * 8 }
+    layers :world, :ghosts
+    layer(:ghosts, transparency: 40) { sprite :ghost, at: [40, 40] }
+    game_loop { wait_vblank }
+  end
+
   private def findings(game, console) = CHECK.detect(game.program(console: console))
+
+  def test_a_layer_seen_through_by_a_fixed_amount_is_refused_in_plain_words
+    found = findings(GHOST, :gbc)
+
+    assert_equal [:error], found.map(&:severity)
+    assert_match(/`transparency:`/, found.first.message)
+  end
 
   def test_a_turning_screen_and_background_are_warned_of_once_each
     found = findings(TURNING, :gbc)
@@ -54,7 +71,7 @@ class TestColorAnswers < Minitest::Test
   end
 
   def test_the_advances_build_hears_nothing
-    [TURNING, SHOULDERS, CROWDED].each { |game| assert_empty findings(game, :gba) }
+    [TURNING, SHOULDERS, CROWDED, GHOST].each { |game| assert_empty findings(game, :gba) }
   end
 
   def test_a_color_build_stops_on_a_refusal

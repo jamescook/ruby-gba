@@ -169,6 +169,20 @@ module RubyGBA
             call("rg_add", C::Int.new(plain), call("rg_mul", call("rg_ne", value(showing), C::Int.new(0)), C::Int.new(other - plain)))
           end
 
+          # A Color has no way to mix one layer with another (Console::GBCFeatures). A layer seen
+          # through by an amount written in the program has no step of the game's — it is told to the
+          # console once — so the layers' declaration is where it is found.
+          def refuse_see_through_layers!
+            layers = @program.walk.find { |node| node.kind == :layers && !node.see_through.empty? }
+            return unless layers
+
+            names = layers.see_through.map { |layer| layer.name.inspect }
+            which = names.one? ? "the layer #{names.first}" : "the layers #{names.join(', ')}"
+            raise LoweringError, "this game shows other layers through #{which} (`transparency:`). A Game Boy Color " \
+                                 "cannot show one layer through another. To fix this, remove `transparency:`, or " \
+                                 "make the game for the Advance only."
+          end
+
           # --- backgrounds ---
 
           # Reference#exec_background: a scene's own scenery goes up as the scene arrives, not here;

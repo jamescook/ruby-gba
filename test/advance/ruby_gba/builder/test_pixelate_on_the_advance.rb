@@ -217,4 +217,26 @@ class TestPixelateOnTheAdvance < Minitest::Test
     [2, 5, 16].each { |size| assert_backends_agree(painted_screen { pixelate size }, name: "PAINT#{size}") }
   end
 
+
+  # A see-through layer is mixed with what is behind it after each has been put into blocks.
+  def test_a_see_through_layer_is_in_blocks_before_it_is_mixed
+    misty = lambda do |size|
+      program do
+        screen :tiled
+        layers :world, :mist, :actors
+        image(:stripes, "#" => :red, "." => :blue) { STRIPES }
+        image(:steps, "#" => :green, "." => :transparent) { STEPS }
+        image(:patch, PATCH_COLORS) { PATCH }
+        tiles :far, "a" => :stripes
+        tiles :near, "b" => :steps
+        layer(:world) { background :far, tiles: :far, map: ["a" * 32] * 32 }
+        layer(:mist, transparency: 40) { background(:near, tiles: :near, map: ["b" * 32] * 32).scroll_to 3, 2 }
+        layer(:actors) { sprite :hero, at: [37, 21], facing: { right: :patch } }
+        pixelate size
+        game_loop {}
+      end
+    end
+
+    [3, 8].each { |size| assert_backends_agree(misty.call(size), frames: 3, name: "MIST#{size}") }
+  end
 end

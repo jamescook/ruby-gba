@@ -21,9 +21,13 @@ module RubyGBA
           NOT_LOWERED_YET = Ractor.make_shareable({
             "the picture" => %i[inside camera blit blit_pose draw_column_at save_region restore_region
                                 scroll_rows shade_outside set_tile show_map background_colors
-                                copy_tiles copy_owed_tiles pixelate see_through],
+                                copy_tiles copy_owed_tiles pixelate],
             "sound" => %i[play_from_list play_sound_effect play_sample stop_sample]
           })
+
+          # The kinds the Color cannot do at all, each refused in words of its own: a layer seen
+          # through another (Picture#refuse_see_through_layers!).
+          REFUSED = %i[see_through].freeze
 
           # The kinds of the picture and the sound the Color makes, which come off NOT_LOWERED_YET as
           # each is made.
@@ -51,6 +55,7 @@ module RubyGBA
           # routines a call by number picks from, and every routine, the program itself last.
           def top_level
             refuse_unlowered_kinds!
+            refuse_see_through_layers!
             refuse_too_many_paint_colors!
             refuse_unsupported_save_memory!
             refuse_routines_that_call_themselves!

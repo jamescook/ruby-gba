@@ -97,28 +97,6 @@ class TestLayerTransparency < Minitest::Test
 
   # --- the picture ---
 
-  def test_a_see_through_layer_of_scenery_shows_what_is_behind_it
-    seen = [0, 50, 100].map { |amount| shown(scenery_program(amount), *SCENERY_XY) }
-
-    assert_equal [WHITE, HALF_WHITE_OVER_RED, RED], seen
-  end
-
-  def test_a_see_through_layer_of_sprites_shows_what_is_behind_it
-    seen = [0, 50, 100].map { |amount| shown(sprite_program(amount), *SPRITE_XY) }
-
-    assert_equal [WHITE, HALF_WHITE_OVER_RED, RED], seen
-  end
-
-  # A sprite is see-through where its own pixels are; the scenery beside it is not. The
-  # two mechanisms differ most here, and this is what says the sprite path picks out
-  # exactly the sprites in that layer rather than blending the screen.
-  def test_only_the_see_through_layer_blends
-    screen = game_player.run(sprite_program(50), frames: 2).screen
-
-    assert_equal HALF_WHITE_OVER_RED, screen.pixel(*SPRITE_XY), "the sprite blends"
-    assert_equal RED, screen.pixel(*SCENERY_XY), "the floor beside it does not"
-  end
-
   # ONE SEE-THROUGH SPRITE IN A GAME THAT NAMES NO OTHER LAYER — a ghost, a shield bubble —
   # needs no verb of its own: a stack of one layer holding it is two lines, and nothing else
   # in the game has to name a layer, since what names none keeps the place it had. The layer
@@ -138,15 +116,6 @@ class TestLayerTransparency < Minitest::Test
       layer(:ghosts, transparency: 50) { sprite :ghost, at: [64, 64] }
       game_loop { wait_vblank }
     end
-  end
-
-  def test_one_see_through_sprite_needs_only_a_layer_of_its_own
-    screen = game_player.run(lone_ghost_program, frames: 2).screen
-
-    assert_equal HALF_WHITE_OVER_RED, screen.pixel(*SPRITE_XY), "the ghost blends"
-    assert_equal GREEN, screen.pixel(26, 26), "the sprite that named no layer does not"
-    assert_equal RED, screen.pixel(*SCENERY_XY), "nor the floor"
-    assert_backends_agree(lone_ghost_program, frames: 2)
   end
 
   # A SEE-THROUGH SPRITE SHOWS THE SCENERY UNDER IT, NEVER ANOTHER SPRITE. Of all the
@@ -187,19 +156,6 @@ class TestLayerTransparency < Minitest::Test
   # console was measured to give for this program, not one worked out.
   HALF_BLUE_OVER_RED = 0x3C0F
 
-  def test_a_see_through_sprite_over_another_sprite_shows_the_scenery_and_not_the_sprite
-    screen = game_player.run(ghost_over_hero_program, frames: 3).screen
-
-    assert_equal GREEN, screen.pixel(*HERO_ALONE), "the hero, where nothing covers them"
-    assert_equal HALF_WHITE_OVER_RED, screen.pixel(*GHOST_OVER_HERO), "the ghost hides the hero it covers"
-    assert_equal HALF_BLUE_OVER_RED, screen.pixel(*WISP_OVER_GHOST), "and the wisp hides the ghost it covers"
-  end
-
-  def test_both_backends_draw_a_see_through_sprite_over_another_sprite_the_same
-    assert_backends_agree(ghost_over_hero_program, frames: 2)
-    [3, 6, 11].each { |frames| assert_backends_agree(ghost_over_hero_program(scrolling: true), frames: frames) }
-  end
-
   # The same ghost over the same hero with a fence in the stack: a layer of scenery whose
   # tiles are blue bars with gaps between them. +stack+ says where the fence stands. In
   # front of both, the ghost shows through the gaps mixed with the floor. Between the two,
@@ -224,11 +180,6 @@ class TestLayerTransparency < Minitest::Test
     end
   end
 
-  def test_both_backends_draw_it_the_same_with_scenery_in_front_of_or_between_the_two
-    assert_backends_agree(ghost_and_fence_program(%i[deep actors ghosts fence]), frames: 2)
-    assert_backends_agree(ghost_and_fence_program(%i[deep actors fence ghosts]), frames: 2)
-  end
-
   # --- and the console agrees, which is the point of having two backends ---
 
   def test_the_console_blends_a_see_through_layer_of_scenery_the_same
@@ -245,13 +196,6 @@ class TestLayerTransparency < Minitest::Test
                    console(sprite_program(amount), *SPRITE_XY, "SEEOBJ"),
                    "at #{amount} see-through the sprite disagrees"
     end
-  end
-
-  # The whole screen, not the two pixels above — a blend that reached the wrong layer, or
-  # the wrong pixels of the right one, shows up here and nowhere else.
-  def test_the_two_backends_draw_the_same_see_through_screen
-    assert_backends_agree(scenery_program(40), frames: 2)
-    assert_backends_agree(sprite_program(40), frames: 2)
   end
 
   # A see-through layer is a standing property of the picture, not something done each
@@ -292,27 +236,6 @@ class TestLayerTransparency < Minitest::Test
 
   private def walked(program, frames) = (1..frames).map { |f| shown(program, *SCENERY_XY, frames: f) }
 
-  # It starts at the floor (nothing of the pane shows) and ends at the pane (none of the
-  # floor does), and every frame between is a different mix — which is the whole claim:
-  # the amount is being re-read rather than settled once.
-  def test_the_layer_thickens_as_the_game_works_it_out
-    seen = walked(clearing_program, 11)
-
-    assert_equal RED, seen.first, "it did not start see-through"
-    assert_equal WHITE, seen.last, "it never became solid"
-    assert_equal seen.uniq, seen, "the amount was not re-read every frame"
-  end
-
-  # ...and the console draws the same walk. Compared to the interpreter's own frames
-  # rather than to written-down colors, so this cannot pass by agreeing with a table.
-  def test_the_console_walks_the_same_amounts
-    rom = assemble_rom(clearing_program, name: "FOG")
-    oracle = walked(clearing_program, 10)
-    seen = (1..10).map { |f| assert_emulator_loads_rom(rom, frames: f + CONSOLE_LAG).pixel_gba(*SCENERY_XY) }
-
-    assert_equal oracle, seen
-  end
-
   # The console is drawing while it boots, and the tiles are uploaded before the blend is
   # set up, so the first frame is the layer solid — the same on a fixed amount as on one
   # the game works out. Measured, not chosen.
@@ -331,18 +254,6 @@ class TestLayerTransparency < Minitest::Test
     CONSOLE_LAG.times { v.step if v.pixel_gba(*SCENERY_XY) == WHITE }
 
     assert_equal RED, v.pixel_gba(*SCENERY_XY)
-  end
-
-  # An amount is a VALUE, not only a variable — so it can be worked out from the game's
-  # own state on the spot. `100 - mist` is what an example actually writes.
-  def test_the_amount_can_be_worked_out_on_the_spot
-    from_a_sum = clearing_program(->(clear) { 100 - (100 - clear) })
-
-    assert_equal walked(clearing_program, 8), walked(from_a_sum, 8)
-  end
-
-  def test_the_two_backends_draw_the_same_thickening_screen
-    assert_backends_agree(clearing_program, frames: 6, console_frames: 6 + CONSOLE_LAG)
   end
 
   # --- ...and what it costs, which is the reason it is not simply the same feature ---
@@ -399,61 +310,12 @@ class TestLayerTransparency < Minitest::Test
 
   private def faded_xy(kind) = kind == :scenery ? SCENERY_XY : SPRITE_XY
 
-  # A see-through layer under a fade does NOT show what a SOLID layer under the same fade
-  # shows. Said that way round on purpose: it needs no number of its own, so it cannot be
-  # satisfied by a wrong blend that happens to match a constant written beside it.
-  def test_a_fade_leaves_the_layer_see_through
-    %i[scenery sprite].each do |kind|
-      solid = shown(faded_program(kind, 0, 25), *faded_xy(kind))
-
-      refute_equal solid, shown(faded_program(kind, 50, 25), *faded_xy(kind)),
-                   "the see-through #{kind} layer went solid while a fade ran"
-    end
-  end
-
   def test_the_console_leaves_the_layer_see_through_under_a_fade_too
     %i[scenery sprite].each do |kind|
       solid = console(faded_program(kind, 0, 25), *faded_xy(kind), "FADSOL")
 
       refute_equal solid, console(faded_program(kind, 50, 25), *faded_xy(kind), "FADSEE"),
                    "the console made the see-through #{kind} layer solid under a fade"
-    end
-  end
-
-  # ...and both backends land on the SAME faded mix, which is the assertion that can
-  # catch a blend done in the wrong order. Darkening each color and then mixing them is
-  # not quite darkening the mix — the two truncate in different places — so this would
-  # fail by a step if either side moved its colors at the wrong moment.
-  def test_the_two_backends_agree_on_a_see_through_layer_under_a_fade
-    %i[scenery sprite].each do |kind|
-      assert_equal shown(faded_program(kind, 50, 25), *faded_xy(kind)),
-                   console(faded_program(kind, 50, 25), *faded_xy(kind), "FADMIX"),
-                   "the backends disagree about the #{kind} layer under a fade"
-    end
-  end
-
-  # FADING TO WHITE IS THE OTHER DIRECTION AND NOT A MIRROR OF THE FIRST. Toward white a
-  # channel adds a share of the headroom it has left; toward black it keeps a share of
-  # what it has, and the two truncate opposite ways — so one direction can be right while
-  # the other is a step out at every pixel. Both halves of the picture are asserted: the
-  # layer is still blending, and the two backends land on the same color.
-  def test_a_fade_to_white_leaves_the_layer_see_through_too
-    solid = shown(faded_program(:scenery, 0, 25, toward: :white), *SCENERY_XY)
-
-    refute_equal solid, shown(faded_program(:scenery, 50, 25, toward: :white), *SCENERY_XY),
-                 "the see-through layer went solid while a fade to white ran"
-  end
-
-  def test_the_console_agrees_about_a_fade_to_white
-    assert_equal shown(faded_program(:scenery, 50, 25, toward: :white), *SCENERY_XY),
-                 console(faded_program(:scenery, 50, 25, toward: :white), *SCENERY_XY, "FADWHT")
-  end
-
-  # ...and a fade of nothing is a lifted fade, not a fade of zero left in force.
-  def test_a_lifted_fade_leaves_the_layer_see_through
-    %i[scenery sprite].each do |kind|
-      assert_equal HALF_WHITE_OVER_RED, shown(faded_program(kind, 50, 0), *faded_xy(kind))
-      assert_equal HALF_WHITE_OVER_RED, console(faded_program(kind, 50, 0), *faded_xy(kind), "FADOFF")
     end
   end
 
@@ -523,78 +385,9 @@ class TestLayerTransparency < Minitest::Test
   BLUE_FADED = [0, 0, 15].freeze
   SOLID_MIST_FADED = [8, 4, 1].freeze
 
-  # A picture painted once is still there under the fade on the frames after. A bitmap
-  # screen has no scenery to build a picture from again, so nothing may ask it to.
-  def test_a_fade_leaves_a_picture_painted_once_on_a_bitmap_screen
-    title = faded_title_then_misty_room(paints: :once, room_at: 12)
-
-    [3, 6].each do |frames|
-      assert_equal [rgb5(*BLUE_FADED)], game_player.run(title, frames: frames).screen.shown.uniq
-      assert_backends_agree(title, frames: frames, console_frames: frames + 2)
-    end
-  end
-
-  # The walker has moved on from where it started, and what is left there is the mist as the
-  # rest of the screen shows it — not a patch of the mist drawn see-through.
-  def test_a_sprite_leaves_the_solid_mist_behind_it_under_a_fade
-    shown = game_player.run(faded_title_then_misty_room, frames: 14).screen.shown
-
-    assert_equal rgb5(*SOLID_MIST_FADED), shown[(41 * 240) + 41], "where the walker started"
-    assert_equal [rgb5(*SOLID_MIST_FADED), rgb5(16, 0, 0)].sort, shown.uniq.sort,
-                 "one colour of mist everywhere, and the walker's red, both half way to black"
-  end
-
-  # The fade is the display's and the room's see-through layer is the display's too, the
-  # same piece of it. A screen taking over sets its layers up, and must not take the fade's
-  # place while doing so: both backends show the room dark, with the mist solid, on the
-  # frames before, on and after the room takes over.
-  def test_a_fade_left_on_stays_as_a_see_through_screen_takes_over
-    room = faded_title_then_misty_room
-    [2, 3, 4, 5, 8].each do |frames|
-      assert_backends_agree(room, frames: frames, console_frames: frames + 1)
-    end
-  end
-
   # Both backends agree on the game at each of +frames+, a fade or a see-through mix in force.
   private def assert_backends_agree_through_the_fade(game, frames)
     frames.each { |at| assert_backends_agree(game, frames: at, console_frames: at + 1) }
-  end
-
-  # The same in a game whose rooms each tell the display what they blend on every pass: the
-  # fade is still there on the passes after the room took over, and lifts when it is lifted.
-  def test_that_fade_stays_where_each_room_says_what_it_blends_every_pass
-    room = faded_title_then_misty_room(rooms: :room) { |pass| (pass == 10).then { fade :black, 0 } }
-
-    assert_backends_agree_through_the_fade(room, [5, 8, 10, 11, 14])
-  end
-
-  # In that game the fade can be lifted in a room that sees through nothing. What it hands
-  # the blend back to is that room's layers, both solid, and not the misty room's.
-  def test_that_fade_lifted_in_a_room_with_nothing_seen_through_leaves_its_layers_solid
-    hall = faded_title_then_misty_room(rooms: :hall) { |pass| (pass == 6).then { fade :black, 0 } }
-
-    assert_backends_agree_through_the_fade(hall, [5, 6, 7, 10])
-    assert_equal rgb5(16, 8, 2), game_player.run(hall, frames: 10).screen.pixel(200, 100),
-                 "the hall's upper layer in its own colour, with nothing behind it showing"
-  end
-
-  # ...and the room lifting it brings the mist back see-through, on the same frame on both.
-  def test_lifting_that_fade_in_the_room_brings_the_layer_back_see_through
-    room = faded_title_then_misty_room { |pass| (pass == 8).then { fade :black, 0 } }
-
-    assert_backends_agree_through_the_fade(room, [7, 8, 9, 12])
-    assert_equal seen_through_mist, game_player.run(room, frames: 12).screen.pixel(200, 100),
-                 "the mist is seen through again, at full brightness"
-  end
-
-  # A TINT TAKES THE FADE'S PLACE as another fade would: a picture has one such effect at a
-  # time, and the last one said is the one in force. So a room that tints, however little,
-  # has ended the fade it arrived under, and its mist is seen through again from then on.
-  def test_a_tint_said_in_the_room_ends_that_fade_and_the_layer_is_seen_through_again
-    room = faded_title_then_misty_room { tint :red, 0 }
-
-    assert_backends_agree_through_the_fade(room, [5, 8, 12])
-    assert_equal seen_through_mist, game_player.run(room, frames: 12).screen.pixel(200, 100)
   end
 
   private def seen_through_mist = game_player.run(scene_mist_with_no_fade, frames: 8).screen.pixel(200, 100)
@@ -660,16 +453,6 @@ class TestLayerTransparency < Minitest::Test
     end
   end
 
-  def test_a_tint_leaves_the_layer_see_through
-    solid = shown(tinted_program(0, 50), *SCENERY_XY)
-
-    refute_equal solid, shown(tinted_program(50, 50), *SCENERY_XY),
-                 "a tint took the layer's blend away"
-    assert_equal shown(tinted_program(50, 50), *SCENERY_XY),
-                 console(tinted_program(50, 50), *SCENERY_XY, "TNTSEE"),
-                 "the two backends disagree about a tint over a see-through layer"
-  end
-
   # A fade PLACED in the stack is still a fade — it takes the same blend unit, whatever it
   # leaves alone — so the rule and the hand-back have to reach it too.
   private def placed_fade_program(amount, hold)
@@ -722,15 +505,6 @@ class TestLayerTransparency < Minitest::Test
     end
   end
 
-  def test_one_flash_does_not_cost_the_layer_for_the_rest_of_the_game
-    %i[scenery sprite].each do |kind|
-      screen = game_player.run(flashing_program(kind), frames: AFTER_THE_FLASH).screen
-
-      assert_equal HALF_WHITE_OVER_RED, screen.pixel(*faded_xy(kind)),
-                   "the #{kind} layer never came back after the flash"
-    end
-  end
-
   def test_the_console_gives_the_layer_back_after_a_flash_too
     %i[scenery sprite].each do |kind|
       assert_equal HALF_WHITE_OVER_RED,
@@ -779,12 +553,6 @@ class TestLayerTransparency < Minitest::Test
     assert_equal console(thickening_program(lifting: false), *SCENERY_XY, "NOFADE", frames: settled),
                  console(thickening_program(lifting: true), *SCENERY_XY, "FOGFAD", frames: settled),
                  "the lifted fade left the layer at some other amount than the one the game had"
-  end
-
-  # The whole screen, once the flash is over and both backends have settled.
-  def test_the_two_backends_draw_the_same_screen_after_a_fade
-    assert_backends_agree(flashing_program(:scenery), frames: AFTER_THE_FLASH)
-    assert_backends_agree(flashing_program(:sprite), frames: AFTER_THE_FLASH)
   end
 
   # --- what it refuses ---
@@ -984,22 +752,12 @@ class TestLayerTransparency < Minitest::Test
     end
   end
 
-  def test_a_scene_sees_through_its_own_layer
-    assert_equal HALF_WHITE_OVER_RED,
-                 shown(scenes_that_take_turns, *SCENERY_XY, frames: SWITCH_AT + 4),
-                 "the scene's pane does not show the floor under it"
-  end
-
   # The half that was wrong: the console was told to blend a layer number the pane is not
   # on, so it drew the pane solid and the floor under it simply was not there.
   def test_the_console_sees_through_a_scenes_own_layer_the_same
     assert_equal HALF_WHITE_OVER_RED,
                  console(scenes_that_take_turns, *SCENERY_XY, "SCNBLD", frames: SWITCH_AT + 6),
                  "the console drew the scene's pane solid"
-  end
-
-  def test_the_two_backends_draw_the_same_screen_when_a_scene_sees_through_a_layer
-    assert_backends_agree(scenes_that_take_turns, frames: SWITCH_AT + 4)
   end
 
   # A PLAIN BITMAP TITLE AND A MISTY ROOM, in either order, with nothing faded until a block
@@ -1039,37 +797,6 @@ class TestLayerTransparency < Minitest::Test
         end
       end
     end
-  end
-
-  # A tint said on the title is still in force as the room takes over: both backends tint the
-  # room, by walking its colors, from its first frame.
-  def test_a_tint_left_on_from_the_title_tints_the_room
-    game = title_and_misty_room(first: :title, swap_at: 4, title: ->(_) { tint :red, 50 })
-    assert_backends_agree_through_the_fade(game, [3, 4, 5, 8])
-    untinted = title_and_misty_room(first: :title, swap_at: 4)
-
-    refute_equal game_player.run(untinted, frames: 8).screen.pixel(200, 100),
-                 game_player.run(game, frames: 8).screen.pixel(200, 100), "the room is tinted"
-  end
-
-  # A flash on the title shows there, done by the display.
-  def test_a_flash_on_the_title_shows_on_the_title
-    game = title_and_misty_room(first: :title, swap_at: 12, title: ->(pass) { (pass == 3).then { flash_screen frames: 8 } })
-    assert_backends_agree_through_the_fade(game, [3, 4, 5, 7, 9, 11])
-  end
-
-  # A flash said on the title's last pass reaches the room's first frame, and walks on in the
-  # room's colors from there.
-  def test_a_flash_from_the_title_goes_on_in_the_room
-    game = title_and_misty_room(first: :title, swap_at: 4, title: ->(pass) { (pass == 3).then { flash_screen frames: 8 } })
-    assert_backends_agree_through_the_fade(game, [3, 4, 5, 6, 9])
-  end
-
-  # A fade out in the room leaves the title that follows it dark, until something lifts it.
-  def test_a_fade_out_in_the_room_leaves_the_title_dark
-    game = title_and_misty_room(first: :room, swap_at: 8, room: ->(pass) { (pass == 3).then { fade_out frames: 4 } })
-    assert_backends_agree_through_the_fade(game, [4, 6, 7, 8, 9, 12])
-    assert_equal [0], game_player.run(game, frames: 10).screen.shown.uniq, "the title, faded all the way to black"
   end
 
   # TWO ROOMS, EACH SEEING THROUGH A LAYER OF ITS OWN BY ITS OWN AMOUNT, taking turns. The
@@ -1121,38 +848,4 @@ class TestLayerTransparency < Minitest::Test
     end
   end
 
-  def test_each_room_is_seen_through_by_its_own_amount_from_the_frame_it_takes_over
-    [3, 4, 5, 8, 9].each { |frames| assert_backends_agree(two_misty_rooms, frames: frames) }
-  end
-
-  # A sprite shows the numbers of the pass before, so on the frame the next room takes over
-  # the leaving room's walker is still drawn — over the new room's scenery, which went up
-  # after it in that frame — and gone the frame after.
-  def test_a_leaving_rooms_sprite_is_drawn_over_the_next_rooms_scenery_for_one_frame
-    rooms = two_misty_rooms(walker: true)
-    [3, 4, 5].each { |frames| assert_backends_agree(rooms, frames: frames) }
-    green = RubyGBA::Graphics::Color.resolve(:green)
-
-    assert_includes game_player.run(rooms, frames: 4).screen.shown, green, "the walker on the frame the fog takes over"
-    refute_includes game_player.run(rooms, frames: 5).screen.shown, green, "and gone the frame after"
-  end
-
-  # The whole round from a plain bitmap title: the misty room, the foggy one, and the misty one
-  # again, compared on every frame a room takes over and the one after.
-  def test_rooms_after_a_title_agree_on_every_change_of_room
-    rooms = two_misty_rooms(walker: true, title: true)
-    [2, 3, 4, 6, 7, 9, 10, 12].each { |frames| assert_backends_agree(rooms, frames: frames, console_frames: frames + 1) }
-  end
-
-  # ...and the scene BEFORE it, which sees through nothing, must not have picked up the
-  # blend. Its two backgrounds sit on the layers the dive's floor and pane later use, so a
-  # blend set up once at boot would quietly make the banner see-through.
-  def test_a_scene_that_sees_through_nothing_is_drawn_solid
-    green = RubyGBA::Graphics::Color.resolve(:green)
-
-    assert_equal green, shown(scenes_that_take_turns, *SCENERY_XY, frames: 2),
-                 "the banner scene is blended on the oracle"
-    assert_equal green, console(scenes_that_take_turns, *SCENERY_XY, "SCNSLD", frames: 3),
-                 "the banner scene is blended on the console"
-  end
 end

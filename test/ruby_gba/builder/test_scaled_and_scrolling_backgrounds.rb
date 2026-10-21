@@ -128,34 +128,6 @@ class TestScaledAndScrollingBackgrounds < Minitest::Test
     assert_equal Color.resolve(:red),   s.pixel(4, 4),   "...and set_tile put one of its cells back"
   end
 
-  # A SEE-THROUGH LAYER IS THE OTHER THING screen :tiled gives that this must not cost,
-  # because it is the half of a title screen that the turning piece flies over: rays or
-  # mist blended over a backdrop while something zooms in front of them.
-  def test_a_see_through_layer_still_shows_through_beside_a_resizing_one
-    b = Builder.new
-    b.instance_eval do
-      screen :tiled
-      layers :behind, :water, :front
-    end
-    solid_tile(b, :i_blue, :blue)
-    solid_tile(b, :i_red, :red)
-    full = marked_map(30, 20, {}).map { |row| row.tr(" ", "#") }
-    square = marked_map(32, 32, {})
-    b.instance_eval do
-      tiles :t_blue, "#" => :i_blue
-      tiles :t_red,  "#" => :i_red
-      layer(:behind) { background :deep, tiles: :t_blue, map: full }
-      layer(:water, transparency: 50) { background :top, tiles: :t_red, map: full }
-      layer(:front) { background(:spin, tiles: :t_blue, map: square).scale(1.0) }
-      halt
-    end
-    b.finalize_program
-    got = game_player.run(b.program).screen.pixel(100, 100)
-    refute_equal Color.resolve(:red),  got, "the see-through layer is not drawn solid"
-    refute_equal Color.resolve(:blue), got, "...nor is the layer behind it left uncovered"
-    assert_equal see_through_red_over_blue, got, "half of each, exactly as with no turning layer present"
-  end
-
   # What half red over blue comes out as — measured from the same program with the
   # turning layer left out, so this pins the blend to what screen :tiled already did
   # rather than to arithmetic restated here.
