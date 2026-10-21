@@ -43,7 +43,7 @@ module RubyGBA
                                                timer_start: :emit_timer_start, timer_stop: :emit_timer_stop,
                                                # a timer's handler runs as its timer ticks, not where it is written
                                                on_timer: :emit_nothing
-                                             }.merge(Picture::STATEMENTS)
+                                             }.merge(Picture::STATEMENTS).merge(Sound::STATEMENTS)
                                               .merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))
 
           VALUES = Ractor.make_shareable({
@@ -59,6 +59,7 @@ module RubyGBA
                                          }.merge(Picture::VALUES))
 
           include Picture
+          include Sound
 
           # How many bytes of save memory a read or a write moves, by the width it names.
           SAVE_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4 })
@@ -175,6 +176,7 @@ module RubyGBA
             @routine_tables = {} # a list of routines a call picks from by number -> its table's label
             @cut_children = {} # a statement whose statements were cut into parts -> what stands for them
             prepare_picture
+            prepare_sound
           end
 
           # The game's code, as sections for the Linker: its data, every routine a run can reach, and

@@ -11,7 +11,9 @@ require_relative "gbc/timers"
 require_relative "gbc/music"
 require_relative "gbc/compiler"
 require_relative "gbc/statement_lowering"
+require_relative "gbc/sound_registers"
 require_relative "gbc/lowering/picture"
+require_relative "gbc/lowering/sound"
 require_relative "gbc/lowering"
 require_relative "gbc/headless_run"
 require_relative "gbc/checked_run"
@@ -81,8 +83,10 @@ module RubyGBA
           # The runtime's places first, so they are in the half of work memory always in view.
           Runtime.reserve(memory, art: lowering.art)
           game = lowering.sections
-          runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art, frame_begins: lowering.frame_begins)
-          linked = Linker.new(runtime + game + lowering.art.sections, fixed_from: Console::GBCHardware::HEADER_END).link
+          runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art, frame_begins: lowering.frame_begins,
+                                             music_level: lowering.music_level, songs: lowering.music.any?)
+          data = [*lowering.art.sections, *(lowering.music.any? ? [lowering.music.section] : [])]
+          linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END).link
           built = Places.new(variables: lowering.variables, lists: lowering.lists, runtime: runtime_places(memory),
                              source_program: program, code: linked.places)
           save_bytes = SaveLayout.named_by?(program) ? Runtime::Saving::SIZE : 0

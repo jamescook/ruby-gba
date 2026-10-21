@@ -157,6 +157,31 @@ class TestGBCLowering < Minitest::Test
     assert_equal 21, run[:fast_count], "stopped on the 20th tick, the first of a frame's two, and the second still ran"
   end
 
+  # A song with its volume faded, a defined beep, a hit on the noise voice and a tone on the wave
+  # voice: built by the lowering, and the game around them plays as the interpreter plays it. What
+  # the speaker makes is not compared on the Color's run yet.
+  def test_game_with_sound_plays_as_the_interpreter_plays_it
+    game = program do
+      enable_sound
+      define_sound :ping, frequency: 880, duty: :quarter, decay: :fast, volume: 12
+      song(:tune) { note :C4, :quarter }
+      pass = var :pass, 0
+      game_loop do
+        pass.add! 1
+        (pass == 1).then { play_song :tune }
+        (pass == 2).then { beep :ping }
+        (pass == 3).then { noise :explosion }
+        (pass == 4).then { wave :triangle, :C4 }
+        (pass == 6).then { stop_wave }
+        (pass == 7).then { fade_music_out }
+        (pass == 9).then { stop_music }
+      end
+    end
+
+    assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
+    GBC::CheckedRun.new.run(game, frames: 12)
+  end
+
   # A game loop far bigger than a bank of the cartridge holds is cut into parts, each a routine of
   # its own called where its statements stood, and still plays as the interpreter plays it.
   def test_routine_bigger_than_bank_is_cut_into_parts
