@@ -25,7 +25,7 @@ class TestTimer < Minitest::Test
         (fc == stop_frame).then { halt }
       end
     end
-    game_player.run(b.program)
+    game_player.run(b.program, frames: stop_frame + 1)
   end
 
   # At 60/sec on a 60fps model, the timer ticks once per frame — so after N frames it
@@ -42,6 +42,16 @@ class TestTimer < Minitest::Test
   # A faster timer accrues more than one tick per frame.
   def test_a_faster_timer_ticks_faster
     assert_equal 20, run_ticks(per_second: 120, stop_frame: 10)[:snap]
+  end
+
+  # A WHOLE TICK COUNTS ON THE FRAME IT FALLS DUE, at any rate. Ten a second is a tick every six
+  # frames, so six frames in it reads 1; three a second reads 3 a second in. Counted by adding a
+  # tenth of a tick a frame as a fraction, the sum lands a hair under the whole tick, and the
+  # count read one short on exactly those frames.
+  def test_a_tick_counts_on_the_frame_it_falls_due
+    assert_equal 1, run_ticks(per_second: 10, stop_frame: 6)[:snap]
+    assert_equal 3, run_ticks(per_second: 3, stop_frame: 60)[:snap]
+    assert_equal 2, run_ticks(per_second: 1, stop_frame: 120)[:snap]
   end
 
   # Stopping freezes the count: stopped at frame 5, it reads 5 even after ten frames.
@@ -169,6 +179,67 @@ class TestTimer < Minitest::Test
 
     assert_equal 10, game_player.run(b.program, frames: 10)[:hits]
     assert console.between?(10, 30), "the handler should have run ~20 times over 20 frames, got #{console}"
+  end
+
+  # A HANDLER CAN DRAW. On a painted screen it draws what the game's own lines draw, a number
+  # here; on a tear-free one what it draws goes on the page being drawn, so the loop's next
+  # clear takes it away before that page is shown and the screen stays blue. Every lowering
+  # plays these against the interpreter, picture and all.
+  def test_a_handler_draws_on_a_painted_screen
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      hits = var :hits, 0
+      beat = timer :beat, per_second: 30
+      beat.on_tick do
+        hits.add! 1
+        draw_number :hits, 8, 8, :white, digits: 2
+      end
+      game_loop { wait_vblank }
+    end
+
+    played = game_player.run(b.program, frames: 10)
+    assert_equal 5, played[:hits]
+    refute_equal played.screen.pixel(0, 0), played.screen.pixel(8 + 6, 8 + 3), "the number is drawn"
+  end
+
+  def test_a_handler_draws_on_the_page_being_drawn_on_a_tear_free_screen
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap, tear_free: true
+      beat = timer :beat, per_second: 60
+      beat.on_tick { draw_rect_at 40, 40, 16, 16, :red }
+      game_loop { clear_screen :blue }
+    end
+
+    assert_equal Color.resolve(:blue), game_player.run(b.program, frames: 6).screen.pixel(44, 44)
+  end
+
+  # A HANDLER READS THE BUTTONS of the frame it ticks on: A held for three frames is three ticks
+  # holding it and one press, and a tap later is one more of each.
+  def test_a_handler_reads_the_buttons_of_its_frame
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      downs = var :downs, 0
+      presses = var :presses, 0
+      beat = timer :beat, per_second: 60
+      beat.on_tick do
+        held(:a).then { downs.add! 1 }
+        pressed(:a).then { presses.add! 1 }
+      end
+      game_loop { wait_vblank }
+    end
+    played = game_player.input_each_frame { |frame| (4..6).cover?(frame) || frame == 9 ? [:a] : [] }
+                        .run(b.program, frames: 12)
+
+    assert_equal [4, 2], [played[:downs], played[:presses]]
+  end
+
+  # The fastest rate a timer can be given counts as the interpreter counts it, with nothing
+  # going round in the sum of a frame's sixtieths.
+  def test_the_fastest_rate_counts_every_tick
+    assert_equal (2_147_483_647 * 3 / 60) % 65_536, run_ticks(per_second: 2_147_483_647, stop_frame: 3)[:snap]
   end
 
   # A second handler for the same timer replaces the first rather than running beside it,

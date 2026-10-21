@@ -169,6 +169,7 @@ module RubyGBA
               next unless pending.nil? && waiting? && passes > @moments.size
 
               pending = [passes, read_variables, read_lists, read_sprites]
+              mark_last_pass_taken if passes == frames
               hold_after_this_pass if passes > frames
               waited = 0
               decide_buttons(passes) if passes <= frames
@@ -254,6 +255,9 @@ module RubyGBA
 
           # The last pass the run reads: the game is told to show it and go no further.
           def hold_after_this_pass = @core.bus_write32(runtime_place(Runtime::Frame::HOLD), 1)
+          # The interpreter stops a run at the boundary after the last pass compared, before it
+          # moves its timers on (Runtime::Frame::LAST_PASS_TAKEN).
+          def mark_last_pass_taken = @core.bus_write32(runtime_place(Runtime::Frame::LAST_PASS_TAKEN), 1)
           def state = @core.bus_read8(runtime_place(Runtime::Frame::STATE))
           def waiting? = @core.bus_read8(runtime_place(Runtime::Frame::WAITING)) == 1
           def passes = word(runtime_place(Runtime::Frame::PASSES))

@@ -73,7 +73,10 @@ module RubyGBA
           # plays the game for a Color. A painted screen is 360 tiles of the background's
           # (Runtime::Paint). A change between the two replaces the display (rg_gbc_screen), and
           # what every tiled screen shows is put up again then (Reference#put_up_always_up).
-          def lower_screen(node) = screen_change(node.mode)
+          # The screen, and whether it is tear-free: a tear-free one is two pages to the interpreter,
+          # which changes nothing in how the Color shows it but when a timer's tick draws on it
+          # (Runtime::Frame, rg_gbc_two_pages).
+          def lower_screen(node) = [*screen_change(node.mode), eval_call("rg_gbc_two_pages", C::Int.new(node.buffered ? 1 : 0))]
 
           def screen_change(mode)
             painted = mode == :bitmap
@@ -391,7 +394,12 @@ module RubyGBA
           # nothing.
           def scene_arrival(scene)
             arrival = @handover.arrival(scene)
-            screen = arrival.screen ? lower_screen(arrival.screen) : screen_change(Modes::SCREEN_OF_MODE.fetch(arrival.mode))
+            screen = if arrival.screen
+                       lower_screen(arrival.screen)
+                     else
+                       [*screen_change(Modes::SCREEN_OF_MODE.fetch(arrival.mode)),
+                        eval_call("rg_gbc_two_pages", C::Int.new(arrival.mode == Modes::BUFFERED ? 1 : 0))]
+                     end
             scenery = arrival.scenery.empty? ? @handover.always_up.scenery : arrival.scenery
             up = scenery.empty? ? [eval_call("rg_gbc_background_put_up", C::Int.new(0))] : scenery.map { |bg| background_put_up(bg) }
             [*screen, *arrival.map_choices.map { |var| assign(var, C::Int.new(0)) }, *up]

@@ -40,9 +40,10 @@ module RubyGBA
           # The runtime's sections: the processor's entry points, and everything else in one.
           # +main+ is the label of the game's main routine, called in its own bank; +art+ is what its
           # pictures were made into (GBC::Art), which the runtime puts in the console at power-on;
-          # +music_level+ is where the game keeps how loud its music is (nil for at full), and
-          # +songs+ whether it has any songs at all.
-          def sections(memory, main:, art:, music_level: nil, songs: false)
+          # +music_level+ is where the game keeps how loud its music is (nil for at full), +songs+
+          # whether it has any songs at all, and +frame_begins+ the label of the game's routine run
+          # at each frame boundary (its timers moving on, GBC::Timers), or nil for none.
+          def sections(memory, main:, art:, music_level: nil, songs: false, frame_begins: nil)
             asm = SM83.new("runtime", home: :fixed)
             Boot.emit(asm, main: "rt_main")
             Boot.emit_display_off(asm)
@@ -58,7 +59,7 @@ module RubyGBA
             Saving.emit(asm, memory)
             emit_start(asm)
             emit_main(asm, main)
-            emit_unfinished(asm)
+            emit_frame_begins(asm, frame_begins)
             [*Boot.vector_sections, asm.section]
           end
 
@@ -96,10 +97,16 @@ module RubyGBA
             asm.ret
           end
 
-          # What the runtime does at each frame boundary that the Game Boy Color lowering does not
-          # do anything for yet: nothing to move on.
-          def emit_unfinished(asm)
+          # What moves on at each frame boundary, once the buttons are read (Reference#advance_frame's
+          # middle): the game's timers, through its routine +routine+ in whichever bank it went to,
+          # or nothing for a game with none. The music moves on from the frame's interrupt instead.
+          def emit_frame_begins(asm, routine)
             asm.label("rt_frame_begins")
+            if routine
+              asm.call("rt_far_call")
+              asm.data_bank_of(routine)
+              asm.data_words(routine)
+            end
             asm.ret
           end
         end

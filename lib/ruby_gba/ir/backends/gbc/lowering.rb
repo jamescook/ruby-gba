@@ -22,8 +22,7 @@ module RubyGBA
             "the picture" => %i[inside camera blit blit_pose draw_column_at save_region restore_region
                                 scroll_rows shade_outside set_tile show_map background_colors
                                 copy_tiles copy_owed_tiles pixelate see_through],
-            "sound" => %i[play_from_list play_sound_effect play_sample stop_sample],
-            "timers" => %i[timer_start timer_stop timer_ticks on_timer]
+            "sound" => %i[play_from_list play_sound_effect play_sample stop_sample]
           })
 
           # The kinds of the picture and the sound the Color makes, which come off NOT_LOWERED_YET as
@@ -36,6 +35,7 @@ module RubyGBA
 
           include Picture
           include Sound
+          include Timers
 
           # Every variable the program keeps, by the game's name, beside the name the statements
           # call it by — so a reader of the running cartridge can find each one's place.
@@ -55,11 +55,14 @@ module RubyGBA
             refuse_unsupported_save_memory!
             refuse_routines_that_call_themselves!
             routines = @called.map { |name| C::Function.new(name: routine(name), body: body_of(@funcs.fetch(name))) }
+            # The timers' routines are written before the tables are gathered below, since a tick's
+            # handler is what first needs some of them (a number it draws, say).
+            timer_routines = timer_frame_functions
             main = C::Function.new(name: @names.own("main"), body: lower(@program), exported: true)
             [*variable_names.map { |name| C::Global.new(name: variable(name)) },
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),
-             *held_colors_globals, *list_storage, *constant_arrays, *@drawing_arrays, *routine_table_declarations,
-             *routines, main]
+             *held_colors_globals, *timer_globals, *list_storage, *constant_arrays, *@drawing_arrays,
+             *routine_table_declarations, *routines, *timer_routines, main]
           end
 
           private

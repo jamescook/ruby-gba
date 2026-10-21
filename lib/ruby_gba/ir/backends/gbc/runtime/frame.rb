@@ -50,6 +50,12 @@ module RubyGBA
             # the game then shows that pass and goes no further, so nothing it would do next —
             # writing its save memory above all — happens after the moment the run ended on.
             HOLD = "rt hold"
+            # Set by the same reader when it has taken the last of the passes it compares one by
+            # one: the boundary after it is where the interpreter stops a run, before it moves
+            # anything on, so the game's timers do not move on there either.
+            LAST_PASS_TAKEN = "rt last pass taken"
+            # 1 while the screen is tear-free (see rg_wait_vblank).
+            TWO_PAGES = "rt two pages"
 
             module_function
 
@@ -63,6 +69,8 @@ module RubyGBA
               memory.reserve(PRESSED, 1)
               memory.reserve(FAULT, 11)
               memory.reserve(HOLD, 4)
+              memory.reserve(LAST_PASS_TAKEN, 4) # the reader writes four bytes at a time
+              memory.reserve(TWO_PAGES, 1)
             end
 
             def emit(asm, memory)
@@ -79,15 +87,35 @@ module RubyGBA
               %i[hl de bc af].each { |pair| asm.pop(pair) }
               asm.reti
 
-              # The end of a pass: count it, say the game is waiting, and wait for the screen.
+              # The end of a pass: count it, move on what keeps time by the frame, say the game is
+              # waiting, and wait for the screen.
+              #
+              # WHAT KEEPS TIME BY THE FRAME (the game's timers, rt_frame_begins) MOVES ON HERE, in
+              # the wait and before the game is said to be waiting, because that is where the
+              # interpreter moves it on: at the frame boundary, before anything is read of the frame
+              # (Reference#advance_frame). So whoever reads the game while it waits reads it with
+              # this boundary's ticks counted.
+              #
+              # WHEN, AGAINST THE PICTURE, is the screen's to say, since a tick's handler can draw.
+              # A plain painted screen is one page, and what a handler paints at the boundary is in
+              # the picture that frame shows: the ticks come before the scan that finds what to
+              # send. A tear-free screen is two to the interpreter, which shows the finished page
+              # and only then moves the timers on, so a handler paints the page being drawn: the
+              # ticks come after the scan, and what they paint is sent with the next pass's picture.
               asm.label("rg_wait_vblank")
               asm.load(:hl, memory[PASSES])
               asm.call("rt_increment32")
-              asm.load(:a, 1)
-              asm.load([memory[WAITING]], :a)
               asm.xor_a(:a)
               asm.load_high(vblank, :a)
+              asm.load(:a, [memory[TWO_PAGES]])
+              asm.and_a(:a)
+              asm.call(:z, "rt_frame_begins_unless_last")
               asm.call("rt_paint_scan")
+              asm.load(:a, [memory[TWO_PAGES]])
+              asm.and_a(:a)
+              asm.call(:nz, "rt_frame_begins_unless_last")
+              asm.load(:a, 1)
+              asm.load([memory[WAITING]], :a)
               asm.load_high(:a, h::LCDC)
               asm.bit(7, :a)
               asm.jump_relative(:nz, "rg_wait_vblank_sleep")
@@ -107,7 +135,6 @@ module RubyGBA
               asm.and_a(:a)
               asm.jump(:nz, "rt_stopped")
               asm.call("rt_read_buttons")
-              asm.call("rt_frame_begins")
               asm.xor_a(:a)
               asm.load([memory[WAITING]], :a)
               asm.ret
@@ -119,6 +146,21 @@ module RubyGBA
               asm.jump_relative(:z, "rt_sleep_until_vblank")
               asm.xor_a(:a)
               asm.load_high(vblank, :a)
+              asm.ret
+
+              # What keeps time by the frame, moved on — unless the reader has taken the last pass it
+              # compares, after which the interpreter moves nothing on (LAST_PASS_TAKEN).
+              asm.label("rt_frame_begins_unless_last")
+              asm.load(:a, [memory[LAST_PASS_TAKEN]])
+              asm.and_a(:a)
+              asm.ret(:nz)
+              asm.jump("rt_frame_begins")
+
+              # rg_gbc_two_pages(yes): whether the screen is tear-free from here on (see rg_wait_vblank).
+              asm.label("rg_gbc_two_pages")
+              asm.load_hl_sp(2)
+              asm.load(:a, [:hl])
+              asm.load([memory[TWO_PAGES]], :a)
               asm.ret
 
               asm.label("rt_shown_is_passes")

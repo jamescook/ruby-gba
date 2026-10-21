@@ -7,6 +7,7 @@ require_relative "gbc/runtime"
 require_relative "gbc/art"
 require_relative "gbc/picture"
 require_relative "gbc/sound"
+require_relative "gbc/timers"
 require_relative "gbc/music"
 require_relative "gbc/compiler"
 require_relative "gbc/lowering"
@@ -77,7 +78,8 @@ module RubyGBA
           compiled = Compiler.new(memory: memory).compile(statements)
           level = lowering.music_level_name&.then { |text| compiled.globals.fetch(text) }
           runtime = Runtime.sections(memory, main: "game_#{lowering.main_routine}", art: lowering.art,
-                                             music_level: level, songs: lowering.music.any?)
+                                             music_level: level, songs: lowering.music.any?,
+                                             frame_begins: lowering.timer_frame_routine&.then { |name| "game_#{name}" })
           data = [*lowering.art.sections, *(lowering.music.any? ? [lowering.music.section] : [])]
           linked = Linker.new(runtime + compiled.sections + data, fixed_from: Console::GBCHardware::HEADER_END).link
           save_bytes = Native::Saving.named_by?(program) ? Runtime::Saving::SIZE : 0

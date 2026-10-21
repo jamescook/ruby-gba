@@ -37,12 +37,16 @@ void rg_wait_vblank(void) {
 
 /* --- timers (Reference @timers) --- */
 
-/* One timer: whether it has ever been started, whether it is running, its rate, and how many
- * times it has ticked since it was last started, the part of a tick it is through included. The
- * interpreter keeps that count as Ruby's Float, which is this machine's double, and adds to it
- * with the same division, so the two cross a whole tick on the same frame. */
-typedef struct { int32_t started, running, ticks_a_second, frames_a_second; double ticked; } game_timer;
+/* One timer: whether it has ever been started, whether it is running, its rate, and how far it
+ * has ticked since it was last started, in +frames_a_second+-ths of a tick — each frame adds its
+ * rate, and the whole ticks are how many whole +frames_a_second+ that comes to. Whole numbers,
+ * as the interpreter keeps them (Reference#accrue_timer), so the two cross a whole tick on the
+ * same frame; a fraction added each frame lands a hair under a tick on the frame one falls due. */
+typedef struct { int32_t started, running, ticks_a_second, frames_a_second; int64_t parts; } game_timer;
 static game_timer timers[RG_MAX_TIMERS];
+
+/* How many whole times a timer has ticked since it was started (Reference#whole_overflows). */
+static int64_t whole_ticks(const game_timer *timer) { return timer->parts / timer->frames_a_second; }
 
 /* The timers in the order each was first started, which is the order the interpreter walks them
  * in (the order its Hash got them). */
@@ -60,7 +64,7 @@ static void fault_unless_timer(int32_t timer) {
 void rg_timer_start(int32_t timer, int32_t ticks_a_second, int32_t frames_a_second) {
   fault_unless_timer(timer);
   if (!timers[timer].started) timers_started[timers_started_count++] = timer;
-  timers[timer] = (game_timer){1, 1, ticks_a_second, frames_a_second, 0.0};
+  timers[timer] = (game_timer){1, 1, ticks_a_second, frames_a_second, 0};
 }
 
 /* Reference#exec_timer_stop: a timer never started has nothing to stop. */
@@ -72,7 +76,7 @@ void rg_timer_stop(int32_t timer) {
 /* Reference#timer_ticks */
 int32_t rg_timer_ticks(int32_t timer) {
   fault_unless_timer(timer);
-  return timers[timer].started ? (int32_t)((int64_t)timers[timer].ticked % 65536) : 0;
+  return timers[timer].started ? (int32_t)(whole_ticks(&timers[timer]) % 65536) : 0;
 }
 
 int32_t rg_timer_ticking(int32_t timer) { return timer == ticking; }
@@ -85,9 +89,9 @@ static void timers_frame(void) {
   for (int32_t i = 0; i < timers_started_count; i++) {
     game_timer *timer = &timers[timers_started[i]];
     if (!timer->running) continue;
-    int64_t before = (int64_t)timer->ticked;
-    timer->ticked += (double)timer->ticks_a_second / timer->frames_a_second;
-    int64_t crossed = (int64_t)timer->ticked - before;
+    int64_t before = whole_ticks(timer);
+    timer->parts += timer->ticks_a_second;
+    int64_t crossed = whole_ticks(timer) - before;
     ticking = timers_started[i];
     for (int64_t tick = 0; tick < crossed; tick++) rg_game_timer_ticks();
     ticking = NO_TIMER;

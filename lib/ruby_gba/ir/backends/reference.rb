@@ -212,7 +212,7 @@ module RubyGBA
           @see_through = nil       # ...and which of them you can see through, and by how much
           @bg_shown = []           # the backgrounds painted onto the screen so far, in that order
           @tables = {}             # name -> { values:, signed: } (a read-only ROM table)
-          @timers = {}            # name -> { hz:, running:, overflows: } (a hardware timer)
+          @timers = {}            # name -> { hz:, running:, parts: } (a hardware timer; see #accrue_timer)
           @timer_handlers = {}    # name -> on_timer node whose body runs on each overflow
           @audio = []             # observable audio: [:enabled], [:beep, ..], [:note, ..]
           # SOUND IS NOT KEPT HERE. The voices several recorded sounds share are {Mixer}'s, and
@@ -1007,9 +1007,9 @@ module RubyGBA
         end
 
         def exec_timer_start(node)
-          # Start (or restart) a timer: it now runs at hz overflows/sec, its elapsed
-          # count reset to zero (advance_frame accrues the overflows each frame).
-          @timers[node.name] = { hz: node.hz, running: true, overflows: 0.0 }
+          # Start (or restart) a timer: it now runs at hz overflows/sec, from no part of an
+          # overflow at all (advance_frame moves it on each frame; see #accrue_timer).
+          @timers[node.name] = { hz: node.hz, running: true, parts: 0 }
         end
 
         def exec_timer_stop(node)
@@ -1073,9 +1073,9 @@ module RubyGBA
           @screen.held = false # the first frame is set up, so the picture goes on
           @frame += 1
           took = scripted_pass_frames
-          # A running timer overflows hz times a second, so it accrues hz/FRAME_RATE
-          # overflows this frame — that's what timer_ticks reads back, and each whole
-          # overflow crossed this frame runs its on_tick handler once.
+          # A running timer overflows hz times a second, so it gains hz FRAME_RATE-ths of an
+          # overflow this frame (see #accrue_timer) — the whole ones are what timer_ticks reads
+          # back, and each whole overflow crossed this frame runs its on_tick handler once.
           @timers.each { |name, t| accrue_timer(name, t) if t[:running] }
           # The mix, the tune and every sounding note's shape all move on once for every frame
           # that really passed, not once for the pass: the console does all of it from the
@@ -1205,14 +1205,23 @@ module RubyGBA
 
         # Advance one timer by a frame's worth of overflows, and run its on_tick handler
         # once for each whole overflow it crosses this frame.
+        #
+        # COUNTED IN WHOLE NUMBERS, as FRAME_RATE-ths of an overflow: a frame adds +hz+ of them,
+        # and the overflows are how many whole FRAME_RATEs that comes to. Adding hz / FRAME_RATE
+        # as a fraction instead lands a hair under a whole overflow on exactly the frames one
+        # falls due — a tenth added ten times is not quite one — so the count read one short
+        # there, at most rates. Whole numbers are also all a console's processor can keep.
         def accrue_timer(name, timer)
-          before = timer[:overflows].floor
-          timer[:overflows] += timer[:hz].to_f / FRAME_RATE
+          before = whole_overflows(timer)
+          timer[:parts] += timer[:hz]
           handler = @timer_handlers[name] or return
-          (timer[:overflows].floor - before).times do
+          (whole_overflows(timer) - before).times do
             handler.children.each { |child| exec(child) }
           end
         end
+
+        # How many whole times +timer+ has overflowed since it was started.
+        def whole_overflows(timer) = timer[:parts] / FRAME_RATE
 
         # Render a string with the built-in bitmap font: each set pixel of each
         # glyph becomes one painted cell, offset from the text's top-left origin.
@@ -3041,7 +3050,7 @@ module RubyGBA
         # 65536 to match the 16-bit hardware counter. Zero for a timer never started.
         def timer_ticks(name)
           timer = @timers[name]
-          Int32.wrap(timer ? timer[:overflows].floor % 65_536 : 0)
+          Int32.wrap(timer ? whole_overflows(timer) % 65_536 : 0)
         end
 
         # A button is "held" while it's down. It's "pressed" only on the edge —
