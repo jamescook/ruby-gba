@@ -908,12 +908,16 @@ module RubyGBA
               asm.cp_a([:hl])
               asm.jump(:z, "rt_paint_scan_own")
               asm.load([:hl], :a)
-              # A clear in another colour: every cell not showing its own tile, pointed at it.
+              # A clear in another colour: every cell not showing its own tile, pointed at it — but
+              # a tile painted since the clear, which the dirty list sends as its own picture below.
+              # Each cell goes on the list once, so it never holds more than there are cells.
               BANKS.each_index do |index|
                 asm.load(:a, BANKS[index])
                 asm.load_high(h::SVBK, :a)
                 asm.load(:c, 0)
                 asm.label("rt_paint_scan_recolor_#{index}")
+                asm.call("rt_paint_state_now") # Z: painted in this generation
+                asm.jump_relative(:z, "rt_paint_scan_recolor_next_#{index}")
                 asm.call("rt_paint_shown_at")
                 asm.load(:a, [:hl])
                 asm.cp_a(OWN)
