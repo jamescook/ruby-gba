@@ -601,6 +601,15 @@ module RubyGBA
             [0xE0900000 | (rn << 16) | (rd << 12) | rm].pack("V")
           end
 
+          # CMP{cond} rn, rm, LSL #shift — a compare that only happens when +cond+ holds, against
+          # a register shifted up on the way. After a compare of two high halves, `cmpeq` of
+          # the low halves makes the pair one compare of two numbers twice a register wide.
+          def cmp_reg_lsl_cond(cond, rn, rm, shift)
+            raise ArgumentError, "shift must be 0-31" unless (0..31).cover?(shift)
+
+            [(resolve_cond(cond) << 28) | 0x01500000 | (rn << 16) | (shift << 7) | rm].pack("V")
+          end
+
           # ADCS rd, rn, rm — add with carry, setting the flags. Paired with ADDS above, this
           # is the top half of a double-width shift: it takes in the bit that fell out of the
           # bottom half and passes its own out.
@@ -608,12 +617,30 @@ module RubyGBA
             [0xE0B00000 | (rn << 16) | (rd << 12) | rm].pack("V")
           end
 
-          # ORR{cond} rd, rn, #imm — a predicated OR, for setting one answer bit only when the
-          # last compare said so.
-          def orr_imm_cond(cond, rd, rn, imm)
+          # ADCS rd, rn, rm, LSL #shift — add with carry, setting the flags, with rm shifted up on
+          # the way. `adcs high, minus_divisor, high, lsl #1` doubles what is left of a long
+          # division, takes in the next bit of the numerator from the carry, and tries taking the
+          # divisor out, all at once: the carry it leaves says whether the divisor fitted.
+          def adcs_reg_lsl(rd, rn, rm, shift)
+            raise ArgumentError, "shift must be 0-31" unless (0..31).cover?(shift)
+
+            [0xE0B00000 | (rn << 16) | (rd << 12) | (shift << 7) | rm].pack("V")
+          end
+
+          # RSBS rd, rn, #imm — reverse subtract, setting the flags. `rsbs rd, rn, #0` negates a
+          # number, and leaves the carry clear unless that number was nought.
+          def rsbs_imm(rd, rn, imm)
             imm12 = encode_rotated_immediate(imm) or
               raise ArgumentError, "cannot encode #{imm} as an ARM rotated immediate"
-            [(resolve_cond(cond) << 28) | 0x03800000 | (rn << 16) | (rd << 12) | imm12].pack("V")
+            [0xE2700000 | (rn << 16) | (rd << 12) | imm12].pack("V")
+          end
+
+          # ORR{cond} rd, rn, rm, LSR #shift — the predicated form of #orr_reg_lsr, for moving the
+          # top bits of one register into the bottom of another only when the last compare said so.
+          def orr_reg_lsr_cond(cond, rd, rn, rm, shift)
+            raise ArgumentError, "shift must be 1-31" unless (1..31).cover?(shift)
+
+            [(resolve_cond(cond) << 28) | 0x01800000 | (rn << 16) | (rd << 12) | (shift << 7) | 0x20 | rm].pack("V")
           end
 
           # MOV rd, rm, LSL rs / LSR rs — shift by an amount held in a REGISTER rather than

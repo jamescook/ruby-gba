@@ -78,6 +78,77 @@ class TestFractionDivision < Minitest::Test
     end
   end
 
+  # THE ROUTINE SKIPS STEPS IT CAN PROVE GIVE NOTHING, so every size of answer goes through a
+  # different way in: answers just either side of each place it can skip to, numerators and
+  # divisors of every width, and the two numbers whose sizes do not fit a signed number. Drawn
+  # from a fixed seed, so a failure names a case that fails again.
+  private def sweep_cases
+    random = Random.new(1985)
+    signed_of_width = ->(bits) { random.rand(1 << bits) * (random.rand(2).zero? ? 1 : -1) }
+    drawn = Array.new(160) do
+      [signed_of_width.call(random.rand(1..31)), signed_of_width.call(random.rand(1..31)),
+       [0, 8, 16, 32].sample(random: random)]
+    end
+    edges = [8, 16, 24].flat_map do |answer_bits|
+      [-1, 0, 1].map { |nudge| [((1 << answer_bits) + nudge) * 3, 3 << 16, 16] }
+    end
+    edges += [-1, 0, 1].map { |nudge| [ONE / 2 + nudge, ONE / 2, 16] } # a divisor below one, answers about one
+    drawn + edges + [[Int32::MIN, Int32::MIN, 16], [Int32::MAX, Int32::MIN, 16], [1, Int32::MIN, 32],
+                     [Int32::MIN, 3, 0], [Int32::MAX, Int32::MAX, 31], [0x7FFF_0000, 0x7FFF_0001, 32]]
+  end
+
+  def test_the_console_agrees_on_every_size_of_answer
+    cases = sweep_cases
+    program = Build.program(*cases.each_with_index.flat_map do |(a, b, bits), i|
+      [Build.set(:a, Build.int(a)), Build.set(:b, Build.int(b)),
+       Build.set(:"q#{i}", Build.div_fix(Build.var_ref(:a), Build.var_ref(:b), bits))]
+    end, Build.halt)
+    backend = GBA.new
+    rom = ROM.assemble(backend.lower(program), title: "DIVSWEEP")
+    v = assert_emulator_loads_rom(rom, frames: 4, vars: backend.var_addresses)
+
+    cases.each_with_index do |(a, b, bits), i|
+      assert_equal Int32.div_fix(a, b, bits), Int32.wrap(v.var(:"q#{i}")), "(#{a} << #{bits}) / #{b} on the console"
+    end
+  end
+
+  # WHAT ONE FRACTION DIVIDE COSTS, in instructions the console ran: the same divide written
+  # forty times a pass against twenty, and the difference shared out over the twenty added.
+  # That counts reading the two numbers and keeping the answer as well as the routine.
+  private def instructions_per_divide(numerator, divisor, title)
+    per_frame = [20, 40].map do |count|
+      program = program_for do
+        screen :bitmap
+        a = var :a, numerator
+        b = var :b, divisor
+        out = var :out, 0.0
+        game_loop { count.times { out.set! a / b } }
+      end
+      backend = GBA.new
+      rom = ROM.assemble(backend.lower(program), title: "#{title}#{count}", built: backend.build_record(program))
+      result = RubyGBA::Diagnostics::Profiler.run(rom, frames: 20, picture: false)
+      refute result.dropping_frames?, "forty divides ran over a frame, so the count means nothing"
+      result.samples_per_frame
+    end
+    (per_frame.last - per_frame.first) / 20
+  end
+
+  # A STEP OF THE LONG DIVISION IS THREE INSTRUCTIONS, AND STEPS THAT CAN ONLY GIVE NOUGHT ARE
+  # NOT RUN. An answer whose whole part needs fifteen bits runs every step, and the whole
+  # divide, reading and keeping included, comes to under 140. An answer a little over a
+  # hundred has nothing in its top eight bits and one below one nothing in its top sixteen, so
+  # they skip eight steps and sixteen, three instructions each — whatever size the divisor is.
+  def test_a_fraction_divide_runs_three_instructions_a_step_and_skips_what_gives_nothing
+    require_emulator!
+    every_step = instructions_per_divide(30_000.0, 1.0, "DIVALL")
+
+    assert_operator every_step, :<=, 140
+    assert_in_delta every_step - (8 * 3), instructions_per_divide(301.5, 3.0, "DIVBIG"), 1
+    assert_in_delta every_step - (16 * 3), instructions_per_divide(1.0, 3.0, "DIVSMALL"), 1
+    assert_in_delta every_step - (16 * 3), instructions_per_divide(0.25, 0.5, "DIVHALF"), 1,
+                    "a divisor below one skips as much as any other"
+  end
+
   # An answer too big to hold is held at the end of the range. 1.0 divided by the
   # smallest fraction there is wants sixty-five thousand times what a variable holds, and
   # of the two wrong answers available this is the one that still looks like a number.
@@ -207,19 +278,19 @@ class TestFractionDivision < Minitest::Test
   # numerator under 32768, which in sixteen fraction bits is a value below one half — so
   # this is the exception rather than the shape to design around.
   def test_a_small_enough_numerator_written_down_skips_the_routine
-    small = GBA.new.lower(Build.program(
-                            Build.set(:dist, Build.int(5 * ONE / 2)),
-                            Build.set(:out, Build.div_fix(Build.int(1000), Build.var_ref(:dist), 16)),
-                            Build.halt,
-                          )).bytesize
-    big = GBA.new.lower(Build.program(
-                          Build.set(:dist, Build.int(5 * ONE / 2)),
-                          Build.set(:out, Build.div_fix(Build.int(160 * ONE), Build.var_ref(:dist), 16)),
-                          Build.halt,
-                        )).bytesize
+    small = routines_carried(Build.div_fix(Build.int(1000), Build.var_ref(:dist), 16))
+    big = routines_carried(Build.div_fix(Build.int(160 * ONE), Build.var_ref(:dist), 16))
 
     # Both carry a routine — the folded one still divides by a value the game works out —
-    # but the widening one is the bigger of the two by a few hundred bytes.
-    assert_operator big - small, :>, 256
+    # but only the one too big to widen while building carries the widening one.
+    assert_includes small, GBA::Divide::ROUTINE
+    refute_includes small, GBA::Divide::FIX_ROUTINE
+    assert_includes big, GBA::Divide::FIX_ROUTINE
+  end
+
+  private def routines_carried(divide)
+    backend = GBA.new
+    backend.lower(Build.program(Build.set(:dist, Build.int(5 * ONE / 2)), Build.set(:out, divide), Build.halt))
+    backend.routine_addresses.keys
   end
 end

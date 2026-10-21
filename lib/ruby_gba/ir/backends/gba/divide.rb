@@ -37,7 +37,7 @@ module RubyGBA
           # these are counts of what it is, not guesses; the build stops (see
           # #refuse_oversized_routine!) if a change ever makes one bigger.
           ROUTINE_BYTES = 668
-          FIX_ROUTINE_BYTES = 1000
+          FIX_ROUTINE_BYTES = 556
 
           # What the two routines are called. This chip cannot divide, so every division in a
           # program goes through one of them — which makes them routines a measured profile has
@@ -69,6 +69,14 @@ module RubyGBA
           FIX_WIDE = 3  # the other end of that widening (32 - bits)
           FIX_LOW = 4   # the low half of the widened numerator; then the answer
           FIX_HIGH = 5  # the high half; then what is left over as the division walks
+          # Once the numerator is widened, the registers that brought it in are free again.
+          FIX_NEG_DEN = DIV_NUM # minus the divisor, which a step adds to take it out
+          FIX_SKIP = FIX_BITS   # how far into the written-out steps to jump, in bytes
+
+          # How many places at a time the fraction divide asks whether it can skip, and what
+          # one of its steps comes to in bytes (three instructions).
+          FIX_SKIPS = [16, 8].freeze
+          FIX_STEP_BYTES = 12
 
           SIGN_BIT = 1 << 31
           INT32_MAX = (1 << 31) - 1
@@ -285,12 +293,31 @@ module RubyGBA
           # So this one divides a numerator held across TWO registers, which is why it
           # cannot share the routine above.
           #
-          # It is a plain long division of that double-width numerator, thirty-two steps
-          # of it, because unlike the routine above there is no cheap way to know in
-          # advance how many of them matter. A step walks the numerator along one place
-          # (the two halves shift together, the bit falling out of the low one carried
-          # into the high one) and takes the divisor out of the top if it fits, and the
-          # bit that frees up at the bottom is where the answer accumulates.
+          # It is a long division of that double-width numerator, at most thirty-two steps
+          # of it. A step walks the numerator along one place, the bit falling out of the low
+          # half carried into the high one, and takes the divisor out of the high half if it
+          # fits; the place that frees up at the bottom of the low half is where the answer
+          # collects, a bit a step.
+          #
+          # A STEP IS THREE INSTRUCTIONS, because the routine keeps the divisor NEGATED. Adding
+          # minus the divisor is taking it out, and the carry an add leaves is set exactly when
+          # the divisor fitted, so one add-with-carry doubles the high half, takes in the bit
+          # carried up from the low one AND tries the divisor, and the carry it leaves is the
+          # answer's next bit. When the divisor did not fit, one subtract puts it back. That
+          # carry then rides into the next step's doubling of the low half, which is how it
+          # lands in the answer, so the answer's last bit needs one more doubling after the run.
+          # The high half never outgrows a register on the way: it stays below the divisor,
+          # and the divisor is at most half of what a register counts to.
+          #
+          # STEPS THAT CAN ONLY GIVE NOUGHT ARE NOT RUN. A numerator less than the divisor
+          # times 2**16 has nothing in the answer's top sixteen bits, so the routine asks that
+          # first, and when it is, walks the numerator along sixteen places at once and enters
+          # the written-out run sixteen steps in. Then the same for eight. An answer with a
+          # fraction of sixteen bits and a whole part under 256 runs twenty-four steps, one
+          # below one runs sixteen, and a bigger one all thirty-two.
+          #
+          # Asking for four as well was weighed and left out: the six instructions it takes
+          # save twelve only when the answer is that small, which a fraction rarely is.
           #
           #   in:  r1 = the numerator, r0 = the divisor, r2 = how far to widen (0..32)
           #   out: r0 = the answer
@@ -326,15 +353,21 @@ module RubyGBA
             @emitter.emit(ASM.cmp_reg(FIX_HIGH, DIV_DEN))
             @emitter.emit_branch(:bcond, too_big, cond: :hs)
 
+            emit_divide_fix_skip_search
+            # Negating the divisor also clears the carry, since it is not nought, so the bit the
+            # first step slides into the answer is nought too: it would otherwise land just above
+            # the answer when steps were skipped.
+            @emitter.emit(ASM.rsbs_imm(FIX_NEG_DEN, DIV_DEN, 0))
+            @emitter.emit(ASM.add_pc_reg_lsl(FIX_SKIP, 0)) # in past the skipped steps
+            @emitter.emit(ASM.nop)                         # pc reads two ahead
+            run_starts = @emitter.pos
             LADDER_STEPS.times do
-              @emitter.emit(ASM.adds_reg(FIX_LOW, FIX_LOW, FIX_LOW))   # walk the numerator along...
-              @emitter.emit(ASM.adcs_reg(FIX_HIGH, FIX_HIGH, FIX_HIGH)) # ...carrying between halves
-              @emitter.emit(ASM.sub_reg_cond(:hs, FIX_HIGH, FIX_HIGH, DIV_DEN)) # past a whole word: it fits
-              @emitter.emit(ASM.orr_imm_cond(:hs, FIX_LOW, FIX_LOW, 1))
-              @emitter.emit(ASM.cmp_reg(FIX_HIGH, DIV_DEN))            # otherwise ask outright
-              @emitter.emit(ASM.sub_reg_cond(:hs, FIX_HIGH, FIX_HIGH, DIV_DEN))
-              @emitter.emit(ASM.orr_imm_cond(:hs, FIX_LOW, FIX_LOW, 1))
+              @emitter.emit(ASM.adcs_reg(FIX_LOW, FIX_LOW, FIX_LOW))                  # answer bit in, numerator bit out
+              @emitter.emit(ASM.adcs_reg_lsl(FIX_HIGH, FIX_NEG_DEN, FIX_HIGH, 1))      # take it in, try the divisor
+              @emitter.emit(ASM.sub_reg_cond(:lo, FIX_HIGH, FIX_HIGH, FIX_NEG_DEN))    # it did not fit: put it back
             end
+            refuse_misjumping_steps!(@emitter.pos - run_starts)
+            @emitter.emit(ASM.adc_reg(FIX_LOW, FIX_LOW, FIX_LOW)) # the last step's answer bit
 
             # The answer is built without a sign, so its top bit being set means it has
             # outgrown a signed number.
@@ -354,6 +387,27 @@ module RubyGBA
           end
 
           private
+
+          # How many of the run's steps to skip, as how far into it to jump: for each of
+          # FIX_SKIPS, when the numerator is below the divisor times 2**(32 - places), the
+          # answer's next that-many bits are nought, so the numerator walks along that far now.
+          #
+          # That product is twice a register wide too — its high half is the divisor moved down
+          # that many places, its low half the divisor moved up the rest of the way — so the
+          # question is two compares: the high halves, and only where those are equal, the low
+          # ones. The divisor's low bits matter exactly there, which is why a divisor below one,
+          # whose high half is nought, still skips as far as any other.
+          def emit_divide_fix_skip_search
+            @emitter.emit(ASM.load_immediate(FIX_SKIP, 0))
+            FIX_SKIPS.each do |places|
+              @emitter.emit(ASM.cmp_reg_lsr(FIX_HIGH, DIV_DEN, places))
+              @emitter.emit(ASM.cmp_reg_lsl_cond(:eq, FIX_LOW, DIV_DEN, 32 - places))
+              @emitter.emit(ASM.mov_reg_lsl_cond(:lo, FIX_HIGH, FIX_HIGH, places))
+              @emitter.emit(ASM.orr_reg_lsr_cond(:lo, FIX_HIGH, FIX_HIGH, FIX_LOW, 32 - places))
+              @emitter.emit(ASM.mov_reg_lsl_cond(:lo, FIX_LOW, FIX_LOW, places))
+              @emitter.emit(ASM.add_imm_cond(:lo, FIX_SKIP, FIX_SKIP, places * FIX_STEP_BYTES))
+            end
+          end
 
           # An answer with no room left is held at the end of the range rather than
           # wrapped (see Int32.div_fix for why that is the useful wrong answer).
@@ -430,6 +484,17 @@ module RubyGBA
             @emitter.emit(ASM.cmp_imm(DIV_NUM, 0))
             @emitter.emit(ASM.rsb_imm_cond(:lt, DIV_DEN, DIV_DEN, 0))
             @emitter.emit(ASM.return)
+          end
+
+          # The jump into the fraction divide's steps counts in FIX_STEP_BYTES, so a step that
+          # grew by an instruction would land the jump in the middle of one. Stop the build
+          # rather than divide wrongly.
+          def refuse_misjumping_steps!(run_bytes)
+            return if run_bytes == LADDER_STEPS * FIX_STEP_BYTES
+
+            raise LoweringError,
+                  "the fraction divide's steps come to #{run_bytes} bytes, but its jump into them " \
+                  "counts #{FIX_STEP_BYTES} bytes a step"
           end
 
           def refuse_oversized_routine!(what, size, room)
