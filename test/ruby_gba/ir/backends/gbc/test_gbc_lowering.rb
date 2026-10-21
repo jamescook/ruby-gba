@@ -11,7 +11,38 @@ class TestGBCLowering < Minitest::Test
 
   def test_game_of_numbers_alone_is_lowered_straight_to_sm83
     assert GBC::Lowering.makes?(program { var :n, 1 })
-    refute GBC::Lowering.makes?(program { clear_screen :blue }), "drawing is not made yet"
+    assert GBC::Lowering.makes?(program { clear_screen :blue })
+    refute GBC::Lowering.makes?(program { camera 3, 4 }), "a camera on a painted screen is not made yet"
+  end
+
+  # A tiled screen: a background, a sprite moved by a held button and drawn from another colour
+  # list once it is held, a second sprite it collides with, and a fade coming in.
+  def test_tiled_game_plays_as_the_interpreter_plays_it
+    game = program do
+      screen :tiled
+      image(:grass, "g" => :green) { "#{'g' * 8}\n" * 8 }
+      image(:mud, "m" => :orange) { "#{'m' * 8}\n" * 8 }
+      tiles :ground, "#" => :grass, "." => :mud
+      background :field, tiles: :ground, map: ["#.#.", ".#.#"]
+      image :dot, "." => :transparent, "r" => :red, colors: %i[transparent red] do
+        "rr\nrr\n"
+      end
+      colors :warm, %i[transparent yellow]
+      hero = sprite :dot, at: [10, 10]
+      rock = sprite :dot, at: [40, 10]
+      hits = var :hits, 0
+      fading = var :fading, 100
+      game_loop do
+        held(:right).then { hero.x.add! 3 }
+        held(:right).then { hero.draw_with :warm }
+        hero.overlaps?(rock).then { hits.add! 1 }
+        fade :black, fading
+        fading.set! fading.approach(0, 10)
+      end
+    end
+
+    assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
+    GBC::CheckedRun.new.hold(:right).run(game, frames: 12)
   end
 
   # Every statement of the first slice, in one game: a scene picked by a `case` that changes the
@@ -124,6 +155,23 @@ class TestGBCLowering < Minitest::Test
     assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
     run = GBC::CheckedRun.new.run(game, frames: 30)
     assert_equal 21, run[:fast_count], "stopped on the 20th tick, the first of a frame's two, and the second still ran"
+  end
+
+  # A game loop far bigger than a bank of the cartridge holds is cut into parts, each a routine of
+  # its own called where its statements stood, and still plays as the interpreter plays it.
+  def test_routine_bigger_than_bank_is_cut_into_parts
+    game = program do
+      total = var :total, 0
+      game_loop do
+        3000.times { |n| total.add! n % 7 }
+        (total > 1_000_000).then { total.set! 0 }
+      end
+    end
+
+    built = GBC.new.build(game).built
+    assert built.code.key?("main_part1"), "the game loop was cut"
+    run = GBC::CheckedRun.new.run(game, frames: 3)
+    assert_operator run[:total], :>, 0
   end
 
   private

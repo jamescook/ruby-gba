@@ -43,7 +43,8 @@ module RubyGBA
                                                timer_start: :emit_timer_start, timer_stop: :emit_timer_stop,
                                                # a timer's handler runs as its timer ticks, not where it is written
                                                on_timer: :emit_nothing
-                                             }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))
+                                             }.merge(Picture::STATEMENTS)
+                                              .merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))
 
           VALUES = Ractor.make_shareable({
                                            int: :value_of_int, var_ref: :value_of_var_ref, binop: :value_of_binop,
@@ -55,7 +56,9 @@ module RubyGBA
                                            list_len: :value_of_list_len, table_get: :value_of_table_get,
                                            save_read: :value_of_save_read, save_sum: :value_of_save_sum,
                                            timer_ticks: :value_of_timer_ticks
-                                         })
+                                         }.merge(Picture::VALUES))
+
+          include Picture
 
           # How many bytes of save memory a read or a write moves, by the width it names.
           SAVE_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4 })
@@ -111,8 +114,15 @@ module RubyGBA
           # The label of the routine the program itself is, which the runtime calls at power-on.
           MAIN = "main"
 
-          # Where a label is, handed to a runtime routine as a number (a table it reads).
+          # Values this lowering makes for itself beside the IR's, each worked out into BCDE as one of
+          # the IR's is: where a label is (a table a runtime routine reads); the entry of a table of
+          # the drawing's numbers at an index, +bytes+ wide and read with its sign or not; what a
+          # runtime routine gives back for +args+; and a sum or a test of two of any of these, as a
+          # binop of the IR's is worked out.
           Address = Data.define(:label)
+          Entry = Data.define(:label, :bytes, :signed, :index)
+          RuntimeValue = Data.define(:routine, :args)
+          Sum = Data.define(:op, :lhs, :rhs)
 
           # The routine the game names +name+.
           def self.routine_label(name) = "routine #{name}"
@@ -163,16 +173,16 @@ module RubyGBA
             @locals = {} # a routine's own numbers, by the name the lowering gave each
             @starts = [] # [address, value] for a place that does not start at nought
             @routine_tables = {} # a list of routines a call picks from by number -> its table's label
+            @cut_children = {} # a statement whose statements were cut into parts -> what stands for them
+            prepare_picture
           end
-
-          # The art the game's pictures were made into: none, for a game this lowering makes so far.
-          def art = @art ||= Art.new(paint_colors: nil)
 
           # The game's code, as sections for the Linker: its data, every routine a run can reach, and
           # the program itself.
           def sections
             refuse_color_answer_errors!
             refuse_unsupported_save_memory!
+            refuse_too_many_paint_colors!
             refuse_routines_that_call_themselves!
             Reach.variables(@program).each { |name| @variables[name] = @memory.reserve("the variable #{name.inspect}", 4) }
             @declared_lists.each_value do |node|
@@ -183,11 +193,16 @@ module RubyGBA
             end
             @scene = keep_local(:scene, start: -1) unless @scenes.empty?
             keep_timer_numbers
-            routines = @called.map { |name| routine_section(self.class.routine_label(name), @funcs.fetch(name).children) }
+            keep_held_colors
+            keep_patches
+            keep_column_numbers
+            routines = @called.flat_map { |name| routines_fitting(self.class.routine_label(name), @funcs.fetch(name).children) }
             timers = timer_sections
-            main = routine_section(MAIN, @program.children)
-            # The data last of all, since the routines are what find the tables of routines in it.
-            [data_section, *routines, *timers, main]
+            main = routines_fitting(MAIN, @program.children)
+            # The routines the drawing asked for as the rest was made, and then the data last of
+            # all, since the routines are what find the tables in it.
+            columns = column_sections
+            [data_section, *routines, *timers, *main, *columns]
           end
 
           private
@@ -246,6 +261,10 @@ module RubyGBA
               asm.label(table_label(table.name))
               bytes, = table_keeping(table)
               table.values.each { |entry| asm.data_bytes(little_endian(Int32.wrap(entry), bytes)) }
+            end
+            @drawing_tables.each do |label, bytes, entries|
+              asm.label(label)
+              entries.each { |entry| asm.data_bytes(little_endian(Int32.wrap(entry), bytes)) }
             end
             @routine_tables.each do |targets, label|
               asm.label(label)
@@ -323,12 +342,91 @@ module RubyGBA
           end
 
           # A number of the routine's own, kept in work memory, by a name of its own that a value
-          # can read as a variable. +start+ is what it holds from power-on.
+          # can read as a variable. +start+ is what it holds from power-on. Code made only to be
+          # measured (#bytes_of) is given a place that is never kept.
           def keep_local(what, start: 0)
             name = :"#{@routine || 'game'}.#{what}#{@locals.length + 1}"
+            return name.tap { @locals[name] = Memory::FIRST } if @measuring
+
             @locals[name] = @memory.reserve("the game's number #{name}", 4)
             @starts << [@locals[name], start] unless start.zero?
             name
+          end
+
+          # --- a routine too big for a bank, cut into parts ---
+
+          # The most bytes one routine's code may come to before it is cut into parts, each a
+          # routine of its own: a bank is 16K, and a routine and the numbers it uses go in one.
+          MOST_ROUTINE_BYTES = 12_000
+
+          # The most bytes a part cut off a routine may come to.
+          MOST_PART_BYTES = 6_000
+
+          # A call of a part cut off a routine, standing where its statements stood.
+          PartCall = Data.define(:label)
+
+          # The routine +label+ of +body+'s statements, and the parts cut off it to fit a bank. A
+          # run of statements side by side becomes a routine of its own, called where they were; a
+          # statement too big to move whole has what is inside it cut the same way instead. The
+          # parts share the routine's own numbers, which are kept in work memory, so nothing is
+          # handed between them.
+          def routines_fitting(label, body)
+            parts = []
+            body = cut_list(body, label, parts) if bytes_of(body) > MOST_ROUTINE_BYTES
+            [routine_section(label, body), *parts.map { |part, statements| routine_section(part, statements) }]
+          end
+
+          def cut_list(list, base, parts)
+            kept = []
+            run = []
+            run_bytes = 0
+            flush = lambda do
+              next if run.empty?
+
+              part = "#{base}_part#{parts.length + 1}"
+              parts << [part, run]
+              kept << PartCall.new(part)
+              run = []
+              run_bytes = 0
+            end
+            list.each do |node|
+              size = bytes_of([node])
+              if size <= MOST_PART_BYTES
+                flush.call if run_bytes + size > MOST_PART_BYTES
+                run << node
+                run_bytes += size
+              else
+                flush.call
+                kept << cut_inside(node, base, parts)
+              end
+            end
+            flush.call
+            kept
+          end
+
+          # A statement too big to move whole, with the statements it holds cut. Only an `if`, a
+          # `loop` and a `repeat` hold statements that are made where they stand.
+          def cut_inside(node, base, parts)
+            return node unless %i[if loop repeat].include?(node.kind)
+
+            body, otherwise = children_of(node)
+            @cut_children[node.object_id] = [cut_list(body, base, parts), cut_list(otherwise, base, parts)]
+            node
+          end
+
+          # How many bytes +list+ comes to, made on its own and thrown away.
+          def bytes_of(list)
+            saved = [@asm, @routine, @labels, @constants, @locals.dup, @drawing_tables.length]
+            @measuring = true
+            @asm = SM83.new("measuring", home: :banked)
+            @labels = 0
+            @constants = {}
+            list.each { |node| statement(node) }
+            @asm.here + (@constants.size * 4)
+          ensure
+            @measuring = false
+            @asm, @routine, @labels, @constants, @locals, tables = saved
+            @drawing_tables.slice!(tables..)
           end
 
           def place_of(name)
@@ -337,7 +435,17 @@ module RubyGBA
 
           # --- statements ---
 
-          def statement(node) = send(STATEMENTS.fetch(node.kind), node)
+          def statement(node)
+            return call_routine(node.label) if node.is_a?(PartCall)
+
+            send(STATEMENTS.fetch(node.kind), node)
+          end
+
+          # The statements an `if`, a `loop` or a `repeat` holds, and an `if`'s `else`: its own, or
+          # those a routine too big for a bank cut them into (#cut_list).
+          def children_of(node)
+            @cut_children.fetch(node.object_id) { [node.children, node.kind == :if ? node.else&.children || [] : []] }
+          end
 
           def emit_nothing(_node) = nil
           def emit_children(node) = node.children.each { |child| statement(child) }
@@ -410,14 +518,14 @@ module RubyGBA
           end
 
           def emit_if(node)
-            otherwise = node.else&.children || []
+            body, otherwise = children_of(node)
             known = folded(node.cond)
-            return (known.zero? ? otherwise : node.children).each { |child| statement(child) } if known
+            return (known.zero? ? otherwise : body).each { |child| statement(child) } if known
 
             other = fresh("else")
             done = fresh("end_if")
             jump_unless(node.cond, other)
-            node.children.each { |child| statement(child) }
+            body.each { |child| statement(child) }
             @asm.jump(done) unless otherwise.empty?
             @asm.label(other)
             otherwise.each { |child| statement(child) }
@@ -427,7 +535,7 @@ module RubyGBA
           def emit_loop(node)
             top = fresh("loop")
             @asm.label(top)
-            node.children.each { |child| statement(child) }
+            children_of(node).first.each { |child| statement(child) }
             @asm.jump(top)
           end
 
@@ -451,7 +559,7 @@ module RubyGBA
               store(node.index)
             end
             jump_if(node.stop_when, done)
-            node.children.each { |child| statement(child) }
+            children_of(node).first.each { |child| statement(child) }
             add_in_place(place_of(index), 1)
             @asm.jump(top)
             @asm.label(done)
@@ -518,23 +626,27 @@ module RubyGBA
             done = fresh("scene_done")
             jump_unless(Build.binop(:!=, Build.var_ref(@scene), Build.int(number)), staying)
             if @handover.arrival(scene).loads_first?
-              handed_over = fresh("scene_handed_over")
-              jump_unless(Build.binop(:==, Build.var_ref(@scene), Build.int(-1)), handed_over)
-              load_constant(number)
-              store(@scene)
+              at_power_on = keep_local(:at_power_on)
+              value(Build.binop(:==, Build.var_ref(@scene), Build.int(-1)))
+              store(at_power_on)
+              take_over(scene, number)
+              jump_unless(Build.var_ref(at_power_on), done)
               call_routine(label)
               @asm.jump(done)
-              @asm.label(handed_over)
-              load_constant(number)
-              store(@scene)
-              @asm.jump(done)
             else
-              load_constant(number)
-              store(@scene)
+              take_over(scene, number)
             end
             @asm.label(staying)
             call_routine(label)
             @asm.label(done)
+          end
+
+          # The scene numbered +number+ is the one running now, and what it does as it arrives is
+          # done (Picture#emit_scene_arrival).
+          def take_over(scene, number)
+            load_constant(number)
+            store(@scene)
+            emit_scene_arrival(scene)
           end
 
           def emit_halt(_node) = @asm.call("rg_halt")
@@ -857,8 +969,30 @@ module RubyGBA
             case operand
             when Symbol then load_variable(operand)
             when Node then send(VALUES.fetch(operand.kind), operand)
+            when Address then load_label(operand.label)
+            when Entry then table_entry(operand)
+            when RuntimeValue then runtime_call(operand.routine, operand.args)
+            when Sum then value_of_binop(operand)
             else raise LoweringError, "cannot make #{operand.inspect} a number"
             end
+          end
+
+          def load_label(label)
+            @asm.load(:bc, 0)
+            @asm.load(:de, label)
+          end
+
+          # The entry of a table of the drawing's numbers at an index the program has already kept
+          # inside it: HL = the table + the index × the entry's size.
+          def table_entry(entry)
+            value(entry.index)
+            (entry.bytes / 2).times do
+              @asm.sla(:e)
+              @asm.rl(:d)
+            end
+            @asm.load(:hl, entry.label)
+            @asm.add_hl(:de)
+            @asm.call(TABLE_KEPT.fetch([entry.bytes, entry.signed]).last)
           end
 
           def value_of_int(node) = load_constant(node.value)
@@ -1000,12 +1134,7 @@ module RubyGBA
           # The number +node+ worked out into BCDE and pushed, four bytes, high half first: the stack
           # then holds it as a number is kept anywhere else, lowest byte first.
           def push_value(node)
-            if node.is_a?(Address)
-              @asm.load(:bc, 0)
-              @asm.load(:de, node.label)
-            else
-              value(node)
-            end
+            value(node)
             @asm.push(:bc)
             @asm.push(:de)
           end
