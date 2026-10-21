@@ -566,6 +566,7 @@ module RubyGBA
                                    lists: @lists.list_places,
                                    voices: voice_table,
                                    sound_drops: drop_table,
+                                   colors_short_at: @screen.lending && var_addresses[SpriteDrawing::LENT_COLORS_MISSED],
                                    video_memory: @screen.video_memory_report,
                                    roomy_memory: roomy_memory_report,
                                    sprite_slots: @screen.sprite_slots,

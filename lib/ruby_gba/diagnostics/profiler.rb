@@ -108,7 +108,7 @@ module RubyGBA
       Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
                            :reached, :tearing, :flicker, :tick_rates, :sound_drops, :video_copies,
                            :late_passes, :split_hints, :list_touches, :late_hand_overs,
-                           :pages_shown_at_once, :pages_shown_part_way, :power_on_pass) do
+                           :pages_shown_at_once, :pages_shown_part_way, :power_on_pass, :colors_short) do
         # +split_hints+ are the parts of routines that missed the quick memory worth making a
         # `func` of (see SplitHints), busiest first. +list_touches+ is how many times the run read
         # or wrote each list, by its name. +late_hand_overs+ are the scenes that run late on the
@@ -117,9 +117,11 @@ module RubyGBA
         # their break, because its `late:` said to (see IR::LatePages) — each a frame that was
         # not a whole frame late. +pages_shown_part_way+ is how many of those it showed part way
         # down the picture, which is each a frame that can have torn; the rest were shown in the
-        # break between pictures, where nothing tears.
+        # break between pictures, where nothing tears. +colors_short+ is how many times a sprite
+        # was drawn in another list's colours because no group was left to lend its list (see
+        # .colors_short_line), each one sprite on one frame; nil for a game that lends nothing.
         def initialize(split_hints: [], list_touches: {}, late_hand_overs: [], pages_shown_at_once: 0,
-                       pages_shown_part_way: 0, power_on_pass: nil, **rest) = super
+                       pages_shown_part_way: 0, power_on_pass: nil, colors_short: nil, **rest) = super
 
         def dropping_frames? = fps < 59.5
 
@@ -133,7 +135,7 @@ module RubyGBA
             keys: keys.map(&:to_s), unattributed: unattributed, reached: reached.to_h,
             late_passes: late_passes, power_on_pass: power_on_pass&.to_h,
             pages_shown_at_once: pages_shown_at_once,
-            pages_shown_part_way: pages_shown_part_way,
+            pages_shown_part_way: pages_shown_part_way, colors_short: colors_short,
             late_hand_overs: late_hand_overs.map { |late| { scene: late.scene.to_s, loads_first: late.loads_first } },
             split_hints: split_hints.map { |hint| hint.to_h.merge(routine: hint.routine.to_s) },
             tearing: tearing && { looked: tearing.looked, torn: tearing.torn, worst: tearing.worst },
@@ -177,17 +179,17 @@ module RubyGBA
         holding = scene_state(rom, scene) + Array(holding) if scene
         reached = how_reached(scene, from)
 
-        drops = rom.built.sound_drops
-        profile, tearing, flicker, lost = in_temp_rom(rom) do |path|
+        losses = Losses.new(sounds: rom.built.sound_drops, colors_short_at: rom.built.colors_short_at)
+        profile, tearing, flicker, lost, short = in_temp_rom(rom) do |path|
           probe = Emulator.probe(path)
           begin
             measured =
               if from
-                profile_from_saved_state(probe, from, path, frames, held, drops)
+                profile_from_saved_state(probe, from, path, frames, held, losses)
               elsif holding
-                profile_holding_words(probe, holding, frames, held, drops)
+                profile_holding_words(probe, holding, frames, held, losses)
               else
-                profile_from_boot(probe, frames, settle, held, drops)
+                profile_from_boot(probe, frames, settle, held, losses)
               end
             # Looked at AFTER the profiling, from wherever it left the game — so the frames
             # judged are the same frames that were measured, doing the same work.
@@ -196,13 +198,15 @@ module RubyGBA
             program = rom.built.source_program
             # READ BEFORE the picture is looked at, because looking at it steps the game on a
             # few more frames — and those frames are not the frames that were measured.
-            lost_sounds = drops_in(probe, drops)
+            lost_sounds = drops_in(probe, losses.sounds)
+            short = colors_short_in(probe, losses.colors_short_at)
             loaded_sets = sets_in(rom, probe)
             routines = rom.built.routines_with_sets(loaded_sets)
             [measured,
              picture ? tearing_in(probe, program, held) : nil,
              picture ? flicker_in(probe, program, held) : nil,
-             lost_sounds]
+             lost_sounds,
+             short]
           ensure
             probe.close
           end
@@ -220,7 +224,7 @@ module RubyGBA
                 pages_shown_at_once: shown_at_once,
                 pages_shown_part_way: count_at_sites(profile, late_pages.select { |site| site[:tears] }, loaded_sets),
                 fps: pictures_per_second(profile, shown_at_once),
-                power_on_pass: power_on_pass)
+                power_on_pass: power_on_pass, colors_short: short)
       end
 
       # NEW PICTURES A SECOND. The emulator counts the frames the game finished its work in by
@@ -277,7 +281,7 @@ module RubyGBA
       # The counters run from the moment the game boots, and the frames before the measuring
       # starts are not the frames being reported on — a game settles, and a saved moment brings
       # its own history along with it. So they are put back to nothing at the top of the window
-      # (#clear_drops) and read here at the bottom, which makes this number about the same frames
+      # (#clear_losses) and read here at the bottom, which makes this number about the same frames
       # every other number in the report is about.
       #
       # A program that plays no samples has no counters and comes back unmeasured, so "nothing
@@ -288,11 +292,25 @@ module RubyGBA
         drops.read { |address| probe.read32(address) }
       end
 
-      def self.clear_drops(probe, drops)
-        return if drops.nil?
+      # The same, for a sprite drawn in another list's colours because no group was left to lend
+      # its list (see Cartridge::BuildRecord#colors_short_at). nil for a game that lends nothing.
+      def self.colors_short_in(probe, address)
+        address && probe.read32(address)
+      end
 
-        probe.write32(drops.drops_at, 0)
-        probe.write32(drops.music_at, 0)
+      # THE COUNTS THE CONSOLE KEEPS OF WHAT A RUN LOST: the sounds that did not play (a
+      # SoundDrops table, or nil) and where it counts sprites drawn in another list's colours
+      # (or nil).
+      Losses = Data.define(:sounds, :colors_short_at)
+
+      def self.clear_losses(probe, losses)
+        return if losses.nil?
+
+        if (drops = losses.sounds)
+          probe.write32(drops.drops_at, 0)
+          probe.write32(drops.music_at, 0)
+        end
+        probe.write32(losses.colors_short_at, 0) if losses.colors_short_at
       end
 
       # IS EACH TIMER DELIVERING THE RATE IT WAS ASKED FOR, counted off the same histogram the
@@ -387,10 +405,10 @@ module RubyGBA
       # same source twice gives the same bytes, so simply re-running a build never costs anybody
       # their saved moments. Only a real change moves the addresses, and that is exactly when the
       # state has stopped meaning anything.
-      def self.profile_from_saved_state(probe, state_path, rom_path, frames, held, drops = nil)
+      def self.profile_from_saved_state(probe, state_path, rom_path, frames, held, losses = nil)
         check_state_matches!(probe, state_path, rom_path)
         probe.load_state(state_path)
-        clear_drops(probe, drops) # the state brought the moment's own history with it
+        clear_losses(probe, losses) # the state brought the moment's own history with it
         probe.profile(frames: frames, keys: held)
       end
 
@@ -415,9 +433,9 @@ module RubyGBA
 
       # The settling is stepped here rather than handed to the probe, so there is a moment
       # between it and the measuring for the counters to be put back to nothing.
-      def self.profile_from_boot(probe, frames, settle, held, drops = nil)
+      def self.profile_from_boot(probe, frames, settle, held, losses = nil)
         probe.step(settle, keys: held) if settle.positive?
-        clear_drops(probe, drops)
+        clear_losses(probe, losses)
         probe.profile(frames: frames, keys: held)
       end
 
@@ -466,11 +484,11 @@ module RubyGBA
       # +writes+ are whole words, [address, value], and the scene is one of them. The others
       # hold a collection full the same way (see FullCollections): a list the game pops from is
       # back at its capacity on the next frame.
-      def self.profile_holding_words(probe, writes, frames, held, drops = nil)
+      def self.profile_holding_words(probe, writes, frames, held, losses = nil)
         probe.step(BOOT_FRAMES, keys: held)
         writes.each { |address, value| probe.write32(address, value) }
         probe.step(SETTLE, keys: held)
-        clear_drops(probe, drops) # the scene starts here; what it lost before it does not count
+        clear_losses(probe, losses) # the scene starts here; what it lost before it does not count
 
         frames.times.map do
           writes.each { |address, value| probe.write32(address, value) }
@@ -728,6 +746,7 @@ module RubyGBA
         flicker_line(result.flicker, printer)
         tick_rate_lines(result.tick_rates, printer)
         sound_drop_lines(result.sound_drops, printer)
+        colors_short_line(result.colors_short, printer)
         video_copy_lines(result.video_copies, printer)
         printer.puts("")
 
@@ -893,6 +912,19 @@ module RubyGBA
           printer.puts("  #{copy.bytes_per_frame} bytes a frame copied into video memory by #{copy.source} " \
                        "(#{copy.copies} copies)")
         end
+      end
+
+      # A SPRITE IN ANOTHER LIST'S COLOURS. The console lends the groups its sprites' own
+      # colours leave over to the lists things on screen wear, and with more lists on screen at
+      # once than groups the extra things are drawn in whatever a group holds. Said only when it
+      # happened; a game that lends nothing has no count to say.
+      def self.colors_short_line(short, printer)
+        return if short.nil? || short.zero?
+
+        printer.puts("  #{short} times, a sprite was drawn in the wrong colors: more lists of colors were on " \
+                     "screen at once than the console has groups for", severity: :bad)
+        printer.puts("  Each time is one sprite on one frame. To fix this, show fewer things with different " \
+                     "lists at once, or give more of them the same list.")
       end
 
       def self.sound_drop_lines(drops, printer)

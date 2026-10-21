@@ -92,18 +92,22 @@ module RubyGBA
     # puts it. Each says where the cartridge keeps the order — a byte per sprite, back to front —
     # and each sprite's own place and how many places it takes, so a place read off the console
     # can be taken back to the sprite in it. Empty for a game that orders nothing.
+    # +colors_short_at+ is where the console counts each time a sprite drawn with a list of
+    # colours that borrows a group found none free, and was drawn in another list's colours
+    # (see IR::Backends::GBA::ScreenLayout::LentColors) — a hidden variable, like the dropped
+    # sounds' count. nil for a game whose lists all have a group of their own.
     class BuildRecord < Data.define(:source_program, :placement, :var_addresses, :loop_shapes,
                                     :palette_entries, :column_stretches, :compression,
                                     :build_options, :findings, :emitted, :routines, :video_memory,
                                     :roomy_memory, :timer_handlers, :voices, :sound_drops,
                                     :sprite_slots, :sprite_offsets, :streamed_sprite_pose_vars,
                                     :video_copies, :late_pages, :lists, :sprite_runs, :scene_sets,
-                                    :missed_routine_parts)
+                                    :missed_routine_parts, :colors_short_at)
       def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
                      roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil,
                      sprite_slots: {}, sprite_offsets: {}, streamed_sprite_pose_vars: {},
                      video_copies: [], late_pages: [], lists: {}, sprite_runs: [], scene_sets: nil,
-                     missed_routine_parts: {}, **rest)
+                     missed_routine_parts: {}, colors_short_at: nil, **rest)
         super
       end
 
