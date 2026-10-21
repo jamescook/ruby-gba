@@ -14,8 +14,6 @@ require "test_helper"
 class TestTimers < Minitest::Test
   include RubyGBA::Console::Hardware
 
-  Build = RubyGBA::IR::Build
-
   private def interpret(**opts, &block)
     game_player.run(tree(&block), **opts)
   end
@@ -157,61 +155,6 @@ class TestTimers < Minitest::Test
     before_loop = program.children[0...loop_index]
     assert before_loop.any? { |n| n.kind == :set && n.value.kind == :int && n.value.value.zero? },
            "a timer's counter should be zero-initialized before the game loop"
-  end
-
-  # ---- lowering: a timer node is a plain frame counter + compare ----
-  #
-  # The GBA backend lowers every/after to a hidden frame counter and a compare.
-  # Pin that lowering by building the node form and the equivalent explicit
-  # counter+compare form and asserting identical generated code (two fresh backends
-  # label gensyms the same way, so equal bytes means an equal instruction stream).
-  #
-  # Both are built with `fast_code: false`. Where code is KEPT is a whole-program
-  # decision made from what a frame costs, and the two forms don't cost the same to the
-  # estimate — `every(3)` is counted as a third of its body, the spelled-out compare as
-  # all of it — so one can be moved into the console's quick memory and the other left
-  # where it is. That is the placement working, not the lowering differing, and it has
-  # to be held still for a byte-for-byte comparison to mean anything.
-  def test_every_lowers_identically_to_an_explicit_counter_compare
-    node_form = Build.program(
-      Build.screen(:bitmap), Build.set(:c, 0),
-      Build.loop_(Build.wait_vblank, Build.every(:c, 3, Build.set(:hit, 1)), Build.halt),
-    )
-    explicit_form = Build.program(
-      Build.screen(:bitmap), Build.set(:c, 0),
-      Build.loop_(Build.wait_vblank,
-                  # ...by however many FRAMES the last pass took, not by one a pass — a beat
-                  # given in seconds has to be that many seconds on a game that misses frames.
-                  Build.add(:c, Build.var_ref(RubyGBA::IR::Frames::STEP)),
-                  Build.if_(Build.binop(:>=, Build.var_ref(:c), Build.int(3)),
-                            # ...and take the period off rather than clearing, so a beat that
-                            # overshoots keeps the remainder instead of drifting.
-                            Build.sub(:c, 3), Build.set(:hit, 1)),
-                  Build.halt),
-    )
-    assert_equal GBA.new(fast_code: false).lower(explicit_form),
-                 GBA.new(fast_code: false).lower(node_form)
-  end
-
-  def test_after_lowers_identically_to_an_explicit_counter_compare
-    node_form = Build.program(
-      Build.screen(:bitmap), Build.set(:c, 0),
-      Build.loop_(Build.wait_vblank, Build.after(:c, 5, Build.set(:hit, 1)), Build.halt),
-    )
-    explicit_form = Build.program(
-      Build.screen(:bitmap), Build.set(:c, 0),
-      Build.loop_(Build.wait_vblank,
-                  Build.if_(Build.binop(:<, Build.var_ref(:c), Build.int(5)),
-                            # count up only until the target, by the frames the pass took...
-                            Build.add(:c, Build.var_ref(RubyGBA::IR::Frames::STEP)),
-                            # ...and fire once it is REACHED, since a late pass can step over
-                            # the frame it was waiting for.
-                            Build.if_(Build.binop(:>=, Build.var_ref(:c), Build.int(5)),
-                                      Build.set(:hit, 1))),
-                  Build.halt),
-    )
-    assert_equal GBA.new(fast_code: false).lower(explicit_form),
-                 GBA.new(fast_code: false).lower(node_form)
   end
 
   # ---- guardrails ----

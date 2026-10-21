@@ -30,6 +30,30 @@ module RubyGBA
       # living with the number. Ten is the original Wolfenstein's own limit (MAXTICS) and it is a
       # sixth of a second — long enough that no ordinary pass reaches it.
       MOST = 10
+
+      # THE STATEMENTS A BEAT MEANS — `every` and `after` (Reference#exec_every, #exec_after) —
+      # said as the plain ones every lowering already makes, so none of them writes the rule
+      # again. The beat's counter moves on by the frames the pass answers for, and at least one:
+      # before the first frame has ended nothing has been counted yet, and that pass is a frame.
+      #
+      # A repeating beat takes its period off rather than starting again from nought, so one
+      # that overshoots keeps the remainder. A one-shot fires when its count is REACHED rather
+      # than landed on, because a pass worth two frames can step over the frame it waited for,
+      # and stops counting once it has fired, so it never fires twice.
+      def self.beat_statements(node)
+        frames = Build.clamped(Build.var_ref(STEP), Build.int(1), Build.int(Int32::MAX))
+        counter = Build.var_ref(node.counter)
+        case node.kind
+        when :every
+          reached = Build.binop(:>=, counter, Build.int(node.period))
+          [Build.add(node.counter, frames), Build.if_(reached, Build.sub(node.counter, node.period), *node.children)]
+        when :after
+          fires = Build.if_(Build.binop(:>=, counter, Build.int(node.frames)), *node.children)
+          [Build.if_(Build.binop(:<, counter, Build.int(node.frames)), Build.add(node.counter, frames), fires)]
+        else
+          raise ArgumentError, "#{node.kind.inspect} is not a beat"
+        end
+      end
     end
   end
 end

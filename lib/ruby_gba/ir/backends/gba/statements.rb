@@ -380,47 +380,14 @@ module RubyGBA
             @emitter.place_label(done)
           end
 
-          # every: run the body once every `period` frames. Tick the hidden frame
-          # counter, and when it reaches the period, reset it and run the body. Built
-          # as a small sub-tree and emitted through the shared statement emitters
-          # (rather than hand-written instructions), so it reuses the tested add/if
-          # lowering.
-          # COUNTED IN FRAMES, NOT IN TIMES THIS CODE RAN. A pass of the game loop is one frame
-          # on a game that fits and two on a game that does not, so adding one a pass makes a
-          # beat given in seconds take longer than that many seconds on a heavy game.
-          #
-          # Taking the period off rather than clearing to nought keeps the remainder, so a beat
-          # that overshoots does not lose the overshoot and drift further every time. With one
-          # frame a pass the counter lands on the period exactly and the two are the same thing.
-          #
-          # A beat shorter than the frames a pass took fires once and catches up on the next
-          # pass rather than firing several times in one — a bounded lag, against a body running
-          # three times where the author wrote it once.
-          def emit_every(node)
-            counter = node.counter
-            reached = Build.binop(:>=, Build.var_ref(counter), Build.int(node.period))
-            gate = Build.if_(reached, Build.sub(counter, node.period), *node.children)
-            @lowering.statement(Build.add(counter, Build.var_ref(IR::Frames::STEP)))
-            @lowering.statement(gate)
-          end
+          # A beat (`every`, `after`) is the plain statements IR::Frames says it means, emitted
+          # through the shared statement emitters. A beat shorter than the frames a pass took
+          # fires once and catches up on the next pass rather than several times in one: a
+          # bounded lag, against a body running three times where the author wrote it once.
+          def emit_beat(node) = IR::Frames.beat_statements(node).each { |statement| @lowering.statement(statement) }
 
-          # after: run the body exactly once, `frames` frames in. Count up only until
-          # the target — so the counter never overflows or fires twice — and run the
-          # body on the one frame it lands on. Built as a sub-tree emitted through the
-          # shared statement emitters, reusing the tested add/if lowering.
-          # ...and the same for a one-shot. Counted in frames for the same reason — and the test
-          # is REACHED rather than LANDED ON, because a pass worth two frames can step over the
-          # frame it was waiting for. Landing exactly is what one-a-pass counting guaranteed;
-          # counting frames does not, and a body that never fires is a worse fault than one that
-          # fires a frame late. The outer test is what still keeps it to once.
-          def emit_after(node)
-            counter = node.counter
-            frames = node.frames
-            lands = Build.if_(Build.binop(:>=, Build.var_ref(counter), Build.int(frames)), *node.children)
-            not_yet = Build.if_(Build.binop(:<, Build.var_ref(counter), Build.int(frames)),
-                                Build.add(counter, Build.var_ref(IR::Frames::STEP)), lands)
-            @lowering.statement(not_yet)
-          end
+          alias emit_every emit_beat
+          alias emit_after emit_beat
 
           def emit_call(node) = @placement.emit_call_func(node.target)
           def emit_raw(node) = @emitter.emit(node.bytes) # escape hatch: pre-assembled bytes, verbatim

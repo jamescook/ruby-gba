@@ -453,25 +453,11 @@ module RubyGBA
                            C::While.new(condition: call("rg_lt", index, count), body: pass)])]
           end
 
-          # A beat counted in frames. One pass of the game loop is one frame on a desktop, so
-          # the counter moves by one; taking the period off rather than clearing it keeps any
-          # remainder, as the interpreter does.
-          def lower_every(node)
-            counter = variable(node.counter)
-            period = C::Int.new(node.period)
-            [assign(node.counter, call("rg_add", counter, C::Int.new(1))),
-             C::If.new(condition: call("rg_ge", counter, period),
-                       body: [assign(node.counter, call("rg_sub", counter, period)), *body_of(node)])]
-          end
+          # A beat (`every`, `after`) is the plain statements IR::Frames says it means.
+          def lower_beat(node) = Frames.beat_statements(node).flat_map { |statement| lower(statement) }
 
-          # Once, when the counter REACHES the number of frames.
-          def lower_after(node)
-            counter = variable(node.counter)
-            frames = C::Int.new(node.frames)
-            [C::If.new(condition: call("rg_lt", counter, frames),
-                       body: [assign(node.counter, call("rg_add", counter, C::Int.new(1))),
-                              C::If.new(condition: call("rg_ge", counter, frames), body: body_of(node))])]
-          end
+          alias lower_every lower_beat
+          alias lower_after lower_beat
 
           def lower_call(node) = [C::Eval.new(C::Call.new(function: routine(node.target)))]
 
