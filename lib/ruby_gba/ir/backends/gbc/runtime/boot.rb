@@ -117,7 +117,7 @@ module RubyGBA
               asm.ei
               asm.call("rt_start")
               asm.call(main)
-              asm.jump("rg_halt") # a game whose main routine ends has stopped, as one that halts has
+              asm.jump("rt_halt") # a game whose main routine ends has stopped, as one that halts has
             end
 
             # The display off, which is only allowed during a vertical blank: wait for one first.

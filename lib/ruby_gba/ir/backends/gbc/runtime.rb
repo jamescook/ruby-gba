@@ -21,9 +21,8 @@ module RubyGBA
         # the lists (Lists), the picture (Picture, and Paint for a painted screen) and the sound
         # (Sound).
         #
-        # The game's code calls it by the names Native's runtime has (rg_wait_vblank, rg_list_push,
-        # rg_held...), with the numbers on the stack, so the lowering the two share calls either
-        # the same way.
+        # The game's code (GBC::Lowering) calls its routines by their labels (rt_wait_vblank,
+        # rt_list_push, rt_held...), with the numbers on the stack (Runtime::Calls).
         module Runtime
           module_function
 

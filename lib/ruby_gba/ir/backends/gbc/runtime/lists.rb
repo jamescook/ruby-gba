@@ -5,7 +5,7 @@ module RubyGBA
     module Backends
       class GBC
         module Runtime
-          # A GAME'S LISTS, as Native's rg_list.h keeps them and the interpreter means them: a ring
+          # A GAME'S LISTS, as the interpreter means them (Reference::ListValue): a ring
           # of slots, the oldest item at +front+, so taking from the front moves where the front is
           # rather than every item. A slot is the width the game declared — a byte, a half or a whole
           # word — which matters on a machine with 8K of memory: a number too big for its slot keeps
@@ -234,8 +234,8 @@ module RubyGBA
             end
 
             def emit_routines(asm, memory, q)
-              # rg_list_empty(list)
-              asm.label("rg_list_empty")
+              # rt_list_empty(list)
+              asm.label("rt_list_empty")
               take_args(asm, 1)
               asm.load(:a, arg_at(memory, 0, 1))
               asm.call("rt_list_open")
@@ -243,8 +243,8 @@ module RubyGBA
               4.times { |i| asm.load_high((i < 2 ? q.front : q.length) + (i % 2), :a) }
               asm.jump("rt_list_close")
 
-              # rg_list_length(list)
-              asm.label("rg_list_length")
+              # rt_list_length(list)
+              asm.label("rt_list_length")
               take_args(asm, 1)
               asm.load(:a, arg_at(memory, 0, 1))
               asm.call("rt_list_open")
@@ -255,8 +255,8 @@ module RubyGBA
               asm.load(:bc, 0)
               asm.ret
 
-              # rg_list_get(list, index)
-              asm.label("rg_list_get")
+              # rt_list_get(list, index)
+              asm.label("rt_list_get")
               take_args(asm, 2)
               asm.load(:a, arg_at(memory, 0, 2))
               asm.call("rt_list_open")
@@ -265,8 +265,8 @@ module RubyGBA
               asm.call("rt_list_slot_address")
               asm.jump("rt_list_read")
 
-              # rg_list_set(list, index, value)
-              asm.label("rg_list_set")
+              # rt_list_set(list, index, value)
+              asm.label("rt_list_set")
               take_args(asm, 3)
               asm.load(:a, arg_at(memory, 0, 3))
               asm.call("rt_list_open")
@@ -276,8 +276,8 @@ module RubyGBA
               load_arg(asm, arg(memory, 2, 3))
               asm.jump("rt_list_write")
 
-              # rg_list_push(list, value)
-              asm.label("rg_list_push")
+              # rt_list_push(list, value)
+              asm.label("rt_list_push")
               take_args(asm, 2)
               asm.load(:a, arg_at(memory, 0, 2))
               asm.call("rt_list_open")
@@ -293,7 +293,7 @@ module RubyGBA
               asm.sub_a(:l)
               asm.load(:a, :d)
               asm.sbc_a(:h)
-              asm.jump_relative(:nc, "rg_list_push_full")
+              asm.jump_relative(:nc, "rt_list_push_full")
               asm.push(:de)
               asm.call("rt_list_slot")
               asm.call("rt_list_slot_address")
@@ -306,13 +306,13 @@ module RubyGBA
               asm.load(:a, :d)
               asm.load_high(q.length + 1, :a)
               asm.jump("rt_list_close")
-              asm.label("rg_list_push_full")
+              asm.label("rt_list_push_full")
               fault_numbers(asm, memory, [q.capacity, 2], nil)
               asm.load(:a, Frame::LIST_FULL)
               asm.jump("rt_list_fault")
 
-              # rg_list_drop(list, from_the_front)
-              asm.label("rg_list_drop")
+              # rt_list_drop(list, from_the_front)
+              asm.label("rt_list_drop")
               take_args(asm, 2)
               asm.load(:a, arg_at(memory, 0, 2))
               asm.call("rt_list_open")
@@ -321,7 +321,7 @@ module RubyGBA
               asm.load_high(:a, q.length + 1)
               asm.load(:d, :a)
               asm.or_a(:e)
-              asm.jump_relative(:z, "rg_list_drop_empty")
+              asm.jump_relative(:z, "rt_list_drop_empty")
               asm.dec(:de)
               asm.load(:a, :e)
               asm.load_high(q.length, :a)
@@ -337,7 +337,7 @@ module RubyGBA
               asm.load(:a, :d)
               asm.load_high(q.front + 1, :a)
               asm.jump("rt_list_close")
-              asm.label("rg_list_drop_empty")
+              asm.label("rt_list_drop_empty")
               fault_numbers(asm, memory, [arg(memory, 1, 2), 4], nil)
               asm.load(:a, Frame::LIST_EMPTY)
               asm.jump("rt_list_fault")
@@ -362,10 +362,10 @@ module RubyGBA
               end
             end
 
-            # rg_list_fill(list, from, count, value): every slot from +from+ for +count+ holds the
+            # rt_list_fill(list, from, count, value): every slot from +from+ for +count+ holds the
             # value. Nothing for a count of nought or less; the first and the last index checked.
             def emit_fill(asm, memory, q)
-              asm.label("rg_list_fill")
+              asm.label("rt_list_fill")
               take_args(asm, 4)
               count = arg(memory, 2, 4)
               asm.load_high(:a, count + 3)
@@ -403,7 +403,7 @@ module RubyGBA
               asm.load(:c, :a)
               asm.load_high(:a, count + 1)
               asm.load(:b, :a) # BC = how many: below the length, so 16 bits
-              asm.label("rg_list_fill_loop")
+              asm.label("rt_list_fill_loop")
               asm.push(:bc)
               asm.push(:de)
               asm.call("rt_list_slot_address")
@@ -413,24 +413,24 @@ module RubyGBA
               asm.inc(:de)
               asm.load_high(:a, q.capacity)
               asm.cp_a(:e)
-              asm.jump_relative(:nz, "rg_list_fill_next")
+              asm.jump_relative(:nz, "rt_list_fill_next")
               asm.load_high(:a, q.capacity + 1)
               asm.cp_a(:d)
-              asm.jump_relative(:nz, "rg_list_fill_next")
+              asm.jump_relative(:nz, "rt_list_fill_next")
               asm.load(:de, 0)
-              asm.label("rg_list_fill_next")
+              asm.label("rt_list_fill_next")
               asm.pop(:bc)
               asm.dec(:bc)
               asm.load(:a, :b)
               asm.or_a(:c)
-              asm.jump_relative(:nz, "rg_list_fill_loop")
+              asm.jump_relative(:nz, "rt_list_fill_loop")
               asm.ret
             end
 
-            # rg_list_copy(list, table, kept, table_length, at, count): the list made to hold the
+            # rt_list_copy(list, table, kept, table_length, at, count): the list made to hold the
             # +count+ entries of the table from +at+ (held inside the table), oldest first.
             def emit_copy(asm, memory, q)
-              asm.label("rg_list_copy")
+              asm.label("rt_list_copy")
               take_args(asm, 6)
               asm.load(:a, arg_at(memory, 0, 6))
               asm.call("rt_list_open")
@@ -450,20 +450,20 @@ module RubyGBA
               asm.call("rt_cmp32")
               asm.add_sp(4)
               asm.cp_a(2)
-              asm.jump_relative(:nz, "rg_list_copy_fits")
+              asm.jump_relative(:nz, "rt_list_copy_fits")
               fault_numbers(asm, memory, [count, 4], [q.capacity, 2])
               asm.load(:a, Frame::COPY_TOO_LONG)
               asm.jump("rt_list_fault")
-              asm.label("rg_list_copy_fits")
+              asm.label("rt_list_copy_fits")
               load_arg(asm, count)
               asm.load(:hl, table_length)
               asm.call("rt_cmp32")
               asm.cp_a(2)
-              asm.jump_relative(:nz, "rg_list_copy_in_table")
+              asm.jump_relative(:nz, "rt_list_copy_in_table")
               fault_numbers(asm, memory, [count, 4], [table_length, 4])
               asm.load(:a, Frame::COPY_PAST_TABLE)
               asm.jump("rt_list_fault")
-              asm.label("rg_list_copy_in_table")
+              asm.label("rt_list_copy_in_table")
               # The first entry: at, held between 0 and table_length - count (kept in the table's
               # length's place, which is not needed again).
               load_arg(asm, table_length)
@@ -493,14 +493,14 @@ module RubyGBA
               asm.load_high(q.length + 1, :a)
               asm.call("rt_list_close")
               asm.load(:de, 0)
-              asm.label("rg_list_copy_loop")
+              asm.label("rt_list_copy_loop")
               asm.load_high(:a, count) # done when the slot reaches the count
               asm.cp_a(:e)
-              asm.jump_relative(:nz, "rg_list_copy_one")
+              asm.jump_relative(:nz, "rt_list_copy_one")
               asm.load_high(:a, count + 1)
               asm.cp_a(:d)
               asm.ret(:z)
-              asm.label("rg_list_copy_one")
+              asm.label("rt_list_copy_one")
               asm.push(:de)
               asm.load_high(:a, at) # HL = the table's index: the first entry, and this many on
               asm.add_a(:e)
@@ -516,9 +516,9 @@ module RubyGBA
               asm.call("rt_list_write")
               asm.pop(:de)
               asm.inc(:de)
-              asm.jump_relative("rg_list_copy_loop")
+              asm.jump_relative("rt_list_copy_loop")
 
-              # The table's entry at index HL, kept the way argument 2 says (Native's TABLE_KEPT_AS:
+              # The table's entry at index HL, kept the way argument 2 says (GBC::Lowering::TABLE_KEPT:
               # 0 a signed byte, 1 a byte, 2 a signed half, 3 a half, 4 a word), into q.entry.
               kept = arg(memory, 2, 6)
               table = arg(memory, 1, 6)

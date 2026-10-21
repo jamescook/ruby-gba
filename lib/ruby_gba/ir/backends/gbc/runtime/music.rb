@@ -7,7 +7,7 @@ module RubyGBA
         module Runtime
           # THE MUSIC PLAYER, which runs in the frame's interrupt — once for every frame the
           # screen shows, however long the game's passes take — as the Advance's does: the game
-          # only names a tune (rg_gbc_music_play) or stops it (rg_gbc_music_stop), and the player
+          # only names a tune (rt_music_play) or stops it (rt_music_stop), and the player
           # walks each part's notes (GBC::Music) a frame at a time, writing each note into its
           # voice's registers as its frame comes.
           #
@@ -54,10 +54,10 @@ module RubyGBA
               emit_notes(asm, memory, level)
             end
 
-            # rg_gbc_music_play(song): start it at the next frame, unless it is the one named
-            # already, which carries on. rg_gbc_music_stop(): no tune, and the voices quiet.
+            # rt_music_play(song): start it at the next frame, unless it is the one named
+            # already, which carries on. rt_music_stop(): no tune, and the voices quiet.
             def emit_game_side(asm, memory)
-              asm.label("rg_gbc_music_play")
+              asm.label("rt_music_play")
               asm.load_hl_sp(2)
               asm.load(:a, [:hl])
               asm.inc(:a)
@@ -70,7 +70,7 @@ module RubyGBA
               asm.load([memory[START]], :a)
               asm.reti
 
-              asm.label("rg_gbc_music_stop")
+              asm.label("rt_music_stop")
               asm.di
               asm.xor_a(:a)
               asm.load([memory[NAMED]], :a)

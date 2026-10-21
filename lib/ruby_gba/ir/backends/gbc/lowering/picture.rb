@@ -116,18 +116,18 @@ module RubyGBA
             # A screen drawn from tiles is what a Color has. A turning screen is shown as one that
             # does not turn (Console::GBCFeatures), which the interpreter shows the same way when it
             # plays the game for a Color. A painted screen is 360 tiles of the background's
-            # (Runtime::Paint). A change between the two replaces the display (rg_gbc_screen), and
+            # (Runtime::Paint). A change between the two replaces the display (rt_screen), and
             # what every tiled screen shows is put up again then (Reference#put_up_always_up). A
             # tear-free screen is two pages to the interpreter, which changes nothing in how the
-            # Color shows it but when a timer's tick draws on it (Runtime::Frame, rg_gbc_two_pages).
+            # Color shows it but when a timer's tick draws on it (Runtime::Frame, rt_two_pages).
             def emit_screen(node)
               screen_change(node.mode)
-              runtime_call("rg_gbc_two_pages", [Build.int(node.buffered ? 1 : 0)])
+              runtime_call("rt_two_pages", [Build.int(node.buffered ? 1 : 0)])
             end
 
             def screen_change(mode)
               painted = mode == :bitmap
-              runtime_call("rg_gbc_screen", [Build.int(painted ? Runtime::Paint::PAINTED : Runtime::Paint::TILED)])
+              runtime_call("rt_screen", [Build.int(painted ? Runtime::Paint::PAINTED : Runtime::Paint::TILED)])
               return if painted
 
               always = @handover.always_up
@@ -153,21 +153,21 @@ module RubyGBA
                 emit_screen(arrival.screen)
               else
                 screen_change(Modes::SCREEN_OF_MODE.fetch(arrival.mode))
-                runtime_call("rg_gbc_two_pages", [Build.int(arrival.mode == Modes::BUFFERED ? 1 : 0)])
+                runtime_call("rt_two_pages", [Build.int(arrival.mode == Modes::BUFFERED ? 1 : 0)])
               end
               arrival.map_choices.each do |var|
                 load_constant(0)
                 store(var)
               end
               scenery = arrival.scenery.empty? ? @handover.always_up.scenery : arrival.scenery
-              return runtime_call("rg_gbc_background_put_up", [Build.int(0)]) if scenery.empty?
+              return runtime_call("rt_background_put_up", [Build.int(0)]) if scenery.empty?
 
               scenery.each { |bg| background_put_up(bg) }
             end
 
             # --- painting ---
 
-            def emit_clear_screen(node) = runtime_call("rg_gbc_paint_clear", [ink(node.color)])
+            def emit_clear_screen(node) = runtime_call("rt_paint_clear", [ink(node.color)])
 
             # Reference#exec_inside: what the block paints is held to the edges, which are numbers
             # written in the program, and the area held to before is put back after it — a routine
@@ -180,15 +180,15 @@ module RubyGBA
               edges = [node.x, node.y, node.x + node.w, node.y + node.h]
               limits = Runtime::Paint::WHOLE_SCREEN.values_at(2, 3, 2, 3)
               area = edges.zip(limits).each_with_index.sum { |(edge, limit), at| edge.clamp(0, limit) << (8 * at) }
-              runtime_call("rg_gbc_paint_area", [Build.int(Int32.wrap(area))])
+              runtime_call("rt_paint_area", [Build.int(Int32.wrap(area))])
               store(outer)
               node.children.each { |child| statement(child) }
-              runtime_call("rg_gbc_paint_area", [outer])
+              runtime_call("rt_paint_area", [outer])
             end
 
             # Framebuffer#fill_rect: from the corner up to the corner past the far edge.
             def emit_fill_rect(node)
-              runtime_call("rg_gbc_paint_rect", [node.x, node.y, Build.binop(:+, node.x, node.w),
+              runtime_call("rt_paint_rect", [node.x, node.y, Build.binop(:+, node.x, node.w),
                                                  Build.binop(:+, node.y, node.h), ink(node.color)])
             end
 
@@ -223,7 +223,7 @@ module RubyGBA
             end
 
             # The call that paints +points+ (pairs across and down from (x, y)) in +color+, as a
-            # picture of a bit a pixel (Runtime::Paint's rg_gbc_paint_bits): rows of bytes, the
+            # picture of a bit a pixel (Runtime::Paint's rt_paint_bits): rows of bytes, the
             # leftmost pixel in the top bit, with a byte of nothing either side of each row. A
             # picture whose first pixel is not at its corner is drawn that much further on.
             #
@@ -243,7 +243,7 @@ module RubyGBA
                 col = dx - left + lined_up
                 bytes[((dy - top) * stride) + 1 + (col / 8)] |= 0x80 >> (col % 8)
               end
-              runtime_call("rg_gbc_paint_bits", [moved(x, left - lined_up), moved(y, top), color,
+              runtime_call("rt_paint_bits", [moved(x, left - lined_up), moved(y, top), color,
                                                  Address.new(drawing_table("bits", 1, bytes)), Build.int(stride), Build.int(height)])
             end
 
@@ -318,7 +318,7 @@ module RubyGBA
                   image.drawn_at?(at) ? @art.paint_place(image.color_at(at)) : -1
                 end
                 table = drawing_table("column_places", 2, places)
-                routine_section(label, []) { emit_column_walk(image, table) }
+                routine_section(label, [], routine: "#{name.inspect} drawn a column at a time") { emit_column_walk(image, table) }
               end
             end
 
@@ -345,7 +345,7 @@ module RubyGBA
               see_through = fresh("see_through")
               jump_unless(Build.binop(:!=, Build.var_ref(place), Build.int(-1)), see_through)
               down = Build.binop(:+, top, Build.var_ref(row))
-              runtime_call("rg_gbc_paint_rect", [x, down, Build.binop(:+, x, width), Build.binop(:+, down, Build.int(1)),
+              runtime_call("rt_paint_rect", [x, down, Build.binop(:+, x, width), Build.binop(:+, down, Build.int(1)),
                                                  Build.var_ref(place)])
               @asm.label(see_through)
               add_in_place(place_of(row), 1)
@@ -354,10 +354,10 @@ module RubyGBA
             end
 
             # Reference#exec_save_region and #exec_restore_region: a patch of the picture kept in the
-            # memory set aside for it, and painted back (Runtime::Paint's rg_gbc_paint_save and
-            # rg_gbc_paint_restore).
-            def emit_save_region(node) = patch_call("rg_gbc_paint_save", node)
-            def emit_restore_region(node) = patch_call("rg_gbc_paint_restore", node)
+            # memory set aside for it, and painted back (Runtime::Paint's rt_paint_save and
+            # rt_paint_restore).
+            def emit_save_region(node) = patch_call("rt_paint_save", node)
+            def emit_restore_region(node) = patch_call("rt_paint_restore", node)
 
             def patch_call(routine, node)
               buffer = @patches.fetch(node.buffer) { raise LoweringError, "backing buffer #{node.buffer.inspect} is used and never declared" }
@@ -391,11 +391,11 @@ module RubyGBA
               background_put_up(node) unless @handover.on_arrival?(node)
             end
 
-            def background_put_up(bg) = runtime_call("rg_gbc_background_put_up", [Build.int(grid_of(bg))])
+            def background_put_up(bg) = runtime_call("rt_background_put_up", [Build.int(grid_of(bg))])
 
             def emit_scroll_background(node)
               declared_background!(node)
-              runtime_call("rg_gbc_background_scroll", [node.x, node.y])
+              runtime_call("rt_background_scroll", [node.x, node.y])
             end
 
             # A background turned or resized: a Color cannot do either, so it is shown as drawn, as
@@ -447,9 +447,9 @@ module RubyGBA
               refuse_ordered_runs!(node)
               objects = node.names.map { |name| @objects.fetch(name) { raise LoweringError, "present of undeclared object #{name.inspect}" } }
               front_first = objects.each_with_index.sort_by { |obj, at| [sprite_level(obj), at] }.map(&:first).reverse
-              @asm.call("rg_gbc_sprites_begin")
+              @asm.call("rt_sprites_begin")
               front_first.each { |obj| sprite_placement(obj) }
-              @asm.call("rg_gbc_sprites_end")
+              @asm.call("rt_sprites_end")
             end
 
             def refuse_ordered_runs!(node)
@@ -494,7 +494,7 @@ module RubyGBA
                 end
                 if said.nil? || said.between?(0, obj.poses.length - 1)
                   picture, attributes = picture_and_attributes_drawn(obj, pose)
-                  runtime_call("rg_gbc_sprite", [picture, obj.x, obj.y, attributes])
+                  runtime_call("rt_sprite", [picture, obj.x, obj.y, attributes])
                 end
                 @asm.label(out_of_range) if out_of_range
               end
@@ -506,7 +506,7 @@ module RubyGBA
 
             # A sprite whose picture, place and colours are all written in the program — a letter of
             # tiled text — is placed from a record of the four kept in the cartridge
-            # (rg_gbc_sprite_fixed), with nothing worked out as the game runs. True when it was.
+            # (rt_sprite_fixed), with nothing worked out as the game runs. True when it was.
             def fixed_sprite(obj, pose)
               x = folded(obj.x)
               y = folded(obj.y)
@@ -515,7 +515,7 @@ module RubyGBA
               name = obj.poses.fetch(pose)
               attributes = said_attributes(obj, name, palette_of(name, nil))
               record = [picture_number(name), x, y, attributes & 0xFFFF, attributes >> 16]
-              runtime_call("rg_gbc_sprite_fixed", [Address.new(drawing_table("fixed_sprite", 2, record))])
+              runtime_call("rt_sprite_fixed", [Address.new(drawing_table("fixed_sprite", 2, record))])
               true
             end
 
@@ -554,13 +554,13 @@ module RubyGBA
             # Which row of its pictures a sprite is on: the first row of the list it is drawn with now,
             # and for a list that holds other colours, as many rows further as the set it holds.
             def row_drawn_with(obj, lists, sets)
-              choice = RuntimeValue.new("rg_place_of_choice", [value_node(obj.recolor), Build.int(lists.length)])
+              choice = RuntimeValue.new("rt_place_of_choice", [value_node(obj.recolor), Build.int(lists.length)])
               return choice if lists.none?(Symbol)
 
               first_rows = sets.each_with_object([0]) { |held, starts| starts << (starts.last + held.length) }
               row = Entry.new(drawing_table("first_rows", 4, first_rows.first(sets.length)), 4, true, choice)
               lists.each_with_index.select { |colors, _| colors.is_a?(Symbol) }.reduce(row) do |so_far, (name, at)|
-                held = RuntimeValue.new("rg_place_of_choice", [Build.var_ref(@held_colors.fetch(name)),
+                held = RuntimeValue.new("rt_place_of_choice", [Build.var_ref(@held_colors.fetch(name)),
                                                                  Build.int(sets_held_by(name).length - 1)])
                 Sum.new(:+, so_far, Sum.new(:*, Sum.new(:==, choice, Build.int(at + 1)), held))
               end
@@ -582,7 +582,7 @@ module RubyGBA
 
             def picture_number(name) = @art.sprite_picture(name, picture_named(name)).number
 
-            # A sprite's attributes as rg_gbc_sprite takes them: in the low byte, its palette and
+            # A sprite's attributes as rt_sprite takes them: in the low byte, its palette and
             # whether it is behind the background, as the sprite table keeps them; above that, the
             # numbers a run says it by — whose it is, one up so nought is nobody's, and which picture
             # it is showing.
@@ -618,7 +618,7 @@ module RubyGBA
             # Reference#pixels_overlap?: each side's picture now, and where the second stands from the
             # first.
             def value_of_pixels_overlap(node)
-              runtime_call("rg_gbc_pixels_overlap", [picture_collided(node.a_poses, node.a_pose),
+              runtime_call("rt_pixels_overlap", [picture_collided(node.a_poses, node.a_pose),
                                                      picture_collided(node.b_poses, node.b_pose),
                                                      Build.binop(:-, node.b_x, node.a_x), Build.binop(:-, node.b_y, node.a_y)])
             end
@@ -627,7 +627,7 @@ module RubyGBA
             # the last for a pose below nought (Reference#collision_sprite).
             def picture_collided(poses, pose)
               pictures = drawing_table("collision_pictures", 2, poses.map { |name| picture_number(name) })
-              Entry.new(pictures, 2, true, RuntimeValue.new("rg_pose_place", [value_node(pose), Build.int(poses.length)]))
+              Entry.new(pictures, 2, true, RuntimeValue.new("rt_pose_place", [value_node(pose), Build.int(poses.length)]))
             end
 
             # --- fades and tints ---
@@ -642,12 +642,12 @@ module RubyGBA
               end
 
               toward = node.toward == :white ? Runtime::Picture::TOWARD_WHITE : Runtime::Picture::TOWARD_BLACK
-              runtime_call("rg_gbc_tint", [Build.int(toward), Build.int(0), walk_steps(node)])
+              runtime_call("rt_tint", [Build.int(toward), Build.int(0), walk_steps(node)])
             end
 
             # Reference#exec_tint: toward the colour, in thirty-seconds.
             def emit_tint(node)
-              runtime_call("rg_gbc_tint", [Build.int(Runtime::Picture::TOWARD_COLOR),
+              runtime_call("rt_tint", [Build.int(Runtime::Picture::TOWARD_COLOR),
                                            Build.int(Graphics::Color.resolve(node.color)), walk_steps(node)])
             end
 

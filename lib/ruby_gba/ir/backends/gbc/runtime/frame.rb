@@ -10,7 +10,7 @@ module RubyGBA
           # The console draws the screen a line at a time, 144 of them, and then rests for ten more
           # lines' worth of time — the VERTICAL BLANK — before it starts again. Only in that rest can
           # the picture be changed without the change showing half way down the screen, so a pass of
-          # the game loop ends by waiting for it (rg_wait_vblank): the processor sleeps (HALT) until
+          # the game loop ends by waiting for it (rt_wait_vblank): the processor sleeps (HALT) until
           # the blank's interrupt wakes it. Then what the pass changed in the picture is copied to
           # the console (Runtime::Picture#upload, the sprite table above all), and the buttons are
           # read for the next pass.
@@ -54,7 +54,7 @@ module RubyGBA
             # one: the boundary after it is where the interpreter stops a run, before it moves
             # anything on, so the game's timers do not move on there either.
             LAST_PASS_TAKEN = "rt last pass taken"
-            # 1 while the screen is tear-free (see rg_wait_vblank).
+            # 1 while the screen is tear-free (see rt_wait_vblank).
             TWO_PAGES = "rt two pages"
 
             module_function
@@ -102,7 +102,7 @@ module RubyGBA
               # send. A tear-free screen is two to the interpreter, which shows the finished page
               # and only then moves the timers on, so a handler paints the page being drawn: the
               # ticks come after the scan, and what they paint is sent with the next pass's picture.
-              asm.label("rg_wait_vblank")
+              asm.label("rt_wait_vblank")
               asm.load(:hl, memory[PASSES])
               asm.call("rt_increment32")
               asm.xor_a(:a)
@@ -118,19 +118,19 @@ module RubyGBA
               asm.load([memory[WAITING]], :a)
               asm.load_high(:a, h::LCDC)
               asm.bit(7, :a)
-              asm.jump_relative(:nz, "rg_wait_vblank_sleep")
+              asm.jump_relative(:nz, "rt_wait_vblank_sleep")
               # The screen is still off: this is the first frame. Everything set up so far is
               # copied while nothing is being drawn, and the screen comes on showing it.
               asm.call("rt_upload_whole")
               asm.call("rt_shown_is_passes")
               asm.call("rt_display_on")
               asm.call("rt_sleep_until_vblank")
-              asm.jump_relative("rg_wait_vblank_buttons")
-              asm.label("rg_wait_vblank_sleep")
+              asm.jump_relative("rt_wait_vblank_buttons")
+              asm.label("rt_wait_vblank_sleep")
               asm.call("rt_sleep_until_vblank")
               asm.call("rt_upload_whole")
               asm.call("rt_shown_is_passes")
-              asm.label("rg_wait_vblank_buttons")
+              asm.label("rt_wait_vblank_buttons")
               asm.load(:a, [memory[HOLD]])
               asm.and_a(:a)
               asm.jump(:nz, "rt_stopped")
@@ -156,8 +156,8 @@ module RubyGBA
               asm.ret(:nz)
               asm.jump("rt_frame_begins")
 
-              # rg_gbc_two_pages(yes): whether the screen is tear-free from here on (see rg_wait_vblank).
-              asm.label("rg_gbc_two_pages")
+              # rt_two_pages(yes): whether the screen is tear-free from here on (see rt_wait_vblank).
+              asm.label("rt_two_pages")
               asm.load_hl_sp(2)
               asm.load(:a, [:hl])
               asm.load([memory[TWO_PAGES]], :a)
@@ -243,9 +243,9 @@ module RubyGBA
               asm.load([memory[HELD]], :a)
               asm.ret
 
-              # rg_held(button) and rg_pressed(button): 1 when it is down (or went down), -1 asking
+              # rt_held(button) and rt_pressed(button): 1 when it is down (or went down), -1 asking
               # about any of them.
-              [["rg_held", HELD], ["rg_pressed", PRESSED]].each do |name, which|
+              [["rt_held", HELD], ["rt_pressed", PRESSED]].each do |name, which|
                 asm.label(name)
                 asm.load_hl_sp(2)
                 asm.load(:a, [memory[which]])
@@ -274,14 +274,14 @@ module RubyGBA
             # What SHOWN holds once a stopped game's last picture is on the screen.
             END_SHOWN = 0xFFFF_FFFF
 
-            # STOPPING. rg_halt stops the game where it is: what it drew since its last frame is
+            # STOPPING. rt_halt stops the game where it is: what it drew since its last frame is
             # copied to the console in the next blank (or straight away, with the screen switched on,
             # for a game that never got as far as a frame), SHOWN says the end is on the screen, and
             # the processor sleeps from then on. Going wrong is the same, with what went wrong written
             # down first.
             def emit_stopping(asm, memory)
               h = Console::GBCHardware
-              asm.label("rg_halt")
+              asm.label("rt_halt")
               asm.load(:a, HALTED)
               asm.label("rt_stop_with_state")
               asm.load([memory[STATE]], :a)

@@ -51,7 +51,7 @@ module RubyGBA
             SHOWN_AT = 0xDF78
             DIRTY = 0x80
             OWN = 0xFF
-            # The generation no tile is ever in (see rg_gbc_paint_clear).
+            # The generation no tile is ever in (see rt_paint_clear).
             NO_GENERATION = 0x7F
 
             # Where the console shows it: the second grid, its tiles in the background's tile memory
@@ -72,7 +72,7 @@ module RubyGBA
             # the bank's among BANKS, with SOLID and a colour for a cell pointed at one); how far
             # the blank has got down the first; whether the screen was cleared since the last pass,
             # and the colour every cell not showing its own picture shows; and the area painting
-            # is held to (rg_gbc_paint_area), its left, top, right and bottom.
+            # is held to (rt_paint_area), its left, top, right and bottom.
             SCREEN_KIND = "rt paint screen kind"
             LIST = "rt paint list"
             DIRTY_LIST = "rt paint dirty list"
@@ -124,7 +124,7 @@ module RubyGBA
             # tile being painted, by its number among BANKS.
             Quick = Data.define(:generation, :clear, :clear_low, :clear_high, :ink_low, :ink_high, :bank_index)
 
-            # rg_gbc_screen(kind): the screen up is a painted one (PAINTED) or one of tiles. 1 when
+            # rt_screen(kind): the screen up is a painted one (PAINTED) or one of tiles. 1 when
             # that is a change of kind, which replaces the whole display: a painted screen comes
             # up black with no sprite on it, and a tiled one with nothing up — but the sprites this
             # pass drew, which the interpreter keeps in front of whatever scenery arrives after
@@ -132,34 +132,34 @@ module RubyGBA
             # kind already up.
             def emit_screen(asm, memory, painting:)
               h = Console::GBCHardware
-              asm.label("rg_gbc_screen")
+              asm.label("rt_screen")
               asm.load_hl_sp(2)
               asm.load(:a, [:hl])
               asm.load(:hl, memory[SCREEN_KIND])
               asm.cp_a([:hl])
-              asm.jump_relative(:nz, "rg_gbc_screen_change")
+              asm.jump_relative(:nz, "rt_screen_change")
               asm.load(:bc, 0)
               asm.load(:de, 0)
               asm.ret
-              asm.label("rg_gbc_screen_change")
+              asm.label("rt_screen_change")
               asm.load([:hl], :a)
               asm.and_a(:a)
               asm.load(:a, [memory[Picture::LCDC_WANTED]])
-              asm.jump_relative(:z, "rg_gbc_screen_tiled")
+              asm.jump_relative(:z, "rt_screen_tiled")
               asm.or_a(h::LCDC_BG_MAP1)
               asm.load([memory[Picture::LCDC_WANTED]], :a)
               if painting
                 asm.xor_a(:a)
                 asm.call("rt_paint_clear_to") # black, as the interpreter's crossing leaves it
               end
-              asm.call("rg_gbc_sprites_begin")
-              asm.call("rg_gbc_sprites_end")
-              asm.jump_relative("rg_gbc_screen_changed")
-              asm.label("rg_gbc_screen_tiled")
+              asm.call("rt_sprites_begin")
+              asm.call("rt_sprites_end")
+              asm.jump_relative("rt_screen_changed")
+              asm.label("rt_screen_tiled")
               asm.and_a(~h::LCDC_BG_MAP1 & 0xFF)
               asm.load([memory[Picture::LCDC_WANTED]], :a)
               asm.call("rt_picture_take_down")
-              asm.label("rg_gbc_screen_changed")
+              asm.label("rt_screen_changed")
               asm.load(:bc, 0)
               asm.load(:de, 1)
               asm.ret
@@ -399,13 +399,13 @@ module RubyGBA
               asm.ret
             end
 
-            # rg_gbc_paint_area(area): painting is held to +area+ from now — its left, top, right
+            # rt_paint_area(area): painting is held to +area+ from now — its left, top, right
             # and bottom a byte each, lowest first, worked out when the game was built — and the
             # area it was held to before comes back the same way, for the game to put back when
             # the drawing inside is done (Reference#exec_inside).
             def emit_area(asm, memory)
               area = memory[AREA]
-              asm.label("rg_gbc_paint_area")
+              asm.label("rt_paint_area")
               asm.load_hl_sp(2)
               asm.load(:b, 4)
               asm.call("rt_take_args")
@@ -441,15 +441,15 @@ module RubyGBA
             end
 
 
-            # rg_gbc_paint_clear(color): the whole screen the colour, by moving on a generation.
+            # rt_paint_clear(color): the whole screen the colour, by moving on a generation.
             # Generations count round from 0 to one short of NO_GENERATION; going round, every tile
             # is put in NO_GENERATION first, so none can be taken for this one.
             #
-            # Held to an area smaller than the screen (rg_gbc_paint_area), it is the area painted
+            # Held to an area smaller than the screen (rt_paint_area), it is the area painted
             # in the colour instead, as a rectangle (Framebuffer#clear).
             def emit_clear(asm, memory, quick)
               h = Console::GBCHardware
-              asm.label("rg_gbc_paint_clear")
+              asm.label("rt_paint_clear")
               asm.load_hl_sp(2)
               asm.load(:a, [:hl])
               asm.and_a(3)
@@ -468,7 +468,7 @@ module RubyGBA
               asm.load(:hl, memory[AREA])
               4.times do |i|
                 asm.load(:a, [:hli])
-                asm.load([memory[SCRATCH] + i], :a) # rg_gbc_paint_rect's left, top, right and bottom
+                asm.load([memory[SCRATCH] + i], :a) # rt_paint_rect's left, top, right and bottom
               end
               asm.jump("rt_paint_rect_inked")
               asm.label("rt_paint_clear_to") # A = the colour
@@ -556,7 +556,7 @@ module RubyGBA
               asm.ret
             end
 
-            # rg_gbc_paint_rect(left, top, right, bottom, color): every pixel from (left, top) up to
+            # rt_paint_rect(left, top, right, bottom, color): every pixel from (left, top) up to
             # but not including (right, bottom), held to the screen. A tile at a time: each tile row
             # the rectangle crosses is written as a mask of the pixels it covers there.
             def emit_rect(asm, memory, quick)
@@ -570,7 +570,7 @@ module RubyGBA
               y_now = at + 5
               y_next = at + 6
               arg = ->(i) { Calls.arg(memory, i, 5) }
-              asm.label("rg_gbc_paint_rect")
+              asm.label("rt_paint_rect")
               asm.load_hl_sp(2)
               asm.load(:b, 20)
               asm.call("rt_take_args")
@@ -693,7 +693,7 @@ module RubyGBA
               asm.ret
             end
 
-            # rg_gbc_paint_bits(x, y, color, bits, stride, rows): a picture of one colour, a bit a
+            # rt_paint_bits(x, y, color, bits, stride, rows): a picture of one colour, a bit a
             # pixel — a line of text, a digit, a pixel — with its top left at (x, y). The build
             # worked the bits out (GBC::Picture#bits_of): +rows+ rows of +stride+ bytes, the
             # leftmost pixel in the top bit, with a byte of nothing either side of each row so a
@@ -720,7 +720,7 @@ module RubyGBA
               right = at + 15
               column_mask = at + 16 # the pixels of this column of tiles within left and right
               arg = ->(i) { Calls.arg(memory, i, 6) }
-              asm.label("rg_gbc_paint_bits")
+              asm.label("rt_paint_bits")
               asm.load_hl_sp(2)
               asm.load(:b, 24)
               asm.call("rt_take_args")
@@ -1008,13 +1008,13 @@ module RubyGBA
             # covers, kept as it is drawn and put back before it is drawn somewhere else
             # (Reference#exec_save_region, #exec_restore_region).
             #
-            # rg_gbc_paint_save(patch, width, height, x, y) keeps the +width+ × +height+ pixels with
+            # rt_paint_save(patch, width, height, x, y) keeps the +width+ × +height+ pixels with
             # their top left at (x, y) in the patch's memory (the address of a list's storage, whose
             # slots start past its header), a byte a pixel across each row: the pixel's colour, one
             # up, or nought for a pixel off the screen, which has nothing to keep. Work memory starts
             # cleared, so a patch never kept has nothing in it to put back.
             #
-            # rg_gbc_paint_restore(patch, width, height, x, y) paints them back with their top left
+            # rt_paint_restore(patch, width, height, x, y) paints them back with their top left
             # at (x, y), every one but those with nothing kept, held to the area.
             def emit_patches(asm, memory, quick)
               h = Console::GBCHardware
@@ -1031,7 +1031,7 @@ module RubyGBA
               kept = at + 14
               arg = ->(i) { Calls.arg(memory, i, 5) }
               %w[save restore].each do |which|
-                asm.label("rg_gbc_paint_#{which}")
+                asm.label("rt_paint_#{which}")
                 asm.load_hl_sp(2)
                 asm.load(:b, 20)
                 asm.call("rt_take_args")

@@ -133,9 +133,9 @@ class TestGBCInt32 < Minitest::Test
     asm.ret
     asm.label("rt_vblank_interrupt")
     asm.reti
-    asm.label("rg_halt")
+    asm.label("rt_halt")
     asm.halt
-    asm.jump_relative("rg_halt")
+    asm.jump_relative("rt_halt")
     pointer = memory.quick(2)
     count = memory.quick(1)
     asm.label("main")

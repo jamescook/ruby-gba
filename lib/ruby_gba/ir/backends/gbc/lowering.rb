@@ -129,6 +129,11 @@ module RubyGBA
           # The label of the routine the program itself is, which the runtime calls at power-on.
           MAIN = "main"
 
+          # The game's routines, each section's label beside what that routine is to the author — a
+          # scene or a routine by the name the game gave it, the game loop, a timer — once #sections
+          # has made them. A part of a routine cut to fit a bank is that routine.
+          attr_reader :section_routines
+
           # Values this lowering makes for itself beside the IR's, each worked out into BCDE as one of
           # the IR's is: where a label is (a table a runtime routine reads); the entry of a table of
           # the drawing's numbers at an index, +bytes+ wide and read with its sign or not; what a
@@ -175,6 +180,7 @@ module RubyGBA
             @starts = [] # [address, value] for a place that does not start at nought
             @routine_tables = {} # a list of routines a call picks from by number -> its table's label
             @cut_children = {} # a statement whose statements were cut into parts -> what stands for them
+            @section_routines = {} # each routine's section, by its label -> what it is to the author
             prepare_picture
             prepare_sound
           end
@@ -199,9 +205,11 @@ module RubyGBA
             keep_held_colors
             keep_patches
             keep_column_numbers
-            routines = @called.flat_map { |name| routines_fitting(self.class.routine_label(name), @funcs.fetch(name).children) }
+            routines = @called.flat_map do |name|
+              routines_fitting(self.class.routine_label(name), @funcs.fetch(name).children, routine: routine_said(name))
+            end
             timers = timer_sections
-            main = routines_fitting(MAIN, @program.children)
+            main = routines_fitting(MAIN, @program.children, routine: "the game loop")
             # The routines the drawing asked for as the rest was made, and then the data last of
             # all, since the routines are what find the tables in it.
             columns = column_sections
@@ -341,8 +349,10 @@ module RubyGBA
           # --- routines ---
 
           # A routine of +body+'s statements, or of what the block emits for one this lowering makes
-          # for itself.
-          def routine_section(label, body)
+          # for itself. +routine+ is what it is to the author — a routine of the game's by its name,
+          # the game loop, a timer — which a profile says its time by (#section_routines).
+          def routine_section(label, body, routine:)
+            @section_routines[label] = routine
             @asm = SM83.new(label, home: :banked, holds: ROUTINES)
             @routine = label
             @labels = 0
@@ -357,6 +367,9 @@ module RubyGBA
             end
             @asm.section
           end
+
+          # A routine of the game's, as the author names it: a scene as one.
+          def routine_said(name) = @scenes.key?(name) ? "scene #{name.inspect}" : name.to_s
 
           def fresh(what)
             @labels += 1
@@ -392,10 +405,11 @@ module RubyGBA
           # statement too big to move whole has what is inside it cut the same way instead. The
           # parts share the routine's own numbers, which are kept in work memory, so nothing is
           # handed between them.
-          def routines_fitting(label, body)
+          def routines_fitting(label, body, routine:)
             parts = []
             body = cut_list(body, label, parts) if bytes_of(body) > MOST_ROUTINE_BYTES
-            [routine_section(label, body), *parts.map { |part, statements| routine_section(part, statements) }]
+            [routine_section(label, body, routine: routine),
+             *parts.map { |part, statements| routine_section(part, statements, routine: routine) }]
           end
 
           def cut_list(list, base, parts)
@@ -671,13 +685,13 @@ module RubyGBA
             emit_scene_arrival(scene)
           end
 
-          def emit_halt(_node) = @asm.call("rg_halt")
+          def emit_halt(_node) = @asm.call("rt_halt")
 
           # The runtime ends the frame (shows it, reads the buttons, keeps time), and the frame
           # counters the program can read move on, where the interpreter moves them: a pass is one
           # frame here.
           def emit_wait_vblank(_node)
-            @asm.call("rg_wait_vblank")
+            @asm.call("rt_wait_vblank")
             add_in_place(place_of(Frames::COUNT), 1)
             value(Frames::COUNT)
             store(Frames::SEEN)
@@ -687,23 +701,23 @@ module RubyGBA
 
           # --- lists (Runtime::Lists does the work and the checking) ---
 
-          def emit_list_new(node) = list_call("rg_list_empty", node)
-          def emit_list_push(node) = list_call("rg_list_push", node, node.value)
-          def emit_list_drop(node) = list_call("rg_list_drop", node, Build.int(node.from == :front ? 1 : 0))
-          def emit_list_set(node) = list_call("rg_list_set", node, node.index, node.value)
-          def emit_list_fill(node) = list_call("rg_list_fill", node, node.from, node.count, node.value)
+          def emit_list_new(node) = list_call("rt_list_empty", node)
+          def emit_list_push(node) = list_call("rt_list_push", node, node.value)
+          def emit_list_drop(node) = list_call("rt_list_drop", node, Build.int(node.from == :front ? 1 : 0))
+          def emit_list_set(node) = list_call("rt_list_set", node, node.index, node.value)
+          def emit_list_fill(node) = list_call("rt_list_fill", node, node.from, node.count, node.value)
 
           # A run of a table's entries copied into a list: the table's place and how it keeps its
           # entries, so the runtime reads them as a run does.
           def emit_list_copy(node)
             table = @tables.fetch(node.table) { raise LoweringError, "the table #{node.table.inspect} is copied and never declared" }
             kept, = TABLE_KEPT.fetch(table_keeping(table))
-            list_call("rg_list_copy", node, Address.new(table_label(table.name)), Build.int(kept), Build.int(table.values.length),
+            list_call("rt_list_copy", node, Address.new(table_label(table.name)), Build.int(kept), Build.int(table.values.length),
                       node.at, Build.int(node.count))
           end
 
-          def value_of_list_get(node) = list_call("rg_list_get", node, node.index)
-          def value_of_list_len(node) = list_call("rg_list_length", node)
+          def value_of_list_get(node) = list_call("rt_list_get", node, node.index)
+          def value_of_list_len(node) = list_call("rt_list_length", node)
 
           # The runtime's list routine +routine+ on the list +node+ names, the list's place first.
           def list_call(routine, node, *args)
@@ -756,26 +770,26 @@ module RubyGBA
               load_constant(Int32.wrap(kept.default))
               @asm.label(chosen)
               store(kept.name)
-              runtime_call("rg_save_write", [at, kept.name, Build.int(SAVE_BYTES.fetch(:word))])
+              runtime_call("rt_save_write", [at, kept.name, Build.int(SAVE_BYTES.fetch(:word))])
             end
-            runtime_call("rg_save_write", [marker_at, Build.int(marker), Build.int(SAVE_BYTES.fetch(:word))])
+            runtime_call("rt_save_write", [marker_at, Build.int(marker), Build.int(SAVE_BYTES.fetch(:word))])
           end
 
           # Reference#exec_save_store: one `save_var`'s number into its place.
           def emit_save_store(node)
             at = Build.int(SaveLayout.save_var_at(node.slot))
-            runtime_call("rg_save_write", [at, node.var, Build.int(SAVE_BYTES.fetch(:word))])
+            runtime_call("rt_save_write", [at, node.var, Build.int(SAVE_BYTES.fetch(:word))])
           end
 
           # Reference#exec_save_write: the place worked out first and the value after it, as the
           # interpreter works them out, which is the order they are pushed in.
-          def emit_save_write(node) = runtime_call("rg_save_write", [node.at, node.value, save_width(node)])
+          def emit_save_write(node) = runtime_call("rt_save_write", [node.at, node.value, save_width(node)])
 
           # Reference#exec_save_erase: the wipe is waited for unless the node says not to.
-          def emit_save_erase(node) = runtime_call("rg_save_erase", [node.at, Build.int(node.wait == false ? 0 : 1)])
+          def emit_save_erase(node) = runtime_call("rt_save_erase", [node.at, Build.int(node.wait == false ? 0 : 1)])
 
-          def value_of_save_read(node) = runtime_call("rg_save_read", [node.at, save_width(node)])
-          def value_of_save_sum(node) = runtime_call("rg_save_sum", [node.at, node.length])
+          def value_of_save_read(node) = runtime_call("rt_save_read", [node.at, save_width(node)])
+          def value_of_save_sum(node) = runtime_call("rt_save_sum", [node.at, node.length])
 
           def save_width(node) = Build.int(SAVE_BYTES.fetch(node.width))
 
@@ -851,7 +865,7 @@ module RubyGBA
 
             each_timer = @timers.map { |name, number| timer_section(name, number) }
             @frame_begins = "timers frame"
-            in_order = routine_section(@frame_begins, []) do
+            in_order = routine_section(@frame_begins, [], routine: "the timers") do
               (1..@timers.size).each do |place_in_order|
                 @timers.each_key do |name|
                   skip = fresh("not_this_one")
@@ -876,7 +890,7 @@ module RubyGBA
             ticks = timer_number(name, :ticks)
             sixtieths = Build.binop(:+, Build.var_ref(parts), Build.var_ref(timer_number(name, :part_rate)))
             rate = Build.int(FRAMES_A_SECOND)
-            routine_section(timer_label(name), []) do
+            routine_section(timer_label(name), [], routine: "timer #{name.inspect}") do
               value(Build.binop(:+, Build.var_ref(timer_number(name, :whole_rate)), Build.binop(:/, sixtieths, rate)))
               store(@timer_crossed)
               value(Build.binop(:%, sixtieths, rate))
@@ -1053,8 +1067,8 @@ module RubyGBA
             value(Entry.new(drawing_table("data #{node.name}", 1, bytes), 1, false, Build.int(node.index)))
           end
 
-          def value_of_held(node) = runtime_call("rg_held", [Build.int(button_number(node.button))])
-          def value_of_pressed(node) = runtime_call("rg_pressed", [Build.int(button_number(node.button))])
+          def value_of_held(node) = runtime_call("rt_held", [Build.int(button_number(node.button))])
+          def value_of_pressed(node) = runtime_call("rt_pressed", [Build.int(button_number(node.button))])
 
           # How many bits of a number hold its fraction: the runtime's sums are written for 0 to 32,
           # every scale the framework uses.

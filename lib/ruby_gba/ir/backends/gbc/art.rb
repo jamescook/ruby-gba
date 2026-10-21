@@ -48,7 +48,7 @@ module RubyGBA
           # byte for every eight pixels of a row, and the runtime walks it in byte-sized steps.
           LARGEST_SPRITE = 64
 
-          # A pixel of a picture that is not drawn (Native's NOT_DRAWN).
+          # A pixel of a picture that is not drawn, beside the colours of the ones that are.
           NOT_DRAWN = -1
 
           # One 8×8 piece of a sprite's picture: where it sits in the picture, its tile, and

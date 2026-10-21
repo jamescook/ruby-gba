@@ -242,37 +242,37 @@ module RubyGBA
 
             # SPRITES. A pass's sprites are written into the copy of the table front-most first,
             # which is the order the console draws them in (an earlier entry in front), from
-            # rg_gbc_sprites_begin to rg_gbc_sprites_end, which switches off every entry after
+            # rt_sprites_begin to rt_sprites_end, which switches off every entry after
             # the last one written. A sprite is its picture's pieces, each an entry; a piece
             # wholly off the screen is left out, since the table's place is a byte and a place far
             # off the screen would come round onto it.
             def emit_sprites(asm, memory)
               args = ->(i) { Calls.arg(memory, i, 4) }
-              asm.label("rg_gbc_sprites_begin")
+              asm.label("rt_sprites_begin")
               asm.xor_a(:a)
               asm.load([memory[NEXT_SPRITE]], :a)
               asm.load([memory[DRAWN]], :a)
               asm.ret
 
-              asm.label("rg_gbc_sprites_end")
+              asm.label("rt_sprites_end")
               asm.load(:a, [memory[NEXT_SPRITE]])
               asm.load(:l, :a)
               asm.load(:h, Memory::SHADOW_OAM >> 8)
-              asm.label("rg_gbc_sprites_end_next")
+              asm.label("rt_sprites_end_next")
               asm.load(:a, :l)
               asm.cp_a(Console::GBCHardware::OAM_SIZE)
               asm.ret(:nc)
               asm.load([:hl], 0) # Y of 0: above the screen, not drawn
               4.times { asm.inc(:l) }
-              asm.jump_relative("rg_gbc_sprites_end_next")
+              asm.jump_relative("rt_sprites_end_next")
 
-              # rg_gbc_sprite(picture, x, y, attributes): HL in the pictures' table is the picture's
+              # rt_sprite(picture, x, y, attributes): HL in the pictures' table is the picture's
               # pieces — a count, then for each its dx, dy, tile and bank. The attributes are the
               # palette and whether it is drawn behind the background (OBJ_BEHIND), as the sprite
               # table keeps them.
-              # rg_gbc_sprite_fixed(record): the same, from a record in the cartridge of the four
-              # numbers, sixteen bits each, put where rg_gbc_sprite's numbers are put.
-              asm.label("rg_gbc_sprite_fixed")
+              # rt_sprite_fixed(record): the same, from a record in the cartridge of the four
+              # numbers, sixteen bits each, put where rt_sprite's numbers are put.
+              asm.label("rt_sprite_fixed")
               asm.load_hl_sp(2)
               asm.load(:a, [:hli])
               asm.load(:h, [:hl])
@@ -283,17 +283,17 @@ module RubyGBA
                 asm.load(:a, [:hli])
                 asm.load_high(to + 1, :a)
               end
-              asm.jump_relative("rg_gbc_sprite_taken")
+              asm.jump_relative("rt_sprite_taken")
 
-              asm.label("rg_gbc_sprite")
+              asm.label("rt_sprite")
               asm.load_hl_sp(2)
               asm.load(:b, 16)
               asm.call("rt_take_args")
-              asm.label("rg_gbc_sprite_taken")
+              asm.label("rt_sprite_taken")
               # Written down for a reader of the run: whose, which picture, where.
               asm.load(:a, [memory[DRAWN]])
               asm.cp_a(MOST_DRAWN)
-              asm.jump_relative(:nc, "rg_gbc_sprite_noted")
+              asm.jump_relative(:nc, "rt_sprite_noted")
               asm.load(:e, :a)
               asm.inc(:a)
               asm.load([memory[DRAWN]], :a)
@@ -313,7 +313,7 @@ module RubyGBA
                 asm.load_high(:a, from)
                 asm.load([:hli], :a)
               end
-              asm.label("rg_gbc_sprite_noted")
+              asm.label("rt_sprite_noted")
               asm.load_high(:a, args.call(0)) # the picture's entry: the table + 2 × its number
               asm.load(:l, :a)
               asm.load_high(:a, args.call(0) + 1)
@@ -328,12 +328,12 @@ module RubyGBA
               asm.and_a(:a)
               asm.ret(:z)
               asm.load(:c, :a) # how many pieces
-              asm.label("rg_gbc_sprite_piece")
+              asm.label("rt_sprite_piece")
               asm.push(:bc)
               asm.call("rt_gbc_place_piece")
               asm.pop(:bc)
               asm.dec(:c)
-              asm.jump_relative(:nz, "rg_gbc_sprite_piece")
+              asm.jump_relative(:nz, "rt_sprite_piece")
               asm.ret
 
               # One piece at HL (dx, dy, tile, bank), HL moved past it: its place on the screen
@@ -415,12 +415,12 @@ module RubyGBA
               asm.ret
             end
 
-            # THE BACKGROUND. rg_gbc_background_put_up(grid) starts putting a grid up — its tiles
+            # THE BACKGROUND. rt_background_put_up(grid) starts putting a grid up — its tiles
             # and then its cells' colours, 32 rows of 32 each, kept by GBC::Art — and the blanks
-            # copy it in (rt_upload); rg_gbc_background_scroll(x, y) says where the view sits.
+            # copy it in (rt_upload); rt_background_scroll(x, y) says where the view sits.
             def emit_background(asm, memory)
               h = Console::GBCHardware
-              asm.label("rg_gbc_background_put_up")
+              asm.label("rt_background_put_up")
               asm.load_hl_sp(2)
               asm.load(:a, [:hl]) # the grid's number: nothing to do when it is the one up
               asm.load(:hl, memory[GRID_UP])
@@ -524,7 +524,7 @@ module RubyGBA
               asm.load([:hl], :a)
               asm.jump("rt_picture_put_up")
 
-              asm.label("rg_gbc_background_scroll")
+              asm.label("rt_background_scroll")
               asm.load_hl_sp(6) # y, then x, from the top of the stack: their low bytes
               asm.load(:a, [:hl])
               asm.load([memory[SCROLL]], :a)
@@ -534,54 +534,54 @@ module RubyGBA
               asm.ret
             end
 
-            # CHOOSING BY NUMBER. rg_place_of_choice(which, others) is which list of colours a
+            # CHOOSING BY NUMBER. rt_place_of_choice(which, others) is which list of colours a
             # sprite is drawn with: 1 + which for one of its +others+, and 0 — its own — for any
-            # number naming none of them (Native's rg_place_of_choice). rg_pose_place(pose, count)
+            # number naming none of them (Reference#object_recolor). rt_pose_place(pose, count)
             # is which of its pictures a sprite is showing, counted back from the last for a number
             # below nought as the interpreter reads it; one naming none of them stops the game.
             def emit_choices(asm, memory)
               which = Calls.arg(memory, 0, 2)
               others = Calls.arg(memory, 1, 2)
-              asm.label("rg_place_of_choice")
+              asm.label("rt_place_of_choice")
               asm.load_hl_sp(2)
               asm.load(:b, 8)
               asm.call("rt_take_args")
               asm.load_high(:a, which + 3)
               asm.bit(7, :a)
-              asm.jump_relative(:nz, "rg_place_of_choice_own")
+              asm.jump_relative(:nz, "rt_place_of_choice_own")
               asm.load(:hl, which)
               asm.call("rt_load32")
               asm.load(:hl, others)
               asm.call("rt_cmp32")
               asm.cp_a(1)
-              asm.jump_relative(:nz, "rg_place_of_choice_own")
+              asm.jump_relative(:nz, "rt_place_of_choice_own")
               asm.inc(:e) # which + 1: which is below +others+, so never past 16 bits
               asm.ret(:nz)
               asm.inc(:d)
               asm.ret
-              asm.label("rg_place_of_choice_own")
+              asm.label("rt_place_of_choice_own")
               asm.load(:bc, 0)
               asm.load(:de, 0)
               asm.ret
 
-              asm.label("rg_pose_place") # (pose, count): +which+ and +others+ again
+              asm.label("rt_pose_place") # (pose, count): +which+ and +others+ again
               asm.load_hl_sp(2)
               asm.load(:b, 8)
               asm.call("rt_take_args")
               asm.load(:hl, which)
               asm.call("rt_load32")
               asm.bit(7, :b)
-              asm.jump_relative(:z, "rg_pose_place_counted")
+              asm.jump_relative(:z, "rt_pose_place_counted")
               asm.load(:hl, others)
               asm.call("rt_add32")
               asm.bit(7, :b)
-              asm.jump_relative(:nz, "rg_pose_place_none")
-              asm.label("rg_pose_place_counted")
+              asm.jump_relative(:nz, "rt_pose_place_none")
+              asm.label("rt_pose_place_counted")
               asm.load(:hl, others)
               asm.call("rt_cmp32")
               asm.cp_a(1)
               asm.ret(:z)
-              asm.label("rg_pose_place_none")
+              asm.label("rt_pose_place_none")
               [[which, 3], [others, 7]].each do |from, to| # the pose and the count: the fault's two numbers
                 asm.load(:hl, from)
                 asm.load(:de, memory[Frame::FAULT] + to)
@@ -594,7 +594,7 @@ module RubyGBA
 
             OVERLAP_BYTES = 17
 
-            # PIXELS TOUCHING. rg_gbc_pixels_overlap(a, b, dx, dy): 1 when sprite picture +a+ and
+            # PIXELS TOUCHING. rt_pixels_overlap(a, b, dx, dy): 1 when sprite picture +a+ and
             # sprite picture +b+, b standing dx across and dy down from a, draw a pixel in the same
             # place (Reference#pixels_overlap?). Each picture's MASK (GBC::Art) is a bit for every
             # pixel, set where it draws; only the rectangle where the two pictures meet is walked,
@@ -613,7 +613,7 @@ module RubyGBA
               x_now = at + 16
               arg = ->(i) { Calls.arg(memory, i, 4) }
 
-              asm.label("rg_gbc_pixels_overlap")
+              asm.label("rt_pixels_overlap")
               asm.load_hl_sp(2)
               asm.load(:b, 16)
               asm.call("rt_take_args")
@@ -803,12 +803,12 @@ module RubyGBA
             #   toward white: c + (31 - c) × steps / 32
             #   toward a colour t: (c × (32 - steps) + t × steps) / 32
             #
-            # rg_gbc_tint(toward, color, steps) does nothing when nothing changed, which is most
+            # rt_tint(toward, color, steps) does nothing when nothing changed, which is most
             # frames of a game that says its fade every frame.
             def emit_tint(asm, memory)
               at = memory[TINT]
               arg = ->(i) { Calls.arg(memory, i, 3) }
-              asm.label("rg_gbc_tint")
+              asm.label("rt_tint")
               asm.load_hl_sp(2)
               asm.load(:b, 12)
               asm.call("rt_take_args")
@@ -816,35 +816,35 @@ module RubyGBA
               asm.load(:b, :a)
               asm.load_high(:a, arg.call(2) + 3)
               asm.bit(7, :a)
-              asm.jump_relative(:z, "rg_gbc_tint_not_below")
+              asm.jump_relative(:z, "rt_tint_not_below")
               asm.load(:b, 0)
-              asm.label("rg_gbc_tint_not_below")
+              asm.label("rt_tint_not_below")
               asm.load(:a, :b)
               asm.cp_a(STEPS + 1)
-              asm.jump_relative(:c, "rg_gbc_tint_held")
+              asm.jump_relative(:c, "rt_tint_held")
               asm.load(:b, STEPS)
-              asm.label("rg_gbc_tint_held")
+              asm.label("rt_tint_held")
               # The same as before: nothing to do. No steps at all is the colours as they are,
               # whatever they were moved toward.
               asm.load(:hl, at + 3)
               asm.load(:a, :b)
               asm.cp_a([:hl])
-              asm.jump_relative(:nz, "rg_gbc_tint_changed")
+              asm.jump_relative(:nz, "rt_tint_changed")
               asm.and_a(:a)
               asm.ret(:z)
               asm.load_high(:a, arg.call(0))
               asm.load(:hl, at)
               asm.cp_a([:hl])
-              asm.jump_relative(:nz, "rg_gbc_tint_changed")
+              asm.jump_relative(:nz, "rt_tint_changed")
               asm.load_high(:a, arg.call(1))
               asm.inc(:hl)
               asm.cp_a([:hl])
-              asm.jump_relative(:nz, "rg_gbc_tint_changed")
+              asm.jump_relative(:nz, "rt_tint_changed")
               asm.load_high(:a, arg.call(1) + 1)
               asm.inc(:hl)
               asm.cp_a([:hl])
               asm.ret(:z)
-              asm.label("rg_gbc_tint_changed")
+              asm.label("rt_tint_changed")
               asm.load(:hl, at)
               asm.load_high(:a, arg.call(0))
               asm.load([:hli], :a)
@@ -858,7 +858,7 @@ module RubyGBA
               asm.load(:hl, "art_palettes")
               asm.load(:de, memory[SHADOW_PALETTES])
               asm.load(:c, 64)
-              asm.label("rg_gbc_tint_color")
+              asm.label("rt_tint_color")
               asm.push(:bc)
               asm.push(:de)
               asm.load(:a, [:hli])
@@ -921,7 +921,7 @@ module RubyGBA
               asm.load(:e, :c)
               asm.pop(:bc)
               asm.dec(:c)
-              asm.jump_relative(:nz, "rg_gbc_tint_color")
+              asm.jump_relative(:nz, "rt_tint_color")
               asm.load(:a, 1)
               asm.load([memory[PALETTES_CHANGED]], :a)
               asm.ret

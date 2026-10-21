@@ -15,9 +15,9 @@ module RubyGBA
           # which it is only for as long as one of these routines runs — a console switched off
           # with it on can write nonsense into it on the way down.
           #
-          # rg_save_read(at, width) and rg_save_write(at, value, width) take one, two or four
-          # bytes, lowest first; rg_save_sum(at, length) is SaveLayout.checksum's two 16-bit sums;
-          # rg_save_erase does nothing, battery-backed memory needing no wiping before it is
+          # rt_save_read(at, width) and rt_save_write(at, value, width) take one, two or four
+          # bytes, lowest first; rt_save_sum(at, length) is SaveLayout.checksum's two 16-bit sums;
+          # rt_save_erase does nothing, battery-backed memory needing no wiping before it is
           # written. A place outside the 32K stops the game, as it stops the interpreter.
           module Saving
             SIZE = 0x8000
@@ -30,7 +30,7 @@ module RubyGBA
               arg2 = ->(i) { Calls.arg(memory, i, 2) }
               arg3 = ->(i) { Calls.arg(memory, i, 3) }
 
-              asm.label("rg_save_read") # (at, width)
+              asm.label("rt_save_read") # (at, width)
               asm.load_hl_sp(2)
               asm.load(:b, 8)
               asm.call("rt_take_args")
@@ -47,18 +47,18 @@ module RubyGBA
                 asm.load_high(memory.args + 24 + i, :a)
               end
               asm.pop(:de)
-              asm.label("rg_save_read_byte")
+              asm.label("rt_save_read_byte")
               asm.call("rt_save_next")
               asm.load(:a, [:hli])
               asm.load([:de], :a)
               asm.inc(:de)
               asm.dec(:b)
-              asm.jump_relative(:nz, "rg_save_read_byte")
+              asm.jump_relative(:nz, "rt_save_read_byte")
               asm.call("rt_save_off")
               asm.load(:hl, memory.args + 24)
               asm.jump("rt_load32")
 
-              asm.label("rg_save_write") # (at, value, width)
+              asm.label("rt_save_write") # (at, value, width)
               asm.load_hl_sp(2)
               asm.load(:b, 12)
               asm.call("rt_take_args")
@@ -69,16 +69,16 @@ module RubyGBA
               asm.load_high(:a, arg3.call(2))
               asm.load(:b, :a)
               asm.load(:de, arg3.call(1))
-              asm.label("rg_save_write_byte")
+              asm.label("rt_save_write_byte")
               asm.call("rt_save_next")
               asm.load(:a, [:de])
               asm.load([:hli], :a)
               asm.inc(:de)
               asm.dec(:b)
-              asm.jump_relative(:nz, "rg_save_write_byte")
+              asm.jump_relative(:nz, "rt_save_write_byte")
               asm.jump("rt_save_off")
 
-              asm.label("rg_save_sum") # (at, length): low += byte, high += low, each 16 bits
+              asm.label("rt_save_sum") # (at, length): low += byte, high += low, each 16 bits
               asm.load_hl_sp(2)
               asm.load(:b, 8)
               asm.call("rt_take_args")
@@ -90,13 +90,13 @@ module RubyGBA
               4.times { |i| asm.load_high(memory.args + 24 + i, :a) } # low, then high
               asm.load_high(:a, arg2.call(1) + 3)
               asm.bit(7, :a)
-              asm.jump_relative(:nz, "rg_save_sum_done") # a length below nought: no bytes
-              asm.label("rg_save_sum_byte")
+              asm.jump_relative(:nz, "rt_save_sum_done") # a length below nought: no bytes
+              asm.label("rt_save_sum_byte")
               asm.load_high(:a, arg2.call(1)) # how many left: the length's low 16 bits, counted down
               asm.load(:c, :a)
               asm.load_high(:a, arg2.call(1) + 1)
               asm.or_a(:c)
-              asm.jump_relative(:z, "rg_save_sum_done")
+              asm.jump_relative(:z, "rt_save_sum_done")
               asm.load_high(:a, arg2.call(1))
               asm.sub_a(1)
               asm.load_high(arg2.call(1), :a)
@@ -120,14 +120,14 @@ module RubyGBA
               asm.load_high(:a, memory.args + 27)
               asm.adc_a(:d)
               asm.load_high(memory.args + 27, :a)
-              asm.jump_relative("rg_save_sum_byte")
-              asm.label("rg_save_sum_done")
+              asm.jump_relative("rt_save_sum_byte")
+              asm.label("rt_save_sum_done")
               asm.call("rt_save_off")
               asm.load(:hl, memory.args + 24)
               asm.jump("rt_load32")
 
               # Battery-backed memory needs no wiping.
-              asm.label("rg_save_erase")
+              asm.label("rt_save_erase")
               asm.ret
 
               # The place at DE and the count at HL (both 32-bit numbers): inside the save memory,

@@ -51,9 +51,10 @@ module RubyGBA
       class GBC
         # WHERE A RUNNING CARTRIDGE KEEPS WHAT A READER WANTS, which nothing in its bytes says:
         # every variable by the game's name, every list (its place, its capacity, its slot width),
-        # where the runtime keeps how the run stands (Runtime::Frame's names), and where every
-        # label of the code went (the Linker's places), for a profile to say whose time it was.
-        Places = Data.define(:variables, :lists, :runtime, :source_program, :code) do
+        # where the runtime keeps how the run stands (Runtime::Frame's names), where every label of
+        # the code went (the Linker's places), and where each of the game's routines is — a
+        # GameRoutine each — for a profile to say whose time it was without reading a label.
+        Places = Data.define(:variables, :lists, :runtime, :source_program, :code, :routines) do
           # THE SPRITES THE GAME PLACED IN ITS LAST PASS, as the interpreter says them
           # (Reference#sprites): who each is, which picture it shows and where, back to front. The
           # runtime keeps them in a table of its own (Runtime::Picture::DRAWN), front-most first as
@@ -74,7 +75,15 @@ module RubyGBA
 
           # Where the runtime counts the times the game has waited for the screen (32 bits).
           def waits_counted_at = runtime.fetch(Runtime::Frame::PASSES)
+
+          # The game's routine whose code holds the byte at +address+ of bank +bank+, or nil for one
+          # that is not the game's (the runtime's, the art, the songs).
+          def routine_at(bank, address) = routines.find { |held| held.bank == bank && held.addresses.cover?(address) }&.routine
         end
+
+        # One routine of the game's in the cartridge: its bank, the addresses its code takes there,
+        # and what it is to the author (Lowering#section_routines).
+        GameRoutine = Data.define(:bank, :addresses, :routine)
 
         # +program+ as a cartridge (Cartridge::GBCROM), carrying its Places.
         def build(program, title: "RUBYGBA")
@@ -87,8 +96,12 @@ module RubyGBA
                                              music_level: lowering.music_level, songs: lowering.music.any?)
           data = [*lowering.art.sections, *(lowering.music.any? ? [lowering.music.section] : [])]
           linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END).link
+          routines = lowering.section_routines.map do |label, routine|
+            placed = linked.sections.fetch(label)
+            GameRoutine.new(bank: placed.bank, addresses: placed.address...(placed.address + placed.section.size), routine: routine)
+          end
           built = Places.new(variables: lowering.variables, lists: lowering.lists, runtime: runtime_places(memory),
-                             source_program: program, code: linked.places)
+                             source_program: program, code: linked.places, routines: routines)
           save_bytes = SaveLayout.named_by?(program) ? Runtime::Saving::SIZE : 0
           Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: save_bytes, built: built)
         end

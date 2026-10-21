@@ -31,9 +31,9 @@ module RubyGBA
 
             # Reference#exec_play_song: the tune named, from the next frame, unless it is the one
             # named already. Named `this_frame: true` it starts the same way, a frame on.
-            def emit_play_song(node) = runtime_call("rg_gbc_music_play", [Build.int(@music.number(node.name))])
+            def emit_play_song(node) = runtime_call("rt_music_play", [Build.int(@music.number(node.name))])
 
-            def emit_stop_music(_node) = @asm.call("rg_gbc_music_stop")
+            def emit_stop_music(_node) = @asm.call("rt_music_stop")
 
             def emit_enable_sound(_node) = sound_writes(RubyGBA::Audio::Sound::Registers.enable)
 
@@ -59,7 +59,7 @@ module RubyGBA
 
             # The writes as a table of the Color's (SoundRegisters), made where the game says the word.
             def sound_writes(writes)
-              runtime_call("rg_gbc_sound_writes", [Address.new(drawing_table("sound_writes", 1, SoundRegisters.table(writes)))])
+              runtime_call("rt_sound_writes", [Address.new(drawing_table("sound_writes", 1, SoundRegisters.table(writes)))])
             end
           end
         end
