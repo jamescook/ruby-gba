@@ -55,7 +55,8 @@ module RubyGBA
                                            pressed: :value_of_pressed, list_get: :value_of_list_get,
                                            list_len: :value_of_list_len, table_get: :value_of_table_get,
                                            save_read: :value_of_save_read, save_sum: :value_of_save_sum,
-                                           timer_ticks: :value_of_timer_ticks
+                                           timer_ticks: :value_of_timer_ticks, chance: :value_of_chance,
+                                           data_byte: :value_of_data_byte
                                          }.merge(Picture::VALUES))
 
           include Picture
@@ -1018,6 +1019,21 @@ module RubyGBA
           def value_of_mul_fix(node) = sum_of_three(node.lhs, node.rhs, fraction_bits(node), "rt_mul_fix")
           def value_of_div_fix(node) = sum_of_three(node.lhs, node.rhs, fraction_bits(node), "rt_div_fix")
           def value_of_shift_right(node) = sum_of_two(node.operand, Build.int(node.bits), "rt_shr32")
+          # A chance holds when the random draw lands below the threshold.
+          def value_of_chance(node) = value(Build.binop(:<, node.draw, Build.int(node.percent)))
+
+          # One byte of a named piece of data. The index is a number written in the program, so one
+          # past the end is refused here, where the interpreter would refuse it as it runs.
+          def value_of_data_byte(node)
+            data = @pictures.fetch(node.name) { raise LoweringError, "reference to undefined data #{node.name.inspect}" }
+            bytes = (data.kind == :data ? data.bytes : data.pixels).bytes
+            unless node.index.between?(0, bytes.length - 1)
+              raise LoweringError, "data_byte index #{node.index} is past the end of #{node.name.inspect}"
+            end
+
+            value(Entry.new(drawing_table("data #{node.name}", 1, bytes), 1, false, Build.int(node.index)))
+          end
+
           def value_of_held(node) = runtime_call("rg_held", [Build.int(button_number(node.button))])
           def value_of_pressed(node) = runtime_call("rg_pressed", [Build.int(button_number(node.button))])
 

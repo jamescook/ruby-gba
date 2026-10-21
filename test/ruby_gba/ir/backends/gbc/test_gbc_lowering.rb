@@ -182,6 +182,25 @@ class TestGBCLowering < Minitest::Test
     GBC::CheckedRun.new.run(game, frames: 12)
   end
 
+  # A chance taken on the game's random numbers, and a byte read out of a block of data the
+  # program declares, built as IR since no verb says either alone.
+  def test_chance_and_data_byte_play_as_the_interpreter_plays_them
+    build = RubyGBA::IR::Build
+    game = build.program(
+      build.data(:bytes, "\x05\xFA\x07".b),
+      build.set(:roll, 30),
+      build.loop_(build.wait_vblank,
+                  build.set(:third, build.data_byte(:bytes, 1)),
+                  build.if_(build.chance(build.var_ref(:roll), 40), build.add(:lucky, 1)),
+                  build.add(:roll, 7)),
+      console: :gbc
+    )
+
+    assert GBC.new.build(game).built.code.key?("main"), "built by the lowering, not the statement path"
+    run = GBC::CheckedRun.new.run(game, frames: 6)
+    assert_equal 250, run[:third]
+  end
+
   # A game loop far bigger than a bank of the cartridge holds is cut into parts, each a routine of
   # its own called where its statements stood, and still plays as the interpreter plays it.
   def test_routine_bigger_than_bank_is_cut_into_parts
