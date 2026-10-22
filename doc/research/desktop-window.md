@@ -47,7 +47,7 @@ a button, so a hotkey is handed on to nothing.
   to the window; no new thread, no callback style. A pause is a loop in `hold_while_paused` that keeps
   the menu and the hotkeys answering and re-shows the last picture; a step leaves that loop for one frame.
 - **A pause is not the game running late.** Leaving a pause starts the console clock and the monitor's
-  limit afresh (`start_the_clocks_afresh`), and the speaker is emptied when it starts and let go when it
+  limit afresh (`restart_clocks`), and the speaker is emptied when it starts and let go when it
   ends, so the sound's catch-up rule (`keep_sound_in_step`, the quiet put in when little is waiting) is
   not told the game fell behind. `test_native_desktop.rb` holds this: without the reset a two-frame pause
   is followed by frames rushed to make it up, 2 ms apart; with it, none are under 10 ms.
@@ -55,7 +55,13 @@ a button, so a hotkey is handed on to nothing.
   as it always does and only the showing and the waiting happen once a slot, so on a monitor that paces
   the game the monitor still does. **The sound is silence meanwhile** rather than every Nth slice: the
   game makes N times what the speaker can play, and slices of it are a stutter. The speaker is emptied
-  when fast forward starts, and what is "owed" is not (the same `sound_after_a_hold` flag as a pause).
+  when fast forward starts, and what is "owed" is not (the same `speaker_emptied_on_purpose` flag as a
+  pause).
+- **The frame time is the game's own work**, from when the window hands the game its thread back to
+  when the game next waits for a frame, without the wait. A game that keeps up shows how much of its
+  frame it uses; one over the frame shows by how much. It is under Developer, and shows with or without
+  the frame rate. Both are measured every frame whether shown or not, so what is read is always the last
+  half second's.
 - **Volume is the square of the slider**, applied to the samples as they go to the speaker
   (`rg_window_apply_volume`): 50 is a quarter of the amplitude, which sounds about half as loud, and 100
   leaves the samples untouched. The game's sound, and every test that compares it, is as it was.
@@ -67,9 +73,14 @@ a button, so a hotkey is handed on to nothing.
   name in SDL: ","). The first line for a button replaces the defaults, each after it adds one. Where it
   lives: one file for every game and one for each game, both read, the game's over the player's; a change
   is written to the game's file when there is one and otherwise the player's, so the file a player last
-  edited is the one the menu keeps. A file that cannot be read, or has lines that cannot be used, is said
-  on the error stream and in the controls window, and the rest is used. Written whole, beside the old
-  file and renamed over it, a half second after the last change (a slider dragged is one write).
+  edited is the one the menu keeps. **A game's file keeps only its own settings**: the lines it had and
+  what was changed while the game played. Written whole, it would take in everything the player's file
+  said and stop following it, so a key the player changed for every game later would never reach that
+  one. The player's file is written whole. A file that cannot be read, or has lines that cannot be used,
+  is said on the error stream, over the picture as the window opens (a player who double-clicked the
+  game has no terminal), and in the controls window, and the rest is used. Written beside the old file
+  and renamed over it, half a second by the clock after the last change (a slider dragged is one write,
+  and fast forward does not shorten the wait).
 - **A scripted run (`--scripted-keys`) reads no settings file** unless given one (`--settings-file`,
   or `--usual-settings` for the usual two), so a test never depends on the keys of whoever runs it.
 
@@ -113,9 +124,11 @@ Read in `TwilitRealm/dusklight`, `src/dusk/imgui` (`ImGuiConsole.cpp`, `ImGuiMen
   both a hotkey and a button, and fast forward is frames per picture since the clock is the console's.
 - It never pauses the game for its menu. Neither does this one: pause is a thing a player chooses.
 
-## Not done: rewind
+## Not done: rewind and save states
 
-Rewind needs the whole game taken and put back every frame, and two things stand in the way.
+The menu was asked to save and load a state, from its Developer menu. That is not built: a save state is
+the whole game taken and put back once, and rewind is the same every frame, so both wait on the same
+two things.
 
 1. **State is in many places.** Besides the game's variables, lists and pools (generated `static`s in
    `game.c`), `rg_screen.c`, `rg_sound.c`, `rg_mix.c`, `rg_runtime.c` (timers) and `rg_save.c` each keep
@@ -125,9 +138,12 @@ Rewind needs the whole game taken and put back every frame, and two things stand
    wherever the game likes. Putting variables back changes what the game knows, not where in its code it
    is: the C stack and the program counter are not in any registry. A game whose only wait is the top
    of its game loop is restored by its variables alone; one that waits deep inside a routine is not.
-   Either rewind is allowed only where every frame was taken at one call site and stack depth (return
-   address and frame address of the caller, checked at the restore), or the loop has to be made a state
-   machine, which is a change to the generated C and to every lowering.
+   Checking that every frame was taken at one call site and stack depth is not enough on its own: the
+   generated C keeps some of the game's working numbers on the stack across a wait (a `repeat` keeps its
+   count and its index there), so two frames that match on call site and depth can still differ in
+   those. Either a state is taken only where the generated C holds nothing on the stack across the wait,
+   or the loop has to be made a state machine, which is a change to the generated C and to every
+   lowering.
 
 Both want deciding before any code. What a rewind past a save does is also open: the save memory is the
 one part that must not go back behind a player's back.

@@ -85,11 +85,12 @@
  * its format). There is one for everyone who plays any game built this way, among the files the
  * operating system keeps for the person using the computer, and one for each game, in the game's
  * own folder beside its save. Both are read when the window opens, the game's over the player's. A
- * change is written back, whole, a moment after it is made (rg_window_settings_due), to the
- * game's file where it has one and otherwise the player's. A file that cannot be read is said in
- * plain words, in the menu too, and its defaults used: it never stops the window opening. A
- * scripted run (--scripted-keys) uses none unless told one with --settings-file, so a test never
- * depends on the keys of whoever runs it.
+ * change is written back a moment after it is made (rg_window_settings_due): to the game's file
+ * where it has one, which keeps only what it says itself and what was changed while the game
+ * played, so the rest goes on following the player's file; otherwise to the player's, whole. A
+ * file that cannot be read is said in plain words, over the picture as the window opens too, and
+ * its defaults used: it never stops the window opening. A scripted run (--scripted-keys) uses none
+ * unless told one with --settings-file, so a test never depends on the keys of whoever runs it.
  *
  * THE SOUND is made a frame at a time by rg_sound.c and handed to SDL as it is made (at the
  * player's volume, rg_window_apply_volume), which keeps
@@ -204,7 +205,7 @@ static size_t shown_count, shown_room;
 static long frames_held_by_clock; /* frames the monitor was pacing and the window's own clock had to hold */
 static long sound_frames_dropped; /* frames whose sound was thrown away because too much was waiting */
 static long sound_ran_dry;        /* times quiet was put in because almost none was */
-static int sound_after_a_hold;    /* the speaker was just emptied by a pause or fast forward, so quiet put in is not "ran dry" */
+static int speaker_emptied_on_purpose;    /* the speaker was just emptied by a pause or fast forward, so quiet put in is not "ran dry" */
 
 static SDL_AudioStream *speaker; /* where the sound goes; none on a computer with no sound */
 
@@ -222,7 +223,7 @@ static SDL_AudioStream *speaker; /* where the sound goes; none on a computer wit
  * run ahead of the monitor: a nudge that only just matched would settle with as much sound
  * waiting as is thrown away. */
 #define SOUND_NUDGE_MOST_PERCENT 3
-_Static_assert(SOUND_NUDGE_MOST_PERCENT > RG_FASTEST_PERCENT_OVER_MONITOR, "the sound could not keep up with the game");
+_Static_assert(SOUND_NUDGE_MOST_PERCENT > RG_FASTEST_PERCENT_OVER_MONITOR, "the sound cannot keep up with the game");
 
 static SDL_Gamepad *pads[MOST_PADS]; /* every gamepad open, the keyboard's among them */
 static SDL_Joystick *keyboard_pad;   /* the gamepad SDL makes up for the keyboard to press */
@@ -252,7 +253,11 @@ static const char *window_picture_file; /* --window-picture: where the window is
  * was not given one. */
 static char *settings_path;
 static char *settings_being_written;
+static rg_settings_part settings_written_part; /* a game's own file keeps only its own settings */
 static int settings_failure_said;
+
+/* When the game was last handed back its thread, so the time until it next waits is its work. */
+static Uint64 game_resumed_ns;
 
 /* The game's variables are being asked for by the menu's developer window (rg_window_watch_note),
  * not printed. */
@@ -281,7 +286,7 @@ static void write_save_file(void) {
     rg_save_file_written();
     return;
   }
-  if (!save_failure_said) fprintf(stderr, "%s could not write its save to %s (%s)\n", rg_game_title, save_path, SDL_GetError());
+  if (!save_failure_said) fprintf(stderr, "%s cannot write its save to %s (%s)\n", rg_game_title, save_path, SDL_GetError());
   save_failure_said = 1;
 }
 
@@ -348,7 +353,7 @@ static _Noreturn void quit(int status) {
 }
 
 static _Noreturn void refuse_to_start(const char *what) {
-  fprintf(stderr, "%s could not start: %s (%s)\n", rg_game_title, what, SDL_GetError());
+  fprintf(stderr, "%s cannot start: %s (%s)\n", rg_game_title, what, SDL_GetError());
   quit(1);
 }
 
@@ -375,12 +380,12 @@ static void choose_save_file(const char *asked) {
     char game[64];
     name_save_folder(game, sizeof game);
     char *folder = SDL_GetPrefPath("ruby-gba", game);
-    if (!folder) refuse_to_start("the folder for its save could not be made");
+    if (!folder) refuse_to_start("the folder for its save cannot be made");
     if (SDL_asprintf(&save_path, "%ssave.sav", folder) < 0) save_path = NULL;
     SDL_free(folder);
   }
   if (!save_path || SDL_asprintf(&save_being_written, "%s.writing", save_path) < 0) {
-    refuse_to_start("there was no room for the name of its save file");
+    refuse_to_start("there is no room for the name of its save file");
   }
 }
 
@@ -402,7 +407,7 @@ static void read_save_file(void) {
            "The file at %s is not a save of this game, whose save is %d bytes. Move the file away, and the game "
            "starts a new one.",
            save_path, (int)rg_save_size());
-  fprintf(stderr, "%s could not start: %s\n", rg_game_title, message);
+  fprintf(stderr, "%s cannot start: %s\n", rg_game_title, message);
   SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, rg_game_title, message, window);
   quit(1);
 }
@@ -421,7 +426,7 @@ static void read_settings_file(const char *path, char *said, size_t room) {
   void *loaded = SDL_LoadFile(path, &size);
   size_t used = strlen(said);
   if (!loaded) {
-    snprintf(said + used, room - used, "%s could not be read (%s), so the settings are as they start.\n", path, SDL_GetError());
+    snprintf(said + used, room - used, "The window cannot read %s (%s), so the settings are as they start.\n", path, SDL_GetError());
     return;
   }
   char *text = malloc(size + 1);
@@ -464,7 +469,12 @@ static void load_settings(const char *asked, int usual_files_asked) {
     char *this_games = settings_file_in(game);
     if (everyones) read_settings_file(everyones, said, sizeof said);
     int game_has_its_own = this_games && SDL_GetPathInfo(this_games, NULL);
-    if (game_has_its_own) read_settings_file(this_games, said, sizeof said);
+    if (game_has_its_own) {
+      /* What the player's file said is the player's, and the game's file keeps only its own. */
+      rg_window_mark_settings_inherited();
+      read_settings_file(this_games, said, sizeof said);
+      settings_written_part = RG_SETTINGS_OWN;
+    }
     /* Changes go where the player last looked for them: the game's file when it has one. */
     settings_path = game_has_its_own ? this_games : everyones;
     if (settings_path != this_games) SDL_free(this_games);
@@ -473,34 +483,42 @@ static void load_settings(const char *asked, int usual_files_asked) {
   if (settings_path && SDL_asprintf(&settings_being_written, "%s.writing", settings_path) < 0) settings_being_written = NULL;
 
   if (said[0]) {
-    fprintf(stderr, "%s: the settings file had lines it could not use:\n%s", rg_game_title, said);
+    fprintf(stderr, "%s: the window cannot use some of the settings file:\n%s", rg_game_title, said);
     rg_window_set_problems(said);
   }
 }
 
-/* The settings written to their file when something has changed, whole, as the save is. */
+/* The settings written to their file when something has changed, as the save is: to a new file
+ * beside it, which then takes its place. */
 static void write_settings_file(void) {
   if (!rg_window_settings_unwritten()) return;
   if (!settings_path || !settings_being_written) {
-    rg_window_settings_written(); /* a run with no file keeps nothing */
+    rg_window_mark_settings_written(); /* a run with no file keeps nothing */
     return;
   }
   static char text[8192];
-  size_t wanted = rg_window_settings_text(text, sizeof text);
+  size_t wanted = rg_window_settings_text(text, sizeof text, settings_written_part);
   if (wanted < sizeof text && SDL_SaveFile(settings_being_written, text, wanted) &&
       SDL_RenamePath(settings_being_written, settings_path)) {
-    rg_window_settings_written();
+    rg_window_mark_settings_written();
     return;
   }
-  if (!settings_failure_said) fprintf(stderr, "%s could not write its settings to %s (%s)\n", rg_game_title, settings_path, SDL_GetError());
+  if (!settings_failure_said) fprintf(stderr, "%s cannot write its settings to %s (%s)\n", rg_game_title, settings_path, SDL_GetError());
   settings_failure_said = 1;
-  rg_window_settings_not_written();
+  rg_window_mark_settings_write_failed();
+}
+
+/* Each file that is owed is written: the save once the game has finished saving, the settings once
+ * nothing has changed for a moment. */
+static void write_files_due(void) {
+  if (rg_save_file_is_due()) write_save_file();
+  if (rg_window_settings_due(SDL_GetTicksNS())) write_settings_file();
 }
 
 /* Does to the real window what the settings now say: fullscreen on or off, and the size. */
 static void apply_window_changes(void) {
   static int size_owed;
-  int changes = rg_window_take_changes();
+  int changes = rg_window_consume_changes();
   if (!changes) return;
   if (changes & RG_CHANGE_SCALE) size_owed = 1;
   if (changes & RG_CHANGE_FULLSCREEN) {
@@ -551,7 +569,7 @@ static void draw_window(void) {
   SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
   SDL_RenderClear(renderer);
   SDL_RenderTexture(renderer, texture, NULL, NULL);
-  rg_menu_draw(renderer, SDL_GetTicksNS());
+  rg_menu_draw(SDL_GetTicksNS());
 }
 
 /* Asks the game for its variables while the menu's window of them is open. */
@@ -589,7 +607,7 @@ static void save_window_picture(void) {
   draw_window();
   SDL_Surface *seen = SDL_RenderReadPixels(renderer, NULL);
   if (!seen || !SDL_SaveBMP(seen, window_picture_file))
-    fprintf(stderr, "%s could not save the window to %s (%s)\n", rg_game_title, window_picture_file, SDL_GetError());
+    fprintf(stderr, "%s cannot save the window to %s (%s)\n", rg_game_title, window_picture_file, SDL_GetError());
   SDL_DestroySurface(seen);
 }
 
@@ -633,8 +651,8 @@ static void play_frame_sound(void) {
     static const int16_t quiet[RG_SOUND_FRAME_MOST];
     for (int i = 0; i < SOUND_AHEAD_FRAMES; i++) SDL_PutAudioStreamData(speaker, quiet, bytes);
     /* After a pause or fast forward the speaker is empty on purpose: not the game running late. */
-    if (!sound_after_a_hold) sound_ran_dry++;
-    sound_after_a_hold = 0;
+    if (!speaker_emptied_on_purpose) sound_ran_dry++;
+    speaker_emptied_on_purpose = 0;
   }
   SDL_PutAudioStreamData(speaker, samples, bytes);
 }
@@ -743,6 +761,12 @@ static void read_events(void) {
   }
 }
 
+/* The window's events read, and what they asked of the real window done to it. */
+static void read_and_apply_events(void) {
+  read_events();
+  apply_window_changes();
+}
+
 /* Waits for the next frame's moment on the console's clock. */
 static void wait_on_console_clock(void) {
   Uint64 now = SDL_GetTicksNS();
@@ -849,7 +873,7 @@ static _Noreturn void refuse_script(const char *word) {
 /* One word of a script line after its buttons: a key pressed by name, or the key a hotkey is on
  * now pressed (so what is tried is the key a player would press, which goes the way a player's
  * does, through the window's loop), or a panel of the menu opened or shut. */
-static void do_script_word(char *word) {
+static void apply_script_word(char *word) {
   char *name = strchr(word, ':');
   if (!name) refuse_script(word);
   *name++ = '\0';
@@ -882,6 +906,24 @@ static void do_script_word(char *word) {
   }
 }
 
+/* The key a script presses for a console button: the first it has, or RG_NO_KEY for none. */
+static int first_key_of(int button) {
+  for (int slot = 0; slot < RG_WINDOW_KEYS_A_BUTTON; slot++) {
+    int key = rg_window_button_key(button, slot);
+    if (key != RG_NO_KEY) return key;
+  }
+  return RG_NO_KEY;
+}
+
+/* A button with no key cannot be pressed from the keyboard at all, so a script that holds one
+ * stops there and says so, rather than playing on as if it had not. */
+static _Noreturn void refuse_script_button_without_key(int button) {
+  const char *name = rg_window_button_name(button);
+  fprintf(stderr, "%s: the script holds %s, but %s has no key. Give %s a key in the settings file.\n", rg_game_title, name, name,
+          name);
+  quit(2);
+}
+
 /* The script's keys for the frame that is starting, a line of standard input: the buttons held
  * as a number (as --headless reads them), each one that changed sent as the key event a keyboard
  * would send, and then any words naming keys, hotkeys or panels. Says whether there was a line:
@@ -899,17 +941,18 @@ static bool press_scripted_keys(void) {
   for (uint32_t i = 0; i < BUTTONS; i++) {
     bool down = (mask >> i) & 1u;
     if (down == (bool)((scripted_keys >> i) & 1u)) continue;
-    int key = rg_window_button_key((int)i, 0);
-    if (key != RG_NO_KEY) push_key((SDL_Scancode)key, down);
+    int key = first_key_of((int)i);
+    if (key == RG_NO_KEY) refuse_script_button_without_key((int)i);
+    push_key((SDL_Scancode)key, down);
   }
   scripted_keys = (uint32_t)mask;
-  for (; word; word = strtok(NULL, " \t\r\n")) do_script_word(word);
+  for (; word; word = strtok(NULL, " \t\r\n")) apply_script_word(word);
   return had_a_line;
 }
 
 /* Fresh clocks, for after the game was held and is going again: the time that went by is no
  * lateness, and no frames are owed to make it up. */
-static void start_the_clocks_afresh(void) {
+static void restart_clocks(void) {
   next_frame_ns = 0;
   earliest_next_ns = 0;
 }
@@ -925,7 +968,7 @@ static void silence_speaker(bool silent) {
   } else {
     SDL_ResumeAudioStreamDevice(speaker);
   }
-  sound_after_a_hold = 1;
+  speaker_emptied_on_purpose = 1;
 }
 
 /* A PAUSE: the game, its sound and its clock stop where they are and the picture stays up, while
@@ -934,19 +977,18 @@ static void silence_speaker(bool silent) {
 static void hold_while_paused(void) {
   if (!rg_window_paused()) return;
   silence_speaker(true);
-  while (rg_window_paused() && !rg_window_take_step()) {
+  while (rg_window_paused() && !rg_window_consume_step()) {
     Uint64 began = SDL_GetTicksNS();
     if (scripted && !press_scripted_keys()) finish_script(); /* nothing left in the script could end the pause */
-    read_events();
-    apply_window_changes();
-    if (rg_window_settings_due()) write_settings_file();
+    read_and_apply_events();
+    write_files_due();
     present_still();
     /* Showing a picture does not always wait (a window that is hidden, or a display that cannot be
      * waited for), and a pause is not to spin the computer. */
     Uint64 spent = SDL_GetTicksNS() - began;
     if (spent < FRAME_NS) SDL_DelayPrecise(FRAME_NS - spent);
   }
-  start_the_clocks_afresh();
+  restart_clocks();
   if (!rg_window_paused()) silence_speaker(false);
 }
 
@@ -959,7 +1001,7 @@ static bool end_of_slot(void) {
   if (fast != was_fast_forwarding) {
     was_fast_forwarding = fast;
     silence_speaker(fast);
-    start_the_clocks_afresh();
+    restart_clocks();
     frames_in_slot = 0;
   }
   if (!fast) return true;
@@ -972,23 +1014,23 @@ static bool end_of_slot(void) {
  * buttons for the next frame are read. */
 static void sdl_wait_vblank(void) {
   if (scripted && frames_played >= frames_to_play) finish_script();
-  rg_window_frame_played(SDL_GetTicksNS());
+  Uint64 frame_ended = SDL_GetTicksNS();
+  rg_window_frame_played(frame_ended, game_resumed_ns ? frame_ended - game_resumed_ns : 0);
   play_frame_sound();
   rg_frame_begins();
   frames_played++;
   bool shown = end_of_slot();
   if (shown) present();
-  if (rg_save_file_is_due()) write_save_file();
-  if (rg_window_settings_due()) write_settings_file();
+  write_files_due();
   read_events();
   if (shown) wait_for_next_frame();
   if (scripted) press_scripted_keys();
-  read_events();
-  apply_window_changes();
+  read_and_apply_events();
   /* The one place a pause takes hold, after everything that could ask for it has been read: a step
    * leaves it for the game's next frame and not for a second look at the pause on the way. */
   hold_while_paused();
   read_buttons();
+  game_resumed_ns = SDL_GetTicksNS();
 }
 
 /* The game stopped on purpose: its last picture stays up until the window is closed. */
@@ -996,10 +1038,8 @@ static void sdl_halt(void) {
   if (scripted) finish_script();
   for (;;) {
     present();
-    if (rg_save_file_is_due()) write_save_file();
-    if (rg_window_settings_due()) write_settings_file();
-    read_events();
-    apply_window_changes();
+    write_files_due();
+    read_and_apply_events();
     wait_for_next_frame();
   }
 }
@@ -1045,9 +1085,9 @@ static void attach_keyboard_pad(void) {
   pad.name = "Keyboard";
   pad.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
   SDL_JoystickID id = SDL_AttachVirtualJoystick(&pad);
-  if (!id) refuse_to_start("the keyboard could not be set up as a gamepad");
+  if (!id) refuse_to_start("the keyboard cannot be set up as a gamepad");
   keyboard_pad = SDL_OpenJoystick(id);
-  if (!keyboard_pad) refuse_to_start("the keyboard's gamepad could not be opened");
+  if (!keyboard_pad) refuse_to_start("the keyboard's gamepad cannot be opened");
   keyboard_pad_id = id;
   read_events(); /* takes it up as a gamepad, with any real ones already plugged in */
 }
@@ -1071,8 +1111,8 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (!SDL_Init(SDL_INIT_VIDEO)) refuse_to_start("the display could not be reached");
-  if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) refuse_to_start("the buttons could not be read");
+  if (!SDL_Init(SDL_INIT_VIDEO)) refuse_to_start("the display cannot be reached");
+  if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) refuse_to_start("the buttons cannot be read");
   load_settings(settings_file_asked_for, usual_settings_asked_for);
   /* High pixel density asks for the screen's real pixels on a Retina display. Without it the
    * whole number the picture is scaled by is worked out in the display's larger "points", and the
@@ -1081,19 +1121,28 @@ int main(int argc, char **argv) {
   SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
   if (rg_window_fullscreen()) flags |= SDL_WINDOW_FULLSCREEN;
   window = SDL_CreateWindow(rg_game_title, RG_SCREEN_WIDTH * rg_window_scale(), RG_SCREEN_HEIGHT * rg_window_scale(), flags);
-  if (!window) refuse_to_start("no window could be opened");
+  if (!window) refuse_to_start("the window cannot be opened");
   SDL_SetWindowMinimumSize(window, RG_SCREEN_WIDTH, RG_SCREEN_HEIGHT);
-  rg_window_take_changes(); /* the window opened as the settings say: nothing is left to do to it */
+  rg_window_consume_changes(); /* the window opened as the settings say: nothing is left to do to it */
   renderer = SDL_CreateRenderer(window, NULL);
-  if (!renderer) refuse_to_start("nothing could draw into the window");
+  if (!renderer) refuse_to_start("nothing can draw into the window");
   SDL_SetRenderLogicalPresentation(renderer, RG_SCREEN_WIDTH, RG_SCREEN_HEIGHT, SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
   texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XBGR1555, SDL_TEXTUREACCESS_STREAMING, RG_SCREEN_WIDTH,
                               RG_SCREEN_HEIGHT);
-  if (!texture) refuse_to_start("the picture could not be made");
+  if (!texture) refuse_to_start("the picture cannot be made");
   SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
   /* The menu is not a thing a game can do without in a build a person plays; if it cannot start
    * the window says so and the hotkeys still work. */
-  if (!rg_menu_start(window, renderer)) fprintf(stderr, "%s: the menu could not be started (%s)\n", rg_game_title, SDL_GetError());
+  if (!rg_menu_start(window, renderer)) {
+    fprintf(stderr, "%s: the menu cannot start (%s), so the window has no menu. The hotkeys still work.\n", rg_game_title,
+            SDL_GetError());
+    /* With no menu to say it over the picture, what is wrong with the settings file goes in a box. */
+    if (rg_window_problems()[0] && !scripted) {
+      char message[1200];
+      snprintf(message, sizeof message, "The window cannot use some of the settings file. It uses the rest.\n\n%s", rg_window_problems());
+      SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, rg_game_title, message, window);
+    }
+  }
   attach_keyboard_pad();
   open_speaker();
   choose_pacing();

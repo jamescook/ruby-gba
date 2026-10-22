@@ -28,8 +28,9 @@ void rg_menu_event(const SDL_Event *event);
 bool rg_menu_wants_keyboard(void);
 
 /* Draws the menu bar, the windows that are open and the frame rate over the picture just drawn,
- * and leaves it as it found it. +now_ns+ is the time, SDL_GetTicksNS(). */
-void rg_menu_draw(SDL_Renderer *renderer, uint64_t now_ns);
+ * through the renderer it was started on, and leaves that as it found it. +now_ns+ is the time,
+ * SDL_GetTicksNS(). */
+void rg_menu_draw(uint64_t now_ns);
 
 #ifdef __cplusplus
 }

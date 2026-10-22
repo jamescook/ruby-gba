@@ -112,7 +112,7 @@ pub fn build(b: *std.Build) void {
         mod.addCSourceFiles(.{
             .root = src_dir,
             .files = &.{"rg_menu.cpp"},
-            .flags = &(cpp_flags ++ [_][]const u8{ "-Wall", "-Wextra", "-Werror" }),
+            .flags = &(cpp_flags ++ [_][]const u8{ "-Wall", "-Wextra", "-Wconversion", "-Wsign-conversion", "-Werror" }),
         });
     };
 

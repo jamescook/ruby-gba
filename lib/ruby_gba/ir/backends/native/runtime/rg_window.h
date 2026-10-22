@@ -75,8 +75,9 @@ int rg_window_paused(void);
 
 /* While paused, lets one frame run; a frame asked for when not paused is not kept for later. */
 void rg_window_step(void);
-/* The window asks, when paused, whether to let a frame run: 1 once for each step, and then 0. */
-int rg_window_take_step(void);
+/* The window asks, when paused, whether to let a frame run: 1 once for each step, which uses the
+ * step up, and then 0. */
+int rg_window_consume_step(void);
 
 /* Fast forward is held: several frames of the game for every picture shown, at the speed
  * rg_window_fast_speed says (2 to 8, 4 to begin with). Only the window does this; a paused game
@@ -113,7 +114,7 @@ void rg_window_fullscreen_happened(int on);
 /* What rg_sdl.c has still to do to the real window. Reading it clears it. */
 #define RG_CHANGE_FULLSCREEN 1
 #define RG_CHANGE_SCALE 2
-int rg_window_take_changes(void);
+int rg_window_consume_changes(void);
 
 /* --- sound --- */
 
@@ -136,16 +137,21 @@ void rg_window_apply_volume(int16_t *samples, size_t count);
 void rg_window_set_show_frame_rate(int on);
 void rg_window_toggle_frame_rate(void);
 int rg_window_shows_frame_rate(void);
-/* The time a frame took, shown beside it (the developer's view). */
+/* The frame time (the developer's view): how long the game's own work for a frame took, without
+ * the wait for the next frame, so a game that keeps up shows how much of its frame it uses. It is
+ * shown whether or not the frame rate is. */
 void rg_window_set_show_frame_time(int on);
+void rg_window_toggle_frame_time(void);
 int rg_window_shows_frame_time(void);
 
 /* The frame rate is how many frames of the GAME were played a second, so fast forward shows its
- * speed and a pause shows none. Every frame played is noted with the time it ended (in
- * nanoseconds); the rate asked for is that of the last half second or so, and 0 for a game that
- * has stopped. */
-void rg_window_frame_played(uint64_t now_ns);
+ * speed and a pause shows none. Every frame played is noted with the time it ended and how long the
+ * game worked in it (both in nanoseconds), whether or not either is shown. What is asked for is
+ * the last half second's: frames a second (0 for a game that has stopped), and the game's work in
+ * a frame, in milliseconds. */
+void rg_window_frame_played(uint64_t now_ns, uint64_t work_ns);
 double rg_window_frames_a_second(uint64_t now_ns);
+double rg_window_frame_work_ms(uint64_t now_ns);
 
 /* The menu bar stays up, or comes up when the mouse moves and goes after a few seconds. */
 void rg_window_toggle_menu(void);
@@ -184,7 +190,8 @@ void rg_window_reset_pad(void);
 void rg_window_reset_hotkeys(void);
 
 /* "Press the key you want for it": the menu says what is being chosen and the window gives the
- * next key, or gamepad button, pressed to these instead of to the game. Escape gives up. A key
+ * next key, or gamepad button, pressed to these instead of to the game. Escape gives up. A wait for
+ * a button, slot or hotkey that is not there is no wait. A key
  * or button is handed over only while a choice of that kind is waiting; the answer is 1 when it
  * was taken (and the window then does nothing else with it), and the notice says how it went. */
 void rg_window_capture_key_for_button(int button, int slot);
@@ -237,26 +244,40 @@ int rg_window_watch_dropped(void);
 void rg_window_use_defaults(void);
 
 /* Writes the settings as text of at most +room+ bytes, with the closing NUL; gives the length it
- * wanted (as snprintf does), so a result of +room+ or more was cut short. */
-size_t rg_window_settings_text(char *out, size_t room);
+ * wanted (as snprintf does), so a result of +room+ or more was cut short. RG_SETTINGS_ALL writes
+ * every setting, for the file every game shares; RG_SETTINGS_OWN only those the file being
+ * written to holds for itself, for a game's own file. */
+typedef enum { RG_SETTINGS_ALL, RG_SETTINGS_OWN } rg_settings_part;
+size_t rg_window_settings_text(char *out, size_t room, rg_settings_part part);
 
 /* Reads settings text over what is there now: each line it names a setting in replaces that one
- * and leaves the others. Writes what it could not use into +problems+ (NUL-ended, a sentence to
- * a line, empty for none) and gives how many lines that was. */
+ * and leaves the others, and that setting is now the file's own. Writes what it could not use
+ * into +problems+ (NUL-ended, a sentence to a line, empty for none) and gives how many lines that
+ * was. */
 int rg_window_settings_read(const char *text, char *problems, size_t room);
 
-/* Whether the settings are due to be written. Asked once a frame: they are due once half a
- * second has gone by with nothing changed since something did, so dragging a slider is one
- * write. A write that failed is owed still and tried again after the same wait. */
-int rg_window_settings_due(void);
-int rg_window_settings_unwritten(void);
-void rg_window_settings_written(void);
-void rg_window_settings_not_written(void);
-#define RG_SETTINGS_QUIET_FRAMES 30
+/* Every setting so far came from somewhere else (the file every game shares) and is not the
+ * own of the file that is read next, a game's: that file keeps only what it says and what is
+ * changed while the game plays. */
+void rg_window_mark_settings_inherited(void);
 
-/* The sentences about the settings file as it was read, which the controls panel shows. */
+/* Whether the settings are due to be written, asked with the time (in nanoseconds). They are due
+ * once half a second has gone by with nothing changed since something did, so dragging a slider
+ * is one write; the half second starts the first time the window asks after a change. A write
+ * that failed is owed still and tried again after the same wait. */
+int rg_window_settings_due(uint64_t now_ns);
+int rg_window_settings_unwritten(void);
+void rg_window_mark_settings_written(void);
+void rg_window_mark_settings_write_failed(void);
+#define RG_SETTINGS_QUIET_NS 500000000ull
+
+/* The sentences about the settings file as it was read. The controls panel shows them, and the
+ * menu shows them over the picture as the window opens until the player has seen them, since a
+ * player who opened the game by double-clicking it has no terminal to read. */
 void rg_window_set_problems(const char *text);
 const char *rg_window_problems(void);
+int rg_window_problems_unseen(void);
+void rg_window_mark_problems_seen(void);
 
 #ifdef __cplusplus
 }

@@ -21,7 +21,8 @@
 
 namespace {
 
-SDL_Window *the_window;
+SDL_Window *menu_window;
+SDL_Renderer *menu_renderer;
 Uint64 mouse_moved_ns;
 Uint64 started_ns;
 char variable_filter[64];
@@ -40,24 +41,26 @@ const char *shortcut_of(int hotkey) {
   return name;
 }
 
+// The console's picture, in its own pixels: the size the window's picture is drawn at before it is
+// scaled up, which rg_sdl.c gave the renderer as its logical size.
+SDL_Point picture_size() {
+  SDL_Point size = {0, 0};
+  SDL_GetRenderLogicalPresentation(menu_renderer, &size.x, &size.y, nullptr);
+  return size;
+}
+
 // The most the picture can be scaled and still fit on the screen the window is on, so the menu
 // does not offer a size the window cannot be.
 int largest_scale_that_fits() {
   int most = RG_WINDOW_SCALE_MOST;
+  SDL_Point picture = picture_size();
   SDL_Rect room;
-  if (the_window && SDL_GetDisplayUsableBounds(SDL_GetDisplayForWindow(the_window), &room)) {
-    int fits = SDL_min(room.w / 240, room.h / 160);
+  if (picture.x > 0 && picture.y > 0 && SDL_GetDisplayUsableBounds(SDL_GetDisplayForWindow(menu_window), &room)) {
+    int fits = SDL_min(room.w / picture.x, room.h / picture.y);
     if (fits < most) most = fits;
   }
   if (most < rg_window_scale()) most = rg_window_scale();
   return most < RG_WINDOW_SCALE_LEAST ? RG_WINDOW_SCALE_LEAST : most;
-}
-
-void quit_the_program() {
-  SDL_Event quit;
-  SDL_zero(quit);
-  quit.type = SDL_EVENT_QUIT;
-  SDL_PushEvent(&quit);
 }
 
 void game_menu() {
@@ -69,17 +72,16 @@ void game_menu() {
   ImGui::SetNextItemWidth(140.0f);
   if (ImGui::SliderInt("Fast forward", &speed, RG_FAST_SPEED_LEAST, RG_FAST_SPEED_MOST, "%dx")) rg_window_set_fast_speed(speed);
   ImGui::TextDisabled("Hold %s to fast forward", shortcut_of(RG_HOTKEY_FAST_FORWARD));
-  ImGui::Separator();
-  if (ImGui::MenuItem("Quit")) quit_the_program();
   ImGui::EndMenu();
 }
 
 void window_menu() {
   if (!ImGui::BeginMenu("Window")) return;
   if (ImGui::BeginMenu("Size")) {
+    SDL_Point picture = picture_size();
     for (int scale = RG_WINDOW_SCALE_LEAST; scale <= largest_scale_that_fits(); scale++) {
       char label[48];
-      snprintf(label, sizeof label, "%dx  (%d x %d)", scale, 240 * scale, 160 * scale);
+      snprintf(label, sizeof label, "%dx  (%d x %d)", scale, picture.x * scale, picture.y * scale);
       if (ImGui::MenuItem(label, nullptr, scale == rg_window_scale())) rg_window_set_scale(scale);
     }
     ImGui::EndMenu();
@@ -87,8 +89,6 @@ void window_menu() {
   if (ImGui::MenuItem("Fullscreen", shortcut_of(RG_HOTKEY_FULLSCREEN), rg_window_fullscreen())) rg_window_toggle_fullscreen();
   ImGui::Separator();
   if (ImGui::MenuItem("Show frame rate", shortcut_of(RG_HOTKEY_FRAME_RATE), rg_window_shows_frame_rate())) rg_window_toggle_frame_rate();
-  if (ImGui::MenuItem("Show frame time", nullptr, rg_window_shows_frame_time()))
-    rg_window_set_show_frame_time(!rg_window_shows_frame_time());
   ImGui::Separator();
   if (ImGui::MenuItem("Keep this menu up", shortcut_of(RG_HOTKEY_MENU), rg_window_menu_kept_up())) rg_window_toggle_menu();
   ImGui::EndMenu();
@@ -109,13 +109,11 @@ void controls_menu() {
   ImGui::EndMenu();
 }
 
+// Pause and step are under Game, where a player looks for them too.
 void developer_menu() {
   if (!ImGui::BeginMenu("Developer")) return;
   if (ImGui::MenuItem("Game variables...")) rg_window_show_panel(RG_PANEL_VARIABLES, 1);
-  if (ImGui::MenuItem("Show frame time", nullptr, rg_window_shows_frame_time()))
-    rg_window_set_show_frame_time(!rg_window_shows_frame_time());
-  if (ImGui::MenuItem(rg_window_paused() ? "Resume" : "Pause", shortcut_of(RG_HOTKEY_PAUSE))) rg_window_toggle_pause();
-  if (ImGui::MenuItem("Step one frame", shortcut_of(RG_HOTKEY_STEP), false, rg_window_paused())) rg_window_step();
+  if (ImGui::MenuItem("Show frame time", nullptr, rg_window_shows_frame_time())) rg_window_toggle_frame_time();
   ImGui::EndMenu();
 }
 
@@ -137,8 +135,16 @@ void menu_bar() {
   ImGui::EndMainMenuBar();
 }
 
-// What a key is, for a button that chooses one.
-const char *key_label(int key) { return key == RG_NO_KEY ? "(none)" : rg_window_key_name(key); }
+// What a button that chooses a key does when it is clicked.
+enum class KeyClick { NONE, CHOOSE, CLEAR };
+
+// A button showing a key, which is clicked to choose another, and beside it an x that clears it.
+KeyClick key_cell(int key) {
+  if (ImGui::Button(key == RG_NO_KEY ? "(none)" : rg_window_key_name(key), ImVec2(110.0f, 0.0f))) return KeyClick::CHOOSE;
+  if (key == RG_NO_KEY) return KeyClick::NONE;
+  ImGui::SameLine();
+  return ImGui::SmallButton("x") ? KeyClick::CLEAR : KeyClick::NONE;
+}
 
 void console_buttons_tab() {
   ImGui::TextWrapped("Click a key, then press the key you want. A button can have two keys. The x clears one.");
@@ -156,11 +162,9 @@ void console_buttons_tab() {
       for (int slot = 0; slot < RG_WINDOW_KEYS_A_BUTTON; slot++) {
         ImGui::TableNextColumn();
         ImGui::PushID(slot);
-        if (ImGui::Button(key_label(rg_window_button_key(button, slot)), ImVec2(110.0f, 0.0f))) rg_window_capture_key_for_button(button, slot);
-        if (rg_window_button_key(button, slot) != RG_NO_KEY) {
-          ImGui::SameLine();
-          if (ImGui::SmallButton("x")) rg_window_bind_key(button, slot, RG_NO_KEY);
-        }
+        KeyClick click = key_cell(rg_window_button_key(button, slot));
+        if (click == KeyClick::CHOOSE) rg_window_capture_key_for_button(button, slot);
+        if (click == KeyClick::CLEAR) rg_window_bind_key(button, slot, RG_NO_KEY);
         ImGui::PopID();
       }
       ImGui::TableNextColumn();
@@ -190,11 +194,9 @@ void hotkeys_tab() {
       ImGui::TableNextColumn();
       ImGui::TextUnformatted(rg_window_hotkey_name(hotkey));
       ImGui::TableNextColumn();
-      if (ImGui::Button(key_label(rg_window_hotkey_key(hotkey)), ImVec2(110.0f, 0.0f))) rg_window_capture_key_for_hotkey(hotkey);
-      if (rg_window_hotkey_key(hotkey) != RG_NO_KEY) {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("x")) rg_window_bind_hotkey(hotkey, RG_NO_KEY);
-      }
+      KeyClick click = key_cell(rg_window_hotkey_key(hotkey));
+      if (click == KeyClick::CHOOSE) rg_window_capture_key_for_hotkey(hotkey);
+      if (click == KeyClick::CLEAR) rg_window_bind_hotkey(hotkey, RG_NO_KEY);
       ImGui::PopID();
     }
     ImGui::EndTable();
@@ -210,7 +212,7 @@ void controls_window() {
   if (ImGui::Begin("Keys, gamepad buttons and hotkeys", &open, ImGuiWindowFlags_NoSavedSettings)) {
     if (rg_window_problems()[0]) {
       ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
-      ImGui::TextWrapped("The settings file had lines the window could not use:\n%s", rg_window_problems());
+      ImGui::TextWrapped("The window cannot use some of the settings file:\n%s", rg_window_problems());
       ImGui::PopStyleColor();
       ImGui::Separator();
     }
@@ -280,10 +282,31 @@ void variables_window() {
   rg_window_show_panel(RG_PANEL_VARIABLES, open);
 }
 
-// The frame rate in the top right corner, and what the game is doing if it is not just playing.
+// What was wrong with the settings file, over the picture as the window opens, until the player
+// has seen it: a player who opened the game by double-clicking it has no terminal to read. The
+// controls window keeps saying it after this is closed.
+void settings_problems_window() {
+  if (!rg_window_problems_unseen()) return;
+  ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  ImGui::SetNextWindowSize(ImVec2(520.0f, 0.0f), ImGuiCond_Appearing);
+  bool open = true;
+  if (ImGui::Begin("The settings file", &open, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse)) {
+    ImGui::TextWrapped("The window cannot use some of the settings file. It uses the rest, and the game plays as usual.");
+    ImGui::Separator();
+    ImGui::TextWrapped("%s", rg_window_problems());
+    if (ImGui::Button("OK")) open = false;
+  }
+  ImGui::End();
+  if (!open) rg_window_mark_problems_seen();
+}
+
+// The frame rate and the frame time in the top right corner, each when it is asked for, and what
+// the game is doing if it is not just playing.
 void status_overlay(Uint64 now_ns) {
   bool rate = rg_window_shows_frame_rate() != 0;
-  if (!rate && !rg_window_paused() && !rg_window_fast_forwarding()) return;
+  bool work = rg_window_shows_frame_time() != 0;
+  if (!rate && !work && !rg_window_paused() && !rg_window_fast_forwarding()) return;
   ImGuiViewport *viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - 8.0f, viewport->WorkPos.y + 8.0f), ImGuiCond_Always,
                           ImVec2(1.0f, 0.0f));
@@ -295,11 +318,8 @@ void status_overlay(Uint64 now_ns) {
     ImGui::End();
     return;
   }
-  if (rate) {
-    double fps = rg_window_frames_a_second(now_ns);
-    ImGui::Text("%.1f fps", fps);
-    if (rg_window_shows_frame_time()) ImGui::Text("%.2f ms", fps > 0.0 ? 1000.0 / fps : 0.0);
-  }
+  if (rate) ImGui::Text("%.1f fps", rg_window_frames_a_second(now_ns));
+  if (work) ImGui::Text("%.2f ms of work a frame", rg_window_frame_work_ms(now_ns));
   if (rg_window_paused()) ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "PAUSED");
   else if (rg_window_fast_forwarding()) ImGui::TextColored(ImVec4(0.5f, 0.9f, 1.0f, 1.0f), "FAST FORWARD %dx", rg_window_fast_speed());
   ImGui::End();
@@ -318,38 +338,49 @@ bool rg_menu_start(SDL_Window *window, SDL_Renderer *renderer) {
   ImGui::GetStyle().FontSizeBase = 15.0f;
   ImGui::GetStyle().WindowRounding = 4.0f;
   ImGui::GetStyle().FrameRounding = 3.0f;
-  if (!ImGui_ImplSDL3_InitForSDLRenderer(window, renderer)) return false;
-  if (!ImGui_ImplSDLRenderer3_Init(renderer)) return false;
-  the_window = window;
+  // A menu that cannot start leaves nothing of itself behind: the window plays on without it.
+  if (!ImGui_ImplSDL3_InitForSDLRenderer(window, renderer)) {
+    ImGui::DestroyContext();
+    return false;
+  }
+  if (!ImGui_ImplSDLRenderer3_Init(renderer)) {
+    ImGui_ImplSDL3_Shutdown();
+    ImGui::DestroyContext();
+    return false;
+  }
+  menu_window = window;
+  menu_renderer = renderer;
   started_ns = SDL_GetTicksNS();
   mouse_moved_ns = 0;
   return true;
 }
 
 void rg_menu_stop(void) {
-  if (!the_window) return;
+  if (!menu_window) return;
   ImGui_ImplSDLRenderer3_Shutdown();
   ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext();
-  the_window = nullptr;
+  menu_window = nullptr;
+  menu_renderer = nullptr;
 }
 
 void rg_menu_event(const SDL_Event *event) {
-  if (!the_window) return;
+  if (!menu_window) return;
   ImGui_ImplSDL3_ProcessEvent(event);
   if (event->type == SDL_EVENT_MOUSE_MOTION || event->type == SDL_EVENT_MOUSE_BUTTON_DOWN) mouse_moved_ns = SDL_GetTicksNS();
 }
 
-bool rg_menu_wants_keyboard(void) { return the_window && ImGui::GetIO().WantTextInput; }
+bool rg_menu_wants_keyboard(void) { return menu_window && ImGui::GetIO().WantTextInput; }
 
-void rg_menu_draw(SDL_Renderer *renderer, uint64_t now_ns) {
-  if (!the_window) return;
+void rg_menu_draw(uint64_t now_ns) {
+  if (!menu_window) return;
   ImGui_ImplSDLRenderer3_NewFrame();
   ImGui_ImplSDL3_NewFrame();
   ImGui::NewFrame();
 
   if (menu_bar_wanted(now_ns)) menu_bar();
   status_overlay(now_ns);
+  settings_problems_window();
   controls_window();
   variables_window();
 
@@ -358,8 +389,8 @@ void rg_menu_draw(SDL_Renderer *renderer, uint64_t now_ns) {
   // laid out in the window's own units, so that is put aside while it is drawn.
   int logical_width = 0, logical_height = 0;
   SDL_RendererLogicalPresentation mode = SDL_LOGICAL_PRESENTATION_DISABLED;
-  SDL_GetRenderLogicalPresentation(renderer, &logical_width, &logical_height, &mode);
-  SDL_SetRenderLogicalPresentation(renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
-  ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
-  SDL_SetRenderLogicalPresentation(renderer, logical_width, logical_height, mode);
+  SDL_GetRenderLogicalPresentation(menu_renderer, &logical_width, &logical_height, &mode);
+  SDL_SetRenderLogicalPresentation(menu_renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+  ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), menu_renderer);
+  SDL_SetRenderLogicalPresentation(menu_renderer, logical_width, logical_height, mode);
 }

@@ -79,8 +79,25 @@ class TestNativeDesktop < Minitest::Test
 
       assert_keeps_its_save_in_the_file_it_is_told(exe, File.join(dir, "told.sav"), saved)
       assert_writes_its_save_while_it_is_still_running(exe, File.join(dir, "running.sav"))
-      assert_keeps_its_save_among_the_files_of_whoever_plays(exe, File.join(dir, "home"), saved)
       assert_refuses_a_file_that_is_not_its_save(exe, File.join(dir, "other.sav"))
+    end
+  end
+
+  # Told nothing, it keeps the save where the operating system keeps a program's own files for
+  # the person using the computer, in a folder named for the game. The test says where that
+  # person's files are, in the two ways a Mac and a Linux machine are told, so nothing is
+  # written among the files of whoever runs it.
+  def test_the_program_a_player_runs_keeps_its_save_among_the_files_of_whoever_plays
+    skip "only a Mac and Linux can be told where a person's files are" unless RUBY_PLATFORM.match?(/darwin|linux/)
+
+    game = game_that_keeps_a_count
+    saved = SaveImage.new
+    Reference.new(save: saved).input_each_frame { |frame| KEPT_RUN.fetch(frame, []) }
+             .run(Native.new.checked_program(game, err: nil), frames: KEPT_FRAMES)
+    Dir.mktmpdir do |dir|
+      exe = Native.new.build_desktop(game, File.join(dir, "keeper"), err: nil)
+
+      assert_keeps_its_save_among_the_files_of_whoever_plays(exe, File.join(dir, "home"), saved)
     end
   end
 
@@ -103,7 +120,7 @@ class TestNativeDesktop < Minitest::Test
       end
       play_song :tune
       frames = var :frames, 0
-      counters = %i[a b select start right left up down r l].to_h { |name| [name, var(:"held_#{name}", 0)] }
+      counters = TestNativeDesktop::BUTTONS.to_h { |name| [name, var(:"held_#{name}", 0)] }
       game_loop do
         clear_screen :black
         frames.add! 1
@@ -112,7 +129,8 @@ class TestNativeDesktop < Minitest::Test
     end
   end
 
-  BUTTONS_HELD = %i[held_a held_b held_select held_start held_right held_left held_up held_down held_r held_l].freeze
+  BUTTONS = %i[a b select start right left up down r l].freeze
+  BUTTONS_HELD = BUTTONS.map { |name| :"held_#{name}" }.freeze
 
   # WHAT A PLAYER DOES TO THE WINDOW, judged by what the game saw and what came out: hotkeys, pause
   # and step, fast forward, the volume, the settings file and the menu over the picture. The logic
@@ -128,10 +146,25 @@ class TestNativeDesktop < Minitest::Test
       assert_volume_and_mute_change_what_the_speaker_is_given(exe, dir)
       assert_the_window_opens_the_size_it_was_left_at(exe, dir)
       assert_the_keys_can_be_chosen_in_the_settings_file(exe, dir)
+      assert_a_script_cannot_hold_a_button_with_no_key(exe, dir)
       assert_a_changed_setting_is_written_to_the_file_and_read_back(exe, dir)
       assert_a_file_that_cannot_be_used_is_said_and_the_game_plays_on(exe, dir)
-      assert_the_players_file_and_the_games_file_are_read_and_the_games_wins(exe, dir)
       assert_the_menu_is_drawn_over_the_picture(exe, dir)
+      assert_the_frame_time_shows_without_the_frame_rate(exe, dir)
+    end
+  end
+
+  # One file for every game and one for each, both read, the game's over the player's; a change is
+  # written to the game's file where there is one and otherwise the player's. The test says where
+  # the person's files are, in the two ways a Mac and a Linux machine are told, so nothing is
+  # written among the files of whoever runs it.
+  def test_the_players_settings_file_and_the_games_own
+    skip "only a Mac and Linux can be told where a person's files are" unless RUBY_PLATFORM.match?(/darwin|linux/)
+
+    Dir.mktmpdir do |dir|
+      exe = Native.new.build_desktop(game_that_counts, File.join(dir, "windowed"), err: nil)
+
+      assert_the_players_file_and_the_games_file_are_read_and_the_games_wins(exe, dir)
     end
   end
 
@@ -285,12 +318,25 @@ class TestNativeDesktop < Minitest::Test
     assert_equal 0, tapped_x.variables[:held_a], "and X is not"
     assert_operator second_key.variables[:held_b], :>=, 1, "a button's second key works as well"
     assert_equal 0, tapped_x.variables[:held_b]
-    assert_empty held_q.said.lines.grep(/could not use/), "a file like that is nothing to complain of"
+    assert_empty held_q.said.lines.grep(/cannot use/), "a file like that is nothing to complain of"
+  end
+
+  # A script holds a console button by pressing a key it has; a button with no key cannot be held
+  # from the keyboard at all, and the script stops and says so rather than playing on without it.
+  def assert_a_script_cannot_hold_a_button_with_no_key(exe, dir)
+    settings = File.join(dir, "no-a.txt")
+    File.write(settings, "key.a = none\n")
+    _printed, said, status = Open3.capture3(NO_SCREEN_OR_SPEAKER, exe, "--scripted-keys", "3", "--settings-file", settings,
+                                            stdin_data: "0\n1\n0\n")
+
+    refute_predicate status, :success?
+    assert_match(/A has no key/, said)
   end
 
   def settings_lines(path) = File.readlines(path, chomp: true).reject { |line| line.empty? || line.start_with?("#") }
 
-  # What a player changes is written back to the file, whole, and the next run opens that way.
+  # What a player changes is written back to the file, every setting, and the next run opens that
+  # way.
   def assert_a_changed_setting_is_written_to_the_file_and_read_back(exe, dir)
     settings = File.join(dir, "kept.txt")
     play_window(exe, dir, ["0 hotkey:fullscreen hotkey:frame_rate hotkey:mute"], frames: 5, options: ["--settings-file", settings])
@@ -324,34 +370,40 @@ class TestNativeDesktop < Minitest::Test
     assert_equal 0, hidden.lit_in(*corner), "and not when the settings say not"
   end
 
-  # A file that cannot be used is said in plain words and the window opens anyway, as it starts.
+  # A file that cannot be used is said in plain words, on the error stream and over the picture as
+  # the window opens, and the window opens anyway, as it starts.
   def assert_a_file_that_cannot_be_used_is_said_and_the_game_plays_on(exe, dir)
-    plain = game_saw(play_window(exe, dir, [], frames: 20))
+    plain_window, plain_run = picture_of_window(exe, dir, [], frames: 20)
     garbage = File.join(dir, "garbage.txt")
     File.write(garbage, "{\"this\": \"is not settings\"}\nvolume = loud\nkey.a = Nonesuch\n")
     folder = File.join(dir, "a-folder.txt")
     Dir.mkdir(folder)
 
-    from_garbage = play_window(exe, dir, [], frames: 20, options: ["--settings-file", garbage])
+    garbage_window, from_garbage = picture_of_window(exe, dir, [], frames: 20, options: ["--settings-file", garbage])
     from_folder = play_window(exe, dir, [], frames: 20, options: ["--settings-file", folder])
 
-    assert_equal plain, game_saw(from_garbage)
-    assert_includes from_garbage.said, "the settings file had lines it could not use"
-    assert_includes from_garbage.said, "Line 2: volume is a whole number from 0 to 100, not \"loud\"."
-    assert_includes from_garbage.said, "Line 3: \"Nonesuch\" is not a key's name, so A keeps the key it had."
-    assert_equal plain, game_saw(from_folder)
-    assert_includes from_folder.said, "could not be read"
+    assert_equal game_saw(plain_run), game_saw(from_garbage)
+    assert_match(/cannot use some of the settings file/, from_garbage.said)
+    assert_match(/Line 2: volume is a whole number/, from_garbage.said)
+    assert_match(/Line 3: "Nonesuch" is not a key's name/, from_garbage.said)
+    middle = [40...400, 100...400]
+    assert_operator garbage_window.lit_in(*middle), :>, plain_window.lit_in(*middle) + 10_000,
+                    "what was wrong is said over the picture, for a player with no terminal"
+    assert_equal game_saw(plain_run), game_saw(from_folder)
+    assert_match(/The window cannot read .*a-folder\.txt/, from_folder.said)
   end
 
-  # One file for every game and one for each, both read, the game's over the player's; a change is
-  # written to the game's file where there is one and otherwise the player's.
+  # The game's own file keeps only what it says and what changed while the game played, so a later
+  # change to the player's file still reaches the game.
   def assert_the_players_file_and_the_games_file_are_read_and_the_games_wins(exe, dir)
     home = File.join(dir, "settings-home")
-    everyones = File.join(home, "ruby-gba", "(all games)", "settings.txt")
-    games = File.join(home, "ruby-gba", "WINDOWED", "settings.txt")
+    # A Mac keeps a program's files under Library/Application Support in the person's folder; Linux
+    # keeps them straight in the folder it is told.
+    programs = RUBY_PLATFORM.include?("darwin") ? File.join(home, "Library", "Application Support") : home
+    everyones = File.join(programs, "ruby-gba", "(all games)", "settings.txt")
+    games = File.join(programs, "ruby-gba", "WINDOWED", "settings.txt")
     env = { "XDG_DATA_HOME" => home, "CFFIXED_USER_HOME" => home }
     use = ->(lines = [], **more) { picture_of_window(exe, dir, lines, frames: 5, options: ["--usual-settings"], env: env, **more) }
-    return unless RUBY_PLATFORM.match?(/darwin|linux/)
 
     # A scripted run that was not asked for them leaves the player's files alone.
     play_window(exe, dir, ["0 hotkey:mute"], frames: 3, env: env, own_settings: false)
@@ -373,7 +425,13 @@ class TestNativeDesktop < Minitest::Test
     assert_includes settings_lines(games), "frame_rate = off"
     assert_includes settings_lines(games), "scale = 5"
     assert_includes settings_lines(games), "fast_forward_speed = 7"
+    assert_empty settings_lines(games).grep(/^(volume|mute|key\.|pad\.|hotkey\.)/), "the game's file keeps only its own"
     assert_equal before, File.read(everyones), "the player's file is left as it was"
+
+    # A key the player gives A in the shared file afterwards is A in this game too.
+    File.write(everyones, "#{before}key.a = Q\n")
+    _window, held_q = use.call(["0", "0 keydown:Q", "0", "0 keyup:Q"])
+    assert_operator held_q.variables[:held_a], :>=, 1, "the player's file still reaches the game"
   end
 
   # The menu bar is drawn over the picture (the game's own is black there), and the frame rate in the
@@ -395,6 +453,16 @@ class TestNativeDesktop < Minitest::Test
     variables, played = picture_of_window(exe, dir, ["0 panel:variables hotkey:pause"], frames: 20)
     assert_operator variables.lit_in(*middle), :>, window.lit_in(*middle) + 10_000
     assert_equal 0, played.variables.values_at(*BUTTONS_HELD).sum, "opening a window of the menu is not a button"
+  end
+
+  # The frame time is the developer's own reading, and shows in the corner with the frame rate hidden.
+  def assert_the_frame_time_shows_without_the_frame_rate(exe, dir)
+    settings = File.join(dir, "frame-time.txt")
+    File.write(settings, "frame_rate = off\nframe_time = on\n")
+    shown, = picture_of_window(exe, dir, [], frames: 40, options: ["--settings-file", settings])
+    corner = [(shown.width - 200)...(shown.width - 10), 30...70]
+
+    assert_operator shown.lit_in(*corner), :>, 100
   end
 
   public
@@ -466,13 +534,8 @@ class TestNativeDesktop < Minitest::Test
     end
   end
 
-  # Told nothing, it keeps the save where the operating system keeps a program's own files for
-  # the person using the computer, in a folder named for the game. The test says where that
-  # person's files are, in the two ways a Mac and a Linux machine are told, so nothing is
-  # written among the files of whoever runs it; on a system told neither way it is not tried.
+  # The save is in a folder named for the game, under +home+, and holds what the interpreter's does.
   def assert_keeps_its_save_among_the_files_of_whoever_plays(exe, home, saved)
-    return unless RUBY_PLATFORM.match?(/darwin|linux/)
-
     FileUtils.mkdir_p(home)
     variables_after(exe, KEPT_FRAMES, KEPT_RUN, env: { "CFFIXED_USER_HOME" => home, "XDG_DATA_HOME" => home })
     found = Dir.glob(File.join(home, "**", "save.sav"))
