@@ -18,6 +18,14 @@
             .hash = "sdl-0.6.0+3.4.18-SDL--p-gqAGWpnfTLlhs0dgjDtc4P4_CHeNLGY_SX_Fv",
             .lazy = true,
         },
+        // Dear ImGui, for the menu drawn over the picture (runtime/rg_menu.cpp). It has no
+        // build.zig of its own, so build.zig compiles the few files it needs. Tag v1.93.0,
+        // named here by its commit; the hash is of the files themselves.
+        .imgui = .{
+            .url = "https://github.com/ocornut/imgui/archive/c1aaac65e896a45f81f47a4d68f9959e0f86c859.tar.gz",
+            .hash = "N-V-__8AAEVjfgCU7hthaWtlDkNjFB4HE1XYqFl6UO7oqXwD",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",

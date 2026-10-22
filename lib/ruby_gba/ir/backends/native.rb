@@ -57,10 +57,14 @@ module RubyGBA
 
         # The runtime's C files each kind of build compiles beside the game's. The desktop build
         # carries the windowless runtime too, so the program a player runs can be driven by a
-        # test with --headless.
+        # test with --headless. It also carries the window's own settings (rg_window.c, plain C
+        # with no SDL, tested on its own), and the menu over the picture (rg_menu.cpp, Dear ImGui),
+        # which build/build.zig compiles itself since it is C++ and wants flags of its own: a
+        # desktop build always has it, and the builds a test makes of the game do not come
+        # through here at all.
         SHARED_RUNTIME = %w[rg_headless.c rg_mix.c rg_runtime.c rg_save.c rg_screen.c rg_sound.c].freeze
         HEADLESS_RUNTIME = (["rg_headless_main.c"] + SHARED_RUNTIME).freeze
-        DESKTOP_RUNTIME = (["rg_sdl.c"] + SHARED_RUNTIME).freeze
+        DESKTOP_RUNTIME = (%w[rg_sdl.c rg_window.c] + SHARED_RUNTIME).freeze
 
         # The program written out as C, as one file's text. A program from a game should come
         # through #checked_program first. +title+ is the game's name, for the window.

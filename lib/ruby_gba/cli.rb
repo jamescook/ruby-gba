@@ -72,6 +72,15 @@ module RubyGBA
       each program's own files. To keep it in a different file, start the program with
       --save-file PATH. The file holds the bytes of a cartridge's save memory, so a .sav
       file from an emulator starts the same game there.
+
+      The program's window has a menu over the picture (move the mouse to see it, or
+      press F1) and keys of its own that the game never sees: P pauses, N steps one
+      frame while paused, Tab fast forwards while held, F11 is fullscreen, M mutes and
+      F3 shows or hides the frame rate. The menu changes the window's size, the volume,
+      which key and gamepad button is each console button, and those hotkeys. What it
+      changes is kept in a small text file you can edit, `settings.txt`, in the same
+      folder as the save: one in a folder for every game and one for each game, whose
+      settings win. --settings-file PATH keeps them in a different file.
     TEXT
     option :output, aliases: "-o", banner: "PATH",
                     desc: "Where to write the .gba, the IR under --format=ir, the program under --format=native, " \

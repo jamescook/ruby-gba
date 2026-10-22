@@ -172,7 +172,9 @@ ruby-gba build examples/pong.rb --format=native --target windows  # 64-bit Windo
 ruby-gba build examples/pong.rb --format=native --target linux    # 64-bit Linux; also linux-arm
 ```
 
-The game is written out as C and compiled with [zig](https://ziglang.org) (installed through mise), which carries the C library of every system it builds for and compiles [SDL3](https://libsdl.org) from source for each, so a Mac builds the Windows and Linux programs with nothing else installed. The first build takes a while because it compiles SDL; every build after reuses it.
+The game is written out as C and compiled with [zig](https://ziglang.org) (installed through mise), which carries the C library of every system it builds for and compiles [SDL3](https://libsdl.org) and [Dear ImGui](https://github.com/ocornut/imgui) from source for each, so a Mac builds the Windows and Linux programs with nothing else installed. The first build takes a while because it compiles SDL; every build after reuses it.
+
+**The window has a menu and keys of its own, which the game never sees.** Move the mouse (or press F1) and a menu comes up over the picture: the window's size and fullscreen, the volume, which key and gamepad button is each console button, and the keys below. They start as P to pause and resume, N to step one frame while paused, Tab to fast forward while held, F11 for fullscreen, M to mute and F3 to show or hide the frame rate in the corner; no console button is on any of them. What the menu changes is kept in a small text file you can edit by hand, `settings.txt`, in the folder your computer has for the program's own files: one for every game, and one for each game that wins over it (`--settings-file PATH` uses a file of your own). How it all works and what it costs: [`doc/research/desktop-window.md`](doc/research/desktop-window.md).
 
 **The Windows and Linux programs have not yet been run on those systems.** They are built and checked to be programs for the computer asked for; the Mac build is the one that is played and tested. A Mac program can only be built on a Mac.
 
