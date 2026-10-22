@@ -115,14 +115,15 @@ class TestFractionDivision < Minitest::Test
   # WHAT ONE FRACTION DIVIDE COSTS, in instructions the console ran: the same divide written
   # forty times a pass against twenty, and the difference shared out over the twenty added.
   # That counts reading the two numbers and keeping the answer as well as the routine.
-  private def instructions_per_divide(numerator, divisor, title)
+  private def instructions_per_divide(numerator, divisor, title, starts_as: 0.0, &worked_out)
+    worked_out ||= ->(a, b) { a / b }
     per_frame = [20, 40].map do |count|
       program = program_for do
         screen :bitmap
         a = var :a, numerator
         b = var :b, divisor
-        out = var :out, 0.0
-        game_loop { count.times { out.set! a / b } }
+        out = var :out, starts_as
+        game_loop { count.times { out.set! worked_out.call(a, b) } }
       end
       backend = GBA.new
       rom = ROM.assemble(backend.lower(program), title: "#{title}#{count}", built: backend.build_record(program))
@@ -147,6 +148,22 @@ class TestFractionDivision < Minitest::Test
     assert_in_delta every_step - (16 * 3), instructions_per_divide(1.0, 3.0, "DIVSMALL"), 1
     assert_in_delta every_step - (16 * 3), instructions_per_divide(0.25, 0.5, "DIVHALF"), 1,
                     "a divisor below one skips as much as any other"
+  end
+
+  # MADE WHOLE STRAIGHT AWAY, ONLY THE WHOLE PART'S STEPS RUN. A wall's height is a number over
+  # its distance rounded to the nearest pixel, `(scale / distance + 0.5).to_i`, and an answer a
+  # little over a hundred has eight whole bits. Kept as a fraction it runs twenty-four steps;
+  # made whole it runs eight, sixteen steps of three instructions fewer, and gives back at most
+  # twenty settling the rounding those steps would have decided and checking for nought. A
+  # negative answer rounded down takes the longest way through that.
+  def test_a_fraction_divide_made_whole_runs_only_the_whole_parts_steps
+    require_emulator!
+    as_a_fraction = instructions_per_divide(301.5, 3.0, "DIVFRAC")
+    wall_height = instructions_per_divide(301.5, 3.0, "DIVWALL", starts_as: 0) { |_a, b| (301.5 / b + 0.5).to_i }
+    rounded_down = instructions_per_divide(-301.5, 3.0, "DIVDOWN", starts_as: 0) { |a, b| (a / b).to_i }
+
+    assert_operator wall_height, :<=, as_a_fraction - (16 * 3) + 20
+    assert_operator rounded_down, :<=, as_a_fraction - (16 * 3) + 20
   end
 
   # An answer too big to hold is held at the end of the range. 1.0 divided by the
@@ -210,6 +227,102 @@ class TestFractionDivision < Minitest::Test
     assert_operator Reference.new.run(program)[:rounded], :<, 0, "the oracle wraps it negative"
     assert_equal Reference.new.run(program)[:rounded], Int32.wrap(console.var(:rounded)),
                  "and the console gives the same bits, so the oracle can speak for it"
+  end
+
+  # --- a fraction divide made whole straight away ----------------------------------
+  #
+  # `(a / b).to_i` and `(a / b + 0.5).to_i` want only the answer's whole part, and the
+  # console works that out without the fraction's steps. These hold it to the bits the
+  # interpreter gives, which are NOT what a whole-number divide would give in three places:
+  # making whole rounds down where a divide rounds toward nought, an answer with no room is
+  # held at the end of the range before it is made whole (and adding the half to that wraps
+  # it), and dividing by nought gives a bare 1 or -1 before it is made whole.
+
+  # [numerator, divisor, how far the divide widens, how many fraction bits are dropped]
+  WHOLE_PART_CASES = [
+    [(301 * ONE) + (ONE / 2), 3 * ONE, 16, 16],  # a little over a hundred
+    [-((301 * ONE) + (ONE / 2)), 3 * ONE, 16, 16],
+    [(301 * ONE) + (ONE / 2), -3 * ONE, 16, 16],
+    [-3 * ONE, 2 * ONE, 16, 16],                 # -1.5: down to -2, or -1 with the half
+    [5 * ONE / 2, ONE, 16, 16],                  # exactly a half over: the half rounds up
+    [-5 * ONE / 2, ONE, 16, 16],                 # ...and on the negative side, up as well
+    [(-5 * ONE / 2) - 1, ONE, 16, 16],           # just past the half
+    [-3 * ONE, ONE, 16, 16],                     # comes out even
+    [-1, 3 * ONE, 16, 16],                       # less than the smallest fraction: the divide gives nought
+    [-ONE - 1, 3 * ONE, 16, 16],
+    [ONE, 1, 16, 16],                            # no room: held at the top, and the half wraps it
+    [-ONE, 1, 16, 16],
+    [(32_767 * ONE) + (3 * ONE / 4), ONE, 16, 16], # the last whole number there is, and the half past it
+    [-((32_767 * ONE) + (3 * ONE / 4)), ONE, 16, 16],
+    [(32_767 * ONE) + (ONE / 4), ONE, 16, 16],
+    [Int32::MIN, 1, 16, 16],
+    [Int32::MIN, -1, 16, 16],
+    [Int32::MAX, 1, 16, 16],
+    [ONE, Int32::MIN, 16, 16],
+    [-ONE, Int32::MIN, 16, 16],
+    [Int32::MIN, Int32::MIN, 16, 16],
+    [3 * ONE, 0, 16, 16],                        # divided by nought
+    [-3 * ONE, 0, 16, 16],
+    [0, 0, 16, 16],
+    [0, -3 * ONE, 16, 16],
+    [160, 5 * ONE / 2, 32, 16],                  # a whole number over a fraction
+    [-160, 3 * ONE, 32, 16],
+    [161, 0, 32, 16],
+    [-7, 0, 32, 16],
+    [-7, 3 * ONE, 32, 16],
+    [-(100 << 8) - 3, 7 << 8, 8, 8],             # eight fraction bits
+    [(100 << 8) + 128, 1 << 8, 8, 8],
+    [-(100 << 8) - 128, 1 << 8, 8, 8],
+    [-7, 2, 2, 2],                               # the fewest bits there can be: -1.75 over 0.5
+    [7, 2, 2, 2],
+    [-(1 << 29) - 1, 1 << 30, 30, 30],           # the most, which leave room for -2..1
+    [(1 << 29) + 1, 1 << 30, 30, 30],
+    [(1 << 30) + 1, 1 << 29, 30, 30],            # ...and no room for 2
+  ].freeze
+
+  private def whole_part_cases
+    random = Random.new(1729)
+    signed_of_width = ->(bits) { random.rand(1 << bits) * (random.rand(2).zero? ? 1 : -1) }
+    drawn = Array.new(120) do
+      widen, drop = [[16, 16], [32, 16], [8, 8], [24, 8], [2, 2], [30, 30]].sample(random: random)
+      [signed_of_width.call(random.rand(1..31)), signed_of_width.call(random.rand(1..31)), widen, drop]
+    end
+    WHOLE_PART_CASES + drawn
+  end
+
+  private def made_whole(divide, drop) = Build.shift_right(divide, drop)
+  private def rounded_whole(divide, drop) = Build.shift_right(Build.binop(:+, divide, Build.int(1 << (drop - 1))), drop)
+  private def rounded_whole_half_first(divide, drop) = Build.shift_right(Build.binop(:+, Build.int(1 << (drop - 1)), divide), drop)
+
+  def test_the_console_agrees_on_a_fraction_divide_made_whole
+    cases = whole_part_cases
+    program = Build.program(*cases.each_with_index.flat_map do |(a, b, widen, drop), i|
+      divide = Build.div_fix(Build.var_ref(:a), Build.var_ref(:b), widen)
+      written_down = Build.div_fix(Build.int(a), Build.var_ref(:b), widen)
+      [Build.set(:a, Build.int(a)), Build.set(:b, Build.int(b)),
+       Build.set(:"down#{i}", made_whole(divide, drop)),
+       Build.set(:"near#{i}", rounded_whole(divide, drop)),
+       Build.set(:"half_first#{i}", rounded_whole_half_first(divide, drop)),
+       Build.set(:"written#{i}", rounded_whole(written_down, drop))]
+    end, Build.halt)
+    interpreter = Reference.new.run(program)
+    backend = GBA.new
+    rom = ROM.assemble(backend.lower(program), title: "DIVWHOLE")
+    v = assert_emulator_loads_rom(rom, frames: 4, vars: backend.var_addresses)
+
+    cases.each_with_index do |(a, b, widen, drop), i|
+      quotient = Int32.div_fix(a, b, widen)
+      down = Int32.shift_right(quotient, drop)
+      near = Int32.shift_right(Int32.add(quotient, 1 << (drop - 1)), drop)
+      said = "(#{a} << #{widen}) / #{b}, #{drop} fraction bits dropped"
+
+      assert_equal down, interpreter[:"down#{i}"], "#{said}: the interpreter, made whole"
+      assert_equal near, interpreter[:"near#{i}"], "#{said}: the interpreter, to the nearest"
+      assert_equal down, Int32.wrap(v.var(:"down#{i}")), "#{said}: made whole on the console"
+      assert_equal near, Int32.wrap(v.var(:"near#{i}")), "#{said}: to the nearest on the console"
+      assert_equal near, Int32.wrap(v.var(:"half_first#{i}")), "#{said}: the half written first, on the console"
+      assert_equal near, Int32.wrap(v.var(:"written#{i}")), "#{said}: numerator written down, on the console"
+    end
   end
 
   # --- the surface ---------------------------------------------------------------

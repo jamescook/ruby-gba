@@ -72,6 +72,20 @@ module RubyGBA
           # Once the numerator is widened, the registers that brought it in are free again.
           FIX_NEG_DEN = DIV_NUM # minus the divisor, which a step adds to take it out
           FIX_SKIP = FIX_BITS   # how far into the written-out steps to jump, in bytes
+          # What is left over once the steps have run. A divide made whole reads it after the
+          # routine returns, with minus the divisor still in FIX_NEG_DEN; both mean something
+          # only when the routine neither divided by nought nor ran out of room.
+          FIX_LEFT_OVER = FIX_HIGH
+
+          # Where a divide made whole settles its rounding, once the routine has returned and
+          # these are free again.
+          WHOLE_LIMIT = FIX_WIDE
+          WHOLE_TEST = FIX_LOW
+          WHOLE_SPARE = FIX_BITS
+
+          # How many fraction bits a divide made whole can drop: the rounding's own sums stay
+          # inside a register from two to thirty, and the half added needs at least one below it.
+          WHOLE_DROPS = (2..30)
 
           # How many places at a time the fraction divide asks whether it can skip, and what
           # one of its steps comes to in bytes (three instructions).
@@ -246,11 +260,54 @@ module RubyGBA
           end
 
           # Call the widened-numerator routine. Same shape, plus how far to widen in r2.
-          # It hands back only a quotient; there is no leftover to speak of, since the
-          # numerator it divided was not the one the program wrote.
+          # It hands back the quotient. What it leaves over is not the program's leftover,
+          # since the numerator it divided was not the one the program wrote, but a divide
+          # made whole reads it (see #emit_call_divide_fix_whole).
           def emit_call_divide_fix_routine(bits)
             @emitter.emit(ASM.load_immediate(FIX_BITS, bits))
             emit_call_routine_at(@divide_fix_routine_iwram)
+          end
+
+          # A FRACTION DIVIDE MADE WHOLE STRAIGHT AWAY, `(a / b).to_i` or `(a / b + 0.5).to_i`,
+          # wants only the answer's whole part, so the routine is asked to widen the numerator
+          # by +drop+ fewer places and its answer comes out whole: an answer a little over a
+          # hundred runs eight steps rather than twenty-four.
+          #
+          # What the fraction bits it did not work out would have decided is then settled from
+          # what was left over, because the answer has to be the one the whole fraction divide
+          # gives once it is made whole, to the bit (see Int32.div_fix and Int32.shift_right),
+          # and in three places that is not a whole-number divide's:
+          #
+          # - Making whole rounds DOWN and the divide rounds toward nought, so a negative answer
+          #   with anything in its fraction is one further down. "Anything in its fraction"
+          #   means anything in the bits the divide would have kept, not anything left over
+          #   at all: -1/65536 over 3 comes to nought in sixteen fraction bits and stays it.
+          #   The fraction is something exactly when the leftover is more than the divisor's
+          #   own top bits, the divisor moved down +drop+ places.
+          # - An answer with no room is held at the end of the range before it is made whole,
+          #   so it comes out as the biggest or smallest whole number the fraction could
+          #   hold, and the half added to the biggest wraps it to the smallest.
+          # - Dividing by nought gives a bare 1 or -1, which made whole is 0 or -1, and 0 with
+          #   the half. That is settled here before the routine is called.
+          #
+          #   in:  r1 = the numerator, r0 = the divisor
+          #   out: r0 = the whole part
+          def emit_call_divide_fix_whole(widen:, drop:, rounding:)
+            by_zero = @emitter.gensym
+            done = @emitter.gensym
+            @emitter.emit(ASM.cmp_imm(DIV_DEN, 0))
+            @emitter.emit_branch(:bcond, by_zero, cond: :eq)
+            emit_call_divide_fix_routine(widen)
+            rounding == :nearest ? emit_whole_part_to_nearest(drop, done) : emit_whole_part_down(drop, done)
+            @emitter.emit_branch(:b, done)
+
+            @emitter.place_label(by_zero)
+            if rounding == :nearest
+              @emitter.emit(ASM.load_immediate(DIV_DEN, 0))
+            else
+              @emitter.emit(ASM.asr_imm(DIV_DEN, DIV_NUM, 31)) # -1 for a numerator below nought
+            end
+            @emitter.place_label(done)
           end
 
           def emit_call_routine_at(address)
@@ -320,7 +377,8 @@ module RubyGBA
           # save twelve only when the answer is that small, which a fraction rarely is.
           #
           #   in:  r1 = the numerator, r0 = the divisor, r2 = how far to widen (0..32)
-          #   out: r0 = the answer
+          #   out: r0 = the answer; r5 = what was left over and r1 = minus the divisor, when
+          #        it neither divided by nought nor ran out of room
           def emit_divide_fix_routine
             return unless @divide_fix_routine_iwram
 
@@ -407,6 +465,63 @@ module RubyGBA
               @emitter.emit(ASM.mov_reg_lsl_cond(:lo, FIX_LOW, FIX_LOW, places))
               @emitter.emit(ASM.add_imm_cond(:lo, FIX_SKIP, FIX_SKIP, places * FIX_STEP_BYTES))
             end
+          end
+
+          # Round a whole part down. The routine's answer in r0 was rounded toward nought, which
+          # for a positive answer is down already, unless it is past the biggest whole number
+          # the fraction holds. A negative one is one further down when its fraction was anything.
+          def emit_whole_part_down(drop, done)
+            @emitter.emit_number(WHOLE_LIMIT, (1 << (Int32::BITS - 1 - drop)) - 1)
+            @emitter.emit(ASM.cmp_reg(DIV_DEN, WHOLE_LIMIT))
+            @emitter.emit(ASM.mov_reg_cond(:gt, DIV_DEN, WHOLE_LIMIT))   # no room: the biggest
+            @emitter.emit(ASM.cmp_imm(DIV_SIGNS, 0))
+            @emitter.emit_branch(:bcond, done, cond: :ge)
+
+            @emitter.emit(ASM.mvn_reg(WHOLE_LIMIT, WHOLE_LIMIT))         # the smallest
+            @emitter.emit(ASM.cmp_reg(DIV_DEN, WHOLE_LIMIT))
+            @emitter.emit(ASM.mov_reg_cond(:le, DIV_DEN, WHOLE_LIMIT))
+            @emitter.emit_branch(:bcond, done, cond: :le)
+            @emitter.emit(ASM.mvn_reg(WHOLE_TEST, FIX_NEG_DEN))          # the divisor less one...
+            @emitter.emit(ASM.lsr_imm(WHOLE_TEST, WHOLE_TEST, drop))     # ...moved down
+            @emitter.emit(ASM.cmp_reg(WHOLE_TEST, FIX_LEFT_OVER))
+            @emitter.emit(ASM.sub_imm_cond(:lo, DIV_DEN, DIV_DEN, 1))     # the fraction was something
+          end
+
+          # Round a whole part to the nearest, a half going up on either side of nought. A
+          # positive answer goes up when at least half the divisor was left over, and one that
+          # reaches past the biggest whole number wraps to the smallest, the way adding the half
+          # to a number held at the top of the range does. A negative one goes further down only
+          # when its fraction was more than a half by anything the fraction's bits would have
+          # kept: the leftover past half the divisor by more than the divisor's top bits.
+          def emit_whole_part_to_nearest(drop, done)
+            negative = @emitter.gensym
+            held = @emitter.gensym
+            @emitter.emit_number(WHOLE_LIMIT, 1 << (Int32::BITS - 1 - drop))  # one past the biggest
+            @emitter.emit(ASM.rsb_imm(FIX_NEG_DEN, FIX_NEG_DEN, 0))           # the divisor
+            @emitter.emit(ASM.sub_reg(WHOLE_TEST, FIX_NEG_DEN, FIX_LEFT_OVER)) # what the leftover is short of it
+            @emitter.emit(ASM.cmp_imm(DIV_SIGNS, 0))
+            @emitter.emit_branch(:bcond, negative, cond: :lt)
+
+            @emitter.emit(ASM.cmp_reg(DIV_DEN, WHOLE_LIMIT))
+            @emitter.emit_branch(:bcond, held, cond: :ge)
+            @emitter.emit(ASM.cmp_reg(FIX_LEFT_OVER, WHOLE_TEST))             # at least half left over
+            @emitter.emit(ASM.add_imm_cond(:hs, DIV_DEN, DIV_DEN, 1))
+            @emitter.emit(ASM.cmp_reg(DIV_DEN, WHOLE_LIMIT))
+            @emitter.emit(ASM.rsb_imm_cond(:eq, DIV_DEN, DIV_DEN, 0))         # one past the biggest wraps
+            @emitter.emit_branch(:b, done)
+            @emitter.place_label(held)
+            @emitter.emit(ASM.rsb_imm(DIV_DEN, WHOLE_LIMIT, 0))               # held at the top, then wrapped
+            @emitter.emit_branch(:b, done)
+
+            @emitter.place_label(negative)
+            @emitter.emit(ASM.rsb_imm(WHOLE_LIMIT, WHOLE_LIMIT, 0))           # the smallest
+            @emitter.emit(ASM.cmp_reg(DIV_DEN, WHOLE_LIMIT))
+            @emitter.emit(ASM.mov_reg_cond(:le, DIV_DEN, WHOLE_LIMIT))
+            @emitter.emit_branch(:bcond, done, cond: :le)
+            @emitter.emit(ASM.sub_imm(WHOLE_SPARE, FIX_NEG_DEN, 1))
+            @emitter.emit(ASM.add_reg_lsr(WHOLE_TEST, WHOLE_TEST, WHOLE_SPARE, drop - 1))
+            @emitter.emit(ASM.cmp_reg(WHOLE_TEST, FIX_LEFT_OVER))
+            @emitter.emit(ASM.sub_imm_cond(:lo, DIV_DEN, DIV_DEN, 1))
           end
 
           # An answer with no room left is held at the end of the range rather than

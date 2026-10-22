@@ -675,6 +675,14 @@ class TestASM < Minitest::Test
     assert_equal plain & 0x0FFF_FFFF, predicated & 0x0FFF_FFFF
   end
 
+  def test_sub_imm_cond_is_sub_imm_with_a_condition
+    plain = unpack(A.sub_imm(0, 0, 1))
+    predicated = unpack(A.sub_imm_cond(:lo, 0, 0, 1))
+
+    assert_equal 0x3, predicated >> 28
+    assert_equal plain & 0x0FFF_FFFF, predicated & 0x0FFF_FFFF
+  end
+
   def test_mov_reg_lsl_cond_shifts_on_the_way
     inst = unpack(A.mov_reg_lsl_cond(:ls, 1, 1, 16))
     assert_equal 1, rd(inst)

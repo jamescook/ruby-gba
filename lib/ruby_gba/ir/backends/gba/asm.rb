@@ -559,6 +559,14 @@ module RubyGBA
             [(resolve_cond(cond) << 28) | 0x02800000 | (rn << 16) | (rd << 12) | imm12].pack("V")
           end
 
+          # SUB{cond} rd, rn, #imm — a predicated subtract of a number small enough to ride
+          # inside the instruction.
+          def sub_imm_cond(cond, rd, rn, imm)
+            imm12 = encode_rotated_immediate(imm) or
+              raise ArgumentError, "cannot encode #{imm} as an ARM rotated immediate"
+            [(resolve_cond(cond) << 28) | 0x02400000 | (rn << 16) | (rd << 12) | imm12].pack("V")
+          end
+
           # ADD{cond} rd, rn, rm — the register form of the predicated add above.
           def add_reg_cond(cond, rd, rn, rm)
             [(resolve_cond(cond) << 28) | 0x00800000 | (rn << 16) | (rd << 12) | rm].pack("V")

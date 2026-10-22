@@ -484,11 +484,16 @@ module RubyGBA
                                             node.rhs))
             end
 
-            @lowering.value(node.lhs)
-            @emitter.emit(ASM.push(ACC))
-            @lowering.value(node.rhs)
-            @emitter.emit(ASM.pop(TMP)) # r1 = the numerator, r0 = the divisor
+            emit_divide_fix_operands(node)
             @divide.emit_call_divide_fix_routine(node.fraction_bits)
+          end
+
+          # Leave a fraction divide's two sides where its routine takes them.
+          def emit_divide_fix_operands(divide)
+            @lowering.value(divide.lhs)
+            @emitter.emit(ASM.push(ACC))
+            @lowering.value(divide.rhs)
+            @emitter.emit(ASM.pop(TMP)) # r1 = the numerator, r0 = the divisor
           end
 
           # Divide by a power of two, rounding down (see IR::Int32.shift_right).
@@ -499,9 +504,55 @@ module RubyGBA
           # of moving the register. So the whole thing is ONE instruction, against a
           # call for the division that would otherwise be written here.
           def eval_shift_right(node)
+            return if emit_divide_fix_made_whole(node)
+
             @lowering.value(node.operand)
             bits = node.bits
             @emitter.emit(ASM.asr_imm(ACC, ACC, bits)) if bits.positive? # shifting by none is nothing to do
+          end
+
+          # A fraction divide made whole straight away — `(a / b).to_i`, or `(a / b + 0.5).to_i`
+          # for the nearest — has its fraction's steps left out (see
+          # Divide#emit_call_divide_fix_whole). Only where the routine would run them anyway:
+          # a numerator the build widens itself is an ordinary division already. Returns
+          # true when it handled the node.
+          def emit_divide_fix_made_whole(node)
+            divide, rounding = match_divide_fix_made_whole(node)
+            return false unless divide
+            return false if @divide.folds_to_plain_divide?(divide)
+
+            emit_divide_fix_operands(divide)
+            @divide.emit_call_divide_fix_whole(widen: divide.fraction_bits - node.bits, drop: node.bits,
+                                               rounding: rounding)
+            true
+          end
+
+          # The fraction divide under a shift and how it is rounded, as a pair [divide,
+          # :down or :nearest], or nil when the shift is over something else. The divide has
+          # to keep at least the bits the shift drops, and the half added is exactly half of
+          # what the shift drops.
+          def match_divide_fix_made_whole(node)
+            drop = node.bits
+            return nil unless Divide::WHOLE_DROPS.cover?(drop)
+
+            operand = node.operand
+            divide, rounding = if operand.kind == :div_fix
+                                 [operand, :down]
+                               elsif operand.kind == :binop && operand.op == :+
+                                 [divide_fix_beside_half(operand, drop), :nearest]
+                               end
+            return nil unless divide && divide.fraction_bits >= drop
+
+            [divide, rounding]
+          end
+
+          # The fraction divide on one side of +sum+, when the other side is the half.
+          def divide_fix_beside_half(sum, drop)
+            half = 1 << (drop - 1)
+            [[sum.lhs, sum.rhs], [sum.rhs, sum.lhs]].each do |divide, other|
+              return divide if divide.kind == :div_fix && @primitives.const_int(other) == half
+            end
+            nil
           end
 
           # Divide by a value the game works out — the only division left that has to be
