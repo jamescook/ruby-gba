@@ -55,11 +55,11 @@ class TestListFullOf < Minitest::Test
   end
 
   # Every width, a value below nothing, and an odd count of bytes so the fill has ends that
-  # are not whole words; the item after the list is never written. Read on the console as on
-  # the interpreter.
+  # are not whole words; the item after the list is never written. A list longer than a Game
+  # Boy Color holds, read on the Advance's cartridge, is in test/advance/.
   READINGS = %i[bytes_held byte_first byte_last half_last word_first word_last after_first ring_first ring_last].freeze
   WIDTHS = proc do
-    bytes = list :bytes, capacity: 4099, width: :byte, full_of: -1, fast: false
+    bytes = list :bytes, capacity: 99, width: :byte, full_of: -1, fast: false
     halves = list :halves, capacity: 3, width: :half, full_of: 300
     words = list :words, capacity: 2, full_of: -70_000
     after = list :after, capacity: 1
@@ -72,7 +72,7 @@ class TestListFullOf < Minitest::Test
     game_loop do
       readings[:bytes_held].set! bytes.length
       readings[:byte_first].set! bytes[0]
-      readings[:byte_last].set! bytes[4098]
+      readings[:byte_last].set! bytes[98]
       readings[:half_last].set! halves[2]
       readings[:word_first].set! words[0]
       readings[:word_last].set! words[1]
@@ -82,18 +82,12 @@ class TestListFullOf < Minitest::Test
     end
   end
 
-  def test_the_console_starts_every_width_full_as_the_interpreter_does
+  def test_every_width_starts_full
     builder = Builder.new
     builder.instance_eval(&WIDTHS)
     builder.finalize_program
     run = game_player.run(builder.program, frames: 2)
-    interpreted = READINGS.map { |name| run[name] }
 
-    assert_equal [4099, -1, -1, 300, -70_000, -70_000, 9, 4, 6], interpreted
-    require_emulator!
-    rom = RubyGBA.build("LISTFULL", out: StringIO.new, err: StringIO.new, profile: false, &WIDTHS)
-    v = assert_emulator_loads_rom(rom, frames: 4, vars: rom.var_addresses)
-
-    assert_equal interpreted, READINGS.map { |name| v.var(name) }
+    assert_equal [99, -1, -1, 300, -70_000, -70_000, 9, 4, 6], READINGS.map { |name| run[name] }
   end
 end

@@ -243,6 +243,20 @@ module RubyGBA
               4.times { |i| asm.load_high((i < 2 ? q.front : q.length) + (i % 2), :a) }
               asm.jump("rt_list_close")
 
+              # rt_list_at_capacity(list): the list holds its capacity, from its first slot. What the
+              # slots hold is what they held; a list declared full is filled next (rt_list_fill).
+              asm.label("rt_list_at_capacity")
+              take_args(asm, 1)
+              asm.load(:a, arg_at(memory, 0, 1))
+              asm.call("rt_list_open")
+              asm.xor_a(:a)
+              2.times { |i| asm.load_high(q.front + i, :a) }
+              2.times do |i|
+                asm.load_high(:a, q.capacity + i)
+                asm.load_high(q.length + i, :a)
+              end
+              asm.jump("rt_list_close")
+
               # rt_list_length(list)
               asm.label("rt_list_length")
               take_args(asm, 1)

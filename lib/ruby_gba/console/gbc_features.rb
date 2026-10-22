@@ -62,6 +62,8 @@ module RubyGBA
         debug_halt: degrades("the game stops there, as `halt` does; the cartridge is not cut short."),
         game_loop: works,
         once_a_frame: works,
+        each_pass: works("a step that starts its own job again is refused for now: the Game Boy Color " \
+                         "build cannot make a routine that calls itself yet."),
         every: works,
         after: works,
         repeat: works,
@@ -119,6 +121,9 @@ module RubyGBA
         colors: works("a list of colours holds four places on a Game Boy Color, the first see-through " \
                       "on a sprite."),
         recolor: works,
+        colors_in_use: works("the Game Boy Color build does not let lists take turns yet. So every list " \
+                             "of colours that a scene's sprites draw with must fit in the console's " \
+                             "eight lists."),
         mirror: works,
         upside_down: works,
         blit: works("on a painted screen, its colours counting towards the screen's four."),
@@ -167,6 +172,7 @@ module RubyGBA
         call: works,
         scene: works("see `func` for `fast:`."),
         case_var: works,
+        uses: works("a pack's verbs are verbs of the game's own, and each one has its answer here."),
         dump_func: degrades("a Game Boy Color build has no ARM to list, so nothing is printed."),
         entry: refused("`entry` is raw ARM for the Advance's processor, which a Game Boy Color does " \
                        "not have."),

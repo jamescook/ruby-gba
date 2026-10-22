@@ -42,7 +42,10 @@ module RubyGBA
                                                save_write: :emit_save_write, save_erase: :emit_save_erase,
                                                timer_start: :emit_timer_start, timer_stop: :emit_timer_stop,
                                                # a timer's handler runs as its timer ticks, not where it is written
-                                               on_timer: :emit_nothing
+                                               on_timer: :emit_nothing,
+                                               # the light is not made yet (shade_outside), and a game
+                                               # without one works nothing out again
+                                               show_light_now: :emit_nothing
                                              }.merge(Picture::STATEMENTS).merge(Sound::STATEMENTS)
                                               .merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))
 
@@ -701,7 +704,13 @@ module RubyGBA
 
           # --- lists (Runtime::Lists does the work and the checking) ---
 
-          def emit_list_new(node) = list_call("rt_list_empty", node)
+          # Reference::ListValue.of: empty, or holding its capacity of the one number it is full of.
+          def emit_list_new(node)
+            return list_call("rt_list_empty", node) unless node.full_of
+
+            list_call("rt_list_at_capacity", node)
+            list_call("rt_list_fill", node, Build.int(0), Build.int(node.capacity), Build.int(node.full_of))
+          end
           def emit_list_push(node) = list_call("rt_list_push", node, node.value)
           def emit_list_drop(node) = list_call("rt_list_drop", node, Build.int(node.from == :front ? 1 : 0))
           def emit_list_set(node) = list_call("rt_list_set", node, node.index, node.value)
