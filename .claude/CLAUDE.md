@@ -115,7 +115,13 @@ rake test:lowering:gba                                          # the GBA loweri
 rake test:lowering:native                                       # the native lowering's run alone (takes TEST= too)
 rake test:lowering:js                                           # the JavaScript lowering's run alone (takes TEST= too)
 rake test:playthroughs                                          # one module's tests: every file in test/ruby_gba/playthroughs/
+RUBY_GBA_SUITE_LOCK=checkout rake test                          # in a worktree: go ahead beside another checkout's run
 ```
+
+**One whole run at a time on the machine**, across every checkout: a second waits for the first and
+says where it is. A run in a worktree that should not queue behind the main checkout's sets
+`RUBY_GBA_SUITE_LOCK=checkout`, and the two then share the cores. See "A whole run has the machine
+to itself" in `.claude/rules/testing.md`.
 
 **Which run a change needs:** a change inside one lowering — the ARM the GBA lowering emits,
 the C the native lowering writes, the JavaScript runtime — can only break that lowering's run,

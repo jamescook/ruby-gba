@@ -72,11 +72,15 @@ require_relative "lib/ruby_gba/testing/rake_tasks"
 require_relative "test/support/suites"
 require_relative "tools/suite_lock"
 
-# A whole run of either suite waits for any other on the machine (tools/suite_lock.rb); a run of
-# one file goes ahead. The lock is held until rake ends, by keeping the file open: it is kept in
-# a variable so nothing closes it sooner.
+# A whole run of either suite waits for any other on the machine (tools/suite_lock.rb), or with
+# RUBY_GBA_SUITE_LOCK=checkout for any other in this checkout; a run of one file goes ahead. The
+# lock is held until rake ends, by keeping the file open: it is kept in a variable so nothing
+# closes it sooner.
 task :suite_lock do
-  @suite_lock = SuiteLock.hold("rake #{Rake.application.top_level_tasks.join(' ')}") unless ENV["TEST"]
+  next if ENV["TEST"]
+
+  path = SuiteLock.chosen_path(ENV["RUBY_GBA_SUITE_LOCK"], checkout: __dir__)
+  @suite_lock = SuiteLock.hold("rake #{Rake.application.top_level_tasks.join(' ')}", path: path)
 end
 
 # EVERY LOWERING, ONE AFTER THE OTHER, by the library's own rake tasks — the ones a game's suite

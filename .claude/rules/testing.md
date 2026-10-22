@@ -442,9 +442,16 @@ backend's own tests (`test/ruby_gba/ir/backends/native/`) are in its own folder,
 run does not load.
 
 **A whole run has the machine to itself.** `rake test`, and each lowering's run on its own, take
-one lock for the whole machine (`tools/suite_lock.rb`) before they start — `rake test` once for
-both lowerings — so a second run waits for the first and says which run it is waiting for. A
-run of one file (`TEST=`) does not take it. The two lowerings' runs inside `rake test` go one
+one lock for the whole machine (`tools/suite_lock.rb`, the file `~/.cache/ruby-gba/test-suites.lock`)
+before they start — `rake test` once for both lowerings — so a second run waits for the first and
+says which run it is waiting for, in which checkout. A run of one file (`TEST=`) does not take it.
+
+**Two checkouts at once** (a worktree for each piece of work, or two sessions) each wait on the
+other's whole run by default. Start a run with `RUBY_GBA_SUITE_LOCK=checkout` and it takes a lock
+of its checkout's own instead, so it goes ahead beside a run in another checkout: the two share
+the cores, and each takes about twice as long as it would alone. Two runs in the same checkout
+still wait for each other. Set it in the environment of a session that works in a worktree, so its
+runs never queue behind the main checkout's or another worktree's. The two lowerings' runs inside `rake test` go one
 after the other, each with the machine's cores, so they never compete for one; running them at
 the same time would want a shared pool of permits across both, and is not done.
 

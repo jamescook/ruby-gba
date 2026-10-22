@@ -17,12 +17,33 @@ class TestSuiteLock < Minitest::Test
       begin
         Thread.pass until said.string.include?("\n") || !second.alive?
         assert_predicate second, :alive?, "the second run went ahead while the first held the lock"
-        assert_match(/rake test \(process #{Process.pid}\)/, said.string)
+        assert_match(/rake test in #{Regexp.escape(Dir.pwd)} \(process #{Process.pid}\)/, said.string)
+        assert_match(/RUBY_GBA_SUITE_LOCK=checkout/, said.string, "and says how to stop waiting")
       ensure
         first.close # lets the second through, whatever was asserted
         second.value.close
       end
     end
+  end
+
+  # One lock for the machine unless a checkout asks for its own, which is its own whatever folder
+  # it is in and the same each time it asks.
+  def test_the_lock_is_the_machines_unless_a_checkout_asks_for_its_own
+    assert_equal SuiteLock::PATH, SuiteLock.chosen_path(nil, checkout: "/work/ruby-gba")
+    assert_equal SuiteLock::PATH, SuiteLock.chosen_path("machine", checkout: "/work/ruby-gba")
+
+    own = SuiteLock.chosen_path("checkout", checkout: "/work/ruby-gba")
+    other = SuiteLock.chosen_path("checkout", checkout: "/work/ruby-gba--gbc-lowering")
+    refute_equal SuiteLock::PATH, own
+    refute_equal own, other
+    assert_equal own, SuiteLock.chosen_path("checkout", checkout: "/work/ruby-gba")
+    assert_equal File.dirname(SuiteLock::PATH), File.dirname(own), "kept beside the machine's, not in the checkout"
+  end
+
+  def test_a_lock_setting_that_is_neither_is_refused_in_plain_words
+    error = assert_raises(ArgumentError) { SuiteLock.chosen_path("mine", checkout: "/work/ruby-gba") }
+
+    assert_match(/RUBY_GBA_SUITE_LOCK is "machine" or "checkout"/, error.message)
   end
 
   def test_a_run_with_nobody_ahead_of_it_says_nothing
