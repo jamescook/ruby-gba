@@ -394,6 +394,12 @@ a wall, the menu has moved on (`test_pacman_sounds.rb`).
 is, round the window's frame loop. Feeding buttons to the windowless program goes round all of
 that, so a fault in how the window reads a key shows only there.
 
+**SDL's stand-in display is not a Retina screen.** It has one pixel to a point, so anything that
+goes wrong only at a screen's own scale (the menu drawn at half size, its text cut off) passes
+there. One test in `test_native_desktop.rb` opens a real window on a Mac for that; a check of
+what the menu draws looks for its text (near-white pixels), never only for something lit, since
+an empty box is lit too.
+
 **The window's save file** is tested there too, on a game of a few lines that keeps a count:
 that the file holds the bytes the interpreter's save memory does, is read before the game
 starts, is written while the game is still running, and lands in a folder named for the game

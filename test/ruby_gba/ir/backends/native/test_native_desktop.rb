@@ -154,6 +154,25 @@ class TestNativeDesktop < Minitest::Test
     end
   end
 
+  # A MAC'S RETINA SCREEN has two pixels to a point each way, and SDL's stand-in display has one, so
+  # only a real window can show the menu drawn at the screen's own scale. Drawn at the wrong one it
+  # lands at half its size in the top left, away from the mouse, with its text cut off. A real
+  # window opens on this Mac's screen for a few seconds.
+  def test_the_menu_is_drawn_at_the_screens_own_scale
+    skip "only a Mac's own screen is checked here; the stand-in display has no scale" unless RUBY_PLATFORM.include?("darwin")
+
+    Dir.mktmpdir do |dir|
+      exe = Native.new.build_desktop(game_that_counts, File.join(dir, "windowed"), err: nil)
+      window, = picture_of_window(exe, dir, ["0 hotkey:menu"], frames: 40, env: { "SDL_VIDEO_DRIVER" => nil })
+      top = 0...(window.height / 6)
+
+      assert_operator window.text_in((window.width * 3 / 4)...window.width, top), :>, 50,
+                      "the frame rate is written in the top right corner of the whole window"
+      assert_operator window.text_in((window.width * 7 / 20)...(window.width / 2), 0...(window.height / 24)), :>, 50,
+                      "the menu bar is drawn full size, its last menu just short of the middle"
+    end
+  end
+
   # One file for every game and one for each, both read, the game's over the player's; a change is
   # written to the game's file where there is one and otherwise the player's. The test says where
   # the person's files are, in the two ways a Mac and a Linux machine are told, so nothing is
@@ -274,6 +293,9 @@ class TestNativeDesktop < Minitest::Test
   # What is in the BMP the window saves (--window-picture): its size, and the colours of its pixels.
   Window = Struct.new(:width, :height, :pixels) do
     def lit_in(x_range, y_range) = y_range.sum { |y| x_range.count { |x| pixels[(y * width) + x] != 0 } }
+
+    # Pixels near white: the menu's text, which a box drawn with nothing in it does not have.
+    def text_in(x_range, y_range) = y_range.sum { |y| x_range.count { |x| pixels[(y * width) + x] > 600 } }
   end
 
   def window_picture(path)
@@ -366,7 +388,7 @@ class TestNativeDesktop < Minitest::Test
     shown, = picture_of_window(exe, dir, [], frames: 40)
     hidden, = picture_of_window(exe, dir, [], frames: 40, options: ["--settings-file", settings])
     corner = [(shown.width - 140)...(shown.width - 10), 30...70]
-    assert_operator shown.lit_in(*corner), :>, 100, "the frame rate shows to begin with"
+    assert_operator shown.text_in(*corner), :>, 50, "the frame rate shows to begin with, its number written in it"
     assert_equal 0, hidden.lit_in(*corner), "and not when the settings say not"
   end
 
@@ -462,7 +484,7 @@ class TestNativeDesktop < Minitest::Test
     shown, = picture_of_window(exe, dir, [], frames: 40, options: ["--settings-file", settings])
     corner = [(shown.width - 200)...(shown.width - 10), 30...70]
 
-    assert_operator shown.lit_in(*corner), :>, 100
+    assert_operator shown.text_in(*corner), :>, 50, "the frame time is written in the corner"
   end
 
   public

@@ -93,6 +93,12 @@ a line is read each time round the pause. `--window-picture FILE` saves the wind
 as a BMP. SDL's `disk` audio driver (`SDL_AUDIO_DRIVER=disk SDL_AUDIO_DISK_OUTPUT_FILE=...`) saves what the
 speaker was given, which is how the volume, mute and fast forward's silence are checked end to end.
 
+SDL's stand-in display has one pixel to a point, and a Mac's Retina screen has two each way. Dear ImGui
+leaves that ratio to the program (`SDL_SetRenderScale` while the menu draws); without it the menu is drawn
+at half size in the top left, away from the mouse, and its text is cut off. Only a real window shows it,
+so on a Mac `test_the_menu_is_drawn_at_the_screens_own_scale` opens one for a few seconds and looks for
+the menu's text where a full-size menu puts it.
+
 ## Cost (x86-64 Linux, zig 0.17.0, SDL 3.4.18, Dear ImGui 1.93.0, pong)
 
 | | without the menu | with it |

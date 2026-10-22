@@ -391,6 +391,16 @@ void rg_menu_draw(uint64_t now_ns) {
   SDL_RendererLogicalPresentation mode = SDL_LOGICAL_PRESENTATION_DISABLED;
   SDL_GetRenderLogicalPresentation(menu_renderer, &logical_width, &logical_height, &mode);
   SDL_SetRenderLogicalPresentation(menu_renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+  // The window's own units are points, which the mouse is read in too; a screen with more pixels
+  // than points (a Mac's Retina screen has two each way) draws in pixels. Dear ImGui leaves that
+  // ratio to the program, so the renderer is told it while the menu draws. Without it the menu is
+  // drawn at half its size in the top left of the window, away from where the mouse finds it, and
+  // the text, cut to where it ought to be, is not drawn at all.
+  float scale_x = 1.0f, scale_y = 1.0f;
+  SDL_GetRenderScale(menu_renderer, &scale_x, &scale_y);
+  ImGuiIO &io = ImGui::GetIO();
+  SDL_SetRenderScale(menu_renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
   ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), menu_renderer);
+  SDL_SetRenderScale(menu_renderer, scale_x, scale_y);
   SDL_SetRenderLogicalPresentation(menu_renderer, logical_width, logical_height, mode);
 }
