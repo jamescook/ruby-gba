@@ -104,17 +104,9 @@ class TestTint < Minitest::Test
     assert_backends_agree(tinted(:red, 50), frames: 2)
   end
 
-  # A gray of 16 in every channel tinted half way to yellow. The display mixes at eight
-  # bits a channel, which makes red and green 24; mixed at five bits they would be 23, a
-  # step darker. Blue goes half way to nothing, 8 either way.
+  # A gray of 16 in every channel, for tints over a grey screen (how the Advance's display
+  # mixes one is tested in test_tint_on_the_advance.rb).
   MID_GRAY = 16 | (16 << 5) | (16 << 10)
-
-  def test_a_tint_mixes_at_eight_bits_as_the_console_does
-    program = tinted(:yellow, 50, under: MID_GRAY)
-
-    assert_backends_agree(program, frames: 2)
-    assert_equal 24 | (24 << 5) | (8 << 10), shown(program)
-  end
 
   # MID_GRAY tinted half way to yellow, painted on every frame: the tear-free screen keeps
   # two pictures and shows them in turn, so one painted once would show only half the time.
