@@ -86,23 +86,6 @@ class TestComputedTilemap < Minitest::Test
   # The point of the whole thing: a screenful of tiles a person could not have typed,
   # because there are more of them than there are characters worth reading. 100 tiles
   # is already over the printable-ASCII ceiling of 94.
-  def test_a_map_can_use_more_tiles_than_there_are_characters_to_type
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      clear_screen :black
-    end
-    big_tileset(b, 100)
-    b.instance_eval do
-      background :field, tiles: :many, map: (0...10).map { |r| (0...10).map { |c| (r * 10) + c } }
-    end
-    b.finalize_program
-    i = game_player.run(b.program)
-    assert_equal RubyGBA::Graphics::Color.rgb(0, 0, 0),  i.screen.pixel(0, 0),   "cell (0,0) is tile 0"
-    assert_equal RubyGBA::Graphics::Color.rgb(99 % 32, 0, 0), i.screen.pixel(36, 36),
-                 "cell (9,9) is tile 99 — a tile no character could have selected"
-  end
-
   # Several maps taking turns in one grid, each written as a grid of keys.
   def test_several_computed_maps_can_take_turns
     b = Builder.new

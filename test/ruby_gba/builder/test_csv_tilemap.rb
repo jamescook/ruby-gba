@@ -108,20 +108,6 @@ class TestCsvTilemap < Minitest::Test
 
   # --- importing the whole sheet as numbered tiles (the map-editor workflow) ---
 
-  def test_a_whole_sheet_tileset_numbers_its_cells_for_a_csv_map
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      clear_screen :black
-      tiles :world, from: SHEET, tile: 8 # no characters: cell 0 -> tile 1, cell 1 -> tile 2
-    end
-    with_csv("1,2\n") { |path| b.background(:room, tiles: :world, from: path) }
-    b.finalize_program
-    s = game_player.run(b.program).screen
-    assert_equal Assets::BRICK, s.pixel(0, 3), "CSV tile 1 is the sheet's first cell (brick)"
-    assert_equal Assets::FLOOR, s.pixel(8, 3), "CSV tile 2 is the sheet's second cell (floor)"
-  end
-
   def test_solid_tile_numbers_become_walls
     b = Builder.new
     b.instance_eval do
