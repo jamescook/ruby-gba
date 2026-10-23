@@ -31,9 +31,21 @@ module RubyGBA
       def start
         (@running == 0).then do
           @running.set! 1
-          (@stepping == 0).then { @builder.call(@routine) }
+          # Written inside the step itself, the step is always being taken when this runs, so
+          # the call is left out rather than written under a test that never passes: a step
+          # that names its own routine reads as a routine that calls itself, which a console
+          # keeping each routine's numbers at fixed places cannot make.
+          (@stepping == 0).then { @builder.call(@routine) } unless @step_being_built
         end
         self
+      end
+
+      # Build the job's own step: Builder#each_pass runs the block that writes it inside this.
+      def with_step_being_built
+        @step_being_built = true
+        yield
+      ensure
+        @step_being_built = false
       end
 
       # Stop the job: it takes no more steps until it starts again. A step that stops its own job

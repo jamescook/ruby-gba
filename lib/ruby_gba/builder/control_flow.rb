@@ -314,7 +314,7 @@ module RubyGBA
         job = DSL::PassJob.new(self, routine: routine, running: running, stepping: stepping)
         declare_func(routine, wrote: name ? "each_pass :#{name}" : "each_pass") do
           stepping.set! 1
-          yield(job)
+          job.with_step_being_built { yield(job) }
           stepping.set! 0
         end
         declare_func(:"#{routine}_tick") { (running == 1).then { call routine } }
