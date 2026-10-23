@@ -97,7 +97,7 @@ module RubyGBA
               memory.reserve(CLEARED, 1)
               memory.reserve(LAST_SOLID, 1)
               memory.reserve(AREA, 4)
-              memory.reserve(SCRATCH, 17)
+              memory.reserve(SCRATCH, 19)
             end
 
             def emit(asm, memory, painting:)
@@ -106,7 +106,7 @@ module RubyGBA
 
               quick = Quick.new(generation: memory.quick(1), clear: memory.quick(1), clear_low: memory.quick(1),
                                 clear_high: memory.quick(1), ink_low: memory.quick(1), ink_high: memory.quick(1),
-                                bank_index: memory.quick(1))
+                                bank_index: memory.quick(1), bits_mask: memory.quick(1), bits_stride: memory.quick(1))
               emit_start(asm, memory, quick)
               emit_tables(asm)
               emit_cell(asm, memory, quick)
@@ -121,8 +121,11 @@ module RubyGBA
 
             # What the painting keeps in the processor's quick memory: the generation, the clearing
             # colour and its two bytes a row, the colour being painted's two, and the bank of the
-            # tile being painted, by its number among BANKS.
-            Quick = Data.define(:generation, :clear, :clear_low, :clear_high, :ink_low, :ink_high, :bank_index)
+            # tile being painted, by its number among BANKS; and while a picture of one colour is
+            # painted (rt_paint_bits), the pixels of the column of tiles it is painting and the
+            # bytes a row of the picture takes.
+            Quick = Data.define(:generation, :clear, :clear_low, :clear_high, :ink_low, :ink_high, :bank_index,
+                                :bits_mask, :bits_stride)
 
             # rt_screen(kind): the screen up is a painted one (PAINTED) or one of tiles. 1 when
             # that is a change of kind, which replaces the whole display: a painted screen comes
@@ -693,6 +696,54 @@ module RubyGBA
               asm.ret
             end
 
+            # THE ROWS OF ONE TILE A PICTURE OF ONE COLOUR COVERS, painted by rt_paint_bits_rows_N for
+            # a picture N pixels to the left of the tile's edge: B rows, from the picture's byte for
+            # the first at DE into the tile's row at HL. A row's eight pixels in the tile are the
+            # picture's byte there and the next shifted left N, so each N has a routine of its own,
+            # the shift written out N times: a loop counting the shift would cost more than the
+            # painting. Each colour bit of the tile's row takes the ink's where the mask is set,
+            # and keeps its own elsewhere. They end at rt_paint_bits_band_done with DE moved on
+            # past the rows painted.
+            def emit_bits_rows(asm, quick)
+              steps = (0...8).map { |n| "rt_paint_bits_rows_#{n}" }
+              steps.each_with_index do |label, n|
+                asm.label(label)
+                if n.positive?
+                  asm.inc(:de)
+                  asm.load(:a, [:de])
+                  asm.load(:c, :a) # the byte after
+                  asm.dec(:de)
+                end
+                asm.load(:a, [:de])
+                n.times do
+                  asm.sla(:c)
+                  asm.rla
+                end
+                asm.load(:c, :a)
+                asm.load_high(:a, quick.bits_mask)
+                asm.and_a(:c)
+                asm.load(:c, :a) # the mask
+                [quick.ink_low, quick.ink_high].each do |ink|
+                  asm.load_high(:a, ink)
+                  asm.xor_a([:hl])
+                  asm.and_a(:c)
+                  asm.xor_a([:hl])
+                  asm.load([:hli], :a)
+                end
+                asm.load_high(:a, quick.bits_stride)
+                asm.add_a(:e)
+                asm.load(:e, :a)
+                asm.jump_relative(:nc, "#{label}_carried")
+                asm.inc(:d)
+                asm.label("#{label}_carried")
+                asm.dec(:b)
+                asm.jump_relative(:nz, label)
+                asm.jump("rt_paint_bits_band_done")
+              end
+              asm.label("rt_paint_bits_rows")
+              steps.each { |label| asm.data_words(label) }
+            end
+
             # rt_paint_bits(x, y, color, bits, stride, rows): a picture of one colour, a bit a
             # pixel — a line of text, a digit, a pixel — with its top left at (x, y). The build
             # worked the bits out (GBC::Picture#bits_of): +rows+ rows of +stride+ bytes, the
@@ -719,6 +770,7 @@ module RubyGBA
               left = at + 14
               right = at + 15
               column_mask = at + 16 # the pixels of this column of tiles within left and right
+              rows_routine = at + 17 # 16 bits: rt_paint_bits_rows_N for this column's shift
               arg = ->(i) { Calls.arg(memory, i, 6) }
               asm.label("rt_paint_bits")
               asm.load_hl_sp(2)
@@ -735,6 +787,7 @@ module RubyGBA
               end
               asm.load_high(:a, arg.call(4))
               asm.load([stride], :a)
+              asm.load_high(quick.bits_stride, :a)
               # Across: from max(x, 0) to min(x + 8 × (stride - 2), 160), as columns of tiles.
               asm.sub_a(2)
               asm.load(:l, :a)
@@ -854,6 +907,19 @@ module RubyGBA
               asm.load([from + 1], :a)
               asm.load(:a, [top])
               asm.load([row], :a)
+              # The rows of this column are painted by the routine for its shift, and with its mask.
+              asm.load(:a, [shift])
+              asm.add_a(:a)
+              asm.load(:e, :a)
+              asm.load(:d, 0)
+              asm.load(:hl, "rt_paint_bits_rows")
+              asm.add_hl(:de)
+              asm.load(:a, [:hli])
+              asm.load([rows_routine], :a)
+              asm.load(:a, [:hl])
+              asm.load([rows_routine + 1], :a)
+              asm.load(:a, [column_mask])
+              asm.load_high(quick.bits_mask, :a)
 
               asm.label("rt_paint_bits_band")
               asm.load(:a, [row])
@@ -872,58 +938,31 @@ module RubyGBA
               asm.load(:a, [row])
               asm.load(:e, :a)
               asm.call("rt_paint_cell")
-              asm.label("rt_paint_bits_row")
-              asm.push(:hl)
-              asm.load(:a, [from])
-              asm.load(:l, :a)
-              asm.load(:a, [from + 1])
-              asm.load(:h, :a)
-              asm.load(:a, [:hli])
-              asm.load(:c, [:hl])
-              asm.dec(:hl)
-              asm.push(:af)
-              asm.load(:a, [stride])
-              asm.load(:e, :a)
-              asm.load(:d, 0)
-              asm.add_hl(:de)
-              asm.load(:a, :l)
-              asm.load([from], :a)
-              asm.load(:a, :h)
-              asm.load([from + 1], :a)
-              asm.load(:a, [shift])
-              asm.load(:b, :a)
-              asm.pop(:af)
-              asm.inc(:b)
-              asm.jump_relative("rt_paint_bits_shift_next")
-              asm.label("rt_paint_bits_shift")
-              asm.sla(:c)
-              asm.rla
-              asm.label("rt_paint_bits_shift_next")
-              asm.dec(:b)
-              asm.jump_relative(:nz, "rt_paint_bits_shift")
-              asm.pop(:hl)
-              asm.load(:c, :a)
-              asm.load(:a, [column_mask])
-              asm.and_a(:c)
-              asm.load(:c, :a) # the mask
-              asm.load_high(:a, quick.ink_low)
-              asm.load(:d, :a)
-              asm.load_high(:a, quick.ink_high)
-              asm.load(:e, :a)
-              [:d, :e].each do |ink|
-                asm.load(:a, [:hl])
-                asm.xor_a(ink)
-                asm.and_a(:c)
-                asm.xor_a([:hl])
-                asm.load([:hli], :a)
-              end
+              # B = the rows of the band, and the row moves on past them; then the column's
+              # routine paints them, from the picture's byte for the first (DE).
               asm.load(:a, [row])
-              asm.inc(:a)
-              asm.load([row], :a)
-              asm.load(:b, :a)
+              asm.load(:c, :a)
               asm.load(:a, [band_end])
-              asm.cp_a(:b)
-              asm.jump_relative(:nz, "rt_paint_bits_row")
+              asm.load([row], :a)
+              asm.sub_a(:c)
+              asm.load(:b, :a)
+              asm.load(:a, [rows_routine])
+              asm.load(:e, :a)
+              asm.load(:a, [rows_routine + 1])
+              asm.load(:d, :a)
+              asm.push(:de)
+              asm.load(:a, [from])
+              asm.load(:e, :a)
+              asm.load(:a, [from + 1])
+              asm.load(:d, :a)
+              asm.ret # into the routine pushed
+              asm.label("rt_paint_bits_band_done")
+              asm.load(:a, :e)
+              asm.load([from], :a)
+              asm.load(:a, :d)
+              asm.load([from + 1], :a)
+              asm.load(:a, [row])
+              asm.load(:b, :a)
               asm.load(:a, [bottom])
               asm.cp_a(:b)
               asm.jump(:nz, "rt_paint_bits_band")
@@ -939,6 +978,8 @@ module RubyGBA
               asm.load(:a, 1)
               asm.load_high(h::SVBK, :a)
               asm.ret
+
+              emit_bits_rows(asm, quick)
 
               # A span on the screen: from the 16-bit place at +start+ for HL pixels, held to
               # 0..+past+. B = its first pixel, C = one past its last, carry set when anything of
