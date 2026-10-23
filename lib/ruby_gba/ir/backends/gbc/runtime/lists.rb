@@ -48,6 +48,10 @@ module RubyGBA
             # caller that writes them there itself (Lowering#value_of_list_get).
             def get_places(memory) = [arg(memory, 0, 2), arg(memory, 1, 2)]
 
+            # The same for rt_list_set_taken, whose third number, the value, a caller with an index
+            # out of range never needs: the routine stops the game before it reads it.
+            def set_places(memory) = [arg(memory, 0, 3), arg(memory, 1, 3)]
+
             # The low byte of where argument +i+ of +n+ is: the routines find it with LDH (C).
             def arg_at(memory, i, n) = arg(memory, i, n) & 0xFF
 
@@ -291,7 +295,8 @@ module RubyGBA
               # rt_list_set(list, index, value)
               asm.label("rt_list_set")
               take_args(asm, 3)
-              asm.load(:a, arg_at(memory, 0, 3))
+              asm.label("rt_list_set_taken") # the list and the index already where it takes them
+              asm.load(:a, set_places(memory).first & 0xFF)
               asm.call("rt_list_open")
               asm.load(:a, arg_at(memory, 1, 3))
               asm.call("rt_list_index")

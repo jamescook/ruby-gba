@@ -796,7 +796,6 @@ module RubyGBA
           end
           def emit_list_push(node) = list_call("rt_list_push", node, node.value)
           def emit_list_drop(node) = list_call("rt_list_drop", node, Build.int(node.from == :front ? 1 : 0))
-          def emit_list_set(node) = list_call("rt_list_set", node, node.index, node.value)
           def emit_list_fill(node) = list_call("rt_list_fill", node, node.from, node.count, node.value)
 
           # A run of a table's entries copied into a list: the table's place and how it keeps its
@@ -824,26 +823,65 @@ module RubyGBA
 
             out_of_range = fresh("list_index_out_of_range")
             done = fresh("list_item_read")
+            emit_list_slot_address(place, width, out_of_range)
+            @asm.call(TABLE_KEPT.fetch([width, true]).last) # a slot reads back with its top bit as the sign
+            @asm.jump(done)
+            @asm.label(out_of_range)
+            list_get_through_routine(place)
+            @asm.label(done)
+          end
+
+          # Reference#exec_list_set, the same way for a list nothing takes from the front: the index
+          # worked out and held to the length, then the value worked out and written into the slot,
+          # as wide as the slot is. An index out of range goes through rt_list_set, which stops the
+          # game before anything is written.
+          def emit_list_set(node)
+            return list_call("rt_list_set", node, node.index, node.value) if front_dropped_lists.include?(node.name)
+
+            place, _capacity, width = list_placed(node)
+            out_of_range = fresh("list_index_out_of_range")
+            done = fresh("list_item_written")
+            value(node.index)
+            emit_list_slot_address(place, width, out_of_range)
+            @asm.push(:hl)
+            value(node.value)
+            @asm.pop(:hl)
+            %i[e d c b].first(width).each_with_index do |reg, i|
+              @asm.inc(:hl) unless i.zero?
+              @asm.load([:hl], reg)
+            end
+            @asm.jump(done)
+            @asm.label(out_of_range)
+            list_set_through_routine(place)
+            @asm.label(done)
+          end
+
+          # HL = the slot the index in BCDE names in the list at +place+, whose slots are +width+
+          # bytes, a list whose first item is in its first slot; a jump to +out_of_range+, BCDE as
+          # it was, for an index past 16 bits, below nought, or not below the length its header says.
+          def emit_list_slot_address(place, width, out_of_range)
             @asm.load(:a, :b)
             @asm.or_a(:c)
-            @asm.jump(:nz, out_of_range) # past 16 bits, or below nought
+            @asm.jump(:nz, out_of_range)
             @asm.load(:hl, place + Runtime::Lists::LENGTH)
             @asm.load(:a, :e)
             @asm.sub_a([:hl])
             @asm.inc(:hl)
             @asm.load(:a, :d)
             @asm.sbc_a([:hl])
-            @asm.jump(:nc, out_of_range) # not below the length
+            @asm.jump(:nc, out_of_range)
             @asm.load(:h, :d)
             @asm.load(:l, :e)
             (width / 2).times { @asm.add_hl(:hl) } # × the slot's width: 1, 2 or 4
             @asm.load(:de, place + Runtime::Lists::HEADER)
             @asm.add_hl(:de)
-            @asm.call(TABLE_KEPT.fetch([width, true]).last) # a slot reads back with its top bit as the sign
-            @asm.jump(done)
-            @asm.label(out_of_range)
-            list_get_through_routine(place)
-            @asm.label(done)
+          end
+
+          # The index in BCDE and the list at +place+ written where rt_list_set reads them, and the
+          # write gone through with it, for an index out of range: the routine stops the game.
+          def list_set_through_routine(place)
+            write_list_numbers(place, *Runtime::Lists.set_places(@memory))
+            @asm.call("rt_list_set_taken")
           end
 
           # The lists some reachable step takes an item from the front of.
@@ -853,7 +891,12 @@ module RubyGBA
 
           # The index in BCDE and the list at +place+ written where rt_list_get reads them, and read.
           def list_get_through_routine(place)
-            list_at, index_at = Runtime::Lists.get_places(@memory)
+            write_list_numbers(place, *Runtime::Lists.get_places(@memory))
+            @asm.call("rt_list_get_taken")
+          end
+
+          # The index in BCDE at +index_at+ and the list's place at +list_at+, in quick memory.
+          def write_list_numbers(place, list_at, index_at)
             %i[e d c b].each_with_index do |reg, i|
               @asm.load(:a, reg)
               @asm.load_high(index_at + i, :a)
@@ -862,7 +905,6 @@ module RubyGBA
               @asm.load(:a, (place >> (8 * i)) & 0xFF)
               @asm.load_high(list_at + i, :a)
             end
-            @asm.call("rt_list_get_taken")
           end
 
           def value_of_list_len(node) = list_call("rt_list_length", node)
