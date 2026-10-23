@@ -47,6 +47,7 @@ module RubyGBA
                                                # without one works nothing out again
                                                show_light_now: :emit_nothing
                                              }.merge(Picture::STATEMENTS).merge(Sound::STATEMENTS)
+                                              .merge(TileRuns::STATEMENTS)
                                               .merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))
 
           VALUES = Ractor.make_shareable({
@@ -64,12 +65,13 @@ module RubyGBA
 
           include Picture
           include Sound
+          include TileRuns
 
           # EVERY KIND THIS LOWERING CANNOT MAKE YET, by what it is part of. A kind leaves the list the
           # day the Color does it; test_gbc_kind_coverage.rb holds the list and the tables above to
           # every kind there is.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            "the picture" => %i[background_colors copy_tiles copy_owed_tiles]
+            "the picture" => %i[background_colors]
           })
 
           # The kinds the Color's hardware cannot do at all, refused in the words its answers have
@@ -209,6 +211,7 @@ module RubyGBA
             keep_timer_numbers
             keep_held_colors
             keep_patches
+            keep_tile_runs
             keep_column_numbers
             routines = @called.flat_map do |name|
               routines_fitting(self.class.routine_label(name), @funcs.fetch(name).children, routine: routine_said(name))

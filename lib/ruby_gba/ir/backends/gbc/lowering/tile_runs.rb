@@ -1,0 +1,105 @@
+# frozen_string_literal: true
+
+module RubyGBA
+  module IR
+    module Backends
+      class GBC
+        class Lowering
+          # TILES THE GAME PAINTS FROM A LIST (`tiles :box, from: list, count: n`), lowered for a Game
+          # Boy Color. Mixed into Lowering.
+          #
+          # The list holds each tile as the Advance's picture memory does: 32 bytes, two pixels a
+          # byte, the left one in the low four bits. The Color keeps a tile in 16 bytes, two to a
+          # row, the low bit of every pixel of the row in the first and the high bit in the second.
+          # So a copy is a repacking, done by the processor (Runtime::Picture's rt_repack_tiles) into
+          # a stretch of work memory kept for the run, while the screen is being drawn; and the
+          # console's own copying puts that into picture memory in the next blank, which is the gap
+          # between frames the interpreter copies in (Reference#exec_copy_owed_tiles). Each painted
+          # tile has a tile of its own in picture memory (GBC::Art#run_tile).
+          #
+          # A sprite's picture painted from a list is not made yet.
+          module TileRuns
+            STATEMENTS = Ractor.make_shareable({ copy_tiles: :emit_copy_tiles, copy_owed_tiles: :emit_copy_owed_tiles })
+
+            # Where a run's repacked tiles wait for the blank, and its flag saying they are waiting,
+            # with the tile number each of its tiles has, for the runtime's copy (Runtime::Picture).
+            RunUpload = Data.define(:owed, :staging, :tiles)
+
+            # Bytes a tile takes: in the game's list, and in the Color's picture memory.
+            LIST_TILE_BYTES = 32
+            TILE_BYTES = 16
+
+            # Every painted run's copy, for the runtime, once #keep_tile_runs has placed them.
+            def run_uploads
+              (@run_places || {}).filter_map do |name, (owed, staging)|
+                run = tile_runs.fetch(name)
+                RunUpload.new(owed: owed, staging: staging, tiles: run.tiles.map { |tile| @art.run_tile(tile, run.colors).first })
+              end
+            end
+
+            private
+
+            def tile_runs = @tile_runs ||= by_name(@program.walk, :tile_run)
+
+            # The run a painted tile is one of, or nil for a tile drawn when the game was built.
+            def run_painting(name) = tile_runs.each_value.find { |run| run.tiles.include?(name) }
+
+            # The tile number and palette number a background's tile +name+ is drawn with: a painted
+            # tile's own (GBC::Art#run_tile), or a drawn one's (GBC::Art#background_tile).
+            def background_tile_named(name)
+              run = run_painting(name)
+              return @art.run_tile(name, run.colors) if run
+
+              @art.background_tile(name, Assets::Image.of(@pictures.fetch(name)))
+            end
+
+            # Each run's flag and its repacked tiles' stretch of work memory, which the console's copy
+            # reads from an address that is a multiple of 16. A sprite's painted picture is refused.
+            def keep_tile_runs
+              @run_places = tile_runs.values.to_h do |run|
+                if run.picture
+                  raise LoweringError, "the picture #{run.picture.inspect} is painted from a list, which #{build_name} " \
+                                       "cannot make yet for a sprite."
+                end
+
+                owed = @memory.reserve("the painted tiles #{run.name.inspect}, waiting", 1)
+                room = @memory.reserve("the painted tiles #{run.name.inspect}", (run.tiles.length * TILE_BYTES) + 15)
+                [run.name, [owed, (room + 15) & ~15]]
+              end
+            end
+
+            # Reference#exec_copy_tiles: the run's list repacked now, and put in at the next blank.
+            def emit_copy_tiles(node) = emit_run_copy(tile_runs.fetch(node.name))
+
+            # Reference#exec_copy_owed_tiles: every run whose bit is set in the game's own flags, in
+            # the order they were declared.
+            def emit_copy_owed_tiles(node)
+              per = Nodes::CopyOwedTiles::RUNS_PER_MASK
+              node.runs.each_with_index do |name, i|
+                mask = @variables.fetch(node.masks.fetch(i / per))
+                bit = i % per
+                past = fresh("past_the_run")
+                @asm.load(:a, [mask + (bit / 8)])
+                @asm.bit(bit % 8, :a)
+                @asm.jump(:z, past)
+                emit_run_copy(tile_runs.fetch(name))
+                @asm.label(past)
+              end
+            end
+
+            def emit_run_copy(run)
+              list, = @lists.fetch(run.list) { raise LoweringError, "the list #{run.list.inspect} is painted from and never declared" }
+              owed, staging = @run_places.fetch(run.name)
+              @asm.load(:hl, list + Runtime::Lists::HEADER)
+              @asm.load(:de, staging)
+              @asm.load(:bc, run.tiles.length)
+              @asm.call("rt_repack_tiles")
+              @asm.load(:a, 1)
+              @asm.load([owed], :a)
+            end
+          end
+        end
+      end
+    end
+  end
+end

@@ -79,9 +79,11 @@ module RubyGBA
               memory.reserve(DRAWN, 1 + (MOST_DRAWN * DRAWN_BYTES))
             end
 
-            def emit(asm, memory, sprite_tiles:, background_tiles:)
+            # +runs+ are the tiles the game paints from lists (Lowering::TileRuns#run_uploads).
+            def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [])
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles)
               emit_upload(asm, memory)
+              emit_tile_runs(asm, runs)
               emit_sprites(asm, memory)
               emit_background(asm, memory)
               emit_choices(asm, memory)
@@ -207,6 +209,101 @@ module RubyGBA
               asm.ret
             end
 
+            # TILES THE GAME PAINTS FROM A LIST (Lowering::TileRuns).
+            #
+            # rt_repack_tiles: BC tiles from the Advance's way of keeping one — 32 bytes, eight rows
+            # of four, each byte two pixels with the left one in its low four bits — at HL, into the
+            # Color's at DE: 16 bytes, eight rows of two, the low bit of each of the row's pixels in
+            # the first byte and the high bit in the second, the leftmost pixel in bit 7. A Color tile
+            # holds places 0 to 3, so a place past them is made 0, black.
+            #
+            # rt_tile_runs_upload, in the blank: each run whose tiles were repacked since, put into
+            # picture memory by the console's own copy, a tile at a time, since a run's tiles need not
+            # sit side by side there.
+            def emit_tile_runs(asm, runs)
+              h = Console::GBCHardware
+              asm.label("rt_repack_tiles")
+              asm.load(:a, :b)
+              asm.or_a(:c)
+              asm.ret(:z)
+              asm.push(:bc)
+              asm.load(:a, 8) # rows
+              asm.label("rt_repack_row")
+              asm.push(:af)
+              asm.push(:de)
+              asm.load(:b, 0) # the low bits
+              asm.load(:d, 0) # the high bits
+              asm.load(:e, 4) # bytes a row
+              asm.label("rt_repack_byte")
+              asm.load(:a, [:hli])
+              asm.load(:c, :a)
+              # A place past the four a list of the Color's holds draws black, as a place past the end
+              # of the run's colours does in the interpreter: place 0, where the black backdrop shows.
+              [[0x0C, 0], [0xC0, 4]].each do |past, low|
+                asm.and_a(past)
+                asm.jump_relative(:z, "rt_repack_in_four_#{low}")
+                asm.res(low, :c)
+                asm.res(low + 1, :c)
+                asm.label("rt_repack_in_four_#{low}")
+                asm.load(:a, :c)
+              end
+              asm.srl(:c) # the left pixel's low bit...
+              asm.rl(:b)
+              asm.srl(:c) # ...and its high bit
+              asm.rl(:d)
+              asm.srl(:c)
+              asm.srl(:c)
+              asm.srl(:c) # the right pixel's low bit...
+              asm.rl(:b)
+              asm.srl(:c) # ...and its high bit
+              asm.rl(:d)
+              asm.dec(:e)
+              asm.jump_relative(:nz, "rt_repack_byte")
+              asm.load(:a, :b)
+              asm.load(:c, :d)
+              asm.pop(:de)
+              asm.load([:de], :a)
+              asm.inc(:de)
+              asm.load(:a, :c)
+              asm.load([:de], :a)
+              asm.inc(:de)
+              asm.pop(:af)
+              asm.dec(:a)
+              asm.jump_relative(:nz, "rt_repack_row")
+              asm.pop(:bc)
+              asm.dec(:bc)
+              asm.jump("rt_repack_tiles")
+
+              asm.label("rt_tile_runs_upload")
+              runs.each_with_index do |run, r|
+                past = "rt_tile_runs_upload_past_#{r}"
+                asm.load(:a, [run.owed])
+                asm.and_a(:a)
+                asm.jump(:z, past)
+                asm.xor_a(:a)
+                asm.load([run.owed], :a)
+                run.tiles.each_with_index do |tile, k|
+                  asm.load(:a, tile / 256)
+                  asm.load_high(h::VBK, :a)
+                  asm.load(:hl, run.staging + (k * 16))
+                  asm.load(:de, background_tile_address(tile))
+                  asm.load(:c, 0) # one block of 16 bytes
+                  asm.call("rt_gdma")
+                end
+                asm.xor_a(:a)
+                asm.load_high(h::VBK, :a)
+                asm.label(past)
+              end
+              asm.ret
+            end
+
+            # Where background tile +tile+ is kept in its bank of picture memory: the first 128 of a
+            # bank's 256 from 0x9000, as the grid reads them, and the rest from 0x8800.
+            def background_tile_address(tile)
+              m = tile % 256
+              m < 128 ? 0x9000 + (m * 16) : 0x8000 + (m * 16)
+            end
+
             # IN THE BLANK: the sprite table, the colours if they changed, the scroll and the
             # screen's switches; and a few more rows of a grid being put up. Carry set when a grid
             # is still being put up, so the frame waits for another blank before it counts as shown.
@@ -232,6 +329,7 @@ module RubyGBA
               asm.and_a(~h::LCDC_ON & 0xFF)
               asm.or_a(:b)
               asm.load_high(h::LCDC, :a)
+              asm.call("rt_tile_runs_upload")
               # A grid being put up, and a painted screen's tiles: as much of each as the blank holds.
               asm.call("rt_picture_map_job")
               asm.push(:af)

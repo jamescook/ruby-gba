@@ -9,16 +9,17 @@ class TestGBCLowering < Minitest::Test
   GBC = RubyGBA::IR::Backends::GBC
 
   def test_step_not_made_yet_is_refused_by_name
-    painted = program do
+    recoloured = program do
       screen :tiled
-      pixels = list :pixels, capacity: 32, width: :byte
-      box = tiles :box, from: pixels, count: 1, colors: %i[transparent red]
-      background :board, tiles: :box, map: [[1, 1]]
-      game_loop { box.changed }
+      image(:brick, "#" => :red, colors: %i[transparent red]) { "#{'#' * 8}\n" * 8 }
+      tiles :wall, "#" => :brick
+      colors :dusk, %i[transparent blue]
+      wall = background :wall, tiles: :wall, map: ["##"]
+      game_loop { wall.draw_with :dusk }
     end
-    error = assert_raises(GBC::LoweringError) { GBC.new.build(painted) }
+    error = assert_raises(GBC::LoweringError) { GBC.new.build(recoloured) }
 
-    assert_match(/:copy_owed_tiles, which the Game Boy Color build cannot make yet \(the picture\)/, error.message)
+    assert_match(/:background_colors, which the Game Boy Color build cannot make yet \(the picture\)/, error.message)
   end
 
   def test_what_the_hardware_lacks_is_refused_naming_it

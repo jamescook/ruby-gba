@@ -158,4 +158,4 @@ test fails when the two differ.
 An answer above is what the Color does with a verb. The build for it is still growing, and
 a game that reaches one of these steps is refused, naming the step, until it is made:
 
-- the picture: `background_colors`, `copy_tiles`, `copy_owed_tiles`
+- the picture: `background_colors`

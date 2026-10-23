@@ -164,6 +164,9 @@ module RubyGBA
               return runtime_call("rt_background_put_up", [Build.int(0)]) if scenery.empty?
 
               scenery.each { |bg| background_put_up(bg) }
+              # Tiles its scenery paints from a list show the list as it is now, changed or not.
+              painted = arrival.scenery.empty? ? @handover.always_up.painted_tiles : arrival.painted_tiles
+              painted.each { |run| emit_run_copy(run) }
             end
 
             # --- painting ---
@@ -508,7 +511,7 @@ module RubyGBA
               bg = declared_background!(node)
               cols, rows = map_size_of(bg)
               tile = node.tile
-              number, palette = tile.nil? || tile.negative? ? [0, 0] : @art.background_tile(bg.tiles.fetch(tile), Assets::Image.of(@pictures.fetch(bg.tiles.fetch(tile))))
+              number, palette = tile.nil? || tile.negative? ? [0, 0] : background_tile_named(bg.tiles.fetch(tile))
               colours = palette | (number >= 256 ? Console::GBCHardware::ATTR_TILE_BANK : 0)
               runtime_call("rt_background_cell", [node.col, node.row, Build.int(cols | (rows << 8)),
                                                   Build.int((number & 0xFF) | (colours << 8))])
@@ -534,8 +537,7 @@ module RubyGBA
                     tile = map[row] && map[row][col]
                     next nil if tile.nil? || tile.negative?
 
-                    name = bg.tiles.fetch(tile)
-                    @art.background_tile(name, Assets::Image.of(@pictures.fetch(name)))
+                    background_tile_named(bg.tiles.fetch(tile))
                   end
                 end
                 @art.grid(cells)

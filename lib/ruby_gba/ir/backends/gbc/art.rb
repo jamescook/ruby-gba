@@ -78,6 +78,7 @@ module RubyGBA
             @background_tile_numbers = {}
             @background_palettes = []
             @background_tile_of = {} # picture name -> [tile number, palette number]
+            @run_tile_of = {} # a painted tile's name -> [tile number, palette number]
             @grids = []               # 2048 bytes each: the cells' tiles, then their attributes
             background_tile_number(Array.new(16, 0)) # tile 0: nothing but the backdrop, for an empty cell
             grid(Array.new(GRID_CELLS) { Array.new(GRID_CELLS) }) # grid 0: nothing up
@@ -155,6 +156,25 @@ module RubyGBA
               colors = [BACKDROP, *drawn]
               places = Array.new(64) { |i| image.tile_see_through_at?(i) ? 0 : drawn.index(image.color_at(i) & 0x7FFF) + 1 }
               [background_tile_number(encode(places)), palette_number(@background_palettes, padded(colors), "backgrounds")]
+            end
+          end
+
+          # A TILE THE GAME PAINTS from a list (Nodes::TileRun): a tile number of its own, never
+          # shared with another tile however alike the two start, since the game writes it as it
+          # runs; empty until the game's first copy, as the interpreter's is. +colors+ is the run's
+          # list, see-through first, and gives its palette: the backdrop where it is see-through.
+          def run_tile(name, colors)
+            @run_tile_of[name] ||= begin
+              if colors.length > PLACES
+                raise LoweringError, "the tiles painted from a list with #{colors.length} colours (#{name.inspect}) " \
+                                     "are more than a Game Boy Color tile holds: #{OWN_COLORS} and the backdrop. " \
+                                     "To fix this, give `colors:` #{PLACES} colours or fewer, the first meaning " \
+                                     "see-through."
+              end
+
+              own = colors.drop(1).map { |color| color & 0x7FFF }
+              [(@background_tiles << Array.new(16, 0)).length - 1,
+               palette_number(@background_palettes, padded([BACKDROP, *own]), "backgrounds")]
             end
           end
 
