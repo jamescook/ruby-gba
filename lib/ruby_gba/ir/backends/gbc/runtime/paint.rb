@@ -145,10 +145,14 @@ module RubyGBA
 
             # rt_screen(kind): the screen up is a painted one (PAINTED) or one of tiles. 1 when
             # that is a change of kind, which replaces the whole display: a painted screen comes
-            # up black with no sprite on it, and a tiled one with nothing up — but the sprites this
-            # pass drew, which the interpreter keeps in front of whatever scenery arrives after
-            # them (Reference#redraw_sprites_over_arrived_scenery). 0, and nothing changes, for the
-            # kind already up.
+            # up black, and a tiled one with nothing up. Either way with the console's sprite layer
+            # off. The interpreter never puts the sprites of a game's tiled screens on a painted
+            # picture, though it counts them as drawn, and on a tiled screen arrived at it puts
+            # them up at the next sprite pass (rt_sprites_end) — or at once, over the scenery a
+            # scene brings of its own (Lowering::Picture#emit_scene_arrival,
+            # Reference#redraw_sprites_over_arrived_scenery). The table is kept, so what the game
+            # placed this pass is still what it placed. 0, and nothing changes, for the kind
+            # already up.
             def emit_screen(asm, memory, painting:)
               h = Console::GBCHardware
               asm.label("rt_screen")
@@ -171,14 +175,13 @@ module RubyGBA
                 asm.xor_a(:a)
                 asm.call("rt_paint_clear_to") # black, as the interpreter's crossing leaves it
               end
-              asm.call("rt_sprites_begin")
-              asm.call("rt_sprites_end")
               asm.jump_relative("rt_screen_changed")
               asm.label("rt_screen_tiled")
               asm.and_a(~h::LCDC_BG_MAP1 & 0xFF)
               asm.load([memory[Picture::LCDC_WANTED]], :a)
               asm.call("rt_picture_take_down")
               asm.label("rt_screen_changed")
+              asm.call("rt_sprites_hidden")
               asm.load(:bc, 0)
               asm.load(:de, 1)
               asm.ret

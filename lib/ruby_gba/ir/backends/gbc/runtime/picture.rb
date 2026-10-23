@@ -657,6 +657,10 @@ module RubyGBA
                 asm.call("rt_tint_apply")
                 asm.label("rt_sprites_end_lent")
               end
+              # The sprites shown from here, on a screen drawn from tiles (rt_screen).
+              asm.load(:a, [memory[Paint::SCREEN_KIND]])
+              asm.cp_a(Paint::PAINTED)
+              asm.call(:nz, "rt_sprites_shown")
               asm.load(:a, [memory[NEXT_SPRITE]])
               asm.load(:l, :a)
               asm.load(:h, Memory::SHADOW_OAM >> 8)
@@ -667,6 +671,19 @@ module RubyGBA
               asm.load([:hl], 0) # Y of 0: above the screen, not drawn
               4.times { asm.inc(:l) }
               asm.jump_relative("rt_sprites_end_next")
+
+              # The console's sprite layer on, or off, in the switches the blank writes: the table
+              # is kept either way, and so is what the game placed.
+              asm.label("rt_sprites_shown")
+              asm.load(:a, [memory[LCDC_WANTED]])
+              asm.or_a(Console::GBCHardware::LCDC_SPRITES_ON)
+              asm.load([memory[LCDC_WANTED]], :a)
+              asm.ret
+              asm.label("rt_sprites_hidden")
+              asm.load(:a, [memory[LCDC_WANTED]])
+              asm.and_a(~Console::GBCHardware::LCDC_SPRITES_ON & 0xFF)
+              asm.load([memory[LCDC_WANTED]], :a)
+              asm.ret
 
               # rt_sprite(picture, x, y, attributes): HL in the pictures' table is the picture's
               # pieces — a count, then for each its dx, dy, tile and bank. The attributes are the
