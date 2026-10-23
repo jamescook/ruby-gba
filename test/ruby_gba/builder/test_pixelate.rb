@@ -1,21 +1,14 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "differential"
 
 # Drawing the picture in flat blocks, as the display draws it.
 #
 # The rule is the emulator's, read out of its renderer and then measured on it: the blocks
 # are fixed to the SCREEN, and each takes the colour the picture has at the block's top
-# left corner. So the thing to assert is that rule against the picture as drawn, and then
-# that the console shows the same picture pixel for pixel, which is what keeps the rule
-# honest — every place it bends is a place the two would disagree.
+# left corner. What a Game Boy Color, which has no mosaic, cannot build is all in
+# test_pixelate_on_the_advance.rb; these are the friendly errors every console gives.
 class TestPixelate < Minitest::Test
-  include Differential
-
-  WIDTH = 240
-  HEIGHT = 160
-
   # Two tiles with nothing flat about them, so a block's colour depends on where it starts.
   STRIPES = (0...8).map { |row| (0...8).map { |col| (col * 3) + row < 9 ? "#" : "." }.join }.join("\n")
   STEPS = (0...8).map { |row| (0...8).map { |col| col > row ? "#" : "." }.join }.join("\n")
@@ -47,11 +40,6 @@ class TestPixelate < Minitest::Test
     end
   end
 
-  private def picture_of(program, frames: 2)
-    screen = game_player.run(program, frames: frames).screen
-    Array.new(HEIGHT) { |y| Array.new(WIDTH) { |x| screen.pixel(x, y) } }
-  end
-
   # --- a background of tiles ---
 
   def test_a_size_written_outside_the_sizes_there_are_is_refused
@@ -76,8 +64,6 @@ class TestPixelate < Minitest::Test
     assert_raises(ArgumentError) { tiled_room { pixelate 2.5 } }
   end
 
-  # --- sprites ---
-
   # A 16x16 picture with a different colour at every corner and holes along two edges.
   PATCH = (0...16).map do |row|
     (0...16).map do |col|
@@ -87,36 +73,6 @@ class TestPixelate < Minitest::Test
     end.join
   end.join("\n")
   PATCH_COLORS = { "." => :transparent, "A" => :red, "B" => :green, "C" => :blue, "D" => :white }.freeze
-
-  # A game over the plain floor, with +cast+ declaring what stands on it.
-  private def cast_on_floor(&cast)
-    program do
-      screen :tiled
-      image(:floor, "#" => :gray) { (["########"] * 8).join("\n") }
-      tiles :floor, "#" => :floor
-      background :floor, tiles: :floor, map: ["#" * 30] * 20
-      image(:patch, PATCH_COLORS) { PATCH }
-      instance_exec(&cast)
-    end
-  end
-
-  # A picture the game paints while it runs is kept whole, whatever it holds, so its
-  # blocks are held inside the whole of it.
-  def test_a_sprite_the_game_paints_is_in_blocks_of_the_whole_picture
-    painted = cast_on_floor do
-      colors :ink, %i[transparent white red blue]
-      sheet = list :sheet, capacity: 64, width: :byte
-      repeat(64) { sheet.push 0 }
-      tag = image :tag, from: sheet, width: 16, height: 8, colors: :ink
-      sprite :tag, at: [41, 27]
-      repeat(32) { |i| sheet[i + 32] = 0x21 }
-      tag.changed
-      pixelate 3
-      game_loop {}
-    end
-
-    assert_backends_agree(painted, frames: 3, name: "PAINTED")
-  end
 
   # --- a place in the stack ---
 

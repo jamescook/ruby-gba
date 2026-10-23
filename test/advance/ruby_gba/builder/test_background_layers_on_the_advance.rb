@@ -119,4 +119,21 @@ class TestBackgroundLayersOnTheAdvance < Minitest::Test
     assert_equal RED, game_player.run(black_drawn_in_characters, frames: 3).screen.pixel(2, 2)
     assert_equal RED, assert_emulator_loads_rom(rom_for(black_drawn_in_characters), frames: 3).pixel_gba(2, 2)
   end
+
+  # Tiles the game paints hold place numbers too: every pixel here is place 2, black.
+  private def black_painted
+    black_over_red do
+      colors :inks, [:transparent, RED, 0x0000]
+      bytes = list :bytes, capacity: 32, width: :byte
+      box = tiles :box, from: bytes, count: 1, colors: :inks
+      background :front, tiles: :box, map: [[1]]
+      repeat(32) { bytes.push 0x22 }
+      box.changed
+    end
+  end
+
+  def test_black_painted_at_a_place_covers
+    assert_equal 0x0000, game_player.run(black_painted, frames: 3).screen.pixel(2, 2)
+    assert_equal 0x0000, assert_emulator_loads_rom(rom_for(black_painted), frames: 3).pixel_gba(2, 2)
+  end
 end

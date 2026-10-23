@@ -163,4 +163,32 @@ class TestBackgroundTileSetsOnTheAdvance < Minitest::Test
   def test_both_backends_draw_the_big_clearing_from_its_own_set
     assert_backends_agree(two_big_areas(1), frames: 8, name: "BIGB")
   end
+
+  # A sign every area shows, drawn white and told to draw yellow, over a ground that walks
+  # into the clearing: the clearing's colours going in leave the sign yellow.
+  private def recolored_sign_while_walking
+    program do
+      screen :tiled
+      image(:shrine_floor, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      image(:clearing_grass, "#" => :green) { (["#" * 8] * 8).join("\n") }
+      image(:board, width: 8, height: 8, data: [:white] * 64, colors: %i[transparent white])
+      colors :lit, %i[transparent yellow]
+      tiles :shrine, "#" => :shrine_floor
+      tiles :clearing, "#" => :clearing_grass
+      tiles :signs, "#" => :board
+      grid = (0...20).map { "#" * 30 }
+      ground = background :ground, tiles: { shrine: :shrine, clearing: :clearing },
+                                   map: { shrine: { hall: grid }, clearing: { glade: grid } }
+      sign = background :sign, tiles: :signs, map: ["#"]
+      sign.draw_with :lit
+      where = var :room, 1
+      game_loop { ground.show_map where }
+    end
+  end
+
+  def test_a_recolored_layer_keeps_its_colours_when_an_area_comes_in
+    oracle, console, = backend_pictures(recolored_sign_while_walking, frames: 4, name: "SETRC")
+
+    assert_equal [Color.resolve(:yellow)] * 2, [oracle[(2 * 240) + 2], console[(2 * 240) + 2]]
+  end
 end

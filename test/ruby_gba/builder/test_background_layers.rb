@@ -42,41 +42,6 @@ class TestBackgroundLayers < Minitest::Test
     ROM.assemble(GBA.new.lower(program), title: "LAYERS", code: "BLYR", maker: "01")
   end
 
-  # A front layer drawn in pure black over a red one. Black is a colour like any other: it
-  # is see-through only where the picture says see-through, never because its number is 0.
-  RED = Color.rgb(31, 0, 0)
-
-  private def black_over_red(&front)
-    builder = Builder.new
-    builder.instance_eval do
-      screen :tiled
-      image :red, width: 8, height: 8, colors: [:transparent, RED], places: [1] * 64
-      tiles :reds, "#" => :red
-      background :behind, tiles: :reds, map: Array.new(20) { "#" * 30 }
-      instance_eval(&front)
-      game_loop {}
-    end
-    builder.finalize_program
-    builder.program
-  end
-
-  # Tiles the game paints hold place numbers too: every pixel here is place 2, black.
-  private def black_painted
-    black_over_red do
-      colors :inks, [:transparent, RED, 0x0000]
-      bytes = list :bytes, capacity: 32, width: :byte
-      box = tiles :box, from: bytes, count: 1, colors: :inks
-      background :front, tiles: :box, map: [[1]]
-      repeat(32) { bytes.push 0x22 }
-      box.changed
-    end
-  end
-
-  def test_black_painted_at_a_place_covers
-    assert_equal 0x0000, game_player.run(black_painted, frames: 3).screen.pixel(2, 2)
-    assert_equal 0x0000, assert_emulator_loads_rom(rom_for(black_painted), frames: 3).pixel_gba(2, 2)
-  end
-
   # --- Hardware (the emulator): the layers really composite and parallax-scroll ---
 
   def test_layers_compose_on_the_console

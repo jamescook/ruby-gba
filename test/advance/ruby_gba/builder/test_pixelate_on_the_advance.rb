@@ -628,4 +628,22 @@ class TestPixelateOnTheAdvance < Minitest::Test
 
     [3, 8].each { |size| assert_backends_agree(misty.call(size), frames: 3, name: "MIST#{size}") }
   end
+
+  # A picture the game paints while it runs is kept whole, whatever it holds, so its
+  # blocks are held inside the whole of it.
+  def test_a_sprite_the_game_paints_is_in_blocks_of_the_whole_picture
+    painted = cast_on_floor do
+      colors :ink, %i[transparent white red blue]
+      sheet = list :sheet, capacity: 64, width: :byte
+      repeat(64) { sheet.push 0 }
+      tag = image :tag, from: sheet, width: 16, height: 8, colors: :ink
+      sprite :tag, at: [41, 27]
+      repeat(32) { |i| sheet[i + 32] = 0x21 }
+      tag.changed
+      pixelate 3
+      game_loop {}
+    end
+
+    assert_backends_agree(painted, frames: 3, name: "PAINTED")
+  end
 end
