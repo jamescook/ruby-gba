@@ -123,6 +123,17 @@ says where it is. A run in a worktree that should not queue behind the main chec
 `RUBY_GBA_SUITE_LOCK=checkout`, and the two then share the cores. See "A whole run has the machine
 to itself" in `.claude/rules/testing.md`.
 
+**CI runs on a self-hosted runner, not on GitHub's machines.** A whole run plays every test on
+three lowerings and wants many cores for a long time; on a hosted runner that is slow and costly
+enough to be pointless, while a developer's own machine already has the tools and the emulator
+built. So `.github/workflows/ci.yml` runs on a maintainer's machine, picked by a label of its own in
+`runs-on`, with the tool versions named in its `defaults.run.shell`. It is manual only (Run
+workflow, or `gh workflow run ci.yml`) and skipped unless the repository owner started it, because
+the repository is public and a self-hosted runner executes whatever a workflow says on that
+machine. Never give it a push, pull_request or schedule trigger. A fork that wants CI registers a
+runner of its own and changes the label, the owner check and the shell's tool paths to match. A CI
+run takes the same machine-wide lock as a local `rake test`, so the two wait for each other.
+
 **Which run a change needs:** a change inside one lowering — the ARM the GBA lowering emits,
 the C the native lowering writes, the JavaScript runtime — can only break that lowering's run,
 so its own task is enough while working. The native lowering's statements are the JavaScript
