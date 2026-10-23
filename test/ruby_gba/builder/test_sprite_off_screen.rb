@@ -59,8 +59,10 @@ class TestSpriteOffScreen < Minitest::Test
   # or nil for a picture that is all floor.
   private def drawn_on(program, frames: 3)
     screen = game_player.run(program, frames: frames).screen
-    rows = (0...screen.height).select { |y| (0...screen.width).any? { |x| screen.pixel(x, y) != FLOOR } }
-    cols = (0...screen.width).select { |x| (0...screen.height).any? { |y| screen.pixel(x, y) != FLOOR } }
+    # The screen it was drawn on: the Color's is smaller, and the desktop's picture is the Advance's.
+    width, height = screen.respond_to?(:width) ? [screen.width, screen.height] : [WIDTH, HEIGHT]
+    rows = (0...height).select { |y| (0...width).any? { |x| screen.pixel(x, y) != FLOOR } }
+    cols = (0...width).select { |x| (0...height).any? { |y| screen.pixel(x, y) != FLOOR } }
     rows.empty? ? nil : [rows.min..rows.max, cols.min..cols.max]
   end
 
