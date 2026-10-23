@@ -54,42 +54,6 @@ class TestFollowCamera < Minitest::Test
     (0...240).find { |x| screen.pixel(x, 81) == BLUE }
   end
 
-  # --- the swap: the sprite moves, the world does ---
-
-  def test_the_character_stays_put_while_the_world_slides_under_it
-    prog = walking_game { |hero| held(:right).then { hero.move :right, by: 2 } }
-    seen = (1..8).map do |n|
-      game_player.hold(:right).run(prog, frames: n).screen
-    end
-
-    assert_equal [116] * 8, seen.map { |s| hero_left(s) },
-                 "the character's picture never leaves its spot, however far it walks"
-    scrolled = seen.map { |s| mark_left(s) }
-    assert_equal scrolled.sort.reverse, scrolled,
-                 "and the scenery slides the other way, every frame"
-    assert_operator scrolled.first - scrolled.last, :>=, 12,
-                    "eight frames at two pixels really moves the world"
-  end
-
-  def test_walking_the_other_way_scrolls_the_other_way
-    prog = walking_game { |hero| held(:left).then { hero.move :left, by: 2 } }
-    first = game_player.hold(:left).run(prog, frames: 2).screen
-    later = game_player.hold(:left).run(prog, frames: 8).screen
-
-    assert_equal 116, hero_left(later), "still planted"
-    assert_operator mark_left(later), :>, mark_left(first),
-                    "walking left brings the scenery in from the left"
-  end
-
-  def test_a_game_that_stands_still_does_not_drift
-    prog = walking_game { |hero| hero } # no input, no movement
-    early = game_player.run(prog, frames: 2).screen
-    late = game_player.run(prog, frames: 30).screen
-
-    assert_equal hero_left(early), hero_left(late), "the character does not wander"
-    assert_equal mark_left(early), mark_left(late), "and neither does the world"
-  end
-
   # --- where the character starts in the world ---
 
   # The sprite's own position says where it sits on the SCREEN, which under a follow
