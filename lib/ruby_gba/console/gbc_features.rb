@@ -56,8 +56,7 @@ module RubyGBA
         debug_halt: works("the game stops there, as `halt` does; the cartridge is not cut short."),
         game_loop: works,
         once_a_frame: works,
-        each_pass: works("a step that starts its own job again is refused for now: the Game Boy Color " \
-                         "build cannot make a routine that calls itself yet."),
+        each_pass: works,
         every: works,
         after: works,
         repeat: works,
