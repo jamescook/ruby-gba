@@ -87,6 +87,23 @@ module RubyGBA
               asm.load([memory[START]], :a)
               asm.reti
 
+              # rt_music_play_now(song): the same, and a tune that is starting takes its first frame
+              # here, where the game names it (`this_frame: true`, Reference::Player#start_song_here):
+              # the player is run once now, with the interrupt held off, as it would run at the frame.
+              asm.label("rt_music_play_now")
+              asm.load_hl_sp(2)
+              asm.load(:e, [:hl])
+              asm.push(:de)
+              asm.call("rt_music_play")
+              asm.pop(:de)
+              asm.load(:a, [memory[START]])
+              asm.and_a(:a)
+              asm.ret(:z)
+              asm.di
+              asm.call("rt_music_tick")
+              asm.ei
+              asm.ret
+
               asm.label("rt_music_stop")
               asm.di
               asm.xor_a(:a)

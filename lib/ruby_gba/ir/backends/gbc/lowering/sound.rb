@@ -35,8 +35,10 @@ module RubyGBA
             end
 
             # Reference#exec_play_song: the tune named, from the next frame, unless it is the one
-            # named already. Named `this_frame: true` it starts the same way, a frame on.
-            def emit_play_song(node) = runtime_call("rt_music_play", [Build.int(@music.number(node.name))])
+            # named already. Named `this_frame: true` it takes its first frame where it is named.
+            def emit_play_song(node)
+              runtime_call(node.this_frame ? "rt_music_play_now" : "rt_music_play", [Build.int(@music.number(node.name))])
+            end
 
             def emit_stop_music(_node) = @asm.call("rt_music_stop")
 
