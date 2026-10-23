@@ -148,9 +148,9 @@ class TestSceneHandoverScenarios < Minitest::Test
   private def run_scenario(scenario)
     program = send(scenario.program)
     broken = scenario.broken
-    shown = game_player.run(program, frames: scenario.frames).screen.shown
+    screen = game_player.run(program, frames: scenario.frames).screen
     x, y = scenario.probe
-    assert_equal color_value(broken&.interpreter_shows || scenario.color), shown[(y * SCREEN_W) + x],
+    assert_equal color_value(broken&.interpreter_shows || scenario.color), screen.pixel(x, y),
                  probe_message(scenario)
     return assert_backends_agree(program, frames: scenario.frames, name: "HANDOVER",
                                           console_frames: scenario.console_frames) unless broken
