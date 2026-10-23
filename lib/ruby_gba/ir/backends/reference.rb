@@ -173,6 +173,8 @@ module RubyGBA
           @screen_frame = 0        # frames the screen has shown, which a pass may span several of
           @input_script = nil      # optional ->(frame) { buttons } to drive input over time
           @frames_script = nil     # optional ->(pass) { frames } to say a pass ran late
+          @clock_started = nil     # the moment the cartridge's clock read at power-on, or nil for no clock
+          @clock_set = true        # ...and whether it was ever set (see #clock_at)
           @frame = 0               # passes of the game loop finished (see @screen_frame for frames shown)
           @screen_mode = nil       # the mode a `screen` op selected, if any
           @buffered = false        # whether that mode opted into double buffering
@@ -380,6 +382,20 @@ module RubyGBA
         # tells it the truth. Returns self.
         def frames_each_pass(&block)
           @frames_script = block
+          self
+        end
+
+        # GIVE THE CARTRIDGE A CLOCK, reading +time+ at power-on, the way #hold gives it buttons.
+        # It moves on a sixtieth of a second for every frame the screen shows, so a run of sixty
+        # frames sees a second go by — however many passes of the game loop those took. With
+        # +set: false+ the clock is there and was never set, which a game can ask (`clock.set?`).
+        #
+        # A run never told reads no clock at all (`clock.present?` is false), which is what a
+        # cartridge without the chip reads — so nothing a test checks ever depends on the time it
+        # happens to be when the test runs. Returns self.
+        def clock_at(time, set: true)
+          @clock_started = time
+          @clock_set = set
           self
         end
 
@@ -2917,6 +2933,7 @@ module RubyGBA
           save_read: :value_of_save_read,
           save_sum: :value_of_save_sum,
           timer_ticks: :value_of_timer_ticks,
+          clock: :value_of_clock,
         }.freeze
 
         def eval_value(operand)
@@ -3014,6 +3031,14 @@ module RubyGBA
 
         def value_of_timer_ticks(node)
           timer_ticks(node.name)
+        end
+
+        # The clock as it reads now: where #clock_at started it, on by every frame the screen has
+        # shown. That count moves only between passes, so every reading in one pass is of the same
+        # moment, and a minute cannot turn over between reading the minute and the second.
+        def value_of_clock(node)
+          now = @clock_started && IR::Clock.moved_on(@clock_started, Rational(@screen_frame, FRAME_RATE))
+          IR::Clock.reading(node.reading, now, set: @clock_set)
         end
 
         # One byte (0..255) of a named embedded blob, read straight from the

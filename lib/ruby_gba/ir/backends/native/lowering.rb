@@ -113,6 +113,7 @@ module RubyGBA
                                            chance: :value_of_chance, table_get: :value_of_table_get,
                                            data_byte: :value_of_data_byte, list_get: :value_of_list_get,
                                            list_len: :value_of_list_len, timer_ticks: :value_of_timer_ticks,
+                                           clock: :value_of_clock,
                                            # the picture (Picture)
                                            pixels_overlap: :value_of_pixels_overlap,
                                            # save memory (Saving)
@@ -641,6 +642,12 @@ module RubyGBA
             C::Int.new(bits)
           end
           def value_of_shift_right(node) = call("rg_shr", value(node.operand), C::Int.new(node.bits))
+
+          # A READING OF THE CARTRIDGE'S CLOCK, which this build does not ask the computer's clock
+          # for yet. So it answers what a cartridge with no clock chip answers — no clock, and
+          # every reading 0 (see IR::Clock) — which the game is written to expect anyway.
+          def value_of_clock(_node) = C::Int.new(0)
+
           def value_of_held(node) = call("rg_held", C::Int.new(button_number(node.button)))
           def value_of_pressed(node) = call("rg_pressed", C::Int.new(button_number(node.button)))
 

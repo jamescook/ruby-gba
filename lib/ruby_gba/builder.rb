@@ -23,6 +23,7 @@ require_relative "builder/tile_runs"
 require_relative "builder/canvases"
 require_relative "builder/composition"
 require_relative "builder/timers"
+require_relative "builder/clocks"
 require_relative "builder/sampled_audio"
 require_relative "builder/layers"
 require_relative "builder/draw_order"
@@ -80,6 +81,7 @@ module RubyGBA
     include Canvases   # canvas — the same, drawn into with words
     include Composition # pool (a component + a pool of instances, per-instance update)
     include Timers     # timer (a hardware counter running at a chosen rate)
+    include Clocks     # clock (the date and time, from the clock a cartridge carries)
     include SampledAudio # sample (a recorded PCM sound, played via Direct Sound)
     include Layers     # layers, layer (a named place in the stack: what sits in front of what)
     include DrawOrder  # draw_in_order (sprites drawn in an order the game works out)

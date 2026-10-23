@@ -141,6 +141,10 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 - `timer :name, per_second: N` → `Timer` with `ticks`, `on_tick`, `stop`.
 - Low-level: `if_eq` / `if_ne` / `if_gt` / `if_lt` / `if_ge` / `if_le`, aliases `if_gte` / `if_lte`.
 
+## The date and time — `.claude/dsl/clock.md`
+
+- `clock` → `Clock` — the cartridge's clock: `hour`, `minute`, `second`, `year`, `month`, `day`, `weekday` (0 Sunday); ask `present?` and `set?` first, since every reading is 0 when either is false. Tests start it with `game_player.clock_at(time)`.
+
 ## Scenes & funcs — `.claude/dsl/scenes.md`
 
 - `func(:name, fast:) { … }` + `call :name` — a routine, emitted once; the build picks what goes in quick memory, per scene when it does not all fit.

@@ -396,6 +396,10 @@ module ConformanceFixture
       B.set(:acc, B.timer_ticks(:beat)),       # read the count into a scratch var
       B.timer_stop(:beat),
 
+      # --- the cartridge's clock: whether there is one, and the hour (0 with none) ---
+      B.set(:acc, B.clock(:present)),
+      B.set(:acc, B.clock(:hour)),
+
       # --- terminate: a loop that syncs once then halts (covers loop + halt) ---
       B.loop_(B.wait_vblank, B.halt),
     )

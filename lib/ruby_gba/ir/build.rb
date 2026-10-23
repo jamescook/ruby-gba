@@ -460,6 +460,11 @@ module RubyGBA
         Nodes.build(:timer_ticks, name: name)
       end
 
+      # One reading of the date and time (one of IR::Clock::READINGS) — a value.
+      def clock(reading)
+        Nodes.build(:clock, reading: reading)
+      end
+
       def call(name)
         Nodes.build(:call, target: name)
       end

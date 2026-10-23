@@ -327,6 +327,14 @@ module RubyGBA
         operands var: :name, min: :value, max: :value
       end
 
+      # One reading of the date and time: +reading+ is one of IR::Clock::READINGS.
+      class Clock
+        include Node
+        kind :clock
+        category :value
+        operands reading: :option
+      end
+
       class ClearScreen
         include Node
         kind :clear_screen

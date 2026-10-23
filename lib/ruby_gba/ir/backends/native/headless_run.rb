@@ -292,6 +292,7 @@ module RubyGBA
           # a sentence saying so rather than a NoMethodError that reads like a typo in the test.
           # test_native_headless_run.rb holds this list to every public method the interpreter
           # has, so one added there and not here fails that test.
+          def clock_at(*, **) = refuse_unanswered!(:clock_at)
           def frame = refuse_unanswered!(:frame)
           def frames_each_pass(&) = refuse_unanswered!(:frames_each_pass)
           def log = refuse_unanswered!(:log)

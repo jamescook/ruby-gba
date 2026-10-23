@@ -450,6 +450,7 @@ module RubyGBA
             list_get: @lists.method(:eval_list_get), list_len: @lists.method(:eval_list_len),
             save_read: @save.method(:eval_save_read), save_sum: @save.method(:eval_save_sum),
             read_scanline: @expressions.method(:eval_read_scanline), timer_ticks: method(:eval_timer_ticks),
+            clock: @expressions.method(:eval_clock),
           )
           # Every statement kind's handler, registered once in one place — see {Lowering}.
           # A declaration is collected during the definitions pass, earlier in #lower, and emits
