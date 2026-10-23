@@ -24,10 +24,13 @@ module RubyGBA
         # doing.
         #
         # WHERE A PASS'S SOUNDS END. The interpreter moves the music on at the frame boundary after
-        # a pass, before anything reads the frame (Reference#advance_frame), so what it has logged
-        # at the end of pass N holds that boundary's notes. The cartridge's player plays them in the
-        # screen's interrupt while the game waits, so a pass's log is read where the game takes up
-        # its next pass, the wait over (rt_wait_vblank_buttons).
+        # a pass, by every frame the pass took, before anything reads the frame
+        # (Reference#advance_frame), so what it has logged at the end of pass N holds that
+        # boundary's notes. The cartridge's player plays them in the screen's interrupt, on each
+        # frame as it comes — while the game waits, and in the middle of a pass that spans several.
+        # So what the player does is held back and logged where the game takes up its next pass,
+        # the wait over (rt_wait_vblank_buttons), and the log of a pass is read there; what the
+        # game itself plays goes in where it is played.
         class SoundLog
           # A new music level reaching a voice already sounding (Runtime::Music#emit_relevel), by
           # voice: B holds the voice's new loudness there.
@@ -47,6 +50,7 @@ module RubyGBA
             @routines = ROUTINES.filter_map { |name| [code.fetch(name).address, name] if code.key?(name) }.to_h
             @follows_level = places.music_follows_level
             @entries = []
+            @music = [] # what the player did since the last wait ended, logged where the next one ends
             @playing = false
             @passes = [] # how many entries the log held as each pass's wait ended
           end
@@ -72,11 +76,14 @@ module RubyGBA
               when "rt_music_note" then note_arrived(@notes.fetch(hl - 2)) # handed past the note's frame
               when "rt_music_note_voice" then voice_told(bc >> 8) if @note
               when "rt_music_quiet"
-                @entries << [:stop_music] if @playing
+                @music << [:stop_music] if @playing
                 @playing = false
               when "rt_music_from_the_top" then @playing = true
-              when "rt_wait_vblank_buttons" then @passes << @entries.size
-              when *RELEVELS.keys then @entries << [:loudness, RELEVELS.fetch(@routines[pc]), bc >> 8]
+              when "rt_wait_vblank_buttons"
+                @entries.concat(@music)
+                @music.clear
+                @passes << @entries.size
+              when *RELEVELS.keys then @music << [:loudness, RELEVELS.fetch(@routines[pc]), bc >> 8]
               end
             end
             self
@@ -93,11 +100,11 @@ module RubyGBA
           def voice_told(volume)
             note = @note
             @note = nil
-            @entries << [:note, note.song, note.pitch]
-            @entries << [:voice, note.voice, note.song, note.pitch, note.volume]
-            @entries << [:loudness, note.voice, note.pitch.zero? ? 0 : volume] if volume
+            @music << [:note, note.song, note.pitch]
+            @music << [:voice, note.voice, note.song, note.pitch, note.volume]
+            @music << [:loudness, note.voice, note.pitch.zero? ? 0 : volume] if volume
             kind = Tunes.part_kind(note.part)
-            @entries << wave_or_noise(kind, note) if %i[wave noise].include?(kind)
+            @music << wave_or_noise(kind, note) if %i[wave noise].include?(kind)
           end
 
           # What the wave or noise voice is doing now, as Reference::Player#log_wave_or_noise says it.

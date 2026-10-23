@@ -377,8 +377,10 @@ module RubyGBA
 
         # SAY THAT A PASS RAN LATE. The block is called at each pass with the pass number
         # (1, 2, 3, …) and gives back how many frames that pass took — one on a program
-        # that keeps up, more on one that does not. Held between one and the same cap the
-        # console holds it at, so a block that says a hundred is answered with ten.
+        # that keeps up, more on one that does not. Every one of them moves the music, the mix
+        # and the buttons on, as the console's interrupt does; what the game reads of it (the
+        # catching up `once_a_frame` and a beat do) is held at the same cap the console holds it
+        # at, so a block that says a hundred has a body caught up ten times.
         #
         # This is here because being late is the one thing this interpreter cannot find out
         # for itself: it has no clock, a frame is over when the program says so, and a pass
@@ -1136,19 +1138,22 @@ module RubyGBA
           step.nil? || step.zero? ? 1 : step
         end
 
-        # What the test said this pass was worth, held between one and the same cap the console
-        # holds it at — so a body asked to catch up can never be asked to catch up further here
-        # than it would there.
+        # What the test said this pass was worth: at least one, the frame it ran in. Every frame of
+        # it is a frame the screen showed, so the music, the mix and the buttons move on by all of
+        # them, as the console's interrupt moves them whatever the game is doing.
         def scripted_pass_frames
           return 1 unless @frames_script
 
-          @frames_script.call(@frame).to_i.clamp(1, IR::Frames::MOST)
+          [@frames_script.call(@frame).to_i, 1].max
         end
 
+        # ...and what the game reads of it is held at the cap the console holds it at
+        # (IR::Frames::MOST) — so a body asked to catch up can never be asked to catch up further
+        # here than it would there — while the count of frames shown takes every one.
         def store_frame_counters(took)
           @vars[IR::Frames::COUNT] += took
           @vars[IR::Frames::SEEN] = @vars[IR::Frames::COUNT]
-          @vars[IR::Frames::STEP] = took
+          @vars[IR::Frames::STEP] = took.clamp(1, IR::Frames::MOST)
         end
 
         # EVERY ROW OF EVERY BEND, WORKED OUT ONCE A PASS, in the gap between frames the game

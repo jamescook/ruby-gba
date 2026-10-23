@@ -691,15 +691,30 @@ module RubyGBA
           def emit_halt(_node) = @asm.call("rt_halt")
 
           # The runtime ends the frame (shows it, reads the buttons, keeps time), and the frame
-          # counters the program can read move on, where the interpreter moves them: a pass is one
-          # frame here.
+          # counters the program can read move on, where the interpreter moves them
+          # (Reference#store_frame_counters): the frames shown by every frame the pass took, and what
+          # the game catches up by held at the cap, both as the runtime counted them
+          # (Runtime::Frame::FRAMES_TAKEN, STEP_TAKEN).
           def emit_wait_vblank(_node)
             @asm.call("rt_wait_vblank")
-            add_in_place(place_of(Frames::COUNT), 1)
+            @asm.load(:a, [@memory[Runtime::Frame::FRAMES_TAKEN]])
+            @asm.load(:c, :a)
+            @asm.load(:hl, place_of(Frames::COUNT))
+            @asm.load(:a, [:hl])
+            @asm.add_a(:c)
+            @asm.load([:hli], :a)
+            3.times do |i|
+              @asm.load(:a, [:hl])
+              @asm.adc_a(0)
+              @asm.load(i == 2 ? [:hl] : [:hli], :a)
+            end
+            @asm.load(:hl, place_of(Frames::STEP))
+            @asm.load(:a, [@memory[Runtime::Frame::STEP_TAKEN]])
+            @asm.load([:hli], :a)
+            @asm.xor_a(:a)
+            3.times { @asm.load([:hli], :a) }
             value(Frames::COUNT)
             store(Frames::SEEN)
-            load_constant(1)
-            store(Frames::STEP)
           end
 
           # --- lists (Runtime::Lists does the work and the checking) ---

@@ -56,6 +56,26 @@ module RubyGBA
             LAST_PASS_TAKEN = "rt last pass taken"
             # 1 while the screen is tear-free (see rt_wait_vblank).
             TWO_PAGES = "rt two pages"
+            # HOW MANY FRAMES A PASS TOOK (IR::Frames). The screen's interrupt counts every frame it
+            # draws (FRAMES, 32 bits, which a reader of the run reads too), whatever the game is
+            # doing; where a pass's wait ends, the frames since the last wait ended are what that
+            # pass answers for (STEP_TAKEN), held between one and IR::Frames::MOST.
+            FRAMES = "rt frames"
+            FRAMES_MARK = "rt frames mark"
+            STEP_TAKEN = "rt step"
+            FRAMES_TAKEN = "rt frames taken" # the same, not held at the cap: what IR::Frames::COUNT moves on by
+            # ...and the real number for each of the last STEPS_KEPT passes, by the pass's number
+            # (PASSES) less its multiples of STEPS_KEPT, for a reader of the run: the music and the
+            # buttons take every frame, past the cap.
+            STEPS = "rt steps"
+            STEPS_KEPT = 16
+            # The buttons as the interrupt reads them, on every frame: held at the last, and every
+            # one that went down on any of them since the last wait ended.
+            PAD_HELD = "rt pad held"
+            PAD_PRESSED = "rt pad pressed"
+            # The frames of music owed: drawn while the game was in the middle of a pass, and played
+            # where the pass ends (see rt_vblank_interrupt).
+            MUSIC_OWED = "rt music owed"
 
             module_function
 
@@ -71,17 +91,46 @@ module RubyGBA
               memory.reserve(HOLD, 4)
               memory.reserve(LAST_PASS_TAKEN, 4) # the reader writes four bytes at a time
               memory.reserve(TWO_PAGES, 1)
+              memory.reserve(FRAMES, 4)
+              memory.reserve(FRAMES_MARK, 1)
+              memory.reserve(STEP_TAKEN, 1)
+              memory.reserve(FRAMES_TAKEN, 1)
+              memory.reserve(STEPS, STEPS_KEPT)
+              memory.reserve(PAD_HELD, 1)
+              memory.reserve(PAD_PRESSED, 1)
+              memory.reserve(MUSIC_OWED, 1)
             end
 
             def emit(asm, memory)
               h = Console::GBCHardware
               vblank = memory.quick(1)
 
-              # The interrupt that says a frame has been drawn. The music plays on from here, a frame
-              # at a time, whatever the game is doing (Runtime::Music).
+              # The interrupt that says a frame has been drawn. The frame is counted, and the buttons
+              # read, so a pass that spans several frames answers for each of them, as the
+              # interpreter's does (Reference#advance_frame, #read_buttons).
+              #
+              # THE MUSIC PLAYS A FRAME FOR EVERY FRAME DRAWN (Runtime::Music), but where the pass
+              # that spans it ends. The interpreter plays a pass's frames of music after everything
+              # the pass did, so a tune named, stopped or turned down half way through a pass that
+              # spans three frames is named before all three; played here as they come, the frames
+              # before the word would be played without it. So a frame drawn while the game is in
+              # the middle of a pass is owed (MUSIC_OWED), and the owed frames are played as the pass
+              # ends (rt_wait_vblank) — a game that keeps up is always waiting by then, and owes
+              # nothing.
               asm.label("rt_vblank_interrupt")
               %i[af bc de hl].each { |pair| asm.push(pair) }
+              asm.load(:a, [memory[WAITING]])
+              asm.and_a(:a)
+              asm.jump_relative(:nz, "rt_vblank_music")
+              asm.load(:hl, memory[MUSIC_OWED])
+              asm.inc([:hl])
+              asm.jump_relative("rt_vblank_music_done")
+              asm.label("rt_vblank_music")
               asm.call("rt_music_tick")
+              asm.label("rt_vblank_music_done")
+              asm.call("rt_pad_read")
+              asm.load(:hl, memory[FRAMES])
+              asm.call("rt_increment32")
               asm.load(:a, 1)
               asm.load_high(vblank, :a)
               %i[hl de bc af].each { |pair| asm.pop(pair) }
@@ -114,8 +163,21 @@ module RubyGBA
               asm.load(:a, [memory[TWO_PAGES]])
               asm.and_a(:a)
               asm.call(:nz, "rt_frame_begins_unless_last")
+              # Waiting from here, and the music owed by the frames the pass spanned played first,
+              # with the interrupt held off so a frame drawn now is played after them.
+              asm.di
               asm.load(:a, 1)
               asm.load([memory[WAITING]], :a)
+              asm.label("rt_wait_vblank_owed")
+              asm.load(:a, [memory[MUSIC_OWED]])
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_wait_vblank_paid")
+              asm.dec(:a)
+              asm.load([memory[MUSIC_OWED]], :a)
+              asm.call("rt_music_tick")
+              asm.jump_relative("rt_wait_vblank_owed")
+              asm.label("rt_wait_vblank_paid")
+              asm.ei
               asm.load_high(:a, h::LCDC)
               asm.bit(7, :a)
               asm.jump_relative(:nz, "rt_wait_vblank_sleep")
@@ -224,16 +286,59 @@ module RubyGBA
               asm.load(:a, :b)
               asm.ret
 
-              asm.label("rt_read_buttons")
+              # In the screen's interrupt, every frame: the buttons held now, and every one that went
+              # down since the frame before added to those pressed during the pass.
+              asm.label("rt_pad_read")
               asm.call("rt_buttons_now")
               asm.load(:b, :a)
               asm.load(:a, [memory[SEEN]])
               asm.cpl
               asm.and_a(:b)
-              asm.load([memory[PRESSED]], :a)
+              asm.load(:c, :a)
+              asm.load(:a, [memory[PAD_PRESSED]])
+              asm.or_a(:c)
+              asm.load([memory[PAD_PRESSED]], :a)
               asm.load(:a, :b)
-              asm.load([memory[HELD]], :a)
+              asm.load([memory[PAD_HELD]], :a)
               asm.load([memory[SEEN]], :a)
+              asm.ret
+
+              # Where a pass's wait ends: the buttons for the pass about to start, from every frame the
+              # last one took, and how many frames that was. The interrupt is held off while they are
+              # taken, so a press it reads cannot fall between the two.
+              asm.label("rt_read_buttons")
+              asm.di
+              asm.load(:a, [memory[PAD_PRESSED]])
+              asm.load([memory[PRESSED]], :a)
+              asm.xor_a(:a)
+              asm.load([memory[PAD_PRESSED]], :a)
+              asm.load(:a, [memory[PAD_HELD]])
+              asm.load([memory[HELD]], :a)
+              asm.load(:a, [memory[FRAMES]])
+              asm.ei
+              asm.load(:b, :a)
+              asm.load(:hl, memory[FRAMES_MARK])
+              asm.sub_a([:hl])
+              asm.load([:hl], :b)
+              asm.jump_relative(:nz, "rt_read_buttons_some")
+              asm.inc(:a) # a pass is worth at least the frame it ran in
+              asm.label("rt_read_buttons_some")
+              asm.load([memory[FRAMES_TAKEN]], :a)
+              asm.load(:b, :a)
+              asm.load(:a, [memory[PASSES]])
+              asm.and_a(STEPS_KEPT - 1)
+              asm.add_a(memory[STEPS] & 0xFF)
+              asm.load(:l, :a)
+              asm.load(:a, memory[STEPS] >> 8)
+              asm.adc_a(0)
+              asm.load(:h, :a)
+              asm.load([:hl], :b)
+              asm.load(:a, :b)
+              asm.cp_a(IR::Frames::MOST + 1)
+              asm.jump_relative(:c, "rt_read_buttons_step")
+              asm.load(:a, IR::Frames::MOST)
+              asm.label("rt_read_buttons_step")
+              asm.load([memory[STEP_TAKEN]], :a)
               asm.ret
 
               # Held from power-on: down before the first frame boundary, and not yet seen there, so

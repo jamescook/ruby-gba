@@ -105,9 +105,13 @@ module RubyGBA
                                              "cartridge keeps no count of its steps"
           end
 
+          # The interpreter is told how many frames each pass took on the cartridge, so whatever
+          # keeps real time — the music, `once_a_frame`, a beat, the buttons read on every frame —
+          # moves on by the same frames on both.
           def play_on_interpreter(program, frames, width, height, save)
             interpreter = Reference.new(save: save).hold(*@held)
             moments = []
+            interpreter.frames_each_pass { |pass| @cartridge.frames_took(pass) }
             interpreter.input_each_frame { |frame| @played.fetch(frame, []) }
                        .each_vblank { |frame| moments << moment_of(interpreter, frame, width, height) }
                        .run(program, frames: frames)

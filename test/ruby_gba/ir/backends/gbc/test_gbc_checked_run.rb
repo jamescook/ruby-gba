@@ -176,6 +176,31 @@ class TestGBCCheckedRun < Minitest::Test
     assert_equal [[:tune, 262], [:tune, 330]], notes.map { |_, name, pitch| [name, pitch.round] }
   end
 
+  # A pass too heavy for one frame spans several on the Color, and what keeps real time — a
+  # song, `once_a_frame` — moves on by every frame the pass took, on the interpreter too.
+  def test_a_pass_that_takes_several_frames_keeps_real_time_as_the_interpreter_does
+    run = checked(frames: 12) do
+      enable_sound
+      song(:tune) do
+        tempo 600
+        note :C4, :eighth
+        note :E4, :eighth
+        note :G4, :eighth
+      end
+      x = var :x, 1
+      frames = var :frames, 0
+      passes = var :passes, 0
+      once_a_frame { frames.add! 1 }
+      game_loop do
+        play_song :tune
+        passes.add! 1
+        repeat(60) { x.set! (x * 1103) + 12_345 }
+      end
+    end
+
+    assert_operator run[:frames], :>, run[:passes], "a pass spanned more than one frame"
+  end
+
   def test_a_sound_log_that_grows_differently_is_a_disagreement
     moment = ->(sounds) { GBC::CheckedRun::Moment.new(frame: 3, variables: {}, picture: 0, sounds: sounds, sprites: [],
                                                        collections: { lists: {}, pools: {} }, sounding: []) }

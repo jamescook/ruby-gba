@@ -87,6 +87,9 @@ module RubyGBA
             @declared_lists = program.walk.select { |node| node.kind == :list_new }.map(&:name).uniq
             @sound_log = SoundLog.new(@places)
             @sounds = 0
+            @frames_took = {}
+            @deciding = false
+            @decided = nil
             @moments = []
             @vars = {}
             @lists = {}
@@ -97,6 +100,10 @@ module RubyGBA
           def [](name) = @vars.fetch(name, 0)
 
           def stopped_at_budget? = false
+
+          # How many frames each pass answered for, by the pass's number, as the interpreter is told
+          # it (Reference#frames_each_pass): one, for a game that keeps up.
+          def frames_took(pass) = @frames_took.fetch(pass, 1)
 
           # The rest of what the interpreter answers, each refused by name.
           # What it drew at the moment the run ended, as the interpreter says it (Reference#sprites):
@@ -180,18 +187,37 @@ module RubyGBA
               next unless pending.nil? && waiting? && passes > @moments.size
 
               pending = [passes, read_variables, read_lists, read_sprites, @sound_log.entries.size]
+              note_frames_took(passes - 1) if passes > 1
               mark_last_pass_taken if passes == frames
               hold_after_this_pass if passes > frames
               waited = 0
-              decide_buttons(passes) if passes <= frames
+              @deciding = passes <= frames
             end
           end
 
-          # The buttons for the pass after +pass+, decided now — before the emulator plays the blank
-          # the game reads them in.
-          def decide_buttons(pass)
-            buttons = @input_script ? @input_script.call(pass) : @held
+          # THE BUTTONS ARE DECIDED A SCREEN FRAME AT A TIME, numbered as the runtime counts the
+          # frames it draws, since the runtime reads them in the screen's interrupt on every one
+          # (Runtime::Frame) — so a pass that spans several frames reads each of them, as the
+          # interpreter's does. They are decided from the first pass's end, before the blank the
+          # game first reads them in: until then they are the ones held from power-on.
+          def decide_buttons
+            return unless @deciding
+
+            frame = word(runtime_place(Runtime::Frame::FRAMES)) + 1
+            return if frame == @decided
+
+            @decided = frame
+            buttons = @input_script ? @input_script.call(frame) : @held
             @core.set_keys(IR::Buttons.mask(buttons))
+          end
+
+          # How many frames pass +pass+ took, as the runtime counted them where its wait ended
+          # (Runtime::Frame::STEPS) — read once the game waits at the end of the pass after it. The
+          # real number, and not the one the game reads, which is held at IR::Frames::MOST: the
+          # music and the buttons take every frame.
+          def note_frames_took(pass)
+            kept = Runtime::Frame::STEPS_KEPT
+            @frames_took[pass] = @core.bus_read8(runtime_place(Runtime::Frame::STEPS) + (pass % kept))
           end
 
           # The moment of +frame+ — a pass's number, or :end for the moment the run ended on, which
@@ -210,6 +236,8 @@ module RubyGBA
           # the end of the run.
           def finish_after_halt
             sounds = @sound_log.entries.size
+            # No pass comes after the last wait to read its frames at: read them here.
+            (1..passes).last(Runtime::Frame::STEPS_KEPT).each { |pass| note_frames_took(pass) unless @frames_took.key?(pass) }
             frames = 0
             until shown_pass == Runtime::Frame::END_SHOWN || frames > 3
               play_frame
@@ -225,8 +253,10 @@ module RubyGBA
           # as the game was found waiting.
           def sounds_after_pass(pass) = @sound_log.any? ? @sound_log.size_after_pass(pass) : 0
 
-          # One frame of the emulator, and what the cartridge played in it into the sound log.
+          # One frame of the emulator, with its buttons decided, and what the cartridge played in it
+          # into the sound log.
           def play_frame
+            decide_buttons
             @core.run_frame
             @sound_log.read(@core.take_arrivals) if @sound_log.any?
           end
