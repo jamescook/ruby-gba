@@ -134,9 +134,25 @@ module RubyGBA
               sprite_colors = drawn_palettes + 64
               asm.label("rt_lend_colors")
               asm.load_hl_sp(2)
-              asm.load(:b, 4)
+              asm.load(:b, 12)
               asm.call("rt_take_args")
-              asm.load_high(:a, Calls.arg(memory, 0, 1))
+              # A sprite wholly off the screen draws nothing, so it borrows nothing: one standing
+              # more than the widest picture past any edge is answered the first, and nothing is
+              # lent or counted. Its place is read as sixteen bits, as rt_sprite reads it.
+              h = Console::GBCHardware
+              [[1, h::SCREEN_WIDTH], [2, h::SCREEN_HEIGHT]].each do |i, edge|
+                place = Calls.arg(memory, i, 3)
+                asm.load_high(:a, place)
+                asm.add_a(Art::LARGEST_SPRITE)
+                asm.load(:l, :a)
+                asm.load_high(:a, place + 1)
+                asm.adc_a(0)
+                asm.jump(:nz, "rt_lend_answer_first")
+                asm.load(:a, :l)
+                asm.cp_a(edge + Art::LARGEST_SPRITE)
+                asm.jump(:nc, "rt_lend_answer_first")
+              end
+              asm.load_high(:a, Calls.arg(memory, 0, 3))
               asm.inc(:a)
               asm.load(:c, :a) # C = the list, one up
               asm.load(:hl, lent)
@@ -211,6 +227,9 @@ module RubyGBA
               asm.load(:d, 0)
               asm.load(:bc, 0)
               asm.ret
+              asm.label("rt_lend_answer_first")
+              asm.load(:e, 0)
+              asm.jump_relative("rt_lend_answer")
             end
 
             # rt_background_colors: HL = a table of a background's colours (Lowering::Picture

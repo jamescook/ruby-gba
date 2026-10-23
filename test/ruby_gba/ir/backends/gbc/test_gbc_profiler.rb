@@ -40,9 +40,10 @@ class TestGBCProfiler < Minitest::Test
   # NINE THINGS IN NINE LISTS OF COLOURS ON THE SCREEN AT ONCE: the Color lends its eight lists
   # to the lists on the screen, so one thing finds none free every pass and is drawn in another
   # list's colours. Nothing in the picture says so to the author; the profile does.
-  # +on_screen+ of nine kinds of thing, each kind in a list of colours of its own.
-  def self.crowd(on_screen)
-    RubyGBA.game("CROWD #{on_screen}", consoles: %i[gba gbc]) do
+  # +on_screen+ of nine kinds of thing, each kind in a list of colours of its own, and +off_screen+
+  # more of the kinds after them, standing far past the screen's right edge.
+  def self.crowd(on_screen, off_screen: 0)
+    RubyGBA.game("CROWD #{on_screen} #{off_screen}", consoles: %i[gba gbc]) do
       screen :tiled
       image :ship, width: 8, height: 8, data: Array.new(64, :red), colors: %i[transparent red]
       lists = (0...9).map do |n|
@@ -51,12 +52,14 @@ class TestGBCProfiler < Minitest::Test
       end
       things = pool :thing, x: 0, y: 0, kind: 0, capacity: 9, image: :ship
       on_screen.times { |n| things.spawn x: 10 + (n * 12), y: 40, kind: n }
+      off_screen.times { |n| things.spawn x: 300, y: 40, kind: on_screen + n }
       game_loop { things.each { |thing| thing.draw_with lists, showing: thing.kind } }
     end
   end
 
   CROWD = crowd(9)
   FEW = crowd(4)
+  ONE_AWAY = crowd(8, off_screen: 1)
 
   private def lent_profile(game, out: StringIO.new)
     game.build_rom(console: :gbc, out: StringIO.new, err: StringIO.new, profile: false).profile(out: out, frames: 30)
@@ -78,6 +81,12 @@ class TestGBCProfiler < Minitest::Test
 
     assert_equal 0, result.lists_missed
     refute_match(/lists of colours free/, out.string)
+  end
+
+  # Eight lists on the screen and a ninth thing far off it: the one off the screen draws nothing,
+  # so it takes none of the eight from the things on it.
+  def test_a_thing_off_the_screen_takes_no_list_from_one_on_it
+    assert_equal 0, lent_profile(ONE_AWAY).lists_missed
   end
 
   def test_a_game_that_lends_no_lists_counts_nothing

@@ -1028,7 +1028,7 @@ module RubyGBA
               palettes = drawing_table("pose_attributes", 4, rows.map(&:attributes))
               at = lists.empty? ? pose : Sum.new(:+, Sum.new(:*, row_drawn_with(obj, lists, sets), Build.int(obj.poses.length)), pose)
               attributes = Entry.new(palettes, 4, true, at)
-              [Entry.new(pictures, 2, true, at), @art.lends? ? lent_attributes(attributes, rows.map(&:palette), at) : attributes]
+              [Entry.new(pictures, 2, true, at), @art.lends? ? lent_attributes(obj, attributes, rows.map(&:palette), at) : attributes]
             end
 
             # One row of a sprite's tables: the picture a pose is drawn from in one list of colours,
@@ -1037,10 +1037,12 @@ module RubyGBA
 
             # A sprite's attributes in a game whose sprites' lists borrow the console's eight
             # (Art#lends?): the ones in the table, which name none of the eight, and the one its list
-            # holds now, which rt_lend_colors finds or lends it as it is placed.
-            def lent_attributes(attributes, palettes, at)
+            # holds now, which rt_lend_colors finds or lends it as it is placed — unless it stands
+            # wholly off the screen, at the sprite's place.
+            def lent_attributes(obj, attributes, palettes, at)
               lists = drawing_table("pose_lent_palettes", 1, palettes)
-              Sum.new(:+, attributes, RuntimeValue.new("rt_lend_colors", [Entry.new(lists, 1, false, at)]))
+              lent = RuntimeValue.new("rt_lend_colors", [Entry.new(lists, 1, false, at), value_node(obj.x), value_node(obj.y)])
+              Sum.new(:+, attributes, lent)
             end
 
             # Which row of its pictures a sprite is on: the first row of the list it is drawn with now,
