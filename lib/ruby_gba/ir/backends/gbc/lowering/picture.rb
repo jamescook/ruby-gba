@@ -24,7 +24,8 @@ module RubyGBA
                                                  draw_column_at: :emit_draw_column_at,
                                                  save_region: :emit_save_region, restore_region: :emit_restore_region,
                                                  background: :emit_background, scroll_background: :emit_scroll_background,
-                                                 affine_background: :emit_affine_background,
+                                                 show_map: :emit_show_map, set_tile: :emit_set_tile,
+                                                 scroll_rows: :emit_scroll_rows,
                                                  present_objects: :emit_present_objects,
                                                  color_list_holds: :emit_color_list_holds,
                                                  fade: :emit_fade, tint: :emit_tint
@@ -398,20 +399,130 @@ module RubyGBA
               runtime_call("rt_background_scroll", [node.x, node.y])
             end
 
-            # A background turned or resized: a Color cannot do either, so it is shown as drawn, as
-            # the interpreter shows it for a console that cannot turn a layer (Console::GBCFeatures).
-            def emit_affine_background(node) = declared_background!(node)
-
             def declared_background!(node)
               @backgrounds.fetch(node.name) { raise LoweringError, "#{node.kind} of undeclared background #{node.name.inspect}" }
             end
 
-            # A background's cells as the Color's grid of 32×32 holds them: each cell's tile and
-            # palette, and nothing — the backdrop — where the map has no tile or does not reach.
-            def grid_of(bg)
-              @grids[bg] ||= begin
+            # Reference#exec_show_map: the background handed map number +which+ whole, as it was
+            # declared — its grid put up — and a number naming no map leaves it as it is. A number
+            # written in the program is looked up here; one worked out as the game runs, in a table
+            # of the maps' grids.
+            def emit_show_map(node)
+              bg = declared_background!(node)
+              grids = bg.every_map.each_index.map { |which| grid_of(bg, which) }
+              known = folded(node.which)
+              return (background_put_up_grid(grids.fetch(known)) if known.between?(0, grids.length - 1)) if known
+
+              table = drawing_table("map_grids", 1, grids)
+              past = fresh("past_the_map")
+              value(node.which)
+              @asm.load(:a, :b)
+              @asm.or_a(:c)
+              @asm.or_a(:d)
+              @asm.jump(:nz, past) # below nought, or far past the maps
+              @asm.load(:a, :e)
+              @asm.cp_a(grids.length)
+              @asm.jump(:nc, past)
+              @asm.load(:hl, table)
+              @asm.load(:d, 0)
+              @asm.add_hl(:de)
+              @asm.load(:a, [:hl])
+              @asm.load(:e, :a)
+              2.times { @asm.push(:de) } # the grid's number, as a four-byte argument
+              @asm.call("rt_background_put_up")
+              @asm.add_sp(4)
+              @asm.label(past)
+            end
+
+            def background_put_up_grid(grid) = runtime_call("rt_background_put_up", [Build.int(grid)])
+
+            # A BACKGROUND BENT ROW BY ROW (Reference#exec_scroll_rows): a standing declaration, so
+            # reaching it switches the bending on (Runtime::Picture's rt_bends_on) and the rows are
+            # worked out at every frame boundary (#emit_bends).
+            def emit_scroll_rows(node)
+              declared_background!(node)
+              @asm.call("rt_bends_on")
+            end
+
+            # Reference#work_out_bends, where the pass's wait ends: every row of the screen, its
+            # number in the bend's variable, the bend's own steps, and how far along it sits kept for
+            # the frame after (Runtime::Picture::BENDS_NEXT); then the variable left past the last row.
+            # +painting+ is the interpreter painting a game that never waits, row by row
+            # (Reference#bend_offset_at), which leaves the variable at the last row.
+            def emit_bends(painting: false)
+              bend = bend_of or return
+
+              height = Console::GBCHardware::SCREEN_HEIGHT
+              row = fresh("bend_row")
+              statement(Build.set(bend.row, 0))
+              @asm.label(row)
+              bend.children.each { |child| statement(child) }
+              emit_bend_row(BendRow.new(row: bend.row, offset: bend.offset))
+              statement(Build.add(bend.row, 1))
+              value(bend.row) # rows from nought to the last, so the low byte is all there is to ask
+              @asm.load(:a, :e)
+              @asm.cp_a(height)
+              @asm.jump(:c, row)
+              statement(Build.set(bend.row, height - 1)) if painting
+            end
+
+            # The one bend the game declares, or nil. The Color shows one background, so it bends one.
+            def bend_of
+              return @bend if defined?(@bend)
+
+              bends = @program.walk.select { |node| node.kind == :scroll_rows }.uniq(&:name)
+              if bends.length > 1
+                raise LoweringError, "this game bends #{bends.length} backgrounds row by row, which #{build_name} cannot make yet."
+              end
+
+              @bend = bends.first
+            end
+
+            # One row's bend, kept: its row's place in BENDS_NEXT, the low byte of how far along.
+            BendRow = Data.define(:row, :offset)
+
+            def emit_bend_row(node)
+              value(node.row)
+              @asm.load(:a, :e)
+              @asm.push(:af)
+              value(node.offset)
+              @asm.pop(:af)
+              @asm.load(:l, :a)
+              @asm.load(:h, 0)
+              @asm.load(:bc, @memory[Runtime::Picture::BENDS_NEXT])
+              @asm.add_hl(:bc)
+              @asm.load([:hl], :e)
+            end
+
+            # Reference#exec_set_tile: one cell of the background given another of its tiles — or
+            # none, the backdrop — written into the console's grid (Runtime::Picture's
+            # rt_background_cell), and a cell off the map changing nothing. Its maps must be one size,
+            # so the edge is the same whichever is showing.
+            def emit_set_tile(node)
+              bg = declared_background!(node)
+              cols, rows = map_size_of(bg)
+              tile = node.tile
+              number, palette = tile.nil? || tile.negative? ? [0, 0] : @art.background_tile(bg.tiles.fetch(tile), Assets::Image.of(@pictures.fetch(bg.tiles.fetch(tile))))
+              colours = palette | (number >= 256 ? Console::GBCHardware::ATTR_TILE_BANK : 0)
+              runtime_call("rt_background_cell", [node.col, node.row, Build.int(cols | (rows << 8)),
+                                                  Build.int((number & 0xFF) | (colours << 8))])
+            end
+
+            def map_size_of(bg)
+              sizes = bg.every_map.map { |map| TileMap.size_of(map) }.uniq
+              return sizes.first if sizes.one?
+
+              raise LoweringError, "the background #{bg.name.inspect} has maps of different sizes and a cell changed with " \
+                                   "`set_tile`, which #{build_name} cannot make yet."
+            end
+
+            # A background's cells as the Color's grid of 32×32 holds them, for its map number
+            # +which+: each cell's tile and palette, and nothing — the backdrop — where the map has
+            # no tile or does not reach.
+            def grid_of(bg, which = 0)
+              @grids[[bg, which]] ||= begin
                 refuse_background!(bg)
-                map = bg.every_map.first
+                map = bg.every_map.fetch(which)
                 cells = Array.new(Art::GRID_CELLS) do |row|
                   Array.new(Art::GRID_CELLS) do |col|
                     tile = map[row] && map[row][col]
@@ -426,9 +537,10 @@ module RubyGBA
             end
 
             def refuse_background!(bg)
-              cols, rows = TileMap.size_of(bg.every_map.first)
-              what = if bg.every_map.length > 1 then "several maps"
-                     elsif cols > Art::GRID_CELLS || rows > Art::GRID_CELLS then "a map of #{cols}×#{rows} cells"
+              sizes = bg.every_map.map { |map| TileMap.size_of(map) }
+              cols, rows = sizes.max
+              what = if sizes.any? { |c, r| c > Art::GRID_CELLS || r > Art::GRID_CELLS }
+                       "a map of #{cols}×#{rows} cells"
                      elsif bg.tile_w != 8 || bg.tile_h != 8 then "tiles of #{bg.tile_w}×#{bg.tile_h}"
                      elsif !Array(bg.recolors).empty? then "other colours to draw it with"
                      elsif bg.streams? then "a map that streams"

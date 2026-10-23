@@ -35,8 +35,9 @@ module RubyGBA
               vectors.label("rt_vblank_vector") # 0x40
               vectors.jump("rt_vblank_interrupt")
               vectors.bytes_of([0x00] * (0x48 - vectors.here))
-              [0x48, 0x50, 0x58, 0x60].each do |at|
-                vectors.bytes_of([0x00] * (at - vectors.here))
+              vectors.jump("rt_hblank_interrupt") # 0x48: the display's, raised as a line ends
+              [0x50, 0x58, 0x60].each do |at|
+                vectors.bytes_of(Array.new(at - vectors.here, 0x00))
                 vectors.reti
               end
               entry = SM83.new("entry", home: Console::GBCHardware::ENTRY)

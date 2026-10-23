@@ -13,7 +13,8 @@ module RubyGBA
             STATEMENTS = Ractor.make_shareable({
                                                  enable_sound: :emit_enable_sound, beep: :emit_beep,
                                                  noise: :emit_noise, wave: :emit_wave, stop_wave: :emit_stop_wave,
-                                                 play_song: :emit_play_song, stop_music: :emit_stop_music
+                                                 play_song: :emit_play_song, stop_music: :emit_stop_music,
+                                                 play_from_list: :emit_play_from_list
                                                })
 
             # The game's songs, as the player reads them.
@@ -38,6 +39,37 @@ module RubyGBA
             # named already. Named `this_frame: true` it takes its first frame where it is named.
             def emit_play_song(node)
               runtime_call(node.this_frame ? "rt_music_play_now" : "rt_music_play", [Build.int(@music.number(node.name))])
+            end
+
+            # Reference::Player#request_song_at: one of a list's songs by a number the game works out —
+            # a table of the songs' numbers, read at the number when it names one of them, and nothing
+            # played when it names none.
+            def emit_play_from_list(node)
+              songs = song_list(node.name).songs
+              table = drawing_table("song_list", 1, songs.map { |song| @music.number(song) })
+              past = fresh("past_the_song")
+              value(node.which)
+              @asm.load(:a, :b)
+              @asm.or_a(:c)
+              @asm.or_a(:d)
+              @asm.jump(:nz, past) # below nought, or far past the list
+              @asm.load(:a, :e)
+              @asm.cp_a(songs.length)
+              @asm.jump(:nc, past)
+              @asm.load(:hl, table)
+              @asm.load(:d, 0)
+              @asm.add_hl(:de)
+              @asm.load(:a, [:hl])
+              @asm.load(:e, :a)
+              2.times { @asm.push(:de) } # the song's number, as a four-byte argument
+              @asm.call(node.this_frame ? "rt_music_play_now" : "rt_music_play")
+              @asm.add_sp(4)
+              @asm.label(past)
+            end
+
+            def song_list(name)
+              @song_lists ||= @program.walk.select { |node| node.kind == :song_list }.to_h { |node| [node.name, node] }
+              @song_lists.fetch(name) { raise LoweringError, "play_from_list of undefined list #{name.inspect}" }
             end
 
             def emit_stop_music(_node) = @asm.call("rt_music_stop")

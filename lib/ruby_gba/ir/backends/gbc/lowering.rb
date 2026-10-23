@@ -69,14 +69,14 @@ module RubyGBA
           # day the Color does it; test_gbc_kind_coverage.rb holds the list and the tables above to
           # every kind there is.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            "the picture" => %i[camera scroll_rows shade_outside set_tile show_map background_colors
-                                copy_tiles copy_owed_tiles pixelate],
-            "sound" => %i[play_from_list play_sound_effect play_sample stop_sample]
+            "the picture" => %i[background_colors copy_tiles copy_owed_tiles],
+            "sound" => %i[play_sound_effect]
           })
 
-          # The kinds the Color cannot do at all, refused in the words its answers have
-          # (#refuse_color_answer_errors!): a layer seen through another.
-          REFUSED = %i[see_through].freeze
+          # The kinds the Color's hardware cannot do at all, refused in the words its answers have
+          # (#refuse_color_answer_errors!): a layer seen through another, a light, a mosaic, a turned
+          # or resized background, a camera over a picture bigger than the screen, a recording.
+          REFUSED = %i[see_through shade_outside pixelate affine_background camera play_sample stop_sample].freeze
 
           # How many bytes of save memory a read or a write moves, by the width it names.
           SAVE_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4 })
@@ -169,7 +169,10 @@ module RubyGBA
               end
             end.uniq.each_with_index.to_h
             @called = Reach.routines(program, also: @tick_handlers.values)
-            @reachable = Reach.statements_from(program, *@called.map { |name| @funcs.fetch(name) }, *@tick_handlers.values)
+            # A bend's steps run at every frame boundary (Picture#emit_bends), wherever it is declared.
+            bends = program.walk.select { |node| node.kind == :scroll_rows }
+            @reachable = Reach.statements_from(program, *@called.map { |name| @funcs.fetch(name) }, *@tick_handlers.values,
+                                               *bends)
             # A list is there, empty, from power-on wherever it is declared (the interpreter gathers
             # them before running), so its storage is the first declaration's.
             @declared_lists = @reachable.reverse.select { |node| node.kind == :list_new }.to_h { |node| [node.name, node] }
@@ -688,7 +691,12 @@ module RubyGBA
             emit_scene_arrival(scene)
           end
 
-          def emit_halt(_node) = @asm.call("rt_halt")
+          # A game that never waits for the screen has its bend worked out as it stops, for the
+          # picture it stops on, as the interpreter works each row out as it paints it.
+          def emit_halt(_node)
+            emit_bends(painting: true) unless @program.walk.any? { |node| node.kind == :wait_vblank }
+            @asm.call("rt_halt")
+          end
 
           # The runtime ends the frame (shows it, reads the buttons, keeps time), and the frame
           # counters the program can read move on, where the interpreter moves them
@@ -715,6 +723,7 @@ module RubyGBA
             3.times { @asm.load([:hli], :a) }
             value(Frames::COUNT)
             store(Frames::SEEN)
+            emit_bends
           end
 
           # --- lists (Runtime::Lists does the work and the checking) ---

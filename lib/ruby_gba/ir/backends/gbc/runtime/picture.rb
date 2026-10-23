@@ -31,12 +31,29 @@ module RubyGBA
             LCDC_WANTED = "rt picture lcdc"
             OVERLAP = "rt picture overlap" # two sprites' masks and where they meet, while they are tested
             GRID_UP = "rt picture grid up" # the number of the grid up, or being put up
+            # The cells of the background changed during the pass, written in the blank after it:
+            # how many, then for each where it is in the console's grid (16 bits), its tile and its
+            # colours. A pass that changes more than CELLS_KEPT has the rest written where it asks.
+            CELLS = "rt picture cells"
+            CELLS_KEPT = 32
+            CELL_BYTES = 4
+            # A BACKGROUND BENT ROW BY ROW (`scroll_each_row`): how far each of the screen's rows
+            # sits along, worked out once a pass into BENDS_NEXT and shown from BENDS in the frame
+            # after, as the scroll is; BEND_BASE the scroll the shown rows are along from, and
+            # BENDING 1 once a game bends.
+            BENDS = "rt picture bends"
+            BENDS_NEXT = "rt picture bends next"
+            BEND_BASE = "rt picture bend base"
+            BENDING = "rt picture bending"
             TINT = "rt picture tint" # what the colours are moved toward (TOWARD_*), the colour, and how far
             # The sprites placed this pass, for a reader of the run: how many, then for each whose it
             # is (one up), which picture, and where, x and y (16 bits each) — DRAWN_BYTES a sprite.
             DRAWN = "rt picture drawn"
             DRAWN_BYTES = 7
             MOST_DRAWN = 40
+
+            # The display's switch that raises its interrupt as each line ends (STAT's mode-0 bit).
+            STAT_HBLANK = 0x08
 
             # How many of the grid's 32 rows are copied in one blank: their tiles and their cells'
             # colours, 512 bytes, which the console's own copy does in about a quarter of the blank.
@@ -50,6 +67,11 @@ module RubyGBA
               memory.reserve(SCROLL, 2)
               memory.reserve(NEXT_SPRITE, 1)
               memory.reserve(MAP_JOB, 6)
+              memory.reserve(CELLS, 1 + (CELLS_KEPT * CELL_BYTES))
+              memory.reserve(BENDS, Console::GBCHardware::SCREEN_HEIGHT)
+              memory.reserve(BENDS_NEXT, Console::GBCHardware::SCREEN_HEIGHT)
+              memory.reserve(BEND_BASE, 1)
+              memory.reserve(BENDING, 1)
               memory.reserve(LCDC_WANTED, 1)
               memory.reserve(OVERLAP, OVERLAP_BYTES)
               memory.reserve(GRID_UP, 1)
@@ -200,6 +222,9 @@ module RubyGBA
               asm.load_high(h::SCX, :a)
               asm.load(:a, [:hl])
               asm.load_high(h::SCY, :a)
+              asm.load(:a, [memory[BENDING]])
+              asm.and_a(:a)
+              asm.call(:nz, "rt_bends_shown")
               asm.load_high(:a, h::LCDC) # the screen's switches, left on if it is on
               asm.and_a(h::LCDC_ON)
               asm.load(:b, :a)
@@ -210,6 +235,7 @@ module RubyGBA
               # A grid being put up, and a painted screen's tiles: as much of each as the blank holds.
               asm.call("rt_picture_map_job")
               asm.push(:af)
+              asm.call(:nc, "rt_picture_cells") # once the grid is all up, the cells changed since
               asm.call("rt_paint_upload")
               asm.jump_relative(:c, "rt_upload_more")
               asm.pop(:af)
@@ -230,6 +256,89 @@ module RubyGBA
               asm.and_a(:a)
               asm.ret(:z)
               asm.scf
+              asm.ret
+
+              # THE ROWS' BENDS FOR THE FRAME ABOUT TO BE DRAWN: the ones the pass worked out, from
+              # the scroll just set, the first row's set now and each row after it as the line before
+              # it ends (rt_hblank_interrupt).
+              asm.label("rt_bends_shown")
+              asm.load(:hl, memory[BENDS_NEXT])
+              asm.load(:de, memory[BENDS])
+              asm.load(:b, Console::GBCHardware::SCREEN_HEIGHT)
+              asm.label("rt_bends_shown_row")
+              asm.load(:a, [:hli])
+              asm.load([:de], :a)
+              asm.inc(:de)
+              asm.dec(:b)
+              asm.jump_relative(:nz, "rt_bends_shown_row")
+              asm.load_high(:a, h::SCX)
+              asm.load([memory[BEND_BASE]], :a)
+              asm.load(:hl, memory[BENDS])
+              asm.add_a([:hl])
+              asm.load_high(h::SCX, :a)
+              asm.ret
+
+              # rt_bends_on(): a background bends from here — the interrupt at the end of each line
+              # switched on, as well as the frame's.
+              asm.label("rt_bends_on")
+              asm.load(:a, [memory[BENDING]])
+              asm.and_a(:a)
+              asm.ret(:nz)
+              asm.inc(:a)
+              asm.load([memory[BENDING]], :a)
+              asm.load_high(:a, h::STAT)
+              asm.or_a(STAT_HBLANK)
+              asm.load_high(h::STAT, :a)
+              asm.load_high(:a, h::IE)
+              asm.or_a(h::INT_STAT)
+              asm.load_high(h::IE, :a)
+              asm.ret
+
+              # At the end of each line drawn: the next line along by its bend. After the last, the
+              # first, for the frame after the blank — which a pass running late leaves to this.
+              asm.label("rt_hblank_interrupt")
+              %i[af de hl].each { |pair| asm.push(pair) }
+              asm.load_high(:a, h::LY)
+              asm.inc(:a)
+              asm.cp_a(Console::GBCHardware::SCREEN_HEIGHT)
+              asm.jump_relative(:c, "rt_hblank_interrupt_row")
+              asm.xor_a(:a)
+              asm.label("rt_hblank_interrupt_row")
+              asm.load(:e, :a)
+              asm.load(:d, 0)
+              asm.load(:hl, memory[BENDS])
+              asm.add_hl(:de)
+              asm.load(:a, [memory[BEND_BASE]])
+              asm.add_a([:hl])
+              asm.load_high(h::SCX, :a)
+              %i[hl de af].each { |pair| asm.pop(pair) }
+              asm.reti
+
+              # The cells changed during the pass (CELLS), each its tile into the first bank of video
+              # memory and its colours into the second.
+              asm.label("rt_picture_cells")
+              asm.load(:hl, memory[CELLS])
+              asm.load(:a, [:hl])
+              asm.and_a(:a)
+              asm.ret(:z)
+              asm.load(:b, :a)
+              asm.xor_a(:a)
+              asm.load([:hli], :a)
+              asm.label("rt_picture_cells_next")
+              asm.load(:a, [:hli])
+              asm.load(:e, :a)
+              asm.load(:a, [:hli])
+              asm.load(:d, :a)
+              2.times do |bank|
+                asm.load(:a, bank)
+                asm.load_high(h::VBK, :a)
+                asm.load(:a, [:hli])
+                asm.load([:de], :a)
+              end
+              asm.dec(:b)
+              asm.jump_relative(:nz, "rt_picture_cells_next")
+              asm.xor_a(:a)
+              asm.load_high(h::VBK, :a)
               asm.ret
 
               # rt_upload in as many blanks as it takes.
@@ -415,11 +524,103 @@ module RubyGBA
               asm.ret
             end
 
+            # ONE CELL OF THE BACKGROUND CHANGED (Reference#exec_set_tile): rt_background_cell(col,
+            # row, size, cell) — +size+ the map's columns and, in its second byte, its rows; +cell+
+            # the tile and, in its second byte, the cell's colours — changes the cell in the
+            # console's grid, its tile in the first bank of video memory and its colours in the
+            # second, and a cell off the map changes nothing.
+            #
+            # IN THE BLANK AFTER THE PASS, with the rest of the pass's picture: the cell waits in
+            # CELLS, so the frame being drawn still shows the pass before, as the interpreter shows
+            # it. A pass that changes more cells than CELLS keeps has the rest written where it asks:
+            # video memory can be written between the lines the display reads but not while it reads
+            # one (STAT's low two bits, 3 while it reads video memory), so each write waits for a
+            # moment it is not reading, with the interrupt held off between the wait and the write.
+            #
+            # A grid with a cell changed is no longer the one declared, so the next put up of it puts
+            # it up again (GRID_UP), as declared.
+            def emit_background_cell(asm, memory)
+              h = Console::GBCHardware
+              arg = ->(i) { Calls.arg(memory, i, 4) }
+              asm.label("rt_background_cell")
+              asm.load_hl_sp(2)
+              asm.load(:b, 16)
+              asm.call("rt_take_args")
+              [0, 1].each do |i| # the column and the row: from nought, and short of the map's size
+                asm.load_high(:a, arg.call(i) + 1)
+                asm.load(:b, :a)
+                asm.load_high(:a, arg.call(i) + 2)
+                asm.or_a(:b)
+                asm.load(:b, :a)
+                asm.load_high(:a, arg.call(i) + 3)
+                asm.or_a(:b)
+                asm.ret(:nz)
+                asm.load_high(:a, arg.call(2) + i)
+                asm.load(:c, :a)
+                asm.load_high(:a, arg.call(i))
+                asm.cp_a(:c)
+                asm.ret(:nc)
+              end
+              asm.load_high(:a, arg.call(1)) # HL = the cell's place in the grid: 32 cells a row
+              asm.load(:l, :a)
+              asm.load(:h, 0)
+              5.times { asm.add_hl(:hl) }
+              asm.load_high(:a, arg.call(0))
+              asm.load(:e, :a)
+              asm.load(:d, 0)
+              asm.add_hl(:de)
+              asm.load(:de, h::TILE_MAP0)
+              asm.add_hl(:de)
+              asm.load(:a, 0xFF)
+              asm.load([memory[GRID_UP]], :a)
+              # Into the cells for the blank, while there is room: HL where it goes, then the cell.
+              asm.load(:a, [memory[CELLS]])
+              asm.cp_a(CELLS_KEPT)
+              asm.jump_relative(:nc, "rt_background_cell_now")
+              asm.inc(:a)
+              asm.load([memory[CELLS]], :a)
+              asm.dec(:a)
+              asm.add_a(:a)
+              asm.add_a(:a) # four bytes a cell
+              asm.push(:hl)
+              asm.load(:l, :a)
+              asm.load(:h, 0)
+              asm.load(:de, memory[CELLS] + 1)
+              asm.add_hl(:de)
+              asm.pop(:de)
+              asm.load(:a, :e)
+              asm.load([:hli], :a)
+              asm.load(:a, :d)
+              asm.load([:hli], :a)
+              asm.load_high(:a, arg.call(3))
+              asm.load([:hli], :a)
+              asm.load_high(:a, arg.call(3) + 1)
+              asm.load([:hl], :a)
+              asm.ret
+              asm.label("rt_background_cell_now")
+              asm.di
+              [0, 1].each do |bank|
+                asm.load(:a, bank)
+                asm.load_high(h::VBK, :a)
+                asm.label("rt_background_cell_wait_#{bank}")
+                asm.load_high(:a, h::STAT)
+                asm.and_a(0x02)
+                asm.jump_relative(:nz, "rt_background_cell_wait_#{bank}")
+                asm.load_high(:a, arg.call(3) + bank)
+                asm.load([:hl], :a)
+              end
+              asm.xor_a(:a)
+              asm.load_high(h::VBK, :a)
+              asm.ei
+              asm.ret
+            end
+
             # THE BACKGROUND. rt_background_put_up(grid) starts putting a grid up — its tiles
             # and then its cells' colours, 32 rows of 32 each, kept by GBC::Art — and the blanks
             # copy it in (rt_upload); rt_background_scroll(x, y) says where the view sits.
             def emit_background(asm, memory)
               h = Console::GBCHardware
+              emit_background_cell(asm, memory)
               asm.label("rt_background_put_up")
               asm.load_hl_sp(2)
               asm.load(:a, [:hl]) # the grid's number: nothing to do when it is the one up
