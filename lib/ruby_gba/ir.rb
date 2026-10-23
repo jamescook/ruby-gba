@@ -22,6 +22,7 @@ require_relative "ir/stacking" # the one rule turning declared layers into a dra
 require_relative "ir/scene_handover" # what a scene does to the screen as it takes over
 require_relative "ir/late_pages" # ...and when a page finished too late is shown
 require_relative "ir/movement" # ...and which of the things it stacks move, so the rest need not be redrawn
+require_relative "ir/sprite_rows" # ...and which sprites of scenes never up together share a row of the table
 require_relative "ir/see_through" # the layers a program can be seen through, and their mix
 require_relative "ir/fading" # ...and the one rule saying which part of the display a fade uses
 require_relative "ir/light_scenes" # ...and which scenes a light is off in, to let one of those have it

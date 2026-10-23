@@ -212,6 +212,7 @@ module RubyGBA
           def emit_present_objects(node)
             by_scene = @layout.scene_sprites
             emit_count_lending_frame
+            emit_hide_scene_rows_on_change
             emit_write_sprite_rows(node.names - @layout.movement.still - by_scene.flat_map(&:names))
             by_scene.each { |group| emit_scene_sprites(group) }
             emit_refresh_still_sprites
@@ -241,6 +242,10 @@ module RubyGBA
           # the order to draw them, back to front, a byte each counting from 0; and +table+ is a
           # cartridge table of two bytes a sprite — its first row, counted from the run's
           # first, and how many rows it takes.
+          #
+          # A run's rows are its own, never taken in turns with another scene's sprites (see
+          # IR::SpriteRows): a sprite of another scene in one of them would be written into the
+          # copy, and the copy is the run's.
           DrawRun = Data.define(:first_slot, :slots, :staging, :order, :members, :table) do
             def holds?(slot) = slot >= first_slot && slot < first_slot + slots
             def staged(slot) = staging + ((slot - first_slot) * 8)
@@ -327,32 +332,91 @@ module RubyGBA
           # Named for the scene, so a report and a measured profile can say whose it is.
           def self.sprites_routine(scene) = Messages::MadeNames.make(:scene_sprites, scene: Modes.strip_scene_prefix(scene))
 
-          # Whether that routine last wrote its sprites as SHOWN — its scene up.
-          def self.sprites_shown(scene) = Messages::MadeNames.make(:scene_sprites_shown, scene: Modes.strip_scene_prefix(scene))
+          # What the variable that picks the scenes held when its scenes' rows were last hidden.
+          def self.scene_rows_hidden_for(state) = Messages::MadeNames.make(:scene_rows_hidden_for, state: state)
 
-          # WRITE ONE SCENE'S MOVING SPRITES, on its frames and on the one frame after it goes.
-          #
-          # While the scene is up its sprites are written every frame, as they always were. The
-          # frame it goes they are written once more, and each finds its scene no longer up and
-          # hides itself, exactly as it did when the frame wrote it. After that nothing writes
-          # them, and nothing needs to: a row stays as it was last written, and hidden is what it
-          # has to be until the scene comes back. So the frame asks one question per scene —
-          # "is it up, or was it up last time?" — and calls the routine only when either holds.
-          #
-          # Remembering "was it up" can never leave a sprite showing: it is set to no only by the
-          # write that hid them. At power-on it can hold anything, and the worst a stray yes does
-          # is hide sprites that were already hidden, since the table has just been cleared.
+          # The routine that hides every row the scenes that variable picks can use (see
+          # #emit_hide_scene_rows_on_change).
+          def self.hide_rows_routine(state) = Messages::MadeNames.make(:scene_rows_hide, state: state)
+
+          # WRITE ONE SCENE'S MOVING SPRITES, on its frames and no others. A scene that has gone
+          # has had its rows hidden already (see #emit_hide_scene_rows_on_change), and another
+          # scene's sprites may be using those rows now, so its own must not touch them.
           def emit_scene_sprites(group)
-            shown = self.class.sprites_shown(group.scene)
+            emit_while_scene_up(group.state, group.value) do
+              @lowering.statement(Build.call(self.class.sprites_routine(group.scene)))
+            end
+          end
+
+          # Emit the block's code to run only while +state+ holds +value+: while that scene is up.
+          def emit_while_scene_up(state, value)
             skip = gensym
-            @lowering.value(Build.binop(:==, Build.var_ref(group.state), Build.int(group.value))) # r0 = up now
-            load_var(TMP, shown)
-            emit(ASM.orr_reg(TMP, TMP, ACC))
-            emit(ASM.cmp_imm(TMP, 0))
-            emit_branch(:bcond, skip, cond: :eq) # not up, and hidden already
-            store_var(ACC, shown)
-            @lowering.statement(Build.call(self.class.sprites_routine(group.scene)))
+            @lowering.value(Build.binop(:==, Build.var_ref(state), Build.int(value)))
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, skip, cond: :eq)
+            yield
             place_label(skip)
+          end
+
+          # HIDE EVERY ROW A SCENE'S SPRITES CAN BE IN, ON THE FRAME THE SCENE CHANGES, before
+          # any sprite is written.
+          #
+          # Scenes never up together take turns at the same rows of the table (see
+          # IR::SpriteRows), so the scene that went cannot hide its own sprites the way a sprite
+          # hides itself: by the time it wrote "hidden" into a row, the scene that came might
+          # have written a sprite there already. So nothing of a scene that is not up writes
+          # anything, and this hides them all first: every row of every sprite a scene puts up,
+          # its window twin's if it has one, and its place in the copy of a run drawn in an order
+          # the game works out. The sprites of the scene that came are written after this, on the
+          # same frame — a moving one by its scene's routine, a still one because the still ones
+          # are written again whenever this variable changes (see #emit_refresh_still_sprites).
+          #
+          # One compare a frame for each variable that picks scenes; on a change, a call to a
+          # routine of one store a row. The stores are a routine of their own so the frame's own
+          # code stays the same size however many sprites the scenes have. What was remembered
+          # can hold anything at power-on, and the worst a stray match does is leave rows as they
+          # are, which the boot has just cleared.
+          def emit_hide_scene_rows_on_change
+            @layout.gated_sprites.map(&:state).uniq.each do |state|
+              remembered = self.class.scene_rows_hidden_for(state)
+              same = gensym
+              load_var(ACC, state)
+              load_var(TMP, remembered)
+              emit(ASM.cmp_reg(ACC, TMP))
+              emit_branch(:bcond, same, cond: :eq)
+              store_var(ACC, remembered)
+              @lowering.statement(Build.call(self.class.hide_rows_routine(state)))
+              place_label(same)
+            end
+          end
+
+          # The body of that routine: hide every row the sprites +names+ are written at.
+          def emit_hide_sprite_rows(names)
+            emit_hide_rows_at(names.flat_map { |name| row_addresses_of(name) }.uniq.sort)
+          end
+
+          # Every address a row of sprite +name+ is written at: its rows in the table, the copy
+          # of them in a run's work memory when it is one of a run, and its window twin's rows.
+          def row_addresses_of(name)
+            obj = @layout.screen.objects.fetch(name)
+            twin = placed_fade.fade_window_for(name)
+            Array.new(obj.pieces) do |piece|
+              [oam_slot(obj.slot, piece), row_address(obj.slot, piece), (oam_slot(twin.slot, piece) if twin)]
+            end.flatten.compact
+          end
+
+          # Mark each row at +addresses+ unused. A store reaches 255 bytes on from the address in
+          # its register, so the address is loaded again only when the next row is past that.
+          def emit_hide_rows_at(addresses)
+            emit_number(ACC, OBJ_HIDDEN_ATTR0)
+            base = nil
+            addresses.each do |address|
+              unless base && address - base < 256
+                base = address
+                emit_number(TMP, base)
+              end
+              emit(ASM.store_halfword_offset(ACC, TMP, address - base))
+            end
           end
 
           # Write these sprites' rows of the console's table. Called twice over: by the frame,
@@ -481,6 +545,21 @@ module RubyGBA
             store_var(TMP, STILL_UP)
             @lowering.statement(Build.call(STILL_ROUTINE))
             place_label(settled)
+          end
+
+          # The routine that writes the still sprites: the ones every scene shows, and then each
+          # scene's own while that scene is up. A scene that is not up writes nothing, not even
+          # "hidden", because its rows are hidden already and another scene's sprites may be in
+          # them now (see #emit_hide_scene_rows_on_change).
+          def emit_write_still_sprite_rows(still)
+            by_scene = @layout.gated_sprites.filter_map do |group|
+              mine = group.names & still
+              group.with(names: mine) if mine.any?
+            end
+            emit_write_sprite_rows(still - by_scene.flat_map(&:names))
+            by_scene.each do |group|
+              emit_while_scene_up(group.state, group.value) { emit_write_sprite_rows(group.names) }
+            end
           end
 
           # Write one sprite's table entries from its live x/y/active variables. A hidden

@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
 require RubyGBA.root.join("lib/ruby_gba/ir/stacking").to_s
+require RubyGBA.root.join("lib/ruby_gba/ir/movement").to_s
+require RubyGBA.root.join("lib/ruby_gba/ir/sprite_rows").to_s
+require RubyGBA.root.join("lib/ruby_gba/ir/modes").to_s
 require RubyGBA.root.join("lib/ruby_gba/console/hardware").to_s
 
 module RubyGBA
@@ -10,9 +13,10 @@ module RubyGBA
         # MORE SPRITES THAN THE CONSOLE HAS PLACES FOR.
         #
         # The console composes its sprites from one table of 128 rows, and every sprite a
-        # game declares is given a row of its own for the whole game — in every scene, not
-        # only the one showing — because the rows are handed out while the cartridge is
-        # built. So a game with more than that has a sprite with nowhere to go.
+        # game declares is given a row while the cartridge is built. Sprites of two scenes
+        # that are never up together take turns at the same rows (see IR::SpriteRows), so
+        # what has to fit is the busiest screen: one scene's sprites with the ones every
+        # scene shows. A game over that has a sprite with nowhere to go.
         #
         # This used to be a number an author counted, until tiled text: the console draws
         # every character of a tiled `draw_text` as a sprite of its own, and a menu is two
@@ -32,10 +36,13 @@ module RubyGBA
           MOST = Console::Hardware::MAX_SPRITES
 
           def detect(program)
-            sprites = Stacking.objects_in_draw_order(program)
-            return [] if sprites.size <= MOST
+            plan = SpriteRows.plan(program) { 1 }
+            return [] if plan.count <= MOST
 
-            [Finding.new(check: NAME, severity: :error, node: sprites[MOST], message: message(sprites))]
+            sprites = Stacking.objects_in_draw_order(program)
+            message = plan.busiest.count > MOST ? busiest_message(plan, sprites) : between_message(plan, sprites)
+            [Finding.new(check: NAME, severity: :error, node: sprites.max_by { |node| plan.rows.fetch(node.name) },
+                         message: message)]
           end
 
           # Why the sprites are refused, or nil when they fit.
@@ -45,13 +52,54 @@ module RubyGBA
 
           private
 
-          def message(sprites)
-            letters, rest = sprites.partition { |node| node.declared.nil? }
+          # The busiest screen is over by itself: say how its places were spent.
+          def busiest_message(plan, sprites)
+            on_screen = sprites.select { |node| plan.busiest.names.include?(node.name) }
+            letters, rest = on_screen.partition { |node| node.declared.nil? }
             pooled, declared = rest.partition { |node| SpriteWords.pool?(node) }
             shares = [letters_sentence(letters), *pool_sentences(pooled), declared_sentence(declared)].compact
-            "This game has #{sprites.size} sprites. The console has places for #{MOST}, and each " \
-              "sprite takes one for the whole game, in every scene. #{shares.join(' ')} " \
+            "#{count_sentence(plan)} #{shares.join(' ')}#{between_sentence(plan, sprites)} " \
               "To fix this, use fewer sprites.#{letters_hint(letters)}#{pool_hint(pooled)}"
+          end
+
+          # Every screen fits, and the sprites standing between two scenes' are what put the
+          # game over: the fix is where they are drawn, not how many there are.
+          def between_message(plan, sprites)
+            names = between_names(plan, sprites)
+            "This game needs #{plan.count} places for sprites. The console has places for #{MOST}. " \
+              "Each scene fits.#{between_sentence(plan, sprites)} To fix this, put #{names} in a layer " \
+              "behind the sprites of every scene, or in a layer in front of all of them."
+          end
+
+          def count_sentence(plan)
+            scenes = plan.busiest.scenes
+            return "This game has #{plan.busiest.count} sprites. The console has places for #{MOST}." if scenes.empty?
+
+            named = scenes.map { |scene| ":#{Modes.strip_scene_prefix(scene)}" }
+            opening = if named.one?
+                        "The #{named.first} scene has #{plan.busiest.count} sprites."
+                      else
+                        "The #{named.join(' and ')} scenes are on the screen at the same time. Together " \
+                          "they have #{plan.busiest.count} sprites."
+                      end
+            "#{opening} This count includes the sprites that every scene shows. The console has places " \
+              "for #{MOST}. The sprites of two scenes that are not on the screen at the same time use " \
+              "the same places, so each scene must fit."
+          end
+
+          def between_sentence(plan, sprites)
+            return "" unless plan.rows_lost_between.positive?
+
+            " But #{between_names(plan, sprites)} keeps the same places in every scene, and it is drawn " \
+              "in front of the sprites of one scene and behind the sprites of another. So those two " \
+              "scenes cannot use the same places, and #{plan.rows_lost_between} more places are necessary."
+          end
+
+          # The sprites standing between two scenes', by the pictures the game named.
+          def between_names(plan, sprites)
+            pictures = sprites.select { |node| plan.between.include?(node.name) }
+                              .map { |node| node.declared ? ":#{node.declared}" : "letters of text" }.uniq
+            pictures.join(", ")
           end
 
           def letters_sentence(letters)

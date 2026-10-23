@@ -83,7 +83,7 @@ module RubyGBA
           # copied out, so a thing the layout decides has one home.
           Layout = Data.define(:screen, :bitmaps, :palette, :indexed_bitmaps, :blob_codecs, :blob_raw_bytes,
                                 :modes, :fading, :tiled, :has_objects, :scene_blend, :movement,
-                                :scene_sprites, :waits_for_frames, :draw_runs, :pose_sent_bytes,
+                                :scene_sprites, :gated_sprites, :waits_for_frames, :draw_runs, :pose_sent_bytes,
                                 :room_tables, :late_pages) do
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
             # which way the console arranges that screen's layers. A background that turns

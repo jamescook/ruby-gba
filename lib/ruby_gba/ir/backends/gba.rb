@@ -573,6 +573,7 @@ module RubyGBA
                                    sprite_offsets: @screen.sprite_offsets,
                                    streamed_sprite_pose_vars: streamed_sprite_pose_vars,
                                    sprite_runs: sprite_runs,
+                                   sprite_turns: @screen.sprite_turns { |name| var_addresses[name] },
                                    scene_sets: scene_sets_record,
                                    missed_routine_parts: missed_routine_parts,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code,
@@ -908,7 +909,7 @@ module RubyGBA
             blob_codecs: @blob_codecs, blob_raw_bytes: @blob_raw_bytes,
             modes: @modes, fading: @fading, tiled: @tiled, has_objects: @has_objects,
             scene_blend: @scene_blend || {}, movement: @movement || IR::Movement::EVERYTHING_MOVES,
-            scene_sprites: @scene_sprites || [],
+            scene_sprites: @scene_sprites || [], gated_sprites: @gated_sprites || [],
             waits_for_frames: @uses_vblank,
             draw_runs: @draw_runs, pose_sent_bytes: @pose_sent_bytes, room_tables: @room_tables,
             late_pages: IR::LatePages.of(program),
@@ -1653,7 +1654,7 @@ module RubyGBA
         def prepare_still_objects(program)
           @movement = IR::Movement.still_objects(program).except(@screen.written_every_frame)
           still = @movement.still
-          @functions.define_generated_func(SpriteDrawing::STILL_ROUTINE) { @sprite_drawing.emit_write_sprite_rows(still) } if still.any?
+          @functions.define_generated_func(SpriteDrawing::STILL_ROUTINE) { @sprite_drawing.emit_write_still_sprite_rows(still) } if still.any?
           prepare_scene_sprites(program, still)
         end
 
@@ -1669,13 +1670,25 @@ module RubyGBA
         # They are still written in the gap after the picture, where every sprite is written, so
         # nothing about which frame's numbers a sprite is drawn from changes (see
         # SpriteDrawing#emit_scene_sprites).
+        #
+        # Every sprite a scene puts up, still or moving, is kept too: when the variable picking
+        # the scenes changes, their rows are hidden before anything is written, since the rows
+        # of scenes never up together are the same rows (see SpriteDrawing#emit_hide_scene_rows_on_change).
         def prepare_scene_sprites(program, still)
-          @scene_sprites = IR::Movement.objects_shown_by_scene(program).filter_map do |things|
-            moving = things.names.select { |name| @screen.objects.key?(name) } - still
+          @gated_sprites = IR::Movement.objects_shown_by_scene(program).filter_map do |things|
+            drawn = things.names.select { |name| @screen.objects.key?(name) }
+            things.with(names: drawn) if drawn.any?
+          end
+          @scene_sprites = @gated_sprites.filter_map do |things|
+            moving = things.names - still
             things.with(names: moving) if moving.any?
           end
           @scene_sprites.each do |group|
             @functions.define_generated_func(SpriteDrawing.sprites_routine(group.scene)) { @sprite_drawing.emit_write_sprite_rows(group.names) }
+          end
+          @gated_sprites.group_by(&:state).each do |state, groups|
+            names = groups.flat_map(&:names)
+            @functions.define_generated_func(SpriteDrawing.hide_rows_routine(state)) { @sprite_drawing.emit_hide_sprite_rows(names) }
           end
         end
 

@@ -372,11 +372,12 @@ module RubyGBA
           # Does any scene send a background colour table of its own as it takes over?
           def scene_bg_palettes? = @scene_sends.each_value.any?(&:bg_palette)
 
-          # How many of the console's 128 sprite places +nodes+ take between them. Usually
-          # one each; a sprite whose picture is bigger than one object takes one per piece.
-          def object_count(nodes) = nodes.sum { |node| @obj_pictures.fetch(node.name).pieces }
+          # Which row of the console's table each sprite is given, and which take turns at rows
+          # with another scene's (see IR::SpriteRows).
+          def sprite_rows = @sprite_rows
 
-          # ...and how many more the twins holding a placed fade off some of them take.
+          # How many more of the console's 128 places the twins holding a placed fade off some
+          # sprites take.
           def twin_object_count = @placed_fade.places_spent { |name| @obj_pictures.fetch(name).pieces }
 
           # THE SPRITES WHOSE ROWS OF THE CONSOLE'S TABLE HAVE TO BE WRITTEN EVERY FRAME, even
@@ -479,6 +480,26 @@ module RubyGBA
           def sprite_offsets
             each_built_sprite.each_with_object({}) do |(_node, sprite), moved|
               sprite.pieces.times { |piece| moved[sprite.slot + piece] = pose_offsets(sprite, piece) }
+            end
+          end
+
+          # WHICH SPRITE IS IN A PLACE SPRITES OF SEVERAL SCENES TAKE TURNS AT (see
+          # Cartridge::BuildRecord#sprite_turns). The block gives the address of what the
+          # variable picking the scenes held when the table was last written for a change of
+          # scene, and of the pose a sprite keeping one frame at a time is showing.
+          def sprite_turns(&address_of)
+            keys = @sprite_rows&.keys || {}
+            each_built_sprite.each_with_object({}) do |(node, sprite), turns|
+              state, value = keys[node.name]
+              next if state.nil? || node.declared.nil?
+
+              at = address_of.call(SpriteDrawing.scene_rows_hidden_for(state)) or next
+              pose_var = sprite.frames && address_of.call(sprite.resident_frame_var)
+              sprite.pieces.times do |piece|
+                (turns[sprite.slot + piece] ||= []) << RubyGBA::Cartridge::BuildRecord::SpriteTurn.new(
+                  at: at, value: value, name: node.declared, offsets: pose_offsets(sprite, piece), pose_var: pose_var
+                )
+              end
             end
           end
 
@@ -1586,19 +1607,19 @@ module RubyGBA
             # fitted into memory below, so it is done once.
             cutter = PoseCutter.new(@bitmaps)
             @obj_pictures = nodes.to_h { |node| [node.name, sprite_pictures(node, cutter)] }
+            # Which row each sprite is given, the ones of scenes never up together taking turns
+            # at the same rows (see IR::SpriteRows). Weighed in pieces, since a picture drawn as
+            # several objects takes a row for each.
+            @sprite_rows = SpriteRows.plan(program) { |node| @obj_pictures.fetch(node.name).pieces }
             check_sprite_count_fits!(nodes)
-            check_fade_windows_fit!(nodes)
+            check_fade_windows_fit!
 
             # The window twins take the front slots and every real sprite moves back by as
             # many, which changes nothing about what is in front of what (a twin paints
             # nothing, and the sprites keep their order among themselves). It has to be
             # this way round: a twin only holds the effect off a sprite that is BEHIND it.
             front = @placed_fade.place_fade_windows { |name| @obj_pictures.fetch(name).pieces }
-            slot_of = {}
-            nodes.reverse_each do |node| # last declared is in front, so it takes the front slots
-              slot_of[node.name] = front
-              front += @obj_pictures.fetch(node.name).pieces
-            end
+            slot_of = nodes.to_h { |node| [node.name, front + @sprite_rows.rows.fetch(node.name)] }
             affine_of = affine_slots(nodes) # ...and which rotation group each turning sprite uses
             prepare_affine(nodes)
 
@@ -1762,8 +1783,8 @@ module RubyGBA
             (0...OBJ_SINE_ENTRIES).map { |degrees| Affine.sine(degrees) }.pack("s<*")
           end
 
-          def check_fade_windows_fit!(nodes)
-            spent = object_count(nodes)
+          def check_fade_windows_fit!
+            spent = @sprite_rows.count
             total = spent + twin_object_count
             return if total <= MAX_SPRITES
 
@@ -1778,12 +1799,22 @@ module RubyGBA
           # each gets the plain count; one with a picture too big for a single object gets
           # told which sprites are spending several, since that is the part nobody wrote.
           def check_sprite_count_fits!(nodes)
-            spent = object_count(nodes)
+            spent = @sprite_rows.count
             return if spent <= MAX_SPRITES
 
             raise LoweringError,
-                  "This game needs #{spent} sprites at once. The console draws #{MAX_SPRITES} at most." \
-                  "#{big_sprites_sentence(nodes)}"
+                  "This game needs #{spent} places for sprites. The console has places for #{MAX_SPRITES}." \
+                  "#{busiest_scene_sentence}#{big_sprites_sentence(nodes)}"
+          end
+
+          # Which scene spends the most places, in a game whose scenes take turns at them.
+          def busiest_scene_sentence
+            scenes = @sprite_rows.busiest.scenes
+            return "" if scenes.empty?
+
+            named = scenes.map { |scene| ":#{Modes.strip_scene_prefix(scene)}" }.join(" and ")
+            " The sprites of two scenes that are not on the screen at the same time use the same places. " \
+              "The busiest is #{named}, with #{@sprite_rows.busiest.count}."
           end
 
           # Which sprites are drawn as more than one object, said in the author's own names
@@ -2397,7 +2428,7 @@ module RubyGBA
             twins = twin_object_count
             return nil if big.empty? && twins.zero?
 
-            RubyGBA::Diagnostics::VideoMemory::Objects.new(used: object_count(@picture.objects) + twins,
+            RubyGBA::Diagnostics::VideoMemory::Objects.new(used: @sprite_rows.count + twins,
                                               capacity: MAX_SPRITES, big: big, twins: twins)
           end
 
