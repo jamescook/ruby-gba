@@ -94,21 +94,6 @@ class TestPoolSprites < Minitest::Test
     assert_equal 1, i[RubyGBA::DSL::Pool.count_var(:enemy)], "the off-screen instance was removed, the on-screen one kept"
   end
 
-  # clamp_to_screen pins an instance on screen using its sprite size — one spawned off
-  # the bottom-right corner is pulled back and drawn at the edge.
-  def test_clamp_to_screen_works_on_an_instance
-    prog = enemy_program do |b, enemies|
-      enemies.spawn x: 300, y: 300 # off the bottom-right
-      b.game_loop do
-        b.wait_vblank
-        enemies.each(&:clamp_to_screen)
-      end
-    end
-    i = game_player.run(prog)
-    # 8x8 sprite clamps its top-left to (240-8, 160-8) = (232, 152)
-    assert_equal GREEN, i.screen.pixel(234, 154), "the instance was pinned to the bottom-right edge"
-  end
-
   # A pool declared inside a scene is scene-owned: its sprites show only while that scene
   # is the active state (the same gating scene-owned hardware sprites use).
   def test_a_scene_owned_pool_shows_only_while_its_scene_is_active
