@@ -1139,7 +1139,7 @@ module RubyGBA
               _, holds_when = COMPARISONS.fetch(node.op)
               return @asm.call(holds_when == :z ? "rt_bool_of_z" : "rt_bool_of_nz")
             end
-            return if node.op == :* && (multiplied_by_one?(node) || multiplied_by_power_of_two?(node))
+            return if node.op == :* && multiplied_by_power_of_two?(node)
 
             sum_of_two(node.lhs, node.rhs, SUMS.fetch(node.op))
           end
@@ -1232,20 +1232,9 @@ module RubyGBA
             [[number, floor].max, ceiling].min
           end
 
-          # A product by a one written in the program — a test that holds, times what it picks, is
-          # how the framework's own code often chooses — as the other number alone. True when it
-          # was done so. The other is still worked out, since working it out can change the game
-          # (a random number moves the stream on).
-          def multiplied_by_one?(node)
-            other = [[node.rhs, node.lhs], [node.lhs, node.rhs]].find { |by, _| folded(by) == 1 }&.last
-            return false unless other
-
-            value(other)
-            true
-          end
-
           # A product by a power of two up to 16 written in the program, as shifts of the four bytes
-          # a place at a time rather than the runtime's multiply. True when it was done so.
+          # a place at a time rather than the runtime's multiply — none at all for a product by one.
+          # True when it was done so.
           def multiplied_by_power_of_two?(node)
             [[node.rhs, node.lhs], [node.lhs, node.rhs]].each do |by, other|
               number = folded(by)
