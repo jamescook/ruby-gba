@@ -36,7 +36,7 @@ class TestPool < Minitest::Test
     assert_equal GREEN, i.screen.pixel(10, 12), "first instance drawn at its own (x, y)"
     assert_equal GREEN, i.screen.pixel(40, 30)
     assert_equal GREEN, i.screen.pixel(80, 50)
-    assert_equal BLACK, i.screen.pixel(200, 100), "nowhere else"
+    assert_equal BLACK, i.screen.pixel(120, 100), "nowhere else"
     assert_equal 3, i[live_count_of(:bullet)], "three instances are live"
   end
 

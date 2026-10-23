@@ -33,7 +33,7 @@ class TestHardwareSpriteFacing < Minitest::Test
         wait_vblank
         held(:left).then  { pac.move :left,  by: 4 } # move AND face left  -> blue pose
         held(:right).then { pac.move :right, by: 4 } # move AND face right -> red pose
-        pac.x.clamp! 8, 224
+        pac.x.clamp! 8, 136 # inside both consoles' screens
         f.add! 1
         (f >= frames).then { halt }
       end
@@ -51,7 +51,7 @@ class TestHardwareSpriteFacing < Minitest::Test
     assert_equal Color.resolve(:blue), left.pixel(10, 43), "moving left shows the left-facing (blue) pose"
 
     right = game_player.input_each_frame { [:right] }.run(facing_program, frames: 45).screen
-    assert_equal Color.resolve(:red), right.pixel(226, 43), "moving right shows the right-facing (red) pose"
+    assert_equal Color.resolve(:red), right.pixel(138, 43), "moving right shows the right-facing (red) pose"
   end
 
   def test_facing_swaps_the_pose_on_the_console
@@ -59,7 +59,7 @@ class TestHardwareSpriteFacing < Minitest::Test
     assert vl.blue?(10, 43), "left-facing pose renders blue, got 0x#{format('%04X', vl.pixel_gba(10, 43))}"
 
     vr = assert_emulator_loads_rom(rom_for(facing_program), frames: 42, keys: KEY_RIGHT)
-    assert vr.red?(226, 43), "right-facing pose renders red, got 0x#{format('%04X', vr.pixel_gba(226, 43))}"
+    assert vr.red?(138, 43), "right-facing pose renders red, got 0x#{format('%04X', vr.pixel_gba(138, 43))}"
   end
 
   # --- friendly guardrails ---
