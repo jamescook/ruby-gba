@@ -979,6 +979,9 @@ module RubyGBA
           # The interrupt dispatcher itself, reached only via the vector. When it was worth
           # keeping in the quick memory it has already been emitted inside the moved block.
           while_emitting_interrupt { emit_irq_handler } if uses_irq? && !irq_runs_fast?
+          # What the interrupt's effects player hands an effect with something to do this frame,
+          # always in the cartridge (see Audio#emit_sound_effect_step_routine).
+          @audio.emit_sound_effect_step_routine if uses_irq? && @audio.plays_sound_effects?
           # After every body that can draw a number: a hot func's body is only ever lowered
           # inside emit_hot_functions, and a timer's tick inside the interrupt dispatcher, so a
           # digit routine one of them alone reaches would still be unregistered any earlier.
@@ -1306,7 +1309,9 @@ module RubyGBA
           emit(ASM.return) # BX LR back to the BIOS dispatcher
           # The routines the music player calls to find its notes a voice, past the return and
           # inside this routine's span — so they move with it if it is copied to the quick
-          # memory, and a call to them is always near enough.
+          # memory, and a call to them from in here is always near enough. The effects' step,
+          # in the cartridge, calls them too, and its calls say where they are going (see
+          # Audio#calling_interrupt_routines_from_cartridge).
           @mixer.emit_music_voice_routines if @mixer.music_takes_voices?
           @audio.emit_sound_effects_routine if @audio.plays_sound_effects?
           # ...and, in a game that asks for a tune `this_frame: true`, the player's big steps as

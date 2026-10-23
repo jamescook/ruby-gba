@@ -266,6 +266,9 @@ module RubyGBA
           # the way into it that says where the run stops.
           SOUND_EFFECTS = :__sound_effects
           SOUND_EFFECTS_TO = :__sound_effects_to
+          # ...and the routine that run hands each effect with something to do this frame
+          # (#emit_sound_effect_step_routine), kept in the cartridge.
+          SOUND_EFFECT_STEP = :__sound_effect_step
 
           # The tune's rank, kept when it starts, for its parts to compare with a voice's holder.
           MUSIC_RANK = :__music_rank
@@ -297,6 +300,10 @@ module RubyGBA
             @effect_waves = @effect_lanes.any? { |lane| lane.kind == :wave }
             @effect_lanes += Array.new(recorded) { |lane| Lane.new(:recorded, lane) }
             if recorded.positive?
+              # The routine an effect's recorded note calls lives inside the screen's interrupt,
+              # which is written before the routine the effects' notes are played from (see
+              # #emit_sound_effect_step_routine) — so it is asked for here, not as that is written.
+              @recorded_note_routines << START_RECORDED_NOTE
               @mixer.ranks_voices!(@effects.flat_map do |name|
                 Array.new(IR::Tunes.recorded_parts(@songs.fetch(name))) do |lane|
                   [Mixer.ranked_owner(@effect_ranks.fetch(name), lane), [name, lane]]
@@ -979,35 +986,103 @@ module RubyGBA
           # the screen's interrupt, and called from it. Entered at SOUND_EFFECTS_TO instead, the run
           # stops before the place in EFFECTS_END — which is how START_EFFECT_HERE plays one effect.
           #
-          # For each effect: asked for, it starts from its first frame; sounding and at its end, it
-          # lets go of every voice it still holds, silencing each; and sounding, each of its lanes
-          # plays its next event if that is due — on the voice only if nobody holding it outranks
-          # the effect, and then holding it while the note sounds and letting it go for a rest. A
-          # tune's note it takes the voice from is no longer held by the tune, so a music volume
-          # moving later does not start it again.
+          # THIS IS ONLY THE WALK: a load and a compare for an effect that is not sounding, which is
+          # nearly every effect on nearly every frame. One that has something to do this frame is
+          # handed to SOUND_EFFECT_STEP (#emit_sound_effect_step_routine), which is kept in the
+          # cartridge. That routine is written out again for every voice the effects use between
+          # them, so inside this one it grew the day an effect used a voice no other did, and this
+          # routine is the one weighed first for the console's quick memory — every byte it gains
+          # is a byte a routine the game runs every frame no longer has. Out here, what it costs is
+          # a call on the frames an effect sounds, run from the cartridge.
           #
-          # Uses r0, r1, r3-r5, r9, r10 and r12. In a game whose effects play recordings or the
-          # wave voice, it calls the mixer or UPLOAD_WAVE too, so it keeps its return address on the
-          # stack and gives back every register it holds around each call.
+          # Uses r0, r1, r3-r5, r9, r10 and r12.
           def emit_sound_effects_routine
             e = @emitter
             slot, entry, outranks = EFFECT_SLOT, EFFECT_ENTRY, EFFECT_OUTRANKS
-            base, table_end, cursor, frame, rank, row = 2, EFFECTS_END, 4, 5, 9, 10
+            table_end, rank = EFFECTS_END, 9
             walk = e.gensym
             out = e.gensym
-            makes_calls = @mixer.ranks_voices? || @effect_waves
+            onward = e.gensym
             e.place_label(SOUND_EFFECTS)
             e.emit(ASM.load_immediate(table_end, effect_table_end))
             e.place_label(SOUND_EFFECTS_TO)
-            e.emit(ASM.push(Mixer::LR)) if makes_calls
+            e.emit(ASM.push(Mixer::LR))
             e.place_label(walk)
             e.emit(ASM.cmp_reg(slot, table_end))
             e.emit_branch(:bcond, out, cond: :hs)
             e.emit(ASM.ldr_offset(rank, entry, EFFECT_RANK))
             e.emit(ASM.cmp_reg(rank, outranks))
             e.emit_branch(:bcond, out, cond: :le)              # not above the tune
+            e.emit(ASM.ldr_offset(ACC, slot, EFFECT_STATE))
+            e.emit(ASM.cmp_imm(ACC, 0))
+            e.emit_branch(:bcond, onward, cond: :eq)           # neither asked for nor sounding
+            @drawing.emit_call_cold_routine(SOUND_EFFECT_STEP)
+            e.place_label(onward)
+            e.emit(ASM.add_imm(slot, slot, @effect_slot_bytes))
+            e.emit(ASM.add_imm(entry, entry, effect_entry_bytes))
+            e.emit_branch(:b, walk)
+            e.place_label(out)
+            e.emit(ASM.pop(PC))
+            # The routine that puts a waveform in place, which a song's wave lane calls as well as
+            # an effect's — so in a game with one, it stays in here with the song's.
+            emit_upload_wave_routine if upload_wave_in_interrupt?
+          end
 
+          # Does the routine that puts a waveform in place sit inside the screen's interrupt? In a
+          # game whose songs play the wave voice, yes, beside the song's lane that calls it. In one
+          # where only effects do, it sits with the effects' step, the one place that calls it.
+          def upload_wave_in_interrupt? = @effect_waves && @waves
+
+          # THE FRAME OF ONE EFFECT that has something to do, handed over by the walk above with
+          # its place in the table in EFFECT_SLOT, its entry in EFFECT_ENTRY and its rank in r9.
+          # Always in the cartridge, so the code for every voice the effects use costs the quick
+          # memory nothing. Bracketed by its name and the same name with _end, so a profile names
+          # the time spent in it (GBA#lowered_routine_addresses).
+          #
+          # Asked for, the effect starts from its first frame; sounding and at its end, it lets go
+          # of every voice it still holds, silencing each; and sounding, each of its lanes plays its
+          # next event if that is due — on the voice only if nobody holding it outranks the effect,
+          # and then holding it while the note sounds and letting it go for a rest. A tune's note it
+          # takes the voice from is no longer held by the tune, so a music volume moving later does
+          # not start it again.
+          #
+          # Gives back every register the walk holds. It calls the mixer's voice routines, the
+          # routines that start a recorded note and, in a game whose songs play the wave voice, the
+          # one that puts a waveform in place, which sit inside the screen's interrupt — in the
+          # quick memory, as often as not, too far for a plain jump — so those calls are made the
+          # way any call across the two is. Where only effects play the wave voice, that routine
+          # is kept here (#upload_wave_in_interrupt?).
+          def emit_sound_effect_step_routine
+            e = @emitter
             onward = e.gensym
+            e.place_label(SOUND_EFFECT_STEP)
+            e.emit(ASM.push(Mixer::LR))
+            calling_interrupt_routines_from_cartridge { emit_sound_effect_step_body(onward) }
+            e.place_label(onward)
+            e.emit(ASM.pop(PC))
+            emit_upload_wave_routine if @effect_waves && !upload_wave_in_interrupt?
+            e.place_label(:"#{SOUND_EFFECT_STEP}_end")
+          end
+
+          # The routines inside the screen's interrupt, called from the block's code, which is
+          # in the cartridge: Placement#emit_call_irq_routine makes each call a plain jump or one
+          # through a register, by where the interrupt's routine landed.
+          def calling_interrupt_routines_from_cartridge(&)
+            @call_interrupt_routine = ->(label) { @drawing.emit_call_irq_routine(label) }
+            @mixer.calling_voice_routines_through(@call_interrupt_routine, &)
+          ensure
+            @call_interrupt_routine = nil
+          end
+
+          def emit_call_interrupt_routine(label)
+            @call_interrupt_routine ? @call_interrupt_routine.call(label) : @emitter.emit_branch(:bl, label)
+          end
+
+          # The body of SOUND_EFFECT_STEP, leaving by +onward+.
+          def emit_sound_effect_step_body(onward)
+            e = @emitter
+            slot, entry = EFFECT_SLOT, EFFECT_ENTRY
+            base, cursor, frame, rank, row = 2, 4, 5, 9, 10
             sounding = e.gensym
             play = e.gensym
             stop = e.gensym
@@ -1075,14 +1150,6 @@ module RubyGBA
             end
             e.emit(ASM.add_imm(frame, frame, 1))
             e.emit(ASM.str_offset(frame, slot, EFFECT_FRAME))
-
-            e.place_label(onward)
-            e.emit(ASM.add_imm(slot, slot, @effect_slot_bytes))
-            e.emit(ASM.add_imm(entry, entry, effect_entry_bytes))
-            e.emit_branch(:b, walk)
-            e.place_label(out)
-            e.emit(makes_calls ? ASM.pop(PC) : ASM.return)
-            emit_upload_wave_routine if @effect_waves
           end
 
           # Where an effect's waveform sits in its entry, after where its lanes start — and how
@@ -1098,7 +1165,7 @@ module RubyGBA
             @emitter.emit(ASM.load_halfword_offset(TMP, row, 6))
             @emitter.emit(ASM.tst_imm(TMP, 0x8000))
             @emitter.emit_branch(:bcond, rest, cond: :eq)
-            @emitter.emit_branch(:bl, UPLOAD_WAVE)
+            upload_wave_in_interrupt? ? emit_call_interrupt_routine(UPLOAD_WAVE) : @emitter.emit_branch(:bl, UPLOAD_WAVE)
             @emitter.place_label(rest)
           end
 
@@ -1135,10 +1202,10 @@ module RubyGBA
             end
           end
 
-          # THE REGISTERS THE EFFECTS ROUTINE KEEPS across a call into the mixer, which uses most
+          # THE REGISTERS AN EFFECT'S STEP KEEPS across a call into the mixer, which uses most
           # of them: the score, the table's end, the cursor, the frame, the slot, the entry, the
           # rank, the row and the rank it plays down to — the numbers #emit_sound_effects_routine
-          # names at its top.
+          # and #emit_sound_effect_step_body name at their tops.
           EFFECT_KEEPS = [2, 3, 4, 5, EFFECT_SLOT, EFFECT_ENTRY, 9, 10, EFFECT_OUTRANKS].freeze
 
           # The program counter: the routine's return address, kept on the stack, is popped
@@ -1723,7 +1790,7 @@ module RubyGBA
             end
             routine = follows_level ? START_RECORDED_NOTE_SCALED : START_RECORDED_NOTE
             @recorded_note_routines << routine
-            @emitter.emit_branch(:bl, routine)
+            emit_call_interrupt_routine(routine)
             @emitter.emit_branch(:b, sounded)
             @emitter.place_label(rest)
             emit_clear_held_note(number) if follows_level

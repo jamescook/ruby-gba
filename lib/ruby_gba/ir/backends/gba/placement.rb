@@ -450,6 +450,7 @@ module RubyGBA
               @emitting_hot = false
               @emitting_region = nil
               place_label(HOT_END)
+              @emit.keep_jumps_inside(HOT_START, HOT_END)
             end
             emit_scene_sets
           end
@@ -553,9 +554,10 @@ module RubyGBA
 
           # Call a routine that never itself moves to the quick memory — always in the
           # cartridge, whichever call reaches it: the digit routines (see
-          # Drawing#emit_digit_routines), a flash chip's byte routines (see SaveChip) and the
+          # Drawing#emit_digit_routines), a flash chip's byte routines (see SaveChip), the
           # routine that brings a background another set of tiles (see
-          # BackgroundDrawing#emit_set_swap_routines).
+          # BackgroundDrawing#emit_set_swap_routines) and the frame of a sound effect that has
+          # something to do (see Audio#emit_sound_effect_step_routine).
           # Plain when the call is cold too, and the same address-and-jump-through
           # #emit_call_func's own crossing call uses when the call is running from inside
           # the moved block, since a label back in the cartridge is too far from the quick

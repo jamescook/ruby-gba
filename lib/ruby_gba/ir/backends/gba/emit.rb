@@ -100,6 +100,7 @@ module RubyGBA
             @late_pages_shown = [] # where a late page is shown at once, for the profile (see #note_late_page_shown)
             @number_loads = []     # every load a number table could take (see NumberLoad)
             @number_table = nil    # the table of the routine being emitted, when it has one
+            @copied_blocks = []    # blocks copied elsewhere to run, which no plain jump may leave (see #keep_jumps_inside)
             # Everything that ends up in @code comes through here, and labels are placed
             # here too, so this is the one place that can watch a register's value survive
             # — or stop surviving — from one instruction to the next.
@@ -269,12 +270,21 @@ module RubyGBA
             @data_links << BlobWord.new(kind: :data_link, blob: blob, offset: offset, target: target)
           end
 
+          # THE CODE BETWEEN +first+ AND +last+ IS COPIED SOMEWHERE ELSE BEFORE IT RUNS — the block
+          # boot copies into the quick memory. A plain jump says how far to go, not where, and the
+          # distance is counted here in the cartridge, so one from inside the block to outside it,
+          # or the other way, lands that far from the copy: in whatever the quick memory holds
+          # there. Such a call has to load the address and jump through it (see
+          # Placement#emit_call_func), and a plain one is refused as the jumps are written.
+          def keep_jumps_inside(first, last) = @copied_blocks << [first, last]
+
           # Rewrite a branch placeholder as a real branch. The word offset is
           # (target - here)/4; ASM folds in the pipeline adjustment.
           def resolve_branch(fix)
             target = @labels.fetch(fix.target) do
               raise LoweringError, "unresolved jump to #{fix.target.inspect}"
             end
+            refuse_jump_out_of_copied_block!(fix, target)
             word_offset = (target - fix.pos) / 4
             encoded =
               case fix.kind
@@ -283,6 +293,16 @@ module RubyGBA
               when :bl then ASM.branch_link(word_offset)
               end
             @code[fix.pos, 4] = encoded
+          end
+
+          def refuse_jump_out_of_copied_block!(fix, target)
+            @copied_blocks.each do |first, last|
+              block = @labels.fetch(first)...@labels.fetch(last)
+              next if block.cover?(fix.pos) == block.cover?(target)
+
+              raise LoweringError, "a plain jump to #{fix.target.inspect} crosses the edge of the block " \
+                                   "copied to the quick memory, so it would land in the wrong place"
+            end
           end
 
           # Patch a data-address load with the blob's run-time address. The blob

@@ -765,18 +765,33 @@ module RubyGBA
           # A NOTE OF A SONG'S RECORDED PART NEEDS A VOICE — the call the music player makes, from
           # the screen's interrupt, with the part's mark in r8. Leaves the voice in r7.
           def emit_take_music_voice
-            @emitter.emit_branch(:bl, MUSIC_VOICE)
+            emit_call_voice_routine(MUSIC_VOICE)
           end
 
           # ...and a part rests, or its tune stops: whichever voice has the part's mark (r8) goes
           # quiet.
           def emit_music_voice_off
-            @emitter.emit_branch(:bl, MUSIC_VOICE_OFF)
+            emit_call_voice_routine(MUSIC_VOICE_OFF)
           end
 
           # ...and the voice sounding the part's note (r8) is wanted in r7, or 0 when it has none.
           def emit_find_music_voice
-            @emitter.emit_branch(:bl, MUSIC_VOICE_FIND)
+            emit_call_voice_routine(MUSIC_VOICE_FIND)
+          end
+
+          # THE CALLS ABOVE MADE FROM OUTSIDE THE SCREEN'S INTERRUPT, for the length of the block:
+          # +call+ is handed each routine's label and writes the call. The routines sit inside the
+          # interrupt's own routine, which may be in the quick memory while the code calling them
+          # is in the cartridge, too far apart for a plain jump (see Audio#emit_sound_effect_step_routine).
+          def calling_voice_routines_through(call)
+            @call_voice_routine = call
+            yield
+          ensure
+            @call_voice_routine = nil
+          end
+
+          def emit_call_voice_routine(label)
+            @call_voice_routine ? @call_voice_routine.call(label) : @emitter.emit_branch(:bl, label)
           end
 
           # The routines those call, emitted once inside the screen's interrupt.
