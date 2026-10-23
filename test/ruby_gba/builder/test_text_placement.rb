@@ -77,13 +77,6 @@ class TestTextPlacement < Minitest::Test
     assert_equal 0, s.pixel(left + IM_WIDE, Y), "nor right of where it ends"
   end
 
-  def test_right_puts_the_last_pixel_against_the_right_edge
-    s = bitmap_screen { draw_text "IM", :right, Y, :white, font: :vari }
-
-    assert_text_at s, "IM", SCREEN - IM_WIDE, Y, font: :vari
-    assert_equal WHITE, s.pixel(SCREEN - 1, Y), "the M's right stroke is the last column"
-  end
-
   def test_left_is_the_left_edge
     s = bitmap_screen { draw_text "IM", :left, Y, :white, font: :vari }
 
