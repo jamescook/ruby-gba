@@ -193,7 +193,8 @@ module RubyGBA
             # nothing (Reference#take_over).
             def emit_scene_arrival(scene)
               arrival = @handover.arrival(scene)
-              emit_screen_change(arrival_mode(arrival))
+              screen = arrival_screen(arrival)
+              emit_screen_change(screen)
               arrival.map_choices.each do |var|
                 load_constant(0)
                 store(var)
@@ -209,11 +210,12 @@ module RubyGBA
               painted.each { |run| emit_run_copy(run) }
               # The sprites this pass placed, in front of the scenery the scene brought of its own,
               # on a screen drawn from tiles (Reference#redraw_sprites_over_arrived_scenery).
-              @asm.call("rt_sprites_shown") if arrival.scenery.any? && arrival_mode(arrival) != :bitmap
+              @asm.call("rt_sprites_on") if arrival.scenery.any? && SceneHandover.tiles?(screen)
             end
 
-            # The kind of screen a scene arrives on: the one it names, or the one its drawing is for.
-            def arrival_mode(arrival) = arrival.screen ? arrival.screen.mode : Modes::SCREEN_OF_MODE.fetch(arrival.mode)
+            # The screen a scene arrives on (:bitmap, :tiled…): the one it names, or the one its
+            # drawing is for.
+            def arrival_screen(arrival) = arrival.screen ? arrival.screen.mode : Modes::SCREEN_OF_MODE.fetch(arrival.mode)
 
             # --- painting ---
 

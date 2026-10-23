@@ -181,7 +181,7 @@ module RubyGBA
               asm.load([memory[Picture::LCDC_WANTED]], :a)
               asm.call("rt_picture_take_down")
               asm.label("rt_screen_changed")
-              asm.call("rt_sprites_hidden")
+              asm.call("rt_sprites_off")
               asm.load(:bc, 0)
               asm.load(:de, 1)
               asm.ret
@@ -259,10 +259,13 @@ module RubyGBA
                 asm.load(:a, edge)
                 asm.load([:hli], :a)
               end
+              # A game that powers on painting starts on a painted screen, with no sprite on it
+              # (rt_screen).
               asm.load(:a, PAINTED)
               asm.load([memory[SCREEN_KIND]], :a)
               asm.load(:a, [memory[Picture::LCDC_WANTED]])
               asm.or_a(h::LCDC_BG_MAP1)
+              asm.and_a(~h::LCDC_SPRITES_ON & 0xFF)
               asm.load([memory[Picture::LCDC_WANTED]], :a)
               asm.ret
             end

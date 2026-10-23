@@ -28,6 +28,10 @@ module RubyGBA
             SCROLL = "rt picture scroll" # x, then y
             NEXT_SPRITE = "rt picture next sprite" # the next free entry of the sprite table's copy (low byte)
             MAP_JOB = "rt picture map job" # the grid being put up: rows left, where from, where to, its bank
+            # The display's switches the game wants, which the blank writes to the console's LCDC
+            # register: the screen on or off, which grid the background is read from, and the
+            # sprite layer on or off — all forty sprites at once, with the sprite table left as it
+            # is (rt_sprites_on, rt_sprites_off).
             LCDC_WANTED = "rt picture lcdc"
             OVERLAP = "rt picture overlap" # two sprites' masks and where they meet, while they are tested
             GRID_UP = "rt picture grid up" # the number of the grid up, or being put up
@@ -321,6 +325,8 @@ module RubyGBA
               asm.load(:b, 128)
               asm.call("rt_copy_b")
               asm.call("rt_picture_write_palettes")
+              # The sprite layer starts on; a painted screen turns it off (rt_screen, rt_paint_start)
+              # and the next sprite pass on a tiled one turns it on again (rt_sprites_end).
               asm.load(:a, h::LCDC_ON | h::LCDC_SPRITES_ON | h::LCDC_BG_PRIORITY)
               asm.load([memory[LCDC_WANTED]], :a)
               asm.ret
@@ -626,7 +632,8 @@ module RubyGBA
             # SPRITES. A pass's sprites are written into the copy of the table front-most first,
             # which is the order the console draws them in (an earlier entry in front), from
             # rt_sprites_begin to rt_sprites_end, which switches off every entry after
-            # the last one written. A sprite is its picture's pieces, each an entry; a piece
+            # the last one written, and turns the sprite layer on when the screen up is drawn from
+            # tiles (a painted one keeps it off: rt_screen). A sprite is its picture's pieces, each an entry; a piece
             # wholly off the screen is left out, since the table's place is a byte and a place far
             # off the screen would come round onto it.
             #
@@ -660,7 +667,7 @@ module RubyGBA
               # The sprites shown from here, on a screen drawn from tiles (rt_screen).
               asm.load(:a, [memory[Paint::SCREEN_KIND]])
               asm.cp_a(Paint::PAINTED)
-              asm.call(:nz, "rt_sprites_shown")
+              asm.call(:nz, "rt_sprites_on")
               asm.load(:a, [memory[NEXT_SPRITE]])
               asm.load(:l, :a)
               asm.load(:h, Memory::SHADOW_OAM >> 8)
@@ -672,14 +679,15 @@ module RubyGBA
               4.times { asm.inc(:l) }
               asm.jump_relative("rt_sprites_end_next")
 
-              # The console's sprite layer on, or off, in the switches the blank writes: the table
-              # is kept either way, and so is what the game placed.
-              asm.label("rt_sprites_shown")
+              # The console's sprite layer on, or off, in the switches the blank writes (LCDC_WANTED).
+              # Off hides every sprite at once; the table is kept either way, and so is the list of
+              # what the game placed, which a reader of the run takes as what it drew.
+              asm.label("rt_sprites_on")
               asm.load(:a, [memory[LCDC_WANTED]])
               asm.or_a(Console::GBCHardware::LCDC_SPRITES_ON)
               asm.load([memory[LCDC_WANTED]], :a)
               asm.ret
-              asm.label("rt_sprites_hidden")
+              asm.label("rt_sprites_off")
               asm.load(:a, [memory[LCDC_WANTED]])
               asm.and_a(~Console::GBCHardware::LCDC_SPRITES_ON & 0xFF)
               asm.load([memory[LCDC_WANTED]], :a)
