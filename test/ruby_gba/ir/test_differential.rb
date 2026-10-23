@@ -259,7 +259,8 @@ class TestDifferential < Minitest::Test
       halt
     end
 
-    oracle = RubyGBA::IR::Backends::Reference.new.run(as_built, frames: 2).screen.to_a
+    # Played as the run plays the other, so the two pictures are of one screen.
+    oracle = RubyGBA::IR::Backends::Reference.new.run(program_played(as_built), frames: 2).screen.to_a
     _, console = backend_pictures(as_lowered_wrong, frames: 2, name: "WRONG")
     bad = mismatched_pixels(oracle, console)
 
