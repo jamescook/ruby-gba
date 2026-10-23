@@ -242,6 +242,28 @@ module RubyGBA
                 asm.load(:a, [:hli])
                 asm.load_high(s.mul_by + i, :a)
               end
+              # The smaller of the two, taken as whole numbers of 32 bits, is the one walked bit by
+              # bit: the product is the same either way round, and a test times a number (one or
+              # nought times what was read) is then one turn of the loop rather than one a bit.
+              %i[b c d].each_with_index do |reg, i|
+                asm.load_high(:a, s.mul_by + 3 - i)
+                asm.cp_a(reg)
+                asm.jump_relative(:c, "rt_mul32_ready")
+                asm.jump_relative(:nz, "rt_mul32_swap")
+              end
+              asm.load_high(:a, s.mul_by)
+              asm.cp_a(:e)
+              asm.jump_relative(:c, "rt_mul32_ready")
+              asm.jump_relative(:z, "rt_mul32_ready")
+              asm.label("rt_mul32_swap")
+              %i[e d c b].each_with_index do |reg, i|
+                asm.load_high(:a, s.mul_by + i)
+                asm.load(:l, :a)
+                asm.load(:a, reg)
+                asm.load_high(s.mul_by + i, :a)
+                asm.load(reg, :l)
+              end
+              asm.label("rt_mul32_ready")
               asm.xor_a(:a)
               4.times { |i| asm.load_high(s.product + i, :a) }
               asm.label("rt_mul32_loop")
