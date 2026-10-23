@@ -949,9 +949,22 @@ module RubyGBA
             # THE BACKGROUND. rt_background_put_up(grid) starts putting a grid up — its tiles
             # and then its cells' colours, 32 rows of 32 each, kept by GBC::Art — and the blanks
             # copy it in (rt_upload); rt_background_scroll(x, y) says where the view sits.
+            #
+            # rt_background_put_up_unscrolled(grid) is the same with the view put back at the
+            # top-left corner first, even when the grid is up already: the blank copies SCROLL into
+            # the console's two scroll registers, so the background is shown from its corner until
+            # the game says where the view sits again. That is what a background's statement and a
+            # scene's arrival put up with, as the Advance does (GBA::BackgroundDrawing
+            # #emit_background_hardware) and the interpreter shows (Reference#put_up_background);
+            # handing a background another of its maps keeps the view where it is (rt_big_show
+            # likewise, beside rt_big_put_up).
             def emit_background(asm, memory)
               h = Console::GBCHardware
               emit_background_cell(asm, memory)
+              asm.label("rt_background_put_up_unscrolled")
+              asm.xor_a(:a)
+              asm.load([memory[SCROLL]], :a)
+              asm.load([memory[SCROLL] + 1], :a)
               asm.label("rt_background_put_up")
               asm.load_hl_sp(2)
               asm.load(:a, [:hl]) # the grid's number: nothing to do when it is the one up

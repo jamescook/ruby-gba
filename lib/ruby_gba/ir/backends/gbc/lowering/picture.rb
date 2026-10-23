@@ -471,26 +471,14 @@ module RubyGBA
               end
             end
 
-            # A background goes up as its grid, or as a map bigger than the grid (Runtime::BigMaps).
-            #
-            # IT GOES UP UNSCROLLED, every time, even when its grid is up already: the view goes
-            # back to the top-left corner until the game's own place for it is written again, at
-            # the start of the next pass. That is what the interpreter shows (it stamps the
-            # picture as declared, Reference#put_up_background) and what the Advance does
-            # (GBA::BackgroundDrawing#emit_background_hardware), so a background put up again on
-            # every pass shows unscrolled on every frame on all of them.
+            # A background goes up as its grid, or as a map bigger than the grid (Runtime::BigMaps),
+            # unscrolled every time, even when its grid is up already: a background put up again
+            # on every pass, after the game has said where its view sits, shows from its corner on
+            # every frame (Runtime::Picture's rt_background_put_up_unscrolled).
             def background_put_up(bg)
               return big_put_up(bg, 0, "rt_big_put_up") if big?(bg)
 
-              emit_view_at_corner
-              runtime_call("rt_background_put_up", [Build.int(grid_of(bg))])
-            end
-
-            # The view over the background back to the top-left corner, for the blank to write.
-            def emit_view_at_corner
-              @asm.xor_a(:a)
-              @asm.load([@memory[Runtime::Picture::SCROLL]], :a)
-              @asm.load([@memory[Runtime::Picture::SCROLL] + 1], :a)
+              runtime_call("rt_background_put_up_unscrolled", [Build.int(grid_of(bg))])
             end
 
             # Whether any of a background's maps is bigger than the Color's grid of 32×32 cells.
