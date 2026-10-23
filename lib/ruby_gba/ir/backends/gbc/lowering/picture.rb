@@ -25,7 +25,7 @@ module RubyGBA
                                                  save_region: :emit_save_region, restore_region: :emit_restore_region,
                                                  background: :emit_background, scroll_background: :emit_scroll_background,
                                                  show_map: :emit_show_map, set_tile: :emit_set_tile,
-                                                 scroll_rows: :emit_scroll_rows,
+                                                 scroll_rows: :emit_scroll_rows, camera: :emit_camera,
                                                  present_objects: :emit_present_objects,
                                                  color_list_holds: :emit_color_list_holds,
                                                  fade: :emit_fade, tint: :emit_tint
@@ -435,6 +435,12 @@ module RubyGBA
             end
 
             def background_put_up_grid(grid) = runtime_call("rt_background_put_up", [Build.int(grid)])
+
+            # Reference#exec_camera: the view moved over the painted picture. The picture is the
+            # screen's size, the console's grid of tiles holding it with nothing past its edge, so
+            # the grid is scrolled (Runtime::Picture's rt_background_scroll), and black shows past
+            # the picture, as the interpreter shows it.
+            def emit_camera(node) = runtime_call("rt_background_scroll", [node.x, node.y])
 
             # A BACKGROUND BENT ROW BY ROW (Reference#exec_scroll_rows): a standing declaration, so
             # reaching it switches the bending on (Runtime::Picture's rt_bends_on) and the rows are

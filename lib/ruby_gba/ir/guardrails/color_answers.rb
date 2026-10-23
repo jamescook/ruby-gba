@@ -53,7 +53,6 @@ module RubyGBA
             # written in the program is told to the console once and has no step of its own.
             when :layers
               [:layers, "This game shows one layer through another (`transparency:`)"] unless node.see_through.empty?
-            when :camera then [:camera, "This line moves a camera over a painted picture"]
             when :sample, :play_sample then [:sample, "This game plays a recording"]
             when :held, :pressed
               [:held, "This line reads the #{node.button.inspect} button"] if %i[l r].include?(node.button)

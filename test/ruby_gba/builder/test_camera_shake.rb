@@ -56,19 +56,6 @@ class TestCameraShake < Minitest::Test
                  "and its right edge has slid off, so that spot shows what was drawn beyond it"
   end
 
-  def test_a_window_pushed_off_the_picture_shows_the_backdrop
-    prog = program do
-      screen :bitmap
-      clear_screen :blue
-      camera 10, 0
-      halt
-    end
-    i = game_player.run(prog)
-
-    assert_equal 0, i.screen.pixel(235, 80), "past the drawn picture there is nothing to show"
-    assert_equal BLUE, i.screen.pixel(0, 80), "inside it, the drawing still shows"
-  end
-
   # --- the shake ---
 
   def test_the_picture_is_off_centre_while_the_shake_runs

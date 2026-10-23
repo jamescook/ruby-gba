@@ -9,23 +9,22 @@ class TestGBCLowering < Minitest::Test
   GBC = RubyGBA::IR::Backends::GBC
 
   def test_step_not_made_yet_is_refused_by_name
-    bent = program do
-      screen :tiled
-      image(:dark, "#" => :black) { "########\n" * 8 }
-      tiles :floor, "#" => :dark
-      bg = background :floor, tiles: :floor, map: ["#" * 4] * 4
-      bg.scroll_each_row { |row| row }
-      game_loop { wait_vblank }
+    score = RubyGBA::Audio::Score
+    blip = score.new(parts: [score::Part.new(notes: [score::Note.new(at: 0, key: :C5)])])
+    effects = program do
+      enable_sound
+      sfx = sound_effects :sfx, [blip]
+      game_loop { sfx.play 0 }
     end
-    error = assert_raises(GBC::LoweringError) { GBC.new.build(bent) }
+    error = assert_raises(GBC::LoweringError) { GBC.new.build(effects) }
 
-    assert_match(/:scroll_rows, which the Game Boy Color build cannot make yet \(the picture\)/, error.message)
+    assert_match(/:play_sound_effect, which the Game Boy Color build cannot make yet \(sound\)/, error.message)
   end
 
   def test_what_the_hardware_lacks_is_refused_naming_it
-    error = assert_raises(GBC::LoweringError) { GBC.new.build(program { camera 3, 4 }) }
+    error = assert_raises(GBC::LoweringError) { GBC.new.build(program { pixelate 4 }) }
 
-    assert_match(/a Game Boy Color cannot: a painted screen on a Game Boy Color is exactly the size of the screen/,
+    assert_match(/a Game Boy Color cannot: a Game Boy Color cannot show the screen in blocks: it has no mosaic/,
                  error.message)
   end
 

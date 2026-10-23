@@ -26,14 +26,13 @@ module RubyGBA
           LONGEST_PASS_FRAMES = 600
 
           # The picture at one moment of a run, read the way the interpreter's screen is: #pixel gives
-          # the colour at (x, y), nil off the screen, #shown every pixel row by row. The Color has no
-          # window over a larger picture, so what is stored is what is shown.
-          Picture = Data.define(:shown, :width, :height) do
+          # the colour at (x, y), nil off the screen, #shown every pixel row by row. #camera_x and
+          # #camera_y are where the view sits over a painted picture (nought on a tiled screen, as the
+          # interpreter's are).
+          Picture = Data.define(:shown, :width, :height, :camera_x, :camera_y) do
             def pixel(x, y) = on_screen?(x, y) ? shown[(y * width) + x] : nil
             def stored_pixel(x, y) = pixel(x, y)
             def to_a = shown.dup
-            def camera_x = 0
-            def camera_y = 0
 
             private
 
@@ -272,7 +271,21 @@ module RubyGBA
               at = i * 4
               (buffer.getbyte(at) >> 3) | ((buffer.getbyte(at + 1) >> 3) << 5) | ((buffer.getbyte(at + 2) >> 3) << 10)
             end
-            Picture.new(shown: shown, width: width, height: height)
+            camera_x, camera_y = view_over_painting
+            Picture.new(shown: shown, width: width, height: height, camera_x: camera_x, camera_y: camera_y)
+          end
+
+          # Where the view sits over a painted picture: the scroll the game last asked for
+          # (Runtime::Picture::SCROLL), each a byte read as a whole number from -128, or nought on a
+          # screen drawn from tiles.
+          def view_over_painting
+            return [0, 0] unless @core.bus_read8(runtime_place(Runtime::Paint::SCREEN_KIND)) == Runtime::Paint::PAINTED
+
+            at = runtime_place(Runtime::Picture::SCROLL)
+            [0, 1].map do |i|
+              byte = @core.bus_read8(at + i)
+              byte >= 0x80 ? byte - 0x100 : byte
+            end
           end
 
           def read_variables = @places.variables.transform_values { |address| word(address) }

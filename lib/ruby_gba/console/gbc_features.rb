@@ -72,9 +72,9 @@ module RubyGBA
         clear_screen: works,
         inside: works,
         grid: works,
-        camera: refused("a painted screen on a Game Boy Color is exactly the size of the screen, so " \
-                        "there is no larger picture for `camera` to move over. Draw the part to show, " \
-                        "or use a tiled background and `scroll_to`."),
+        camera: works("a painted screen on a Game Boy Color is the size of the screen, so moving the " \
+                      "view over it shows black past the picture's edge. To move over a bigger world, " \
+                      "use a tiled background and `scroll_to`."),
         keep_showing: works("a painted screen on a Game Boy Color is always shown whole, so a picture " \
                             "kept showing never tears."),
 
