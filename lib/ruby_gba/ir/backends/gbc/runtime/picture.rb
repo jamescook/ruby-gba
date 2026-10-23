@@ -95,7 +95,7 @@ module RubyGBA
             # can show, backgrounds' 0 to 7 and sprites' 8 to 15 (Art#palettes_in_use): a fade
             # moves those alone.
             def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false,
-                     palettes_in_use: ALL_PALETTES)
+                     palettes_in_use:)
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
                                       drawn_palettes: drawn_palettes)
               emit_upload(asm, memory)
@@ -231,9 +231,6 @@ module RubyGBA
             TOWARD_BLACK = 0
             TOWARD_WHITE = 1
             TOWARD_COLOR = 2
-
-            # Every palette: the backgrounds' eight, then the sprites'.
-            ALL_PALETTES = (0...16).to_a.freeze
 
             # The palettes +numbers+ as runs of neighbours, [first, how many], for one walk each.
             def palette_runs(numbers)
@@ -1339,7 +1336,7 @@ module RubyGBA
             #
             # rt_tint_apply moves them again by the fade in force, from the colours they are drawn in
             # now: the art's, or +drawn_palettes+ for a game that draws a background in others.
-            def emit_tint(asm, memory, drawn_palettes = nil, palettes_in_use = ALL_PALETTES)
+            def emit_tint(asm, memory, drawn_palettes, palettes_in_use)
               at = memory[TINT]
               arg = ->(i) { Calls.arg(memory, i, 3) }
               asm.label("rt_tint")
@@ -1406,7 +1403,6 @@ module RubyGBA
               asm.ret
               # C colours from HL into the copy at DE.
               asm.label("rt_tint_colors")
-              asm.label("rt_tint_color")
               asm.push(:bc)
               asm.push(:de)
               asm.load(:a, [:hli])
@@ -1469,7 +1465,7 @@ module RubyGBA
               asm.load(:e, :c)
               asm.pop(:bc)
               asm.dec(:c)
-              asm.jump_relative(:nz, "rt_tint_color")
+              asm.jump_relative(:nz, "rt_tint_colors")
               asm.ret
 
               # A = channel A (0..31) of a colour moved; B says which channel of the tint's colour
