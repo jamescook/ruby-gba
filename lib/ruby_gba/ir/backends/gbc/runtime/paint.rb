@@ -67,8 +67,9 @@ module RubyGBA
             CLEAR_AT = SOLID_AT + 16
             PALETTE = 7
 
-            # In the bank byte of an entry of the list to send: a cell pointed at a single colour,
-            # the colour in the two bits above the bank's number.
+            # In the bank byte of an entry of the list to send: a cell pointed at the clear tile —
+            # or, for the clear tile itself (CLEAR_TILE_ENTRY), the tile rewritten in the colour in
+            # the two bits above the bank's number.
             SOLID = 0x80
             # In the bank byte of an entry for a tile's own picture: its cell of the grid shows it
             # already, so only the tile is sent. Most of a picture painted again is such tiles.
@@ -81,7 +82,7 @@ module RubyGBA
             # The runtime's own places: the kind of screen up; the three lists — what to send in
             # the blank, the tiles painted since the last pass, the tiles whose cells show their own
             # picture — each a count and then two bytes an entry (a tile's number in its bank, and
-            # the bank's among BANKS, with SOLID and a colour for a cell pointed at one, or
+            # the bank's among BANKS, with SOLID for a cell pointed at the clear tile, or
             # KEEPS_CELL for a tile whose cell shows it already); how far
             # the blank has got down the first; whether the screen was cleared since the last pass,
             # and the colour every cell not showing its own picture shows; and the area painting
@@ -195,8 +196,9 @@ module RubyGBA
             end
 
             # At power-on, with the screen off: the frame's three banks cleared (every tile black,
-            # in generation 0, and shown as the single colour black), the four single-colour tiles,
-            # and the second grid pointed at black throughout.
+            # in generation 0, and shown as the single colour black), the black tile and the clear
+            # tile, both black, and the second grid pointed at the clear tile on the screen and at
+            # the black one past its edges.
             def emit_start(asm, memory, quick)
               h = Console::GBCHardware
               asm.label("rt_paint_start")
@@ -230,9 +232,9 @@ module RubyGBA
               asm.load(:hl, GRID)
               asm.load(:de, Art::GRID_CELLS - COLUMNS)
               asm.load(:c, ROWS)
+              asm.load(:a, CLEAR_TILE)
               asm.label("rt_paint_start_screen_row")
               asm.load(:b, COLUMNS)
-              asm.load(:a, CLEAR_TILE)
               asm.label("rt_paint_start_screen_cell")
               asm.load([:hli], :a)
               asm.dec(:b)
@@ -1313,8 +1315,8 @@ module RubyGBA
             #
             # - After a clear, every tile showing a picture of its own (OWN_LIST) that was not
             #   painted again since is the clearing colour throughout, and its cell is pointed at
-            #   that colour's tile. Every other cell already shows a single colour, the last
-            #   clear's; a clear in another colour points every one of them at the new one.
+            #   the clear tile. Every other cell shows the clear tile already, so a clear in
+            #   another colour is the clear tile rewritten in it.
             # - Every tile painted since (DIRTY_LIST) is held against the copy last sent, and sent
             #   if it differs, or if its cell shows a single colour now.
             def emit_scan(asm, memory, quick)
@@ -1345,8 +1347,7 @@ module RubyGBA
               asm.jump(:z, "rt_paint_scan_own")
               asm.load([:hl], :a)
               # A clear in another colour: every cell not showing its own tile shows the clear tile,
-              # so the clear tile takes the colour — one entry, where pointing each cell at a tile of
-              # the colour was one a cell, and took the blanks of most of a second. A tile painted
+              # so the clear tile takes the colour, one entry for the whole screen. A tile painted
               # since the clear is sent as its own picture below, in the same blanks.
               asm.swap(:a)
               asm.or_a(SOLID)
@@ -1588,8 +1589,9 @@ module RubyGBA
 
             # IN THE BLANK: the list, from where it got to, for as long as the blank lasts. A tile
             # of its own is copied by the console's own copy, and its cell pointed at it unless it
-            # is already (KEEPS_CELL); a single colour is the cell pointed at that colour's tile. Carry set when some of it is left
-            # for the next blank. With the screen off the line never moves, and it all goes now.
+            # is already (KEEPS_CELL); a single colour is the cell pointed at the clear tile, and
+            # CLEAR_TILE_ENTRY the clear tile rewritten. Carry set when some of it is left for the
+            # next blank. With the screen off the line never moves, and it all goes now.
             def emit_upload(asm, memory)
               h = Console::GBCHardware
               asm.label("rt_paint_upload")
@@ -1685,14 +1687,7 @@ module RubyGBA
               asm.load(:a, :e)
               asm.swap(:a)
               asm.and_a(3)
-              asm.load(:c, :a)
-              asm.rrca
-              asm.sbc_a(:a)
-              asm.load(:d, :a)
-              asm.load(:a, :c)
-              2.times { asm.rrca }
-              asm.sbc_a(:a)
-              asm.load(:e, :a)
+              asm.call("rt_paint_ink_bytes")
               asm.load(:a, 1)
               asm.load_high(h::VBK, :a)
               asm.load(:hl, CLEAR_AT)

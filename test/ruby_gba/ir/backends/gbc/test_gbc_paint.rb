@@ -23,9 +23,8 @@ class TestGBCPaint < Minitest::Test
     assert_equal RubyGBA::Graphics::Color.resolve(:blue), run.screen.pixel(0, 0)
   end
 
-  # A clear in a new colour is the clear tile rewritten, not the 360 cells pointed at a colour one
-  # by one, which took the blanks of most of a second: with the screen already on, a game that
-  # clears in another colour every pass still takes a frame a pass.
+  # A clear in a new colour is the clear tile rewritten, one entry for the whole screen: with the
+  # screen already on, a game that clears in another colour every pass takes a frame a pass.
   def test_a_clear_in_a_new_colour_every_pass_takes_a_frame_a_pass
     run = checked(frames: 6) do
       screen :bitmap
