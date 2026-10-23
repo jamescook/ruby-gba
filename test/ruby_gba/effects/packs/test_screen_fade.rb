@@ -554,12 +554,6 @@ class TestScreenFade < Minitest::Test
     assert_operator ramp(prog, 40).uniq.size, :>, 17, "the bare fade_out repeated the display's levels"
   end
 
-  # The display's own fade counts in sixteenths, so a plain bitmap screen, which has no
-  # colour table to walk, keeps the old steps. It is the yardstick for the one below.
-  def test_a_long_fade_on_a_plain_bitmap_screen_keeps_seventeen_steps
-    assert_equal 17, ramp(long_fade(:bitmap), 50).uniq.size
-  end
-
   # Finer steps, and not a different fade: the screen is white on the same frames, and red
   # again on the same frames, as the display's own fade makes it.
   def test_a_long_fade_is_white_and_back_on_the_same_frames

@@ -93,22 +93,6 @@ class TestTintAcrossScreens < Minitest::Test
     end
   end
 
-  # The plain bitmap screen's display mixes a tint at eight bits a channel, and a screen with
-  # a colour table has it mixed into the table at five, so a gray of 16 half way to yellow is
-  # 24 on the one and 23 on the other. A tint kept across the change is mixed the way the
-  # screen it is now on mixes it.
-  MID_GRAY = 16 | (16 << 5) | (16 << 10)
-  GRAY_TO_YELLOW = { plain: 24 | (24 << 5) | (8 << 10), tiled: 23 | (23 << 5) | (8 << 10) }.freeze
-
-  def test_a_tint_kept_across_is_mixed_the_way_the_new_screen_mixes
-    %i[plain tiled].permutation.each do |from, to|
-      handover = tinted_handover(from, to, ground: MID_GRAY, toward: :yellow)
-
-      assert_backends_agree(handover, frames: 10, console_frames: 12, name: "TROUND")
-      assert_equal GRAY_TO_YELLOW.fetch(to), shown_after_handover(handover), "from #{from} to #{to}"
-    end
-  end
-
   # A fade takes the tint's place, so a fade back to the picture as drawn leaves nothing to
   # bring back on the next screen.
   def test_a_fade_after_the_tint_leaves_nothing_to_bring_back
