@@ -3,8 +3,8 @@
 require "test_helper"
 require "mixed_sound"
 
-# The tests of test_play_this_frame.rb whose games play a song on a recording, which a Game Boy
-# Color's hardware cannot play, so they play on the Advance's runs alone.
+# The tests of test_play_this_frame.rb whose games play a song or a sound effect on a recording,
+# which a Game Boy Color's hardware cannot play, so they play on the Advance's runs alone.
 class TestPlayThisFrameOnTheAdvance < Minitest::Test
   include MixedSound
 
@@ -51,5 +51,58 @@ class TestPlayThisFrameOnTheAdvance < Minitest::Test
   # ...and the console makes the same bytes as the interpreter, slice for slice, with both in it.
   def test_the_console_mixes_a_recorded_song_asked_for_this_frame_as_the_interpreter_does
     assert_mixes_agree(recorded_game(song: true, click: true), frames: 20)
+  end
+
+  # TWO EFFECTS OF A GROUP ON RECORDINGS: the one sounding since pass 1 is cut off where the other
+  # is asked, and the other's first note starts, both in the same slice of sound on both backends.
+  def test_the_console_cuts_off_and_starts_recorded_effects_of_a_group_as_the_interpreter_does
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      instrument :piano, pcm: [60, -60] * 16_000, rate: 8000, note: :C4
+      sfx = sound_effects :sfx, [
+        Score.new(tempo: 150, group: :voice, parts: [Part.new(plays: :piano, notes: [Note.new(at: 0, key: :G4)])]),
+        Score.new(tempo: 150, group: :voice, parts: [Part.new(plays: :piano, notes: [Note.new(at: 0, key: :D5), Note.new(at: 5, key: :C5)])]),
+      ]
+      pass = var :pass, 0
+      game_loop do
+        pass.add! 1
+        (pass == 1).then { sfx.play 0 }
+        (pass == ASKED_ON).then { sfx.play 1, this_frame: true }
+      end
+    end
+    b.finalize_program
+
+    assert_mixes_agree(b.program, frames: 20)
+  end
+
+  # AN EFFECT ITS GROUP DOES NOT PLAY, asked for `this_frame: true`, changes nothing where it is
+  # asked: another group's effect, cut off by a plain ask earlier in the same pass, is still let go
+  # of on the next frame, on both backends.
+  def test_an_effect_not_played_asked_for_this_frame_cuts_nothing_off_early
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      instrument :piano, pcm: [60, -60] * 16_000, rate: 8000, note: :C4
+      held = ->(group, priority, key) { Score.new(tempo: 150, group: group, priority: priority, parts: [Part.new(plays: :piano, notes: [Note.new(at: 0, key: key)])]) }
+      sfx = sound_effects :sfx, [held.call(:a, 5, :G4), held.call(:a, 0, :A4), held.call(:b, 0, :C5), held.call(:b, 0, :D5)]
+      pass = var :pass, 0
+      game_loop do
+        pass.add! 1
+        (pass == 1).then do
+          sfx.play 0
+          sfx.play 2
+        end
+        (pass == ASKED_ON).then do
+          sfx.play 3
+          sfx.play 1, this_frame: true
+        end
+      end
+    end
+    b.finalize_program
+
+    assert_mixes_agree(b.program, frames: 20)
   end
 end
