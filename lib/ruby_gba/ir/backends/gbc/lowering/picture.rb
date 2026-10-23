@@ -966,8 +966,8 @@ module RubyGBA
                   @asm.jump(:nz, out_of_range)
                 end
                 if said.nil? || said.between?(0, obj.poses.length - 1)
-                  picture, attributes = picture_and_attributes_drawn(obj, pose, level)
-                  runtime_call("rt_sprite", [picture, obj.x, obj.y, attributes])
+                  picture, attributes, lent = picture_and_attributes_drawn(obj, pose, level)
+                  runtime_call("rt_sprite", [*lent, picture, obj.x, obj.y, attributes])
                 end
                 @asm.label(out_of_range) if out_of_range
               end
@@ -1013,7 +1013,10 @@ module RubyGBA
             # pictures are a row of poses in its own colours, then a row for each list it can be
             # drawn with (Reference#object_recolor), so the two tables are read at the same place. A
             # list that holds other colours as the game runs has a row for every set it can hold, the
-            # ones it was declared with first (Reference#colors_held_by).
+            # ones it was declared with first (Reference#colors_held_by). In a game whose sprites' lists
+            # borrow the console's eight (Art#lends?), the attributes name none of the eight, and a
+            # third entry is the game's number for the list the row is drawn in, which rt_sprite
+            # borrows one of the eight for as the sprite's first piece goes in; nil otherwise.
             def picture_and_attributes_drawn(obj, pose, level)
               lists = Array(obj.recolors)
               sets = [[nil], *lists.map { |colors| colors.is_a?(Symbol) ? sets_held_by(colors) : [colors] }]
@@ -1027,23 +1030,13 @@ module RubyGBA
               pictures = drawing_table("pose_pictures", 2, rows.map(&:picture))
               palettes = drawing_table("pose_attributes", 4, rows.map(&:attributes))
               at = lists.empty? ? pose : Sum.new(:+, Sum.new(:*, row_drawn_with(obj, lists, sets), Build.int(obj.poses.length)), pose)
-              attributes = Entry.new(palettes, 4, true, at)
-              [Entry.new(pictures, 2, true, at), @art.lends? ? lent_attributes(obj, attributes, rows.map(&:palette), at) : attributes]
+              lent = @art.lends? ? Entry.new(drawing_table("pose_lent_palettes", 1, rows.map(&:palette)), 1, false, at) : nil
+              [Entry.new(pictures, 2, true, at), Entry.new(palettes, 4, true, at), lent]
             end
 
             # One row of a sprite's tables: the picture a pose is drawn from in one list of colours,
             # the palette that list makes of it, and the attributes rt_sprite is handed for it.
             PoseRow = Data.define(:picture, :palette, :attributes)
-
-            # A sprite's attributes in a game whose sprites' lists borrow the console's eight
-            # (Art#lends?): the ones in the table, which name none of the eight, and the one its list
-            # holds now, which rt_lend_colors finds or lends it as it is placed. It is handed the
-            # sprite's place too, so a sprite wholly off the screen borrows none.
-            def lent_attributes(obj, attributes, palettes, at)
-              lists = drawing_table("pose_lent_palettes", 1, palettes)
-              lent = RuntimeValue.new("rt_lend_colors", [Entry.new(lists, 1, false, at), value_node(obj.x), value_node(obj.y)])
-              Sum.new(:+, attributes, lent)
-            end
 
             # Which row of its pictures a sprite is on: the first row of the list it is drawn with now,
             # and for a list that holds other colours, as many rows further as the set it holds.

@@ -59,8 +59,9 @@ class TestGBCProfiler < Minitest::Test
 
   CROWD = crowd(9)
   FEW = crowd(4)
-  # Just past the right edge, far past it, far to the left, and far above.
-  AWAY = [[170, 40], [300, 40], [-100, 40], [40, -100]].freeze
+  # Just past the right edge, far past it, far to the left, far above, and just past the left and
+  # top edges, where a thing coming on or going off stands.
+  AWAY = [[170, 40], [300, 40], [-100, 40], [40, -100], [-30, 40], [40, -30]].freeze
   ONE_AWAY = AWAY.map { |place| crowd(8, away: [place]) }.freeze
 
   private def lent_profile(game, out: StringIO.new)

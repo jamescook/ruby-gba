@@ -59,7 +59,9 @@ module RubyGBA
             # which a profile of the game reports (Diagnostics::GBCProfiler).
             LENT = "rt picture lent"
             LENT_MISSED = 8 + 3
-            LENT_BYTES = LENT_MISSED + 2
+            # 1 while the sprite being placed has yet to place a piece, so has borrowed no list.
+            LENT_PENDING = LENT_MISSED + 2
+            LENT_BYTES = LENT_PENDING + 1
 
             # The display's switch that raises its interrupt as each line ends (STAT's mode-0 bit).
             STAT_HBLANK = 0x08
@@ -112,11 +114,35 @@ module RubyGBA
               emit_background_colors(asm, drawn_palettes) if drawn_palettes
             end
 
+            # The sprite's first piece going into the sprite table borrows its list (rt_lend_list)
+            # and puts the one of the eight it is in into the sprite's attributes, at +attributes+,
+            # for this piece and the rest. Keeps BC, DE and HL.
+            def emit_lend_on_first_piece(asm, memory, attributes)
+              pending = memory[LENT] + LENT_PENDING
+              asm.load(:a, [pending])
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_lend_on_first_piece_done")
+              %i[bc de hl].each { |pair| asm.push(pair) }
+              asm.xor_a(:a)
+              asm.load([pending], :a)
+              asm.load_high(:a, Calls.arg(memory, 0, 5))
+              asm.inc(:a)
+              asm.load(:c, :a) # the list, one up
+              asm.call("rt_lend_list")
+              asm.load_high(:a, attributes)
+              asm.or_a(:e)
+              asm.load_high(attributes, :a)
+              %i[hl de bc].each { |pair| asm.pop(pair) }
+              asm.label("rt_lend_on_first_piece_done")
+            end
+
             # LENDING THE EIGHT SPRITE LISTS. A Color draws a sprite's piece in one of eight lists of
             # four colours. A game whose sprites wear more lists than that between them lends the
-            # eight out, the way the console's own games do: rt_lend_colors(list, x, y) is which of
-            # the eight a sprite wearing the game's list number +list+ (art_lent_palettes), standing
-            # at (x, y), is placed in.
+            # eight out, the way the console's own games do: rt_lend_list, with C the game's list
+            # number (art_lent_palettes) one up, answers E, which of the eight a sprite wearing it is
+            # placed in. rt_sprite asks it as the sprite's first piece goes into the sprite table
+            # (LENT_PENDING), so a sprite that draws nothing — off the screen, or past the table's
+            # forty — borrows nothing.
             #
             # One holding that list already is the answer. A list holding none takes one nothing was
             # placed in this pass or the pass before — so one a sprite placed later in this pass still
@@ -133,31 +159,7 @@ module RubyGBA
             def emit_lend_colors(asm, memory, drawn_palettes)
               lent = memory[LENT]
               sprite_colors = drawn_palettes + 64
-              list = Calls.arg(memory, 0, 3)
-              x = Calls.arg(memory, 1, 3)
-              y = Calls.arg(memory, 2, 3)
-              asm.label("rt_lend_colors")
-              asm.load_hl_sp(2)
-              asm.load(:b, 12)
-              asm.call("rt_take_args")
-              # A sprite wholly off the screen draws nothing, so it borrows nothing: one standing
-              # more than the widest picture past any edge is answered the first, and nothing is
-              # lent or counted. Its place is read as sixteen bits, as rt_sprite reads it.
-              h = Console::GBCHardware
-              [[x, h::SCREEN_WIDTH], [y, h::SCREEN_HEIGHT]].each do |place, edge|
-                asm.load_high(:a, place)
-                asm.add_a(Art::LARGEST_SPRITE)
-                asm.load(:l, :a)
-                asm.load_high(:a, place + 1)
-                asm.adc_a(0)
-                asm.jump(:nz, "rt_lend_answer_first")
-                asm.load(:a, :l)
-                asm.cp_a(edge + Art::LARGEST_SPRITE)
-                asm.jump(:nc, "rt_lend_answer_first")
-              end
-              asm.load_high(:a, list)
-              asm.inc(:a)
-              asm.load(:c, :a) # C = the list, one up
+              asm.label("rt_lend_list")
               asm.load(:hl, lent)
               asm.load(:de, 0x0100) # D = the bit of the one being looked at, E = which it is
               asm.label("rt_lend_held")
@@ -227,12 +229,7 @@ module RubyGBA
               asm.or_a(:d)
               asm.load([lent + 8], :a)
               asm.label("rt_lend_answer")
-              asm.load(:d, 0)
-              asm.load(:bc, 0)
               asm.ret
-              asm.label("rt_lend_answer_first")
-              asm.load(:e, 0)
-              asm.jump_relative("rt_lend_answer")
             end
 
             # rt_background_colors: HL = a table of a background's colours (Lowering::Picture
@@ -690,10 +687,16 @@ module RubyGBA
               end
               asm.jump_relative("rt_sprite_taken")
 
+              # In a game that lends its lists, rt_sprite(list, picture, x, y, attributes): the list
+              # handed first, so the other four keep their places, and lent as the first piece goes in.
               asm.label("rt_sprite")
               asm.load_hl_sp(2)
-              asm.load(:b, 16)
+              asm.load(:b, lends ? 20 : 16)
               asm.call("rt_take_args")
+              if lends
+                asm.load(:a, 1)
+                asm.load([memory[LENT] + LENT_PENDING], :a)
+              end
               asm.label("rt_sprite_taken")
               # Written down for a reader of the run: whose, which picture, where.
               asm.load(:a, [memory[DRAWN]])
@@ -807,6 +810,7 @@ module RubyGBA
               asm.load(:a, [:de]) # the attributes: the piece's bank and mirroring, then the sprite's
               asm.inc(:de)
               asm.load(:b, :a)
+              emit_lend_on_first_piece(asm, memory, args.call(3)) if lends
               asm.load_high(:a, args.call(3))
               asm.or_a(:b)
               asm.load([:hl], :a)
