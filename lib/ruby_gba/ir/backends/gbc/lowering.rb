@@ -812,13 +812,50 @@ module RubyGBA
           # are written straight where rt_list_get reads them, in quick memory, rather than pushed
           # for it to copy off the stack: a pool's every field is a list, read several times a thing
           # a pass, and the copy was a large part of each read.
+          #
+          # A LIST NOTHING TAKES FROM THE FRONT keeps its first item in its first slot for good, so
+          # an item's slot is its index: such a list's item is read straight from its place, once
+          # the index is held to the length the header says — every field of a pool is such a list.
+          # An index out of range goes the whole way round, so the game stops as the interpreter's.
           def value_of_list_get(node)
-            place, = @lists.fetch(node.name) { raise LoweringError, "the list #{node.name.inspect} is used and never declared" }
+            place, _capacity, width = declared_list(node)
             value(node.index)
-            index_at = Runtime::Calls.arg(@memory, 1, 2)
-            list_at = Runtime::Calls.arg(@memory, 0, 2)
-            %i[e d c b].each_with_index do |byte, i|
-              @asm.load(:a, byte)
+            return list_get_through_routine(place) if front_dropped_lists.include?(node.name)
+
+            out_of_range = fresh("list_index_out_of_range")
+            done = fresh("list_item_read")
+            @asm.load(:a, :b)
+            @asm.or_a(:c)
+            @asm.jump(:nz, out_of_range) # past 16 bits, or below nought
+            @asm.load(:hl, place + Runtime::Lists::LENGTH)
+            @asm.load(:a, :e)
+            @asm.sub_a([:hl])
+            @asm.inc(:hl)
+            @asm.load(:a, :d)
+            @asm.sbc_a([:hl])
+            @asm.jump(:nc, out_of_range) # not below the length
+            @asm.load(:h, :d)
+            @asm.load(:l, :e)
+            (width / 2).times { @asm.add_hl(:hl) } # × the slot's width: 1, 2 or 4
+            @asm.load(:de, place + Runtime::Lists::HEADER)
+            @asm.add_hl(:de)
+            @asm.call({ 1 => "rt_read_int8", 2 => "rt_read_int16", 4 => "rt_read_int32" }.fetch(width))
+            @asm.jump(done)
+            @asm.label(out_of_range)
+            list_get_through_routine(place)
+            @asm.label(done)
+          end
+
+          # The lists some reachable step takes an item from the front of.
+          def front_dropped_lists
+            @front_dropped_lists ||= @reachable.filter_map { |node| node.name if node.kind == :list_drop && node.from == :front }.uniq
+          end
+
+          # The index in BCDE and the list at +place+ written where rt_list_get reads them, and read.
+          def list_get_through_routine(place)
+            list_at, index_at = Runtime::Lists.get_places(@memory)
+            %i[e d c b].each_with_index do |reg, i|
+              @asm.load(:a, reg)
               @asm.load_high(index_at + i, :a)
             end
             4.times do |i|
@@ -827,12 +864,19 @@ module RubyGBA
             end
             @asm.call("rt_list_get_taken")
           end
+
           def value_of_list_len(node) = list_call("rt_list_length", node)
 
           # The runtime's list routine +routine+ on the list +node+ names, the list's place first.
           def list_call(routine, node, *args)
-            place, = @lists.fetch(node.name) { raise LoweringError, "the list #{node.name.inspect} is used and never declared" }
+            place, = declared_list(node)
             runtime_call(routine, [Build.int(place), *args])
+          end
+
+          # The list +node+ names, as #sections placed it: [its place, its capacity, the bytes a slot,
+          # its name].
+          def declared_list(node)
+            @lists.fetch(node.name) { raise LoweringError, "the list #{node.name.inspect} is used and never declared" }
           end
 
           # Reference#exec_table_get: an index out of range made safe — a table whose length is a

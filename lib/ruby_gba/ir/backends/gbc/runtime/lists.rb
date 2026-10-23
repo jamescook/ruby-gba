@@ -44,6 +44,10 @@ module RubyGBA
 
             def arg(memory, i, n) = Calls.arg(memory, i, n)
 
+            # Where rt_list_get_taken reads the list's place and the index, [list, index], for a
+            # caller that writes them there itself (Lowering#value_of_list_get).
+            def get_places(memory) = [arg(memory, 0, 2), arg(memory, 1, 2)]
+
             # The low byte of where argument +i+ of +n+ is: the routines find it with LDH (C).
             def arg_at(memory, i, n) = arg(memory, i, n) & 0xFF
 
