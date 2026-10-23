@@ -90,7 +90,9 @@ module RubyGBA
             # The colours this program paints a screen in, black first — the colour a painted screen
             # starts in — or nil for a program that paints nothing.
             def paint_colors
-              painting = @program.walk.select { |node| PAINTING.key?(node.kind) || PUTTING_DOWN.key?(node.kind) }
+              painting = @program.walk.select do |node|
+                PAINTING.key?(node.kind) || PUTTING_DOWN.key?(node.kind) || (node.kind == :background && painted_screen_for?(node))
+              end
               return nil if painting.empty?
 
               [0, *colors_painted.map { |name| Graphics::Color.resolve(name) & 0x7FFF }].uniq
@@ -102,10 +104,20 @@ module RubyGBA
                   PAINTING.fetch(node.kind).filter_map { |field| node.public_send(field) }
                 elsif PUTTING_DOWN.key?(node.kind)
                   Array(node.public_send(PUTTING_DOWN.fetch(node.kind))).flat_map { |name| picture_named(name).colors_drawn }
+                elsif node.kind == :background && painted_screen_for?(node)
+                  background_colors_painted(node)
                 else
                   []
                 end
               end
+            end
+
+            # The colours a background painted into the picture paints: its tiles' drawn pixels.
+            def background_colors_painted(bg)
+              bg.map.flatten.compact.reject(&:negative?).uniq.flat_map do |tile|
+                image = Assets::Image.of(@pictures.fetch(bg.tiles.fetch(tile)))
+                (image.width * image.height).times.reject { |at| image.tile_see_through_at?(at) }.map { |at| image.color_at(at) }
+              end.uniq
             end
 
             # A painted screen on a Color holds four colours at once (Runtime::Paint), so a program
@@ -402,9 +414,37 @@ module RubyGBA
             # --- backgrounds ---
 
             # Reference#exec_background: a scene's own scenery goes up as the scene arrives, not here;
-            # any other is put up each time this runs.
+            # any other is put up each time this runs. On a painted screen it is painted into the
+            # picture here instead, as the interpreter stamps it (#paint_background).
             def emit_background(node)
+              return paint_background(node) if painted_screen_for?(node)
+
               background_put_up(node) unless @handover.on_arrival?(node)
+            end
+
+            # Whether a background is declared where the screen is painted: its scene's screen, or the
+            # game's for one in no scene.
+            def painted_screen_for?(bg) = Modes::SCREEN_OF_MODE.fetch(Modes.resolve(@program).mode_of(bg.scene)) == :bitmap
+
+            # Reference#stamp_background on a painted screen: each cell's tile painted where the cell
+            # is, its see-through pixels leaving what is there, and nothing past the screen's edge.
+            def paint_background(bg)
+              width = Console::GBCHardware::SCREEN_WIDTH
+              height = Console::GBCHardware::SCREEN_HEIGHT
+              bg.map.each_with_index do |row, r|
+                Array(row).each_with_index do |tile, c|
+                  x = c * bg.tile_w
+                  y = r * bg.tile_h
+                  next if tile.nil? || tile.negative? || x >= width || y >= height
+
+                  image = Assets::Image.of(@pictures.fetch(bg.tiles.fetch(tile)))
+                  points = Hash.new { |by_color, color| by_color[color] = [] }
+                  (image.width * image.height).times do |at|
+                    points[image.color_at(at)] << at.divmod(image.width).reverse unless image.tile_see_through_at?(at)
+                  end
+                  points.each { |color, drawn| paint_bits(Build.int(x), Build.int(y), Build.int(@art.paint_place(color)), drawn) }
+                end
+              end
             end
 
             # A background goes up as its grid, or as a map bigger than the grid (Runtime::BigMaps).
@@ -704,36 +744,142 @@ module RubyGBA
             # Reference#exec_present_objects: every sprite the frame draws, written into the console's
             # sprite table front-most first — the order the Color draws them in, where the
             # interpreter paints the back-most first.
+            #
+            # A run the game puts in order as it runs (`draw_in_order`, Reference#names_in_draw_order)
+            # stands at its place among the rest, and its sprites are placed in the order its list
+            # holds them, read from the front: each sprite's placing is a routine of the frame's own,
+            # called by the number the list holds.
             def emit_present_objects(node)
-              refuse_ordered_runs!(node)
-              objects = node.names.map { |name| @objects.fetch(name) { raise LoweringError, "present of undeclared object #{name.inspect}" } }
-              front_first = objects.each_with_index.sort_by { |obj, at| [sprite_level(obj), at] }.map(&:first).reverse
+              object = ->(name) { @objects.fetch(name) { raise LoweringError, "present of undeclared object #{name.inspect}" } }
+              changing = node.names.map(&object).select { |obj| Stacking.levels_of(@stacking.depths, obj).uniq.length > 1 }
+              return emit_layer_changing_sprites(node, node.names.map(&object)) unless changing.empty?
+
+              items = present_items(node).map { |item| item.is_a?(Build::DrawOrder) ? item : object.call(item) }
+              front_first = items.each_with_index.sort_by { |item, at| [item_level(item, object), at] }.map(&:first).reverse
+              placings = {}
               @asm.call("rt_sprites_begin")
-              front_first.each { |obj| sprite_placement(obj) }
+              front_first.each do |item|
+                next sprite_placement(item) unless item.is_a?(Build::DrawOrder)
+
+                item.objects.each { |name| placings[name] ||= fresh("place_sprite") }
+                emit_ordered_run(item, placings)
+              end
+              @asm.call("rt_sprites_end")
+              return if placings.empty?
+
+              past = fresh("past_the_placings")
+              @asm.jump(past)
+              placings.each do |name, label|
+                @asm.label(label)
+                sprite_placement(object.call(name))
+                @asm.ret
+              end
+              @asm.label(past)
+            end
+
+            # A FRAME WITH SPRITES THAT CHANGE LAYER as the game runs (`put_in_layer`,
+            # Reference#object_level): every depth any of them can be at, front-most first, and at
+            # each, every sprite that can be there, placed when the layer it is in now is that one —
+            # so a sprite is placed once, among the sprites of its layer now, behind the background
+            # or not as that layer is.
+            def emit_layer_changing_sprites(node, objects)
+              unless Array(node.orders).empty?
+                raise LoweringError, "this program puts sprites in order as the game runs (`draw_in_order`) and moves a " \
+                                     "sprite to another layer, which #{build_name} cannot make yet."
+              end
+
+              @asm.call("rt_sprites_begin")
+              objects.flat_map { |obj| Stacking.levels_of(@stacking.depths, obj) }.uniq.sort.reverse_each do |level|
+                objects.reverse_each do |obj|
+                  there = at_level(obj, level)
+                  next if there.nil?
+                  next sprite_placement(obj, level) if there == true
+
+                  elsewhere = fresh("sprite_elsewhere")
+                  jump_unless(there, elsewhere)
+                  sprite_placement(obj, level)
+                  @asm.label(elsewhere)
+                end
+              end
               @asm.call("rt_sprites_end")
             end
 
-            def refuse_ordered_runs!(node)
-              return if Array(node.orders).empty?
+            # When a sprite is at depth +level+: always (true), never (nil), or a test of the number
+            # that picks its layer — one naming a layer at that depth, or, for its own layer's depth,
+            # one naming none of them.
+            def at_level(obj, level)
+              own = @stacking.depths[obj.name] == level
+              layers = Array(obj.layers)
+              return (own ? true : nil) if layers.empty?
 
-              raise LoweringError, "this program draws sprites in an order worked out as it runs (`draw_in_order`), " \
-                                   "which #{build_name} cannot make yet."
+              pick = Build.var_ref(obj.layer_pick)
+              tests = layers.each_index.select { |i| @stacking.depths[Stacking.choice_name(obj, layers[i])] == level }
+                            .map { |i| Build.binop(:==, pick, Build.int(i)) }
+              if own
+                tests << Build.binop(:or, Build.binop(:<, pick, Build.int(0)), Build.binop(:>=, pick, Build.int(layers.length)))
+              end
+              tests.reduce { |either, test| Build.binop(:or, either, test) }
             end
 
-            # How deep a sprite sits: the one level it is declared at. One that changes layer as the
-            # game runs is not made yet.
-            def sprite_level(obj)
-              levels = Stacking.levels_of(@stacking.depths, obj)
+            # The frame's sprites back to front, each a name — or, for a run the game orders, the run.
+            def present_items(node)
+              Array(node.orders).reduce(node.names.dup) do |names, run|
+                first = names.index(run.objects.first)
+                names[0...first] + [run] + names[(first + run.objects.length)..]
+              end
+            end
+
+            # How deep an item sits: a sprite's level, and a run's, which its sprites share.
+            def item_level(item, object)
+              return sprite_level(item) unless item.is_a?(Build::DrawOrder)
+
+              levels = item.objects.map { |name| sprite_level(object.call(name)) }.uniq
               return levels.first if levels.one?
 
-              raise LoweringError, "the sprite #{obj.declared.inspect} changes layer as the game runs, which #{build_name} " \
-                                   "cannot make yet."
+              raise LoweringError, "sprites put in order as the game runs (`draw_in_order`) sit at different depths, which " \
+                                   "#{build_name} cannot make yet."
+            end
+
+            # A run's sprites front-most first: the list's last entry first, each the number of the
+            # sprite of the run to place.
+            def emit_ordered_run(run, placings)
+              (run.objects.length - 1).downto(0) do |k|
+                past = fresh("past_the_ordered")
+                value(Build.list_get(run.order, Build.int(k)))
+                @asm.load(:a, :b)
+                @asm.or_a(:c)
+                @asm.or_a(:d)
+                @asm.jump(:nz, past)
+                @asm.load(:a, :e)
+                run.objects.each_with_index do |name, at|
+                  other = fresh("not_sprite")
+                  @asm.cp_a(at)
+                  @asm.jump(:nz, other)
+                  @asm.call(placings.fetch(name))
+                  @asm.jump(past)
+                  @asm.label(other)
+                end
+                @asm.label(past)
+              end
+            end
+
+            # How deep a sprite sits: the one level it is declared at, for a sprite that never changes
+            # layer (one that does is placed by #emit_layer_changing_sprites).
+            def sprite_level(obj)
+              levels = Stacking.levels_of(@stacking.depths, obj).uniq
+              return levels.first if levels.one?
+
+              raise LoweringError, "the sprite #{obj.declared.inspect} changes layer as the game runs, and #{build_name} " \
+                                   "places it only among the sprites of a frame."
             end
 
             # Reference#objects_on_screen: a sprite is drawn when it is switched on and its pose names
             # one of its pictures. It is drawn behind the background when the background's layer is
             # in front of its own; the background's see-through pixels still show it.
-            def sprite_placement(obj)
+            #
+            # +level+ is the depth it is placed at: its own, or for a sprite that changes layer as
+            # the game runs, the one this placing is for (#emit_layer_changing_sprites).
+            def sprite_placement(obj, level = sprite_level(obj))
               refuse_turning_sprite!(obj)
               hidden = fresh("sprite_hidden")
               jump_unless(Build.binop(:==, value_node(obj.active), Build.int(1)), hidden)
@@ -744,7 +890,7 @@ module RubyGBA
                 value(obj.pose)
                 store(pose.name)
               end
-              unless fixed_sprite(obj, said)
+              unless fixed_sprite(obj, said, level)
                 out_of_range = said ? nil : fresh("pose_out_of_range")
                 if out_of_range
                   value(pose)
@@ -754,7 +900,7 @@ module RubyGBA
                   @asm.jump(:nz, out_of_range)
                 end
                 if said.nil? || said.between?(0, obj.poses.length - 1)
-                  picture, attributes = picture_and_attributes_drawn(obj, pose)
+                  picture, attributes = picture_and_attributes_drawn(obj, pose, level)
                   runtime_call("rt_sprite", [picture, obj.x, obj.y, attributes])
                 end
                 @asm.label(out_of_range) if out_of_range
@@ -768,22 +914,20 @@ module RubyGBA
             # A sprite whose picture, place and colours are all written in the program — a letter of
             # tiled text — is placed from a record of the four kept in the cartridge
             # (rt_sprite_fixed), with nothing worked out as the game runs. True when it was.
-            def fixed_sprite(obj, pose)
+            def fixed_sprite(obj, pose, level)
               x = folded(obj.x)
               y = folded(obj.y)
               return false unless pose && x && y && Array(obj.recolors).empty? && pose.between?(0, obj.poses.length - 1)
 
               name = obj.poses.fetch(pose)
-              attributes = said_attributes(obj, name, palette_of(name, nil))
+              attributes = said_attributes(obj, name, palette_of(name, nil), level)
               record = [picture_number(name), x, y, attributes & 0xFFFF, attributes >> 16]
               runtime_call("rt_sprite_fixed", [Address.new(drawing_table("fixed_sprite", 2, record))])
               true
             end
 
-            def behind_scenery?(obj)
-              level = sprite_level(obj)
-              @stacking.scenery.any? { |bg| @stacking.depths[bg.name] > level }
-            end
+            # Whether a sprite at depth +level+ is behind the scenery: a background sits in front of it.
+            def behind_scenery?(level) = @stacking.scenery.any? { |bg| @stacking.depths[bg.name] > level }
 
             # Reference#object_transformed?: a sprite turns or resizes unless both its angle and its
             # size are still the numbers every sprite starts with.
@@ -800,11 +944,11 @@ module RubyGBA
             # drawn with (Reference#object_recolor), so the two tables are read at the same place. A
             # list that holds other colours as the game runs has a row for every set it can hold, the
             # ones it was declared with first (Reference#colors_held_by).
-            def picture_and_attributes_drawn(obj, pose)
+            def picture_and_attributes_drawn(obj, pose, level)
               lists = Array(obj.recolors)
               sets = [[nil], *lists.map { |colors| colors.is_a?(Symbol) ? sets_held_by(colors) : [colors] }]
               rows = sets.flatten(1).flat_map do |colors|
-                obj.poses.map { |name| [picture_number(name), said_attributes(obj, name, palette_of(name, colors))] }
+                obj.poses.map { |name| [picture_number(name), said_attributes(obj, name, palette_of(name, colors), level)] }
               end
               pictures = drawing_table("pose_pictures", 2, rows.map(&:first))
               palettes = drawing_table("pose_attributes", 4, rows.map(&:last))
@@ -852,8 +996,8 @@ module RubyGBA
             # whether it is behind the background, as the sprite table keeps them; above that, the
             # numbers a run says it by — whose it is, one up so nought is nobody's, and which picture
             # it is showing.
-            def said_attributes(obj, picture, palette)
-              behind = behind_scenery?(obj) ? Console::GBCHardware::OBJ_BEHIND : 0
+            def said_attributes(obj, picture, palette, level)
+              behind = behind_scenery?(level) ? Console::GBCHardware::OBJ_BEHIND : 0
               whose = @drawn_sprites.name_number(obj.declared) + 1
               palette | behind | (whose << 8) | (@drawn_sprites.picture_number(picture) << 16)
             end

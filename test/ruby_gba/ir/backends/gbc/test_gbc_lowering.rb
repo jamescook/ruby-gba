@@ -44,6 +44,40 @@ class TestGBCLowering < Minitest::Test
     GBC::CheckedRun.new.hold(:right).run(game, frames: 12)
   end
 
+  # A sprite that starts behind the one background, where its see-through cells show it, and is
+  # put in front of it, and then given a number naming no layer, which puts it back where it was
+  # declared; a second sprite stays in front all along, the two crossing.
+  def test_a_sprite_that_changes_layer_plays_as_the_interpreter_plays_it
+    game = program do
+      screen :tiled
+      layers :back, :world, :front
+      image(:grass, "g" => :green, "." => :transparent) { "#{'g.' * 4}\n" * 8 }
+      tiles :ground, "#" => :grass
+      layer(:world) { background :field, tiles: :ground, map: ["####"] * 4 }
+      image :dot, "." => :transparent, "r" => :red, colors: %i[transparent red] do
+        "rrrr\nrrrr\nrrrr\nrrrr\n"
+      end
+      image :ring, "." => :transparent, "y" => :yellow, colors: %i[transparent yellow] do
+        "yyyy\ny..y\ny..y\nyyyy\n"
+      end
+      hero = layer(:back) { sprite :dot, at: [6, 6] }
+      layer(:front) { sprite :ring, at: [8, 8] }
+      pass = var :pass, 0
+      floor = var :floor, -1
+      game_loop do
+        pass.add! 1
+        (pass == 4).then { floor.set! 0 }
+        (pass == 8).then { floor.set! 5 }
+        hero.put_in_layer [:front], showing: floor
+      end
+    end
+
+    green = RubyGBA::Graphics::Color.resolve(:green)
+    red = RubyGBA::Graphics::Color.resolve(:red)
+    shown = [3, 6, 11].map { |frames| GBC::CheckedRun.new.run(game, frames: frames).screen.pixel(6, 6) }
+    assert_equal [green, red, green], shown, "behind the grass, in front of it, and back where it was declared"
+  end
+
   # Every statement of the first slice, in one game: a scene picked by a `case` that changes the
   # scene it reads, a counted loop that stops early, beats, a call picked by a number past the end
   # of its list, a button held, and the sums and tests between them.
