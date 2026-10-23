@@ -59,11 +59,16 @@ class TestSpriteOffScreen < Minitest::Test
   # or nil for a picture that is all floor.
   private def drawn_on(program, frames: 3)
     screen = game_player.run(program, frames: frames).screen
-    # The screen it was drawn on: the Color's is smaller, and the desktop's picture is the Advance's.
-    width, height = screen.respond_to?(:width) ? [screen.width, screen.height] : [WIDTH, HEIGHT]
-    rows = (0...height).select { |y| (0...width).any? { |x| screen.pixel(x, y) != FLOOR } }
+    width, height = size_of(screen)
+    rows =(0...height).select { |y| (0...width).any? { |x| screen.pixel(x, y) != FLOOR } }
     cols = (0...width).select { |x| (0...height).any? { |y| screen.pixel(x, y) != FLOOR } }
     rows.empty? ? nil : [rows.min..rows.max, cols.min..cols.max]
+  end
+
+  # The columns and rows of the screen a picture was drawn on: the Color's is smaller, and the
+  # desktop's picture is the Advance's.
+  private def size_of(screen)
+    screen.respond_to?(:width) ? [screen.width, screen.height] : [WIDTH, HEIGHT]
   end
 
   # Both backends show the floor and nothing else.
@@ -98,8 +103,9 @@ class TestSpriteOffScreen < Minitest::Test
   # What keeps a far sprite off must not take a near one with it: a sprite with one row or
   # one column still on the screen shows that much.
   def test_a_sprite_part_way_off_any_edge_still_shows_the_part_that_is_on
-    { [-15, 60] => [60..75, 0..0], [239, 60] => [60..75, 239..239], [100, -15] => [0..0, 100..115],
-      [100, 159] => [159..159, 100..115], [-63, -63] => [0..0, 0..0] }.each do |at, where|
+    right, bottom = size_of(game_player.run(one_sprite([0, 0], 16), frames: 1).screen).map { |n| n - 1 }
+    { [-15, 60] => [60..75, 0..0], [right, 60] => [60..75, right..right], [100, -15] => [0..0, 100..115],
+      [100, bottom] => [bottom..bottom, 100..115], [-63, -63] => [0..0, 0..0] }.each do |at, where|
       size = at.include?(-63) ? 64 : 16
       game = one_sprite(at, size)
 
