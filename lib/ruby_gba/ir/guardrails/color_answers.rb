@@ -4,10 +4,10 @@ module RubyGBA
   module IR
     module Guardrails
       module Checks
-        # A GAME BUILT FOR A GAME BOY COLOR, told what the Color does with what it asks for, in
-        # the words Console::GBCFeatures has for each verb: once for each thing that is shown
-        # differently there (a warning, and the build goes on), and at each line that asks for
-        # something the Color cannot do at all (an error, before anything is made).
+        # A GAME BUILT FOR A GAME BOY COLOR, told at each line that asks for something the Color's
+        # hardware cannot do, in the words Console::GBCFeatures has for the verb: an error, before
+        # anything is made. Nothing is shown differently on the Color, so nothing is only warned of
+        # but a crowded row (below).
         #
         # It reads the program the game made for the Color, so a game built for the Advance alone
         # is never told anything here, and one built for both hears it only on the Color's build.
@@ -26,35 +26,12 @@ module RubyGBA
             return [] unless program.kind == :program && program.described_console.name == :gbc
 
             nodes = program.walk.to_a
-            degraded(nodes) + refused(nodes) + crowded_rows(program, nodes)
+            refused(nodes) + second_backgrounds(program) + crowded_rows(program, nodes)
           end
 
           private
 
           def answer(verb) = Console::GBCFeatures.answer(verb)
-
-          # What is shown differently, once each: the first line that asks for it is blamed. The
-          # interpreter shows the same difference when it plays the game for a Color, so the game
-          # is still checked pixel for pixel.
-          DEGRADED = Ractor.make_shareable({
-            affine_background: "This game turns or resizes a background. A Game Boy Color cannot turn or resize a " \
-                               "background, so there it is shown as it was drawn. The game plays the same.",
-            rotozoom: "This game has a turning screen (`screen :rotozoom`). On a Game Boy Color it is a plain tiled " \
-                      "screen, and its background is shown as it was drawn.",
-            pixelate: "This game shows the screen in blocks. A Game Boy Color cannot do that, so there the picture " \
-                      "stays sharp. The block size still changes, so a scene that waits on it changes on the same frame."
-          })
-
-          def degraded(nodes)
-            said = {
-              affine_background: nodes.find { |node| node.kind == :affine_background },
-              rotozoom: nodes.find { |node| node.kind == :screen && node.mode == :rotozoom },
-              pixelate: nodes.find { |node| node.kind == :pixelate }
-            }
-            said.filter_map do |what, node|
-              node && Finding.new(check: NAME, severity: :warning, node: node, message: DEGRADED.fetch(what))
-            end
-          end
 
           # What the Color cannot do, at every line that asks for it.
           def refused(nodes)
@@ -82,6 +59,33 @@ module RubyGBA
               [:held, "This line reads the #{node.button.inspect} button"] if %i[l r].include?(node.button)
             when :fade
               [:fade, "This line fades part of the screen"] if node.under || node.reaches
+            when :affine_background then [:background, "This line turns or resizes a background"]
+            when :screen
+              [:screen, "This game has a turning screen (`screen :rotozoom`)"] if node.mode == :rotozoom
+            when :pixelate then [:pixelate, "This line shows the screen in blocks (`pixelate`)"]
+            when :object
+              [:sprite, "This sprite turns or resizes (`scale`, `face_angle`, `turn`, `pulse`)"] if turns?(node)
+            end
+          end
+
+          # A sprite turns or resizes when its angle or its size is anything but the one it is drawn
+          # at: upright, as drawn (Build#object's defaults).
+          def turns?(obj)
+            !(obj.angle.kind == :int && obj.angle.value.zero? && obj.scale.kind == :int && obj.scale.value == Build::SCALE_ONE)
+          end
+
+          # A SECOND BACKGROUND SHOWING AT ONCE. The Color shows one background: the backgrounds
+          # up together while a scene runs are the scenery every screen shows and the scene's own
+          # (IR::SceneHandover#showing), and a background declared in no scene — in the game loop or
+          # a plain routine — is up on every screen. Each background past the first that shows with
+          # another is refused at its line, once.
+          def second_backgrounds(program)
+            scenery = Stacking.picture(program).scenery
+            handover = SceneHandover.of(program)
+            [nil, *scenery.filter_map(&:scene)].uniq.flat_map { |scene| handover.showing(scene).drop(1) }.uniq.map do |bg|
+              Finding.new(check: NAME, severity: :error, node: bg,
+                          message: "This line shows a second background while another is showing, and a Game Boy " \
+                                   "Color cannot: #{answer(:background).words}")
             end
           end
 

@@ -3,8 +3,8 @@
 require "test_helper"
 
 # A game built for a Game Boy Color hears, while it builds, what the Color does with what it asks
-# for (Console::GBCFeatures): a warning for what is shown differently there, an error for what it
-# cannot do, and a warning for a row with more sprites than it draws. A game built for the Advance
+# for (Console::GBCFeatures): an error for what its hardware cannot do, and a warning for a row
+# with more sprites than it draws. A game built for the Advance
 # hears none of it.
 class TestColorAnswers < Minitest::Test
   CHECK = RubyGBA::IR::Guardrails::Checks::ColorAnswers.new
@@ -38,7 +38,48 @@ class TestColorAnswers < Minitest::Test
     game_loop { wait_vblank }
   end
 
+  # Two backgrounds up together: the sky every screen shows, and the town in the scene that runs.
+  # A second scene with a background of its own takes turns with the town, and is not refused.
+  TWO_UP = RubyGBA.game("TWOUP", consoles: %i[gba gbc]) do
+    screen :tiled
+    image(:dark, "#" => :black) { "########\n" * 8 }
+    tiles :floor, "#" => :dark
+    background :sky, tiles: :floor, map: ["#" * 4] * 4
+    var :state, 0
+    scene(:town) { background :town, tiles: :floor, map: ["#" * 4] * 4 }
+    game_loop { case_var(:state) { when_val 0, :town } }
+  end
+
+  TURNS = RubyGBA.game("TURNS", consoles: %i[gba gbc]) do
+    screen :tiled
+    image(:dark, "#" => :black) { "########\n" * 8 }
+    tiles :floor, "#" => :dark
+    state = var :state, 0
+    scene(:town) { background :town, tiles: :floor, map: ["#" * 4] * 4 }
+    scene(:cave) { background :cave, tiles: :floor, map: ["#" * 4] * 4 }
+    game_loop do
+      case_var :state do
+        when_val 0, :town
+        when_val 1, :cave
+      end
+      state.set! 1 - state
+    end
+  end
+
   private def findings(game, console) = CHECK.detect(game.program(console: console))
+
+  def test_a_second_background_showing_at_once_is_refused_at_its_line
+    found = findings(TWO_UP, :gbc)
+
+    assert_equal [:error], found.map(&:severity)
+    assert_match(/second background/, found.first.message)
+    assert_equal :town, found.first.node.name
+  end
+
+  def test_backgrounds_that_take_turns_scene_by_scene_are_not_refused
+    assert_empty findings(TURNS, :gbc)
+    assert_empty findings(TWO_UP, :gba)
+  end
 
   def test_a_layer_seen_through_by_a_fixed_amount_is_refused_in_plain_words
     found = findings(GHOST, :gbc)
@@ -47,11 +88,13 @@ class TestColorAnswers < Minitest::Test
     assert_match(/`transparency:`/, found.first.message)
   end
 
-  def test_a_turning_screen_and_background_are_warned_of_once_each
+  # Nothing is shown differently on the Color: a turning screen, and the line that turns its
+  # background, are each refused.
+  def test_a_turning_screen_and_a_turned_background_are_refused
     found = findings(TURNING, :gbc)
 
-    assert_equal %i[warning warning], found.map(&:severity)
-    assert(found.any? { |finding| finding.message.include?("shown as it was drawn") })
+    assert_equal %i[error error], found.map(&:severity)
+    assert(found.any? { |finding| finding.message.include?("cannot turn or resize a background") })
   end
 
   def test_a_shoulder_button_is_refused_in_plain_words

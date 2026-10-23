@@ -42,9 +42,9 @@ module RubyGBA
       # sound.
       #
       # What the picture is made of is the Color's, not the Advance's: a background of tiles of
-      # four colours, forty sprites, eight lists of colours of each kind. What a game asks for that
-      # a Color does not have is answered by Console::GBCFeatures — it works, it degrades with a
-      # warning, or it is refused — before anything is lowered.
+      # four colours, forty sprites, eight lists of colours of each kind. What a game asks for is
+      # answered by Console::GBCFeatures — it works, or it is refused, naming the hardware the
+      # Color lacks — before anything is lowered.
       #
       # A game is checked by playing the cartridge in the emulator and the program on the
       # interpreter, given the Color's screen, and comparing every variable, list and pixel after

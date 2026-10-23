@@ -9,21 +9,17 @@ module RubyGBA
     # layer, forty sprites (ten to a line) of four colours each, no way to turn or resize a layer,
     # to see one layer through another, or to play a recording. A game written for the Advance is
     # mostly made of things it CAN do — tiles, sprites, the square, wave and noise voices, which the
-    # Advance inherited from it — and the rest gets one of three answers:
+    # Advance inherited from it — and every verb gets one of two answers:
     #
     # - :works — the same game, played the same way. The checked run holds the cartridge to the
     #   interpreter on every frame, so this is a promise the test suite keeps.
-    # - :degrades — the build goes on and says, once, in plain words, what will look different
-    #   and why. The difference is a defined one (a turned layer is shown unturned), and the
-    #   interpreter shows the same difference when it plays the game for a Game Boy Color, so the
-    #   two still agree pixel for pixel.
-    # - :refused — the build stops before anything is made, saying what the game asked for and
-    #   what to use instead. A feature is refused rather than degraded when what is left would no
-    #   longer be the game: a recording that plays as silence, a light that never falls.
+    # - :refused — the build stops before anything is made, naming the hardware the Color lacks and
+    #   what to use instead.
     #
-    # The north star decides between the last two: a teaching tool never ships a silent black
-    # screen, so when the console cannot do a thing and there is no honest lesser version of it,
-    # the author hears about it while building, not while playing.
+    # NOTHING IS SHOWN DIFFERENTLY. A turned layer shown unturned, a mosaic left sharp: each is a
+    # game that looks right on one console and quietly wrong on the other, which a teaching tool
+    # must not ship. The Color build is limited and does not pretend, so what its hardware cannot
+    # do, the author hears about while building, not while playing.
     #
     # A GAME SAYS WHICH CONSOLES IT IS FOR (`RubyGBA.game "PONG", consoles: %i[gba gbc]`), and is
     # built for the Color only when it names it. A game written for a 240×160 screen that is
@@ -38,28 +34,26 @@ module RubyGBA
     module GBCFeatures
       Answer = Data.define(:verdict, :words) do
         def works? = verdict == :works
-        def degrades? = verdict == :degrades
         def refused? = verdict == :refused
       end
 
-      VERDICTS = %i[works degrades refused].freeze
+      VERDICTS = %i[works refused].freeze
 
       def self.works(words = "the same as on the Advance.") = Answer.new(:works, words)
-      def self.degrades(words) = Answer.new(:degrades, words)
       def self.refused(words) = Answer.new(:refused, words)
 
       ANSWERS = Ractor.make_shareable({
         # --- building, the screen and settings ---
         screen: works("`screen :tiled` and `screen :bitmap` work. A painted (bitmap) screen is " \
                       "painted into tiles behind the scenes, and holds four colours at once: a game " \
-                      "that paints with more is refused, naming them. `screen :rotozoom` degrades: " \
-                      "the turning layer is shown as a plain one, never turned or resized."),
+                      "that paints with more is refused, naming them. `screen :rotozoom` is refused: " \
+                      "a Game Boy Color cannot turn or resize a background."),
         setting: works,
         screen_width: works("160 on a Game Boy Color."),
         screen_height: works("144 on a Game Boy Color."),
         wait_vblank: works,
         halt: works,
-        debug_halt: degrades("the game stops there, as `halt` does; the cartridge is not cut short."),
+        debug_halt: works("the game stops there, as `halt` does; the cartridge is not cut short."),
         game_loop: works,
         once_a_frame: works,
         each_pass: works("a step that starts its own job again is refused for now: the Game Boy Color " \
@@ -95,11 +89,10 @@ module RubyGBA
         flash_screen: works,
         fade_level: works,
         shake_screen: works,
-        pixelate: degrades("a Game Boy Color cannot show the screen in blocks, so the picture stays " \
-                           "sharp. `pixelate_size` still walks, so a scene change waiting on it " \
-                           "happens on the same frame."),
-        pixelate_in: degrades("the picture stays sharp; the size still walks (see `pixelate`)."),
-        pixelate_out: degrades("the picture stays sharp; the size still walks (see `pixelate`)."),
+        pixelate: refused("a Game Boy Color cannot show the screen in blocks: it has no mosaic. Use " \
+                          "`fade_out` and `fade_in` to go from one screen to the next."),
+        pixelate_in: refused("see `pixelate`."),
+        pixelate_out: refused("see `pixelate`."),
         pixelate_size: works,
         spotlight: refused("a light darkens everything outside a circle, which needs the Advance's " \
                            "blending. Use `fade` to darken the whole screen."),
@@ -107,8 +100,8 @@ module RubyGBA
                          "(see `spotlight`). Use `fade_out` and `fade_in`."),
         iris_out: refused("see `iris_in`."),
         iris_shut?: refused("see `iris_in`."),
-        pulse: degrades("a Game Boy Color cannot resize a sprite, so a pulsing sprite is shown at its " \
-                        "own size."),
+        pulse: refused("a Game Boy Color cannot resize a sprite. Draw the sprite's sizes as poses and " \
+                       "`face` them in turn."),
         camera_follows: works,
 
         # --- pictures and sprites ---
@@ -128,8 +121,8 @@ module RubyGBA
         upside_down: works,
         blit: works("on a painted screen, its colours counting towards the screen's four."),
         sprite: works("a sprite is made of the console's 8×8 pieces, forty at once and ten on any one " \
-                      "row of the screen. `scale`, `face_angle` and `turn` degrade: a Game Boy Color " \
-                      "cannot turn or resize a sprite, so it is shown upright at its own size."),
+                      "row of the screen. `scale`, `face_angle` and `turn` are refused: a Game Boy " \
+                      "Color cannot turn or resize a sprite. Draw the turns as poses."),
         draw_in_order: works,
         pool: works("its sprites count towards the forty."),
         box: works,
@@ -137,9 +130,9 @@ module RubyGBA
         # --- backgrounds and layers ---
         tiles: works("tiles of four colours each."),
         background: works("one background at a time, on a grid of 32×32 cells, scrolled and changed " \
-                          "as on the Advance; a second background showing at once is refused. " \
-                          "`rotate` and `scale` degrade to the background shown unturned, and " \
-                          "`scroll_each_row` to the rows unbent."),
+                          "as on the Advance, and bent row by row with `scroll_each_row`. A second " \
+                          "background showing at once is refused, and so are `rotate` and `scale`: a " \
+                          "Game Boy Color cannot turn or resize a background."),
         canvas: works("its colours are four, as a background's tiles' are."),
         layers: works("a layer holds a background or sprites; a background in front of a sprite " \
                       "works. `transparency:` is refused: a Game Boy Color cannot show one layer " \
@@ -173,7 +166,8 @@ module RubyGBA
         scene: works("see `func` for `fast:`."),
         case_var: works,
         uses: works("a pack's verbs are verbs of the game's own, and each one has its answer here."),
-        dump_func: degrades("a Game Boy Color build has no ARM to list, so nothing is printed."),
+        dump_func: refused("it lists the ARM a routine was made into, and a Game Boy Color has no ARM " \
+                           "processor to list it for."),
         entry: refused("`entry` is raw ARM for the Advance's processor, which a Game Boy Color does " \
                        "not have."),
 
@@ -209,6 +203,9 @@ module RubyGBA
                             "`sample`). Write the part for the square or wave voice.")
       })
 
+      # How the reference names each verdict.
+      VERDICT_WORDS = { works: "works", refused: "**refused**" }.freeze
+
       # The answer for +verb+, or nil for a verb nobody has decided yet.
       def self.answer(verb) = ANSWERS[verb.to_sym]
 
@@ -219,7 +216,7 @@ module RubyGBA
       # the build does another. `ruby tools/gbc_answers.rb` writes it again.
       def self.reference(not_yet: {})
         lines = ANSWERS.map do |verb, answer|
-          verdict = { works: "works", degrades: "degrades", refused: "**refused**" }.fetch(answer.verdict)
+          verdict = VERDICT_WORDS.fetch(answer.verdict)
           "- `#{verb}` — #{verdict}: #{answer.words}"
         end
         <<~MARKDOWN
@@ -229,15 +226,14 @@ module RubyGBA
           `ruby-gba build`, which makes both cartridges, or `--console gbc` for the Color's alone) is
           the same game on a smaller machine: a 160×144 screen (`screen_width`, `screen_height`),
           eight buttons, one background, forty sprites (ten on a row of the screen), and lists of
-          four colours. Every verb has one of three answers there, decided once in
+          four colours. Every verb has one of two answers there, decided once in
           `Console::GBCFeatures`:
 
           - **works** — the same game, played the same way. The Game Boy Color lowering's run of
             `rake test` holds the cartridge to the interpreter on every frame.
-          - **degrades** — the build goes on and says, once, what will look different and why. The
-            interpreter shows the same difference when it plays the game for the Color.
-          - **refused** — the build stops before anything is made, saying what the game asked for
-            and what to use instead.
+          - **refused** — the build stops before anything is made, naming the hardware the Color
+            lacks and what to use instead. Nothing is shown differently: a game either plays the
+            same on the Color or is refused there.
 
           This file is `Console::GBCFeatures.reference` written out (`ruby tools/gbc_answers.rb`), and a
           test fails when the two differ.

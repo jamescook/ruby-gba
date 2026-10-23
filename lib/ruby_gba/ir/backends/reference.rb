@@ -1601,13 +1601,8 @@ module RubyGBA
         # the affine sibling of #exec_scroll_background. +angle+ wraps to 0..359 the same
         # way a hardware sprite's does, so a program that never wraps it itself (a fixed
         # rotate of, say, 370) still reads the picture the console would show.
-        #
-        # On a console that cannot turn a layer (Console::Description#turning_backgrounds) the layer
-        # is shown as it was drawn, as that console's build shows it (Console::GBCFeatures).
         def exec_affine_background(node)
           @bg_by_name.fetch(node.name) { raise ProgramError, "affine transform of undeclared background #{node.name.inspect}" }
-          return if @console&.turning_backgrounds&.zero?
-
           @bg_affine[node.name] = Turn.new(angle: eval_value(node.angle) % 360, size: eval_value(node.scale),
                                            pivot_x: node.around_x, pivot_y: node.around_y)
           request_repaint

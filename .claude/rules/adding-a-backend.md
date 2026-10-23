@@ -39,8 +39,8 @@ a console of its own needs beyond a lowering:
   writing 240 and 160. The interpreter plays the game as that console, so the answer key and the
   cartridge agree about what the console cannot do (a fade the Color does not blend is walked
   colour by colour, `IR::Fading`).
-- **An answer for every verb** (`Console::GBCFeatures`): it works, it is shown differently and
-  the build says so with a warning, or it is refused in plain words. The guardrail check
+- **An answer for every verb** (`Console::GBCFeatures`): it works, or it is refused in plain words
+  naming the hardware the console lacks. Nothing is shown differently. The guardrail check
   (`Checks::ColorAnswers`) gives those answers at build time, and `.claude/dsl/game-boy-color.md`
   is generated from the same table (`tools/gbc_answers.rb`), so the docs cannot drift from it.
 - **Its own cartridge, emulator reading and profiler** (`Cartridge::GBCROM`,

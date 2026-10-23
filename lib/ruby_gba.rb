@@ -168,7 +168,7 @@ module RubyGBA
 
     # A cartridge for another console is made by that console's lowering, from the same checked
     # tree (see IR::Backends::GBC).
-    return build_for_console(program, title, options, progress) unless options.console == Console::DEFAULT
+    return build_for_console(program, title, options, progress, evaluated.dump_requests) unless options.console == Console::DEFAULT
 
     # The DSL built an IR tree as the block ran. Turn it into a ROM in two steps,
     # both behind this single call so building stays one operation: lower the tree
@@ -228,9 +228,17 @@ module RubyGBA
 
   # THE CARTRIDGE FOR A CONSOLE OTHER THAN THE ADVANCE: the Game Boy Color's, today, made from the
   # checked tree by IR::Backends::GBC. Measuring, quick memory and the ROM validation are the
-  # Advance's and are not asked for.
-  def self.build_for_console(program, title, options, progress)
-    progress.step("lowering for the #{Console.described(options.console).title}")
+  # Advance's and are not asked for. A routine asked to be listed (`dump_func`) is listed as the ARM
+  # it was made into, which only the Advance has, so it is refused (Console::GBCFeatures).
+  def self.build_for_console(program, title, options, progress, dumps)
+    console = Console.described(options.console)
+    unless dumps.empty?
+      raise ROMError, "This game lists a routine's ARM (`dump_func #{dumps.first.inspect}`), and a #{console.title} " \
+                      "cannot: #{Console::GBCFeatures.answer(:dump_func).words} Take out `dump_func`, or build for " \
+                      "the Game Boy Advance alone to see it."
+    end
+
+    progress.step("lowering for the #{console.title}")
     IR::Backends::GBC.new.build(program, title: title)
   end
   private_class_method :build_for_console

@@ -9,9 +9,24 @@ class TestGBCLowering < Minitest::Test
   GBC = RubyGBA::IR::Backends::GBC
 
   def test_step_not_made_yet_is_refused_by_name
+    bent = program do
+      screen :tiled
+      image(:dark, "#" => :black) { "########\n" * 8 }
+      tiles :floor, "#" => :dark
+      bg = background :floor, tiles: :floor, map: ["#" * 4] * 4
+      bg.scroll_each_row { |row| row }
+      game_loop { wait_vblank }
+    end
+    error = assert_raises(GBC::LoweringError) { GBC.new.build(bent) }
+
+    assert_match(/:scroll_rows, which the Game Boy Color build cannot make yet \(the picture\)/, error.message)
+  end
+
+  def test_what_the_hardware_lacks_is_refused_naming_it
     error = assert_raises(GBC::LoweringError) { GBC.new.build(program { camera 3, 4 }) }
 
-    assert_match(/:camera, which the Game Boy Color build cannot make yet \(the picture\)/, error.message)
+    assert_match(/a Game Boy Color cannot: a painted screen on a Game Boy Color is exactly the size of the screen/,
+                 error.message)
   end
 
   # A tiled screen: a background, a sprite moved by a held button and drawn from another colour

@@ -200,7 +200,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 
 ## The Game Boy Color — `.claude/dsl/game-boy-color.md`
 
-- `RubyGBA.game "NAME", consoles: %i[gba gbc]` + `ruby-gba build` (both cartridges) or `--console gbc` — the game on a Color too; what every verb does there (works, degrades, refused), and what its build does not make yet.
+- `RubyGBA.game "NAME", consoles: %i[gba gbc]` + `ruby-gba build` (both cartridges) or `--console gbc` — the game on a Color too; what every verb does there (works or refused), and what its build does not make yet.
 
 ## Effects a game writes — `.claude/dsl/effects.md`
 
