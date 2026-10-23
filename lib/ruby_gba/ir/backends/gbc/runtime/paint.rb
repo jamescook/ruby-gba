@@ -26,8 +26,9 @@ module RubyGBA
           #   tile is held against the copy last sent to the console, kept beside it. Only one that
           #   differs is sent.
           # - A tile that is the clearing colour throughout is not sent at all: its cell of the
-          #   grid is pointed at one of four tiles of a single colour instead, which is two bytes
-          #   rather than sixteen.
+          #   grid is pointed at the CLEAR tile instead, which is two bytes rather than sixteen.
+          #   Every cell not showing its own tile shows the clearing colour, so a clear in another
+          #   colour is the clear tile's sixteen bytes rewritten, whatever the screen holds.
           #
           # What has to go is a list (LIST), made when the pass ends, and the blank works down it
           # (rt_paint_upload), as far as the blank lasts; the pass counts as shown once it is done.
@@ -56,10 +57,14 @@ module RubyGBA
 
             # Where the console shows it: the second grid, its tiles in the background's tile memory
             # past what a tiled screen's art may use — bank 0 from 0x8800 and bank 1 from 0x8800 on
-            # round to 0x9000 — and the four tiles of a single colour after the last of them.
+            # round to 0x9000 — and two tiles of a single colour after the last of them: black, for
+            # the cells of the grid past the screen's edges (which a shake shows), and the CLEAR
+            # tile, in the clearing colour, for every cell of the screen not showing its own tile.
             GRID = 0x9C00
             SOLID_TILE = 104
             SOLID_AT = 0x9680
+            CLEAR_TILE = SOLID_TILE + 1
+            CLEAR_AT = SOLID_AT + 16
             PALETTE = 7
 
             # In the bank byte of an entry of the list to send: a cell pointed at a single colour,
@@ -69,6 +74,9 @@ module RubyGBA
             # already, so only the tile is sent. Most of a picture painted again is such tiles.
             KEEPS_CELL_BIT = 6
             KEEPS_CELL = 1 << KEEPS_CELL_BIT
+            # In the tile byte of a SOLID entry: no cell, but the clear tile itself, rewritten in
+            # the entry's colour. No bank holds this many tiles.
+            CLEAR_TILE_ENTRY = 0xFF
 
             # The runtime's own places: the kind of screen up; the three lists — what to send in
             # the blank, the tiles painted since the last pass, the tiles whose cells show their own
@@ -97,7 +105,9 @@ module RubyGBA
               memory.reserve(SCREEN_KIND, 1)
               return unless painting
 
-              [LIST, DIRTY_LIST, OWN_LIST].each { |list| memory.reserve(list, 2 + (CELLS * 2)) }
+              # The list to send holds a cell at most once, and the clear tile.
+              memory.reserve(LIST, 2 + ((CELLS + 1) * 2))
+              [DIRTY_LIST, OWN_LIST].each { |list| memory.reserve(list, 2 + (CELLS * 2)) }
               memory.reserve(LIST_DONE, 2)
               memory.reserve(CLEARED, 1)
               memory.reserve(LAST_SOLID, 1)
@@ -201,14 +211,8 @@ module RubyGBA
               asm.load_high(h::SVBK, :a)
               asm.load_high(h::VBK, :a)
               asm.load(:hl, SOLID_AT)
-              4.times do |color|
-                8.times do
-                  asm.load(:a, color & 1 == 1 ? 0xFF : 0)
-                  asm.load([:hli], :a)
-                  asm.load(:a, color & 2 == 2 ? 0xFF : 0)
-                  asm.load([:hli], :a)
-                end
-              end
+              asm.xor_a(:a)
+              32.times { asm.load([:hli], :a) } # the black tile and the clear tile, both black
               [[1, h::ATTR_TILE_BANK | PALETTE], [0, SOLID_TILE]].each do |bank, byte|
                 asm.load(:a, bank)
                 asm.load_high(h::VBK, :a)
@@ -222,6 +226,20 @@ module RubyGBA
                 asm.or_a(:c)
                 asm.jump_relative(:nz, "rt_paint_start_grid_#{bank}")
               end
+              # ...and the screen's own cells at the clear tile.
+              asm.load(:hl, GRID)
+              asm.load(:de, Art::GRID_CELLS - COLUMNS)
+              asm.load(:c, ROWS)
+              asm.label("rt_paint_start_screen_row")
+              asm.load(:b, COLUMNS)
+              asm.load(:a, CLEAR_TILE)
+              asm.label("rt_paint_start_screen_cell")
+              asm.load([:hli], :a)
+              asm.dec(:b)
+              asm.jump_relative(:nz, "rt_paint_start_screen_cell")
+              asm.add_hl(:de)
+              asm.dec(:c)
+              asm.jump_relative(:nz, "rt_paint_start_screen_row")
               asm.xor_a(:a)
               %i[generation clear clear_low clear_high].each { |name| asm.load_high(quick.public_send(name), :a) }
               [LIST, DIRTY_LIST, OWN_LIST, LIST_DONE].each do |list|
@@ -281,7 +299,7 @@ module RubyGBA
               video_bank, slot = cell < 128 ? [0, cell] : [1, cell - 128]
               to = 0x8800 + (slot * 16)
               number = (slot + 128) & 0xFF
-              grid = row * 32 + column
+              grid = (row * Art::GRID_CELLS) + column
               flags = (video_bank * h::ATTR_TILE_BANK) | ((grid >> 8) << 4)
               [bank, from & 0xFF, from >> 8, flags, to & 0xFF, to >> 8, number, grid & 0xFF]
             end
@@ -1326,28 +1344,14 @@ module RubyGBA
               asm.cp_a([:hl])
               asm.jump(:z, "rt_paint_scan_own")
               asm.load([:hl], :a)
-              # A clear in another colour: every cell not showing its own tile, pointed at it — but
-              # a tile painted since the clear, which the dirty list sends as its own picture below.
-              # Each cell goes on the list once, so it never holds more than there are cells.
-              BANKS.each_index do |index|
-                asm.load(:a, BANKS[index])
-                asm.load_high(h::SVBK, :a)
-                asm.load(:c, 0)
-                asm.label("rt_paint_scan_recolor_#{index}")
-                asm.call("rt_paint_state_now") # Z: painted in this generation
-                asm.jump_relative(:z, "rt_paint_scan_recolor_next_#{index}")
-                asm.call("rt_paint_shown_at")
-                asm.load(:a, [:hl])
-                asm.cp_a(OWN)
-                asm.jump_relative(:z, "rt_paint_scan_recolor_next_#{index}")
-                asm.load(:e, index)
-                asm.call("rt_paint_point_at_clear")
-                asm.label("rt_paint_scan_recolor_next_#{index}")
-                asm.inc(:c)
-                asm.load(:a, :c)
-                asm.cp_a(CELLS_A_BANK)
-                asm.jump_relative(:nz, "rt_paint_scan_recolor_#{index}")
-              end
+              # A clear in another colour: every cell not showing its own tile shows the clear tile,
+              # so the clear tile takes the colour — one entry, where pointing each cell at a tile of
+              # the colour was one a cell, and took the blanks of most of a second. A tile painted
+              # since the clear is sent as its own picture below, in the same blanks.
+              asm.swap(:a)
+              asm.or_a(SOLID)
+              asm.load(:c, CLEAR_TILE_ENTRY)
+              asm.call("rt_paint_send")
 
               # Every tile showing its own picture: kept if it was painted since the clear, pointed
               # at the clearing colour if not.
@@ -1624,6 +1628,10 @@ module RubyGBA
               asm.load(:d, :a) # the tile in its bank
               asm.load(:a, [:hl])
               asm.load(:e, :a) # its bank, and SOLID and a colour, or KEEPS_CELL
+              asm.load(:a, :d)
+              asm.cp_a(CLEAR_TILE_ENTRY)
+              asm.jump(:z, "rt_paint_upload_clear_tile")
+              asm.load(:a, :e)
               # HL = its entry of rt_paint_cells: (bank × 128 + tile) × 8.
               asm.and_a(3)
               asm.rrca
@@ -1671,16 +1679,42 @@ module RubyGBA
               asm.and_a(h::ATTR_TILE_BANK)
               asm.or_a(PALETTE)
               asm.jump_relative("rt_paint_upload_cell")
+              # The clear tile, in the colour in E's two bits above the bank's: each of its rows two
+              # bytes, the colour's low bit in every pixel of the first and its high bit in the second.
+              asm.label("rt_paint_upload_clear_tile")
+              asm.load(:a, :e)
+              asm.swap(:a)
+              asm.and_a(3)
+              asm.load(:c, :a)
+              asm.rrca
+              asm.sbc_a(:a)
+              asm.load(:d, :a)
+              asm.load(:a, :c)
+              2.times { asm.rrca }
+              asm.sbc_a(:a)
+              asm.load(:e, :a)
+              asm.load(:a, 1)
+              asm.load_high(h::VBK, :a)
+              asm.load(:hl, CLEAR_AT)
+              asm.load(:b, 8)
+              asm.label("rt_paint_upload_clear_row")
+              asm.load(:a, :d)
+              asm.load([:hli], :a)
+              asm.load(:a, :e)
+              asm.load([:hli], :a)
+              asm.dec(:b)
+              asm.jump_relative(:nz, "rt_paint_upload_clear_row")
+              asm.xor_a(:a)
+              asm.load_high(h::VBK, :a)
+              asm.inc(:a)
+              asm.load_high(h::SVBK, :a)
+              asm.jump("rt_paint_upload_next")
               asm.label("rt_paint_upload_solid")
               3.times { asm.inc(:hl) }
               asm.load(:a, [:hli])
               asm.load(:b, :a)
               3.times { asm.inc(:hl) }
-              asm.load(:a, :e)
-              asm.swap(:a)
-              asm.and_a(3)
-              asm.add_a(SOLID_TILE)
-              asm.load(:c, :a)
+              asm.load(:c, CLEAR_TILE) # the clear tile: every single colour shown is the clear colour
               asm.load(:a, h::ATTR_TILE_BANK | PALETTE)
               asm.label("rt_paint_upload_cell") # A = the cell's attributes, C = its tile, B and (HL) its place
               asm.push(:af)

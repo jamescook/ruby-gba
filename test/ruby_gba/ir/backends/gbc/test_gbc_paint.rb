@@ -9,8 +9,8 @@ require "test_helper"
 class TestGBCPaint < Minitest::Test
   GBC = RubyGBA::IR::Backends::GBC
 
-  # A clear in a new colour points all 360 cells at that colour, and a tile painted after it in the
-  # same pass is sent as its own picture as well: the pass's list of what to send must hold both.
+  # A clear in a new colour turns every cell not showing its own tile that colour, and a tile painted
+  # after it in the same pass is sent as its own picture as well: the pass's list must hold both.
   def test_a_rectangle_painted_after_a_clear_in_a_new_colour_shows
     run = checked(frames: 2) do
       screen :bitmap
@@ -21,6 +21,22 @@ class TestGBCPaint < Minitest::Test
 
     assert_equal RubyGBA::Graphics::Color.resolve(:red), run.screen.pixel(100, 40)
     assert_equal RubyGBA::Graphics::Color.resolve(:blue), run.screen.pixel(0, 0)
+  end
+
+  # A clear in a new colour is the clear tile rewritten, not the 360 cells pointed at a colour one
+  # by one, which took the blanks of most of a second: with the screen already on, a game that
+  # clears in another colour every pass still takes a frame a pass.
+  def test_a_clear_in_a_new_colour_every_pass_takes_a_frame_a_pass
+    run = checked(frames: 6) do
+      screen :bitmap
+      n = var :n, 0
+      game_loop do
+        n.add! 1
+        (n % 2 == 0).then { clear_screen :blue }.else { clear_screen :red }
+      end
+    end
+
+    assert_equal [1] * 5, (2..6).map { |pass| run.frames_took(pass) }
   end
 
   # A picture of two colours, put down at a place worked out as the game runs, across the edge
