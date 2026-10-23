@@ -93,9 +93,19 @@ module RubyGBA
         GameRoutine = Data.define(:bank, :addresses, :routine)
 
         # +program+ as a cartridge (Cartridge::GBCROM), carrying its Places.
+        # A game whose sprites wear more lists of colours than the console holds is built again
+        # with the lists borrowing them as it runs (Art::TooManySpriteLists).
         def build(program, title: "RUBYGBA")
+          build_lending(program, title, lends: false)
+        rescue Art::TooManySpriteLists
+          build_lending(program, title, lends: true)
+        end
+
+        private
+
+        def build_lending(program, title, lends:)
           memory = Memory.new
-          lowering = Lowering.new(program, memory: memory)
+          lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends)
           # The runtime's places first, so they are in the half of work memory always in view.
           Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects)
           game = lowering.sections
@@ -118,8 +128,6 @@ module RubyGBA
           save_bytes = SaveLayout.named_by?(program) ? Runtime::Saving::SIZE : 0
           Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: save_bytes, built: built)
         end
-
-        private
 
         # Where the runtime keeps how the run stands (Runtime::Frame's names and the rest).
         def runtime_places(memory) = memory.places.select { |name, _| name.start_with?("rt ") }

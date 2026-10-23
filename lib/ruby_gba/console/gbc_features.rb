@@ -112,11 +112,12 @@ module RubyGBA
         rgb: works,
         rgb8: works,
         colors: works("a list of colours holds four places on a Game Boy Color, the first see-through " \
-                      "on a sprite."),
+                      "on a sprite. The console holds eight lists for sprites. A game whose sprites " \
+                      "use more lend the eight to the lists on the screen, so no more than eight can " \
+                      "show at once."),
         recolor: works,
-        colors_in_use: works("the Game Boy Color build does not let lists take turns yet. So every list " \
-                             "of colours that a scene's sprites draw with must fit in the console's " \
-                             "eight lists."),
+        colors_in_use: works("the lists of a set take turns in the console's eight lists for sprites, " \
+                             "as they take turns in the Advance's sixteen groups."),
         mirror: works,
         upside_down: works,
         blit: works("on a painted screen, its colours counting towards the screen's four."),

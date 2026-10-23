@@ -64,12 +64,26 @@ module RubyGBA
           PAINTING_PALETTES = PALETTES - 1
           PAINTING_BACKGROUND_TILES = 128
 
+          # MORE SPRITE LISTS THAN THE COLOR HOLDS. A game whose sprites between them wear more
+          # than eight lists of colours still fits when no more than eight are on the screen at
+          # once: each list then BORROWS one of the eight as a sprite wearing it is placed, and
+          # its colours are copied in (Runtime::Picture#emit_lend_colors). A game is first built
+          # with a list of its own for each, which costs nothing as it runs; this is raised when
+          # that runs out, and the build is made again lending them (GBC#build).
+          class TooManySpriteLists < LoweringError; end
+
+          # The most lists a game that lends them can have: the runtime keeps which one each of
+          # the eight holds in a byte, one up so that nought is none.
+          MOST_LENT = 254
+
           attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids, :paint_colors
 
           # +paint_colors+ are the colours a game paints a screen in, black first (nil for a game
-          # that paints no screen).
-          def initialize(paint_colors: nil)
+          # that paints no screen). +lends+ says the sprites' lists borrow the console's eight as
+          # the game runs (TooManySpriteLists).
+          def initialize(paint_colors: nil, lends: false)
             @paint_colors = paint_colors
+            @lends = lends
             @sprite_tiles = []        # 16 bytes each
             @sprite_tile_numbers = {} # bytes -> [number, flips]
             @sprite_pictures = {}     # picture name -> SpritePicture
@@ -86,6 +100,10 @@ module RubyGBA
           end
 
           def painting? = !@paint_colors.nil?
+
+          # Do the sprites' lists borrow the console's eight as the game runs? Then a sprite
+          # palette's number counts into every list the game has (art_lent_palettes), not the eight.
+          def lends? = @lends
 
           # The place a painted colour is kept at in the painted screen's palette.
           def paint_place(color)
@@ -304,11 +322,16 @@ module RubyGBA
             asm.label("art_palettes")
             backgrounds = @background_palettes.dup
             backgrounds[PAINTING_PALETTES] = padded(@paint_colors) if painting?
-            [backgrounds, @sprite_palettes].each do |palettes|
+            # A game that lends its sprites' lists starts with nothing in the eight.
+            [backgrounds, lends? ? [] : @sprite_palettes].each do |palettes|
               PALETTES.times do |i|
                 colors = palettes[i] || Array.new(PLACES, BACKDROP)
                 asm.data_words(colors)
               end
+            end
+            if lends?
+              asm.label("art_lent_palettes")
+              @sprite_palettes.each { |colors| asm.data_words(colors) }
             end
             pictures = @sprite_pictures.values
             asm.label("art_pictures")
@@ -451,10 +474,17 @@ module RubyGBA
             found = palettes.index(colors)
             return found if found
 
-            most = painting? && palettes.equal?(@background_palettes) ? PAINTING_PALETTES : PALETTES
+            sprites = palettes.equal?(@sprite_palettes)
+            most = if sprites then lends? ? MOST_LENT : PALETTES
+                   elsif painting? then PAINTING_PALETTES
+                   else PALETTES
+                   end
             if palettes.length == most
+              raise TooManySpriteLists, "more lists" if sprites && !lends?
+
               raise LoweringError, "this game's #{kind} need more than the #{most} lists of colours a Game Boy Color " \
-                                   "holds for them. To fix this, draw more of them from the same colours."
+                                   "#{sprites ? 'build keeps' : 'holds'} for them. To fix this, draw more of them " \
+                                   "from the same colours."
             end
 
             (palettes << colors).length - 1

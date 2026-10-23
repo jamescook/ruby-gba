@@ -51,6 +51,12 @@ module RubyGBA
             DRAWN = "rt picture drawn"
             DRAWN_BYTES = 7
             MOST_DRAWN = 40
+            # A GAME WHOSE SPRITES' LISTS BORROW THE EIGHT (Art#lends?, #emit_lend_colors): which
+            # list each of the eight holds, one up so that nought is none; then a bit for each of the
+            # eight a sprite was placed in this pass, the same for the pass before, and 1 when a list
+            # was lent this pass, so its colours are to be copied.
+            LENT = "rt picture lent"
+            LENT_BYTES = 8 + 3
 
             # The display's switch that raises its interrupt as each line ends (STAT's mode-0 bit).
             STAT_HBLANK = 0x08
@@ -61,7 +67,8 @@ module RubyGBA
 
             module_function
 
-            def reserve(memory)
+            def reserve(memory, lends: false)
+              memory.reserve(LENT, LENT_BYTES) if lends
               memory.reserve(SHADOW_PALETTES, 128)
               memory.reserve(PALETTES_CHANGED, 1)
               memory.reserve(SCROLL, 2)
@@ -83,17 +90,109 @@ module RubyGBA
             # +drawn_palettes+ is where a game that draws a background with other colours keeps the
             # colours its pictures are drawn in now (Lowering::Picture#drawn_palettes), or nil for
             # one whose colours are the art's from power-on: a fade moves those.
-            def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil)
+            # +lends+ says the sprites' lists borrow the console's eight as the game runs (Art#lends?),
+            # which needs +drawn_palettes+.
+            def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false)
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
                                       drawn_palettes: drawn_palettes)
               emit_upload(asm, memory)
               emit_tile_runs(asm, runs)
-              emit_sprites(asm, memory)
+              emit_sprites(asm, memory, lends: lends)
+              emit_lend_colors(asm, memory, drawn_palettes) if lends
               emit_background(asm, memory)
               emit_choices(asm, memory)
               emit_overlap(asm, memory)
               emit_tint(asm, memory, drawn_palettes)
               emit_background_colors(asm, drawn_palettes) if drawn_palettes
+            end
+
+            # LENDING THE EIGHT SPRITE LISTS. A Color draws a sprite's piece in one of eight lists of
+            # four colours. A game whose sprites wear more lists than that between them lends the
+            # eight out, the way the console's own games do: rt_lend_colors(list) is which of the
+            # eight a sprite wearing the game's list number +list+ (art_lent_palettes) is placed in.
+            #
+            # One holding that list already is the answer. A list holding none takes one nothing was
+            # placed in this pass or the pass before — so one a sprite placed later in this pass still
+            # wears is never taken from under it — and its colours are copied into the colours drawn
+            # now. rt_sprites_end moves them through the fade in force into the copy the blank sends,
+            # so they reach the screen in the same blank as the sprite table that first reads them.
+            # A list that finds all eight in use is placed in the first, in whatever colours it holds.
+            #
+            # Like the Advance's lending, a list gives its one back only once a whole pass has gone
+            # by without anything placed in it, since nothing says part way through a pass which lists
+            # the rest will wear. So with all eight in use, a thing that comes on the pass another
+            # goes is drawn for that pass in colours not its own.
+            def emit_lend_colors(asm, memory, drawn_palettes)
+              lent = memory[LENT]
+              sprite_colors = drawn_palettes + 64
+              asm.label("rt_lend_colors")
+              asm.load_hl_sp(2)
+              asm.load(:b, 4)
+              asm.call("rt_take_args")
+              asm.load_high(:a, Calls.arg(memory, 0, 1))
+              asm.inc(:a)
+              asm.load(:c, :a) # C = the list, one up
+              asm.load(:hl, lent)
+              asm.load(:de, 0x0100) # D = the bit of the one being looked at, E = which it is
+              asm.label("rt_lend_held")
+              asm.load(:a, [:hli])
+              asm.cp_a(:c)
+              asm.jump_relative(:z, "rt_lend_placed")
+              asm.inc(:e)
+              asm.sla(:d)
+              asm.jump_relative(:nz, "rt_lend_held")
+              # B = the ones placed in this pass or the one before.
+              asm.load(:a, [lent + 8])
+              asm.load(:b, :a)
+              asm.load(:a, [lent + 9])
+              asm.or_a(:b)
+              asm.load(:b, :a)
+              asm.load(:hl, lent)
+              asm.load(:de, 0x0100)
+              asm.label("rt_lend_free")
+              asm.load(:a, :b)
+              asm.and_a(:d)
+              asm.jump_relative(:z, "rt_lend_take")
+              asm.inc(:hl)
+              asm.inc(:e)
+              asm.sla(:d)
+              asm.jump_relative(:nz, "rt_lend_free")
+              asm.load(:e, 0) # every one in use
+              asm.jump_relative("rt_lend_answer")
+              asm.label("rt_lend_take")
+              asm.load([:hl], :c)
+              asm.load(:a, 1)
+              asm.load([lent + 10], :a)
+              asm.push(:de)
+              # The list's colours, from art_lent_palettes + 8 × the list...
+              asm.load(:a, :c)
+              asm.dec(:a)
+              asm.load(:l, :a)
+              asm.load(:h, 0)
+              3.times { asm.add_hl(:hl) }
+              asm.load(:de, "art_lent_palettes")
+              asm.add_hl(:de)
+              # ...into the sprites' colours drawn now + 8 × the one it took.
+              asm.pop(:de)
+              asm.push(:de)
+              asm.load(:a, :e)
+              3.times { asm.add_a(:a) }
+              asm.add_a(sprite_colors & 0xFF)
+              asm.load(:e, :a)
+              asm.load(:a, sprite_colors >> 8)
+              asm.adc_a(0)
+              asm.load(:d, :a)
+              asm.load(:b, 8)
+              asm.call("rt_copy_b")
+              asm.pop(:de)
+              asm.label("rt_lend_placed")
+              asm.load(:a, [lent + 8])
+              asm.or_a(:d)
+              asm.load([lent + 8], :a)
+              asm.label("rt_lend_answer")
+              asm.load(:d, 0)
+              asm.load(:bc, 0)
+              asm.ret
             end
 
             # rt_background_colors: HL = a table of a background's colours (Lowering::Picture
@@ -488,15 +587,34 @@ module RubyGBA
             # the last one written. A sprite is its picture's pieces, each an entry; a piece
             # wholly off the screen is left out, since the table's place is a byte and a place far
             # off the screen would come round onto it.
-            def emit_sprites(asm, memory)
+            #
+            # In a game whose sprites' lists borrow the eight (+lends+), a pass's start makes this
+            # pass's eight the pass before's, and its end copies the colours of any list lent in it.
+            def emit_sprites(asm, memory, lends: false)
               args = ->(i) { Calls.arg(memory, i, 4) }
               asm.label("rt_sprites_begin")
+              if lends
+                asm.load(:hl, memory[LENT] + 8)
+                asm.load(:a, [:hl])
+                asm.load([:hl], 0)
+                asm.inc(:hl)
+                asm.load([:hl], :a)
+              end
               asm.xor_a(:a)
               asm.load([memory[NEXT_SPRITE]], :a)
               asm.load([memory[DRAWN]], :a)
               asm.ret
 
               asm.label("rt_sprites_end")
+              if lends
+                asm.load(:hl, memory[LENT] + 10)
+                asm.load(:a, [:hl])
+                asm.and_a(:a)
+                asm.jump_relative(:z, "rt_sprites_end_lent")
+                asm.load([:hl], 0)
+                asm.call("rt_tint_apply")
+                asm.label("rt_sprites_end_lent")
+              end
               asm.load(:a, [memory[NEXT_SPRITE]])
               asm.load(:l, :a)
               asm.load(:h, Memory::SHADOW_OAM >> 8)
@@ -912,6 +1030,58 @@ module RubyGBA
               asm.label("rt_place_of_choice_own")
               asm.load(:bc, 0)
               asm.load(:de, 0)
+              asm.ret
+
+              # rt_row_drawn_with(choice, table): the first row of a sprite's pictures drawn with the
+              # list +choice+ names (rt_place_of_choice's answer), and for a list that holds other
+              # sets as the game runs, as many rows further as the set it holds now — counted as
+              # rt_place_of_choice counts, so a number naming none of the others is the set it was
+              # declared with. +table+ is eight bytes a list (Lowering::Picture#row_drawn_with): its
+              # first row and where its number is kept, sixteen bits each, then how many others.
+              asm.label("rt_row_drawn_with")
+              asm.load_hl_sp(2)
+              asm.load(:b, 8)
+              asm.call("rt_take_args")
+              asm.load_high(:a, which)
+              asm.load(:l, :a)
+              asm.load(:h, 0)
+              3.times { asm.add_hl(:hl) }
+              asm.load_high(:a, others)
+              asm.load(:e, :a)
+              asm.load_high(:a, others + 1)
+              asm.load(:d, :a)
+              asm.add_hl(:de)
+              asm.load(:a, [:hli])
+              asm.load(:e, :a)
+              asm.load(:a, [:hli])
+              asm.load(:d, :a) # DE = the first row
+              asm.load(:a, [:hli])
+              asm.load(:c, :a)
+              asm.load(:a, [:hli])
+              asm.load(:b, :a) # BC = where the number is kept
+              asm.or_a(:c)
+              asm.jump_relative(:z, "rt_row_drawn_with_done")
+              asm.load(:a, [:hl])
+              asm.load(:h, :b)
+              asm.load(:l, :c)
+              asm.load(:b, :a) # B = how many others
+              asm.load(:a, [:hli])
+              asm.load(:c, :a) # C = the number's low byte; the rest has to be nought
+              asm.load(:a, [:hli])
+              asm.or_a([:hl])
+              asm.inc(:hl)
+              asm.or_a([:hl])
+              asm.jump_relative(:nz, "rt_row_drawn_with_done")
+              asm.load(:a, :c)
+              asm.cp_a(:b)
+              asm.jump_relative(:nc, "rt_row_drawn_with_done")
+              asm.inc(:a) # one of the others: a row further than its number
+              asm.add_a(:e)
+              asm.load(:e, :a)
+              asm.jump_relative(:nc, "rt_row_drawn_with_done")
+              asm.inc(:d)
+              asm.label("rt_row_drawn_with_done")
+              asm.load(:bc, 0)
               asm.ret
 
               asm.label("rt_pose_place") # (pose, count): +which+ and +others+ again

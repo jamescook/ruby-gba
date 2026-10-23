@@ -66,7 +66,7 @@ module RubyGBA
               @color_lists = by_name(@program.walk, :color_list)
               @pictures = by_name(@program.walk, :data, :bitmap)
               @paint_colors = paint_colors
-              @art = Art.new(paint_colors: @paint_colors&.first(Art::PLACES))
+              @art = Art.new(paint_colors: @paint_colors&.first(Art::PLACES), lends: @lends_sprite_colors)
               @grids = {} # a background declaration -> its grid's number
               @backgrounds = by_name(@program.walk, :background)
               @drawn_sprites = SpriteNames.new(@program) # the numbers a run says its sprites by
@@ -643,9 +643,9 @@ module RubyGBA
             end
 
             # Room for every palette's colours as drawn now, in a game that draws a background in
-            # other colours anywhere a run can reach.
+            # other colours anywhere a run can reach, or whose sprites' lists borrow the eight.
             def keep_drawn_palettes
-              return unless @reachable.any? { |node| node.kind == :background_colors }
+              return unless @art.lends? || @reachable.any? { |node| node.kind == :background_colors }
 
               @drawn_palettes = @memory.reserve("the colours drawn now", 128)
             end
@@ -961,6 +961,7 @@ module RubyGBA
             def fixed_sprite(obj, pose, level)
               x = folded(obj.x)
               y = folded(obj.y)
+              return false if @art.lends? # which of the eight it is drawn in is known only as it runs
               return false unless pose && x && y && Array(obj.recolors).empty? && pose.between?(0, obj.poses.length - 1)
 
               name = obj.poses.fetch(pose)
@@ -992,12 +993,24 @@ module RubyGBA
               lists = Array(obj.recolors)
               sets = [[nil], *lists.map { |colors| colors.is_a?(Symbol) ? sets_held_by(colors) : [colors] }]
               rows = sets.flatten(1).flat_map do |colors|
-                obj.poses.map { |name| [picture_number(name), said_attributes(obj, name, palette_of(name, colors), level)] }
+                obj.poses.map do |name|
+                  palette = palette_of(name, colors)
+                  [picture_number(name), said_attributes(obj, name, @art.lends? ? 0 : palette, level), palette]
+                end
               end
               pictures = drawing_table("pose_pictures", 2, rows.map(&:first))
-              palettes = drawing_table("pose_attributes", 4, rows.map(&:last))
+              palettes = drawing_table("pose_attributes", 4, rows.map { |row| row[1] })
               at = lists.empty? ? pose : Sum.new(:+, Sum.new(:*, row_drawn_with(obj, lists, sets), Build.int(obj.poses.length)), pose)
-              [Entry.new(pictures, 2, true, at), Entry.new(palettes, 4, true, at)]
+              attributes = Entry.new(palettes, 4, true, at)
+              [Entry.new(pictures, 2, true, at), @art.lends? ? lent_attributes(attributes, rows.map(&:last), at) : attributes]
+            end
+
+            # A sprite's attributes in a game whose sprites' lists borrow the console's eight
+            # (Art#lends?): the ones in the table, which name none of the eight, and the one its list
+            # holds now, which rt_lend_colors finds or lends it as it is placed.
+            def lent_attributes(attributes, palettes, at)
+              lists = drawing_table("pose_lent_palettes", 1, palettes)
+              Sum.new(:+, attributes, RuntimeValue.new("rt_lend_colors", [Entry.new(lists, 1, false, at)]))
             end
 
             # Which row of its pictures a sprite is on: the first row of the list it is drawn with now,
@@ -1007,12 +1020,16 @@ module RubyGBA
               return choice if lists.none?(Symbol)
 
               first_rows = sets.each_with_object([0]) { |held, starts| starts << (starts.last + held.length) }
-              row = Entry.new(drawing_table("first_rows", 4, first_rows.first(sets.length)), 4, true, choice)
-              lists.each_with_index.select { |colors, _| colors.is_a?(Symbol) }.reduce(row) do |so_far, (name, at)|
-                held = RuntimeValue.new("rt_place_of_choice", [Build.var_ref(@held_colors.fetch(name)),
-                                                                 Build.int(sets_held_by(name).length - 1)])
-                Sum.new(:+, so_far, Sum.new(:*, Sum.new(:==, choice, Build.int(at + 1)), held))
+              # For each list, as rt_row_drawn_with reads it: its first row, where the number saying
+              # which set it holds is kept (nought for a list that holds one set only), and how many
+              # sets it holds besides the one it was declared with.
+              entries = sets.each_index.flat_map do |at|
+                name = at.zero? ? nil : lists[at - 1]
+                held = name.is_a?(Symbol) ? place_of(@held_colors.fetch(name)) : 0
+                others = name.is_a?(Symbol) ? sets_held_by(name).length - 1 : 0
+                [first_rows[at] | (held << 16), others]
               end
+              RuntimeValue.new("rt_row_drawn_with", [choice, Address.new(drawing_table("rows_drawn_with", 4, entries))])
             end
 
             # Reference#colors_held_by: every set of colours a named list can hold, the ones it was
