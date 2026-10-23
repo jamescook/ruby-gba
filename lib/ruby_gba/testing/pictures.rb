@@ -99,8 +99,8 @@ module RubyGBA
         flunk e.message
       end
 
-      # Both backends' screens for the same program, as arrays of 15-bit colors (index =
-      # y*240 + x), and how many frames the interpreter played to match. Use this directly to
+      # Both backends' screens for the same program, as arrays of 15-bit colors a row at a time
+      # (read one with `pixel_at`), and how many frames the interpreter played to match. Use this directly to
       # assert on a KNOWN disagreement — a bug that's filed but not fixed — instead of failing
       # the build.
       # @return [Array(Array<Integer>, Array<Integer>, Integer)] the interpreter's, the
@@ -128,13 +128,25 @@ module RubyGBA
       # A picture is as wide as the screen of the console it was drawn for, the one whose
       # screen has as many pixels as it does.
       def mismatched_pixels(oracle, console)
-        width = Console::DESCRIPTIONS.values.find { |d| d.screen_width * d.screen_height == oracle.length }&.screen_width
-        width ||= SCREEN_W
+        width = picture_width(oracle)
         (0...[oracle.length, console.length].max).filter_map do |i|
           next if oracle[i] == console[i]
 
           [i % width, i / width, oracle[i], console[i]]
         end
+      end
+
+      # The colour at (x, y) of a picture `backend_pictures` handed back, whichever console's
+      # screen it was drawn on.
+      def pixel_at(picture, x, y)
+        picture[(y * picture_width(picture)) + x]
+      end
+
+      # How many pixels across a picture is: as wide as the screen of the console whose screen
+      # has as many pixels as it does.
+      def picture_width(picture)
+        found = Console::DESCRIPTIONS.values.find { |d| d.screen_width * d.screen_height == picture.length }
+        found ? found.screen_width : SCREEN_W
       end
 
       private

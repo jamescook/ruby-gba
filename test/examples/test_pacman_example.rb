@@ -78,7 +78,7 @@ class TestPacmanExample < Minitest::Test
   def test_the_console_blinks_him_white_too
     oracle, console, = backend_pictures(Pacman.program, frames: CAUGHT_AND_WHITE)
 
-    assert_equal Color.resolve(:white), console[((START_Y + 8) * 240) + START_X + 8]
+    assert_equal Color.resolve(:white), pixel_at(console, START_X + 8, START_Y + 8)
     assert_empty mismatched_pixels(oracle, console)
   end
 

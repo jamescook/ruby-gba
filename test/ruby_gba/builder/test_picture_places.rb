@@ -55,8 +55,8 @@ class TestPicturePlaces < Minitest::Test
   def test_the_console_tells_the_two_places_apart_too
     oracle, console, = backend_pictures(program { |ship| ship.draw_with :hurt }, frames: 2)
 
-    assert_equal Color.resolve(:yellow), console[(41 * 240) + 41], "place 1"
-    assert_equal Color.resolve(:blue), console[(41 * 240) + 45], "place 3"
+    assert_equal Color.resolve(:yellow), pixel_at(console, 41, 41), "place 1"
+    assert_equal Color.resolve(:blue), pixel_at(console, 45, 41), "place 3"
     assert_empty mismatched_pixels(oracle, console)
   end
 
@@ -190,8 +190,8 @@ class TestPicturePlaces < Minitest::Test
   def test_the_console_draws_it_from_the_later_place_too
     oracle, console, = backend_pictures(raw_first_program, frames: 2)
 
-    assert_equal 0x001F, console[(41 * 240) + 41]
-    assert_equal 0x7C00, console[(41 * 240) + 81]
+    assert_equal 0x001F, pixel_at(console, 41, 41)
+    assert_equal 0x7C00, pixel_at(console, 81, 41)
     assert_empty mismatched_pixels(oracle, console)
   end
 
