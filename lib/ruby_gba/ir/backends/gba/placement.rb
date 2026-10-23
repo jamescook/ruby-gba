@@ -166,9 +166,12 @@ module RubyGBA
           # +scenes+ is each scene's own set, by the scene's name, for a game whose room was split
           # between the whole game and its scenes (see {SceneQuickMemory}); empty otherwise, when
           # +funcs+ is everything kept.
+          # +insisted+ is the routines the author marked `fast: true`, which went in before
+          # anything the build chose — what to name when one of those left out something the
+          # build would have kept first.
           Report = Data.define(:funcs, :code_bytes, :used_bytes, :free_bytes, :total_bytes,
-                               :sizes, :passed_over, :chosen_from, :scenes) do
-            def initialize(chosen_from: :shape, scenes: {}, **rest) = super
+                               :sizes, :passed_over, :chosen_from, :scenes, :insisted) do
+            def initialize(chosen_from: :shape, scenes: {}, insisted: [], **rest) = super
           end
 
           # A routine the chooser skipped, and by how much. +measured+ is what the routine was
@@ -190,13 +193,14 @@ module RubyGBA
                        sizes: @routine_sizes || {},
                        passed_over: @passed_over || [],
                        chosen_from: @routine_profile ? :measurement : :shape,
-                       scenes: scene_sets_by_name)
+                       scenes: scene_sets_by_name,
+                       insisted: (@insisted || []).to_a)
           end
 
           # Decide what moves. Runs before anything is emitted, and answers a set of func
           # names — empty when there is nothing worth moving or the author turned it off.
           def choose_fast_funcs(program)
-            insisted = funcs_marked(program, true)
+            insisted = @insisted = funcs_marked(program, true)
             return insisted if insisted.empty? && !@fast_code
 
             probe, chosen = measure_and_choose(program, insisted)

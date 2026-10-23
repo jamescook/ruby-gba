@@ -183,6 +183,35 @@ class TestMeasuredPlacement < Minitest::Test
                     "measured at nothing, and kept anyway because the author asked"
   end
 
+  # A SAVE NOBODY MAKES WHILE THE GAME IS MEASURED, measured all the same: the two screens that
+  # save are each measured with a save running, so the routine that writes it a piece a pass is
+  # weighed by what it costs there, and kept without the game insisting on it.
+  def test_a_save_is_measured_and_kept_without_fast_true
+    game = RubyGBA.game("MSAV") do
+      screen :bitmap
+      score = var :score, 0
+      files = save_data :file, copies: 2 do
+        keep score
+      end
+      var :state, 0
+      scene(:files) { pressed(:a).then { files[0].save } }
+      scene(:playing) do
+        score.add! 1
+        pressed(:start).then { files[1].save }
+      end
+      game_loop do
+        case_var(:state) do
+          when_val 0, :files
+          when_val 1, :playing
+        end
+      end
+    end
+    placement = game.build_rom(out: StringIO.new, err: StringIO.new, profile: true).built.placement
+    step = RubyGBA::Messages::MadeNames.make(:save_record, record: :file, piece: :step)
+
+    assert_includes placement.funcs, step, "the save's writing is kept, measured, with nothing insisted on"
+  end
+
   # A routine measured at almost nothing is not worth the room: moving it costs a longer call
   # at every site, every frame, and gives back only a share of what little it runs.
   def test_a_routine_that_hardly_runs_is_not_worth_the_room

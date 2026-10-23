@@ -189,7 +189,7 @@ module RubyGBA
         # (RubyGBA.warn_of_slow_scenes). The second is measured too, with each scene run again
         # with its lists and pools held full (RubyGBA.warn_of_collections_that_fill).
         def build_checks(placement)
-          [Checks::FrameFromCartridge.new(placement)]
+          [Checks::FrameFromCartridge.new(placement), Checks::InterruptFromCartridge.new(placement)]
         end
 
         # Stop running a registered check — what unloading a pack does with the
@@ -308,6 +308,7 @@ require_relative "guardrails/list_in_loop"
 require_relative "guardrails/list_filled_by_loop"
 require_relative "guardrails/iwram_budget"
 require_relative "guardrails/frame_from_cartridge"
+require_relative "guardrails/interrupt_from_cartridge"
 require_relative "guardrails/layer_holds_nothing"
 require_relative "guardrails/layer_invisible"
 require_relative "guardrails/layer_solid_while_fading"
