@@ -25,6 +25,7 @@ module RubyGBA
                                                  save_region: :emit_save_region, restore_region: :emit_restore_region,
                                                  background: :emit_background, scroll_background: :emit_scroll_background,
                                                  show_map: :emit_show_map, set_tile: :emit_set_tile,
+                                                 background_colors: :emit_background_colors,
                                                  scroll_rows: :emit_scroll_rows, camera: :emit_camera,
                                                  present_objects: :emit_present_objects,
                                                  color_list_holds: :emit_color_list_holds,
@@ -47,6 +48,11 @@ module RubyGBA
 
             # The art the program's pictures were made into, for the cartridge to keep.
             attr_reader :art
+
+            # Where a game that draws a background with other colours keeps the colours its pictures
+            # are drawn in now, every palette's (Runtime::Picture#emit_background_colors), or nil for
+            # a game that never does.
+            attr_reader :drawn_palettes
 
             private
 
@@ -519,6 +525,98 @@ module RubyGBA
                                                   Build.int((number & 0xFF) | (colours << 8))])
             end
 
+            # Room for every palette's colours as drawn now, in a game that draws a background in
+            # other colours anywhere a run can reach.
+            def keep_drawn_palettes
+              return unless @reachable.any? { |node| node.kind == :background_colors }
+
+              @drawn_palettes = @memory.reserve("the colours drawn now", 128)
+            end
+
+            # Reference#exec_background_colors: the background's tiles drawn from another of its lists
+            # of colours, by a number the game works out — or its own, for a number naming none. The
+            # Color draws a tile in one of its palettes, so the background's palettes are written
+            # with the colours its tiles show now (#background_colors_table), into the colours the
+            # pictures are drawn in now, and the fade in force moves them from there.
+            def emit_background_colors(node)
+              bg = declared_background!(node)
+              steps = Array(bg.recolors)
+              own = drawing_table("background_colors", 1, background_colors_table(bg, nil))
+              tables = steps.each_index.map { |step| drawing_table("background_colors", 1, background_colors_table(bg, step)) }
+              chosen = fresh("background_colors_chosen")
+              value(node.which)
+              @asm.load(:hl, own)
+              @asm.load(:a, :b)
+              @asm.or_a(:c)
+              @asm.or_a(:d)
+              @asm.jump(:nz, chosen) # below nought, or far past the lists
+              @asm.load(:a, :e)
+              tables.each_with_index do |table, step|
+                other = fresh("not_colors_#{step}")
+                @asm.cp_a(step)
+                @asm.jump(:nz, other)
+                @asm.load(:hl, table)
+                @asm.jump(chosen)
+                @asm.label(other)
+              end
+              @asm.label(chosen)
+              @asm.call("rt_background_colors")
+            end
+
+            # The palettes a background's tiles are drawn in with its lists of colours number +step+
+            # (nil for its own), as rt_background_colors reads them: how many, then each palette's
+            # number and its four colours. Each tile's list swaps its colours by place
+            # (Assets::Recolor), and the Color keeps one palette for each set of colours, so two
+            # tiles that share one and are drawn differently are not made yet.
+            def background_colors_table(bg, step)
+              swaps = step && bg.palettes.zip(bg.recolors.fetch(step)).to_h
+              palettes = {}
+              bg.tiles.compact.uniq.each do |name|
+                _, palette = background_tile_named(name)
+                colors = tile_colors_with(name, swaps)
+                if palettes.key?(palette) && palettes[palette] != colors
+                  raise LoweringError, "the background #{bg.name.inspect} draws two of its tiles from one list of colours " \
+                                       "of the Color's and with other colours apart, which #{build_name} cannot make yet."
+                end
+
+                palettes[palette] = colors
+              end
+              [palettes.size, *palettes.flat_map { |palette, colors| [palette, *colors.flat_map { |c| [c & 0xFF, c >> 8] }] }]
+            end
+
+            # The four colours tile +name+'s palette holds when drawn with +swaps+ (the list each of
+            # the layer's own lists is drawn with, or nil for its own): the backdrop, then the colour
+            # each of its own shows.
+            def tile_colors_with(name, swaps)
+              run = run_painting(name)
+              if run
+                swapped = swaps && swaps[run.colors]
+                own = run.colors.drop(1).first(Art::OWN_COLORS)
+                shown = own.each_with_index.map { |color, i| swapped && swapped[i + 1] || color }
+                return padded_colors(shown)
+              end
+
+              image = Assets::Image.of(@pictures.fetch(name))
+              drawn = @art.tile_colors(image)
+              swapped = swaps && swaps[image.colors]
+              return padded_colors(drawn) unless swapped
+
+              recolor = Assets::Recolor.of(image, swapped)
+              shown = drawn.map do |color|
+                at = (0...64).select { |i| !image.tile_see_through_at?(i) && (image.color_at(i) & 0x7FFF) == color }
+                ways = at.map { |i| recolor.color_for(i, image.color_at(i)) & 0x7FFF }.uniq
+                unless ways.one?
+                  raise LoweringError, "the tile #{name.inspect} shows one colour in two others when drawn with another list " \
+                                       "of colours, which #{build_name} cannot make yet."
+                end
+
+                ways.first
+              end
+              padded_colors(shown)
+            end
+
+            def padded_colors(colors) = [Art::BACKDROP, *colors.map { |color| color & 0x7FFF }].fill(Art::BACKDROP, colors.length + 1...Art::PLACES)
+
             def map_size_of(bg)
               sizes = bg.every_map.map { |map| TileMap.size_of(map) }.uniq
               return sizes.first if sizes.one?
@@ -552,7 +650,6 @@ module RubyGBA
               what = if sizes.any? { |c, r| c > Art::GRID_CELLS || r > Art::GRID_CELLS }
                        "a map of #{cols}×#{rows} cells"
                      elsif bg.tile_w != 8 || bg.tile_h != 8 then "tiles of #{bg.tile_w}×#{bg.tile_h}"
-                     elsif !Array(bg.recolors).empty? then "other colours to draw it with"
                      elsif bg.streams? then "a map that streams"
                      end
               return unless what

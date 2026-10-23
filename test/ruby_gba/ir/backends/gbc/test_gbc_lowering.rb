@@ -8,20 +8,6 @@ require "test_helper"
 class TestGBCLowering < Minitest::Test
   GBC = RubyGBA::IR::Backends::GBC
 
-  def test_step_not_made_yet_is_refused_by_name
-    recoloured = program do
-      screen :tiled
-      image(:brick, "#" => :red, colors: %i[transparent red]) { "#{'#' * 8}\n" * 8 }
-      tiles :wall, "#" => :brick
-      colors :dusk, %i[transparent blue]
-      wall = background :wall, tiles: :wall, map: ["##"]
-      game_loop { wall.draw_with :dusk }
-    end
-    error = assert_raises(GBC::LoweringError) { GBC.new.build(recoloured) }
-
-    assert_match(/:background_colors, which the Game Boy Color build cannot make yet \(the picture\)/, error.message)
-  end
-
   def test_what_the_hardware_lacks_is_refused_naming_it
     error = assert_raises(GBC::LoweringError) { GBC.new.build(program { pixelate 4 }) }
 

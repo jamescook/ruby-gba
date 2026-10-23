@@ -242,11 +242,21 @@ module RubyGBA
 
           ## Not made yet
 
-          An answer above is what the Color does with a verb. The build for it is still growing, and
-          a game that reaches one of these steps is refused, naming the step, until it is made:
-
-          #{not_yet.map { |part, kinds| "- #{part}: #{kinds.map { |kind| "`#{kind}`" }.join(', ')}" }.join("\n")}
+          #{not_yet_words(not_yet)}
         MARKDOWN
+      end
+
+      # What the page says of the steps the Color's build does not make yet: none, or each by name.
+      def self.not_yet_words(not_yet)
+        if not_yet.empty?
+          return "The build for the Color makes every kind of step that the answers above do not refuse. Some\n" \
+                 "uses of a step are not made yet, such as a map bigger than the Color's grid of 32×32 cells.\n" \
+                 "A game that reaches one is refused with words that name it."
+        end
+
+        "An answer above is what the Color does with a verb. The build for it is still growing, and\n" \
+          "a game that reaches one of these steps is refused, naming the step, until it is made:\n\n" +
+          not_yet.map { |part, kinds| "- #{part}: #{kinds.map { |kind| "`#{kind}`" }.join(', ')}" }.join("\n")
       end
     end
   end

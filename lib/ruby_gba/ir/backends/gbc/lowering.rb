@@ -70,9 +70,7 @@ module RubyGBA
           # EVERY KIND THIS LOWERING CANNOT MAKE YET, by what it is part of. A kind leaves the list the
           # day the Color does it; test_gbc_kind_coverage.rb holds the list and the tables above to
           # every kind there is.
-          NOT_LOWERED_YET = Ractor.make_shareable({
-            "the picture" => %i[background_colors]
-          })
+          NOT_LOWERED_YET = Ractor.make_shareable({})
 
           # The kinds the Color's hardware cannot do at all, refused in the words its answers have
           # (#refuse_color_answer_errors!): a layer seen through another, a light, a mosaic, a turned
@@ -212,6 +210,7 @@ module RubyGBA
             keep_held_colors
             keep_patches
             keep_tile_runs
+            keep_drawn_palettes
             keep_column_numbers
             routines = @called.flat_map do |name|
               routines_fitting(self.class.routine_label(name), @funcs.fetch(name).children, routine: routine_said(name))

@@ -102,7 +102,7 @@ module RubyGBA
           runs = lowering.run_uploads
           runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art, frame_begins: lowering.frame_begins,
                                              music_level: lowering.music_level, songs: lowering.music.any?,
-                                             music: lowering.music, runs: runs)
+                                             music: lowering.music, runs: runs, drawn_palettes: lowering.drawn_palettes)
           data = [*lowering.art.sections, *(lowering.music.any? ? [lowering.music.section] : [])]
           linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END).link
           routines = lowering.section_routines.map do |label, routine|

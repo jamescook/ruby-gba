@@ -45,8 +45,10 @@ module RubyGBA
           # whether it has any songs at all, +music+ its songs and sound effects (GBC::Music, nil for
           # none), and +frame_begins+ the label of the game's routine run at each frame boundary
           # (its timers moving on, GBC::Timers), or nil for none. +runs+ are the tiles it paints from
-          # lists (Lowering::TileRuns#run_uploads).
-          def sections(memory, main:, art:, music_level: nil, songs: false, music: nil, frame_begins: nil, runs: [])
+          # lists (Lowering::TileRuns#run_uploads), and +drawn_palettes+ where it keeps the colours its
+          # pictures are drawn in now, for a game that draws a background in others (nil for none).
+          def sections(memory, main:, art:, music_level: nil, songs: false, music: nil, frame_begins: nil, runs: [],
+                       drawn_palettes: nil)
             asm = SM83.new("runtime", home: :fixed)
             Boot.emit(asm, main: "rt_main")
             Boot.emit_display_off(asm)
@@ -56,7 +58,7 @@ module RubyGBA
             Frame.emit(asm, memory)
             Lists.emit(asm, memory)
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length,
-                                      runs: runs)
+                                      runs: runs, drawn_palettes: drawn_palettes)
             Paint.emit(asm, memory, painting: art.painting?)
             Sound.emit(asm)
             Music.emit(asm, memory, level: music_level, songs: songs, effects: music&.effects || [],

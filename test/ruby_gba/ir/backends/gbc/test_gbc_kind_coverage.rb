@@ -43,10 +43,11 @@ class TestGBCKindCoverage < Minitest::Test
     assert_empty Lowering::REFUSED & not_yet
   end
 
-  # The conformance fixture touches every kind, so building it names everything not made yet.
-  def test_the_whole_fixture_is_refused_naming_what_is_not_made_yet
+  # The conformance fixture touches every kind, some of which the Color's hardware cannot do, so
+  # building it is refused, saying what the Color cannot do.
+  def test_the_whole_fixture_is_refused_saying_why
     error = assert_raises(GBC::LoweringError) { GBC.new.build(ConformanceFixture.program) }
 
-    assert_match(/cannot make yet/, error.message)
+    assert_match(/Game Boy Color/, error.message)
   end
 end

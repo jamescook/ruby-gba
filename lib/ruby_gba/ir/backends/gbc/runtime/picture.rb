@@ -80,15 +80,48 @@ module RubyGBA
             end
 
             # +runs+ are the tiles the game paints from lists (Lowering::TileRuns#run_uploads).
-            def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [])
-              emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles)
+            # +drawn_palettes+ is where a game that draws a background with other colours keeps the
+            # colours its pictures are drawn in now (Lowering::Picture#drawn_palettes), or nil for
+            # one whose colours are the art's from power-on: a fade moves those.
+            def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil)
+              emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
+                                      drawn_palettes: drawn_palettes)
               emit_upload(asm, memory)
               emit_tile_runs(asm, runs)
               emit_sprites(asm, memory)
               emit_background(asm, memory)
               emit_choices(asm, memory)
               emit_overlap(asm, memory)
-              emit_tint(asm, memory)
+              emit_tint(asm, memory, drawn_palettes)
+              emit_background_colors(asm, drawn_palettes) if drawn_palettes
+            end
+
+            # rt_background_colors: HL = a table of a background's colours (Lowering::Picture
+            # #emit_background_colors) — how many palettes, then for each its number and its four
+            # colours — into the colours the pictures are drawn in now, and those through the fade
+            # in force into the copy the blank sends.
+            def emit_background_colors(asm, drawn_palettes)
+              asm.label("rt_background_colors")
+              asm.load(:b, [:hl])
+              asm.inc(:hl)
+              asm.label("rt_background_colors_next")
+              asm.load(:a, :b)
+              asm.and_a(:a)
+              asm.jump(:z, "rt_tint_apply")
+              asm.load(:a, [:hli]) # the palette: drawn_palettes + 8 × its number
+              3.times { asm.add_a(:a) }
+              asm.add_a(drawn_palettes & 0xFF)
+              asm.load(:e, :a)
+              asm.load(:a, drawn_palettes >> 8)
+              asm.adc_a(0)
+              asm.load(:d, :a)
+              8.times do
+                asm.load(:a, [:hli])
+                asm.load([:de], :a)
+                asm.inc(:de)
+              end
+              asm.dec(:b)
+              asm.jump_relative("rt_background_colors_next")
             end
 
             # What a fade or a tint moves every colour toward: black, white, or a colour of the
@@ -109,7 +142,7 @@ module RubyGBA
             # Sprite tiles go 128 to a bank at 0x8000; background tiles 256 to a bank, the first
             # 128 at 0x9000 and the next 128 at 0x8800 — the console's other way of counting
             # tiles, which a background's cells use, so the two kinds never meet.
-            def emit_start(asm, memory, sprite_tiles:, background_tiles:)
+            def emit_start(asm, memory, sprite_tiles:, background_tiles:, drawn_palettes: nil)
               h = Console::GBCHardware
               asm.label("rt_picture_start")
               chunks = []
@@ -134,7 +167,14 @@ module RubyGBA
               asm.xor_a(:a)
               asm.load_high(h::VBK, :a)
               asm.call("rt_bank_back")
-              # The palettes: the game's into the copy, then the copy into the console.
+              # The palettes: the game's into the copy, then the copy into the console — and into the
+              # colours the pictures are drawn in now, for a game that draws a background in others.
+              if drawn_palettes
+                asm.load(:hl, "art_palettes")
+                asm.load(:de, drawn_palettes)
+                asm.load(:b, 128)
+                asm.call("rt_copy_b")
+              end
               asm.load(:hl, "art_palettes")
               asm.load(:de, memory[SHADOW_PALETTES])
               asm.load(:b, 128)
@@ -1097,7 +1137,10 @@ module RubyGBA
             #
             # rt_tint(toward, color, steps) does nothing when nothing changed, which is most
             # frames of a game that says its fade every frame.
-            def emit_tint(asm, memory)
+            #
+            # rt_tint_apply moves them again by the fade in force, from the colours they are drawn in
+            # now: the art's, or +drawn_palettes+ for a game that draws a background in others.
+            def emit_tint(asm, memory, drawn_palettes = nil)
               at = memory[TINT]
               arg = ->(i) { Calls.arg(memory, i, 3) }
               asm.label("rt_tint")
@@ -1147,7 +1190,8 @@ module RubyGBA
               asm.load(:a, :b)
               asm.load([:hl], :a)
               # Every colour: its channels apart, each moved, and put back together.
-              asm.load(:hl, "art_palettes")
+              asm.label("rt_tint_apply")
+              asm.load(:hl, drawn_palettes || "art_palettes")
               asm.load(:de, memory[SHADOW_PALETTES])
               asm.load(:c, 64)
               asm.label("rt_tint_color")
