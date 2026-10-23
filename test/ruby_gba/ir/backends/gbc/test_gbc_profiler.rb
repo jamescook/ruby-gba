@@ -37,6 +37,34 @@ class TestGBCProfiler < Minitest::Test
     assert_match(/cannot be told a scene/, error.message)
   end
 
+  # NINE THINGS IN NINE LISTS OF COLOURS ON THE SCREEN AT ONCE: the Color lends its eight lists
+  # to the lists on the screen, so one thing finds none free every pass and is drawn in another
+  # list's colours. Nothing in the picture says so to the author; the profile does.
+  CROWD = RubyGBA.game("CROWD", consoles: %i[gba gbc]) do
+    screen :tiled
+    image :ship, width: 8, height: 8, data: Array.new(64, :red), colors: %i[transparent red]
+    lists = (0...9).map do |n|
+      colors :"kind#{n}", [:transparent, RubyGBA::Graphics::Color.rgb(n * 3, 31 - (n * 3), 5)]
+      :"kind#{n}"
+    end
+    things = pool :thing, x: 0, y: 0, kind: 0, capacity: 9, image: :ship
+    9.times { |n| things.spawn x: 10 + (n * 12), y: 40, kind: n }
+    game_loop { things.each { |thing| thing.draw_with lists, showing: thing.kind } }
+  end
+
+  def test_a_sprite_that_finds_no_list_free_is_counted
+    rom = CROWD.build_rom(console: :gbc, out: StringIO.new, err: StringIO.new, profile: false)
+    out = StringIO.new
+    result = rom.profile(out: out, frames: 30)
+
+    assert_predicate result.lists_missed, :positive?
+    assert_match(/found none of the console's 8 lists of colours free/, out.string)
+  end
+
+  def test_a_game_that_lends_no_lists_counts_nothing
+    assert_nil profiled(frames: 30).lists_missed
+  end
+
   def test_the_report_says_the_frame_rate_and_the_routines
     rom = GAME.build_rom(console: :gbc, out: StringIO.new, err: StringIO.new, profile: false)
     out = StringIO.new

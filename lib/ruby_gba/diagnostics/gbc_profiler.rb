@@ -24,8 +24,11 @@ module RubyGBA
 
       # What a run came to: the frames measured, how many passes of the game loop they held, the
       # frame rate that is, how much of the time the game was asleep, and the routines by share,
-      # the game's and the runtime's apart.
-      Result = Data.define(:frames, :passes, :fps, :idle_share, :game, :runtime) do
+      # the game's and the runtime's apart. +lists_missed+ is how many times a sprite found none
+      # of the console's eight lists of sprite colours free, in a game whose sprites wear more
+      # lists than eight (GBC::Art#lends?), and was drawn in another list's colours; nil for a
+      # game that lends none.
+      Result = Data.define(:frames, :passes, :fps, :idle_share, :game, :runtime, :lists_missed) do
         def to_h = super.merge(game: game.map(&:to_h), runtime: runtime.map(&:to_h))
       end
 
@@ -47,8 +50,10 @@ module RubyGBA
           core.set_keys(IR::Buttons.mask(keys))
           settle.times { core.run_frame }
           before = passes(core)
+          missed_before = lists_missed(core)
           counted = core.profile_gb(frames)
-          result_of(counted, frames, passes(core) - before)
+          missed = missed_before && (lists_missed(core) - missed_before)
+          result_of(counted, frames, passes(core) - before, missed)
         end
       end
 
@@ -56,6 +61,11 @@ module RubyGBA
       def self.render(result, out: $stdout)
         out.puts "Game Boy Color: #{result.passes} passes of the game loop in #{result.frames} frames " \
                  "(#{format('%.1f', result.fps)} a second), asleep #{percent(result.idle_share)} of the time."
+        if result.lists_missed&.positive?
+          out.puts "", "#{result.lists_missed} times a sprite found none of the console's 8 lists of colours free, " \
+                       "and it showed another list's colours. More than 8 lists of colours were on the screen " \
+                       "at once. To fix this, draw the sprites on the screen together with fewer lists."
+        end
         { "Your routines" => result.game, "The runtime" => result.runtime }.each do |heading, spent|
           next if spent.empty?
 
@@ -70,11 +80,19 @@ module RubyGBA
 
       def passes(core) = core.bus_read32(@places.runtime.fetch(IR::Backends::GBC::Runtime::Frame::PASSES))
 
+      # How many times so far a sprite found the eight lists of colours in use, or nil for a game
+      # that lends none.
+      def lists_missed(core)
+        lent = @places.runtime[IR::Backends::GBC::Runtime::Picture::LENT] or return nil
+        at = lent + IR::Backends::GBC::Runtime::Picture::LENT_MISSED
+        core.bus_read8(at) | (core.bus_read8(at + 1) << 8)
+      end
+
       # The runtime's HALT instructions — waiting for the screen, and stopped for good. The emulator
       # charges a sleep to the instruction that went to sleep, so their cycles are the sleep.
       SLEEPS = %w[rt_sleep_until_vblank rt_stopped].freeze
 
-      def result_of(counted, frames, passes)
+      def result_of(counted, frames, passes, missed)
         total = counted[:total].to_f
         spent = counted[:spent].dup
         sleeps = SLEEPS.filter_map { |label| @places.code[label] }.map { |place| counted_key(place) }
@@ -86,7 +104,8 @@ module RubyGBA
           routine ? game[routine] += cycles : runtime[runtime_part_at(key)] += cycles
         end
         Result.new(frames: frames, passes: passes, fps: passes * FRAME_RATE / frames,
-                   idle_share: asleep / total, game: by_share(game, total), runtime: by_share(runtime, total))
+                   idle_share: asleep / total, game: by_share(game, total), runtime: by_share(runtime, total),
+                   lists_missed: missed)
       end
 
       def by_share(cycles_by_routine, total)

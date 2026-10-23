@@ -54,9 +54,12 @@ module RubyGBA
             # A GAME WHOSE SPRITES' LISTS BORROW THE EIGHT (Art#lends?, #emit_lend_colors): which
             # list each of the eight holds, one up so that nought is none; then a bit for each of the
             # eight a sprite was placed in this pass, the same for the pass before, and 1 when a list
-            # was lent this pass, so its colours are to be copied.
+            # was lent this pass, so its colours are to be copied; and how many times a sprite found
+            # all eight in use (LENT_MISSED bytes in, sixteen bits, held at the most it can count),
+            # which a profile of the game reports (Diagnostics::GBCProfiler).
             LENT = "rt picture lent"
-            LENT_BYTES = 8 + 3
+            LENT_MISSED = 8 + 3
+            LENT_BYTES = LENT_MISSED + 2
 
             # The display's switch that raises its interrupt as each line ends (STAT's mode-0 bit).
             STAT_HBLANK = 0x08
@@ -119,7 +122,8 @@ module RubyGBA
             # wears is never taken from under it — and its colours are copied into the colours drawn
             # now. rt_sprites_end moves them through the fade in force into the copy the blank sends,
             # so they reach the screen in the same blank as the sprite table that first reads them.
-            # A list that finds all eight in use is placed in the first, in whatever colours it holds.
+            # A list that finds all eight in use is placed in the first, in whatever colours it holds,
+            # and counted (LENT_MISSED), since nothing in the picture tells the author it happened.
             #
             # Like the Advance's lending, a list gives its one back only once a whole pass has gone
             # by without anything placed in it, since nothing says part way through a pass which lists
@@ -160,7 +164,18 @@ module RubyGBA
               asm.inc(:e)
               asm.sla(:d)
               asm.jump_relative(:nz, "rt_lend_free")
-              asm.load(:e, 0) # every one in use
+              # Every one in use: counted, and placed in the first.
+              asm.load(:hl, lent + LENT_MISSED)
+              asm.inc([:hl])
+              asm.jump_relative(:nz, "rt_lend_missed")
+              asm.inc(:hl)
+              asm.inc([:hl])
+              asm.jump_relative(:nz, "rt_lend_missed")
+              asm.dec([:hl]) # held at the most: 0xFFFF
+              asm.dec(:hl)
+              asm.dec([:hl])
+              asm.label("rt_lend_missed")
+              asm.load(:e, 0)
               asm.jump_relative("rt_lend_answer")
               asm.label("rt_lend_take")
               asm.load([:hl], :c)

@@ -61,7 +61,7 @@ test fails when the two differ.
 - `color` — works: the same as on the Advance.
 - `rgb` — works: the same as on the Advance.
 - `rgb8` — works: the same as on the Advance.
-- `colors` — works: a list of colours holds four places on a Game Boy Color, the first see-through on a sprite. The console holds eight lists for sprites. A game can use more: each list borrows one of the eight when a sprite that wears it is drawn. More than eight lists on the screen at once do not fit, and a sprite that finds no free list shows another list's colours.
+- `colors` — works: a list of colours holds four places on a Game Boy Color, the first see-through on a sprite. The console holds eight lists for sprites. A game can use more: each list borrows one of the eight when a sprite that wears it is drawn. More than eight lists on the screen at once do not fit, and a sprite that finds no free list shows another list's colours. A profile of the game says how many times that happened.
 - `recolor` — works: the same as on the Advance.
 - `colors_in_use` — works: a set can name eight lists or fewer, because the console holds eight lists for sprites. A set with more is refused, naming the set.
 - `mirror` — works: the same as on the Advance.

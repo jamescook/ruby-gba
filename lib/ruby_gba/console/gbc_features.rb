@@ -116,7 +116,8 @@ module RubyGBA
                       "on a sprite. The console holds eight lists for sprites. A game can use more: " \
                       "each list borrows one of the eight when a sprite that wears it is drawn. More " \
                       "than eight lists on the screen at once do not fit, and a sprite that finds no " \
-                      "free list shows another list's colours."),
+                      "free list shows another list's colours. A profile of the game says how many " \
+                      "times that happened."),
         recolor: works,
         colors_in_use: works("a set can name eight lists or fewer, because the console holds eight lists " \
                              "for sprites. A set with more is refused, naming the set."),
