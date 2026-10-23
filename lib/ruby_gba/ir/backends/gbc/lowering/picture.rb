@@ -1037,8 +1037,8 @@ module RubyGBA
 
             # A sprite's attributes in a game whose sprites' lists borrow the console's eight
             # (Art#lends?): the ones in the table, which name none of the eight, and the one its list
-            # holds now, which rt_lend_colors finds or lends it as it is placed — unless it stands
-            # wholly off the screen, at the sprite's place.
+            # holds now, which rt_lend_colors finds or lends it as it is placed. It is handed the
+            # sprite's place too, so a sprite wholly off the screen borrows none.
             def lent_attributes(obj, attributes, palettes, at)
               lists = drawing_table("pose_lent_palettes", 1, palettes)
               lent = RuntimeValue.new("rt_lend_colors", [Entry.new(lists, 1, false, at), value_node(obj.x), value_node(obj.y)])

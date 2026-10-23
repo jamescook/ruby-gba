@@ -114,8 +114,9 @@ module RubyGBA
 
             # LENDING THE EIGHT SPRITE LISTS. A Color draws a sprite's piece in one of eight lists of
             # four colours. A game whose sprites wear more lists than that between them lends the
-            # eight out, the way the console's own games do: rt_lend_colors(list) is which of the
-            # eight a sprite wearing the game's list number +list+ (art_lent_palettes) is placed in.
+            # eight out, the way the console's own games do: rt_lend_colors(list, x, y) is which of
+            # the eight a sprite wearing the game's list number +list+ (art_lent_palettes), standing
+            # at (x, y), is placed in.
             #
             # One holding that list already is the answer. A list holding none takes one nothing was
             # placed in this pass or the pass before — so one a sprite placed later in this pass still
@@ -132,6 +133,9 @@ module RubyGBA
             def emit_lend_colors(asm, memory, drawn_palettes)
               lent = memory[LENT]
               sprite_colors = drawn_palettes + 64
+              list = Calls.arg(memory, 0, 3)
+              x = Calls.arg(memory, 1, 3)
+              y = Calls.arg(memory, 2, 3)
               asm.label("rt_lend_colors")
               asm.load_hl_sp(2)
               asm.load(:b, 12)
@@ -140,8 +144,7 @@ module RubyGBA
               # more than the widest picture past any edge is answered the first, and nothing is
               # lent or counted. Its place is read as sixteen bits, as rt_sprite reads it.
               h = Console::GBCHardware
-              [[1, h::SCREEN_WIDTH], [2, h::SCREEN_HEIGHT]].each do |i, edge|
-                place = Calls.arg(memory, i, 3)
+              [[x, h::SCREEN_WIDTH], [y, h::SCREEN_HEIGHT]].each do |place, edge|
                 asm.load_high(:a, place)
                 asm.add_a(Art::LARGEST_SPRITE)
                 asm.load(:l, :a)
@@ -152,7 +155,7 @@ module RubyGBA
                 asm.cp_a(edge + Art::LARGEST_SPRITE)
                 asm.jump(:nc, "rt_lend_answer_first")
               end
-              asm.load_high(:a, Calls.arg(memory, 0, 3))
+              asm.load_high(:a, list)
               asm.inc(:a)
               asm.load(:c, :a) # C = the list, one up
               asm.load(:hl, lent)
