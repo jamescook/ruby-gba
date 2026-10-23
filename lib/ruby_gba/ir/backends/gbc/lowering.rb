@@ -818,7 +818,7 @@ module RubyGBA
           # the index is held to the length the header says — every field of a pool is such a list.
           # An index out of range goes the whole way round, so the game stops as the interpreter's.
           def value_of_list_get(node)
-            place, _capacity, width = declared_list(node)
+            place, _capacity, width = list_placed(node)
             value(node.index)
             return list_get_through_routine(place) if front_dropped_lists.include?(node.name)
 
@@ -839,7 +839,7 @@ module RubyGBA
             (width / 2).times { @asm.add_hl(:hl) } # × the slot's width: 1, 2 or 4
             @asm.load(:de, place + Runtime::Lists::HEADER)
             @asm.add_hl(:de)
-            @asm.call({ 1 => "rt_read_int8", 2 => "rt_read_int16", 4 => "rt_read_int32" }.fetch(width))
+            @asm.call(TABLE_KEPT.fetch([width, true]).last) # a slot reads back with its top bit as the sign
             @asm.jump(done)
             @asm.label(out_of_range)
             list_get_through_routine(place)
@@ -869,13 +869,13 @@ module RubyGBA
 
           # The runtime's list routine +routine+ on the list +node+ names, the list's place first.
           def list_call(routine, node, *args)
-            place, = declared_list(node)
+            place, = list_placed(node)
             runtime_call(routine, [Build.int(place), *args])
           end
 
           # The list +node+ names, as #sections placed it: [its place, its capacity, the bytes a slot,
           # its name].
-          def declared_list(node)
+          def list_placed(node)
             @lists.fetch(node.name) { raise LoweringError, "the list #{node.name.inspect} is used and never declared" }
           end
 
