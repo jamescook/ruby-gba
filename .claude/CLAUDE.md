@@ -144,6 +144,14 @@ lowering's too (see `Backends::JS`), so a change to them wants both those runs. 
 answer key both are checked against, so never a narrow change), the build checks — wants
 `rake test`.
 
+**What every example's cartridge costs is checked too.** `rake emitted:check` builds each example
+and fails if its code or data is bigger than `tools/emitted_baseline.json` says, and CI runs it
+after the tests. Anything that changes what a cartridge holds runs it before committing: a change
+to the DSL, the IR or the GBA lowering, a new table, an edited example. Growth that was meant is
+accepted with `rake emitted:record`, and that file goes in the same commit, so the diff shows what
+the change cost. Re-record after a shrink as well, or a later regression back up to the old number
+passes unseen.
+
 **Every test plays on every lowering**, with nothing written to say so: a test makes its player
 with `game_player` (the interpreter on the GBA run, the game as C on the native one, the game as
 JavaScript on the JavaScript one), and a test that reaches for the emulator skips itself on the
