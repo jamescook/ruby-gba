@@ -69,8 +69,7 @@ module RubyGBA
           # day the Color does it; test_gbc_kind_coverage.rb holds the list and the tables above to
           # every kind there is.
           NOT_LOWERED_YET = Ractor.make_shareable({
-            "the picture" => %i[background_colors copy_tiles copy_owed_tiles],
-            "sound" => %i[play_sound_effect]
+            "the picture" => %i[background_colors copy_tiles copy_owed_tiles]
           })
 
           # The kinds the Color's hardware cannot do at all, refused in the words its answers have

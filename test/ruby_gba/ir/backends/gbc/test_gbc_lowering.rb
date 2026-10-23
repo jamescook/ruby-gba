@@ -9,16 +9,16 @@ class TestGBCLowering < Minitest::Test
   GBC = RubyGBA::IR::Backends::GBC
 
   def test_step_not_made_yet_is_refused_by_name
-    score = RubyGBA::Audio::Score
-    blip = score.new(parts: [score::Part.new(notes: [score::Note.new(at: 0, key: :C5)])])
-    effects = program do
-      enable_sound
-      sfx = sound_effects :sfx, [blip]
-      game_loop { sfx.play 0 }
+    painted = program do
+      screen :tiled
+      pixels = list :pixels, capacity: 32, width: :byte
+      box = tiles :box, from: pixels, count: 1, colors: %i[transparent red]
+      background :board, tiles: :box, map: [[1, 1]]
+      game_loop { box.changed }
     end
-    error = assert_raises(GBC::LoweringError) { GBC.new.build(effects) }
+    error = assert_raises(GBC::LoweringError) { GBC.new.build(painted) }
 
-    assert_match(/:play_sound_effect, which the Game Boy Color build cannot make yet \(sound\)/, error.message)
+    assert_match(/:copy_owed_tiles, which the Game Boy Color build cannot make yet \(the picture\)/, error.message)
   end
 
   def test_what_the_hardware_lacks_is_refused_naming_it

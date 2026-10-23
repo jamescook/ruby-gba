@@ -33,8 +33,18 @@ module RubyGBA
           # song's name, the part, the voice it plays on, its pitch (0 for a rest) and its volume.
           Note = Data.define(:song, :part, :voice, :pitch, :volume)
 
+          # A SOUND EFFECT as the Color's player reads it (Runtime::Effects): its name, its number
+          # among the game's effects in the order declared, its rank as a number of a byte (#rank),
+          # its group and priority, how many frames it lasts, and its parts.
+          Effect = Data.define(:name, :number, :rank, :group, :priority, :total_frames, :parts)
+
+          # A part of a sound effect: the voice it plays on, what the voice sounds like (as a song's
+          # part has it, #tone_of), and the label of its notes and how many there are.
+          EffectPart = Data.define(:voice, :tone, :label, :count)
+
           def initialize(program)
             @songs = program.walk.select { |node| node.kind == :song }.uniq(&:name)
+            @effect_names = Tunes.effects(program).uniq
           end
 
           # The number +name+ is played by.
@@ -44,9 +54,36 @@ module RubyGBA
 
           def any? = !@songs.empty?
 
+          # The game's sound effects, in the order declared.
+          def effects
+            @effects ||= @effect_names.each_with_index.map do |name, number|
+              song = song_named(name)
+              parts = voices_of(song).each_with_index.map do |(part, voice), p|
+                EffectPart.new(voice: voice, tone: tone_of(part, voice), label: "sfx_notes_#{number}_#{p}",
+                               count: part.events.length)
+              end
+              Effect.new(name: name, number: number, rank: rank(Tunes.effect_rank(song, number)), group: song.group,
+                         priority: song.priority || 0, total_frames: song.total_frames, parts: parts)
+            end
+          end
+
+          # The effects in the order a frame plays them, highest rank first (IR::Tunes.effects_by_rank).
+          def effects_by_rank = effects.sort_by { |effect| -effect.rank }
+
+          # WHO HOLDS A VOICE, as one byte. The interpreter settles who sounds on a voice two players
+          # want by a rank of 24 bits (IR::Tunes.song_rank, IR::Tunes.effect_rank); the Color keeps
+          # instead each rank's place among every rank the game can have, the lowest first. The
+          # order is the same, so every comparison comes out the same, and rank 0 — nobody, or a
+          # song of no priority — is place 0.
+          def rank(full)
+            ranks.index(full) or raise LoweringError, "the rank #{full} is not among the game's"
+          end
+
           # The section the songs are kept in: a table of where each song is, then each song —
           # how long it is, where it comes round from, whether it ends, how many parts, and for
-          # each part its voice, what the voice sounds like, and its two lists of notes.
+          # each part its voice, what the voice sounds like, and its two lists of notes. Then each
+          # song's rank (#rank), and for each rank whether it is a sound effect's; and each sound
+          # effect's notes, as it plays them once.
           def section
             asm = SM83.new("music", home: :fixed, holds: SONGS)
             asm.label("music_songs")
@@ -55,26 +92,67 @@ module RubyGBA
             asm.label("music_waves")
             waveforms.each { |shape| asm.data_bytes(packed_waveform(shape)) }
             asm.data_bytes(0) # a label has to be somewhere
+            emit_effects(asm) unless effects.empty?
             asm.section
           end
 
           # Every list of notes in the section, by its label: each note, in the order the list holds
           # them, NOTE_BYTES apart.
           def notes
-            @songs.each_with_index.each_with_object({}) do |(song, i), lists|
+            lists = @songs.each_with_index.each_with_object({}) do |(song, i), held_lists|
               passes = Tunes.loop_passes(song)
               voices_of(song).each_with_index do |(part, voice), p|
                 pass = passes.fetch(song.voices.index(part))
                 { "first" => pass.first, "again" => pass.again }.each do |which, held|
-                  lists["music_notes_#{i}_#{p}_#{which}"] = held.map do |_, pitch, _, volume|
+                  held_lists["music_notes_#{i}_#{p}_#{which}"] = held.map do |_, pitch, _, volume|
                     Note.new(song: song.name, part: part, voice: voice, pitch: pitch, volume: volume || part.volume)
                   end
                 end
               end
             end
+            effects.each do |effect|
+              song = song_named(effect.name)
+              voices_of(song).zip(effect.parts) do |(part, voice), played|
+                lists[played.label] = part.events.map do |_, pitch, _, volume|
+                  Note.new(song: effect.name, part: part, voice: voice, pitch: pitch, volume: volume || part.volume)
+                end
+              end
+            end
+            lists
           end
 
           private
+
+          # Every rank the game's songs and sound effects can have, and nobody's, lowest first.
+          def ranks
+            @ranks ||= ([0] + @songs.map { |song| Tunes.song_rank(song) } +
+                        @effect_names.each_with_index.map { |name, i| Tunes.effect_rank(song_named(name), i) })
+                       .uniq.sort.tap do |all|
+              if all.length > 256
+                raise LoweringError, "this game's songs and sound effects have #{all.length} different ranks, and a " \
+                                     "Game Boy Color build keeps 256. To fix this, use fewer sound effects."
+              end
+            end
+          end
+
+          def song_named(name) = @songs.find { |song| song.name == name } || raise(LoweringError, "the song #{name.inspect} is not declared")
+
+          def emit_effects(asm)
+            asm.label("music_ranks")
+            asm.data_bytes(@songs.map { |song| rank(Tunes.song_rank(song)) })
+            asm.label("music_rank_effects")
+            asm.data_bytes(ranks.map { |full| (full & Tunes::ORDER_MASK).zero? ? 0 : 1 })
+            effects.each do |effect|
+              song = song_named(effect.name)
+              voices_of(song).zip(effect.parts) do |(part, voice), played|
+                asm.label(played.label)
+                part.events.each do |at, pitch, _, volume|
+                  asm.data_words(at, tuning(voice, pitch))
+                  asm.data_bytes(volume || part.volume)
+                end
+              end
+            end
+          end
 
           def emit_song(asm, song, i)
             parts = voices_of(song)

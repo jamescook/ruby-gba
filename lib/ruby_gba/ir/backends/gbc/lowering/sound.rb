@@ -14,7 +14,8 @@ module RubyGBA
                                                  enable_sound: :emit_enable_sound, beep: :emit_beep,
                                                  noise: :emit_noise, wave: :emit_wave, stop_wave: :emit_stop_wave,
                                                  play_song: :emit_play_song, stop_music: :emit_stop_music,
-                                                 play_from_list: :emit_play_from_list
+                                                 play_from_list: :emit_play_from_list,
+                                                 play_sound_effect: :emit_play_sound_effect
                                                })
 
             # The game's songs, as the player reads them.
@@ -65,6 +66,36 @@ module RubyGBA
               @asm.call(node.this_frame ? "rt_music_play_now" : "rt_music_play")
               @asm.add_sp(4)
               @asm.label(past)
+            end
+
+            # Reference::Player#request_effect: one of a list's sound effects by a number the game
+            # works out, asked for at the next frame — or at once, `this_frame: true` — and nothing
+            # played for a number naming none. Each effect has its own routine to ask for it with
+            # (Runtime::Effects#emit_ask), so the number picks the routine.
+            def emit_play_sound_effect(node)
+              list = effect_list(node.name)
+              numbers = @music.effects.to_h { |effect| [effect.name, effect.number] }
+              past = fresh("past_the_effect")
+              value(node.which)
+              @asm.load(:a, :b)
+              @asm.or_a(:c)
+              @asm.or_a(:d)
+              @asm.jump(:nz, past) # below nought, or far past the list
+              list.effects.each_with_index do |name, i|
+                other = fresh("not_effect_#{i}")
+                @asm.load(:a, :e)
+                @asm.cp_a(i)
+                @asm.jump(:nz, other)
+                @asm.call("rt_sfx_#{node.this_frame ? 'now' : 'ask'}_#{numbers.fetch(name)}")
+                @asm.jump(past)
+                @asm.label(other)
+              end
+              @asm.label(past)
+            end
+
+            def effect_list(name)
+              @effect_lists ||= @program.walk.select { |node| node.kind == :sound_effect_list }.to_h { |node| [node.name, node] }
+              @effect_lists.fetch(name) { raise LoweringError, "play_sound_effect of undefined list #{name.inspect}" }
             end
 
             def song_list(name)

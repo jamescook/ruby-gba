@@ -39,13 +39,22 @@ module RubyGBA
             LEVEL_SET = "rt music level set"
             NOTE_VOLUME = "rt music note volume" # the note being played's volume, as written
             HELD_VOICES = 3
+            # The waveform in the wave voice, 1 up, in a game with sound effects: a song's part and an
+            # effect's can each sound in their own, so a note puts its own in when it is not there.
+            WAVE_LOADED = "rt music wave loaded"
 
             # A square part's first register, by voice.
             SQUARE_REGISTERS = { 1 => Console::GBCHardware::NR11, 2 => Console::GBCHardware::NR21 }.freeze
 
             module_function
 
-            def reserve(memory)
+            def reserve(memory, effects: [])
+              reserve_song_player(memory)
+              memory.reserve(WAVE_LOADED, 1) unless effects.empty?
+              Effects.reserve(memory, effects)
+            end
+
+            def reserve_song_player(memory)
               memory.reserve(NAMED, 1)
               memory.reserve(PLAYING, 1)
               memory.reserve(START, 1)
@@ -62,18 +71,35 @@ module RubyGBA
             end
 
             # +level+ is where the game keeps the music's level, or nil for a game that never sets it.
-            # +songs+ says whether the game has any songs at all.
-            def emit(asm, memory, level:, songs:)
-              emit_game_side(asm, memory)
+            # +songs+ says whether the game has any songs at all; +effects+ are its sound effects
+            # (GBC::Music#effects), and +by_rank+ the same in the order a frame plays them.
+            def emit(asm, memory, level:, songs:, effects: [], by_rank: [])
+              sharing = !effects.empty?
+              emit_game_side(asm, memory, sharing)
               return emit_no_songs(asm) unless songs
 
-              emit_tick(asm, memory, level)
-              emit_notes(asm, memory, level)
+              emit_tick(asm, memory, level, sharing)
+              emit_notes(asm, memory, level, sharing)
+              Effects.emit(asm, memory, effects, by_rank) if sharing
+            end
+
+            # Voice +voice+ quiet: its volume nothing, and a square or noise voice started again so
+            # that it takes it.
+            def emit_silence(asm, voice)
+              h = Console::GBCHardware
+              volume, start = { 1 => [h::NR12, h::NR14], 2 => [h::NR22, h::NR24], 3 => [h::NR30, nil],
+                                4 => [h::NR42, h::NR44] }.fetch(voice)
+              asm.xor_a(:a)
+              asm.load_high(volume, :a)
+              return unless start
+
+              asm.load(:a, 0x80)
+              asm.load_high(start, :a)
             end
 
             # rt_music_play(song): start it at the next frame, unless it is the one named
             # already, which carries on. rt_music_stop(): no tune, and the voices quiet.
-            def emit_game_side(asm, memory)
+            def emit_game_side(asm, memory, sharing)
               asm.label("rt_music_play")
               asm.load_hl_sp(2)
               asm.load(:a, [:hl])
@@ -90,6 +116,7 @@ module RubyGBA
               # rt_music_play_now(song): the same, and a tune that is starting takes its first frame
               # here, where the game names it (`this_frame: true`, Reference::Player#start_song_here):
               # the player is run once now, with the interrupt held off, as it would run at the frame.
+              # The sound effects are not moved on: they had this frame already.
               asm.label("rt_music_play_now")
               asm.load_hl_sp(2)
               asm.load(:e, [:hl])
@@ -100,7 +127,13 @@ module RubyGBA
               asm.and_a(:a)
               asm.ret(:z)
               asm.di
-              asm.call("rt_music_tick")
+              if sharing
+                asm.call("rt_music_switch")
+                asm.call("rt_music_tune_rank")
+                asm.call("rt_music_song_frame")
+              else
+                asm.call("rt_music_tick")
+              end
               asm.ei
               asm.ret
 
@@ -121,14 +154,39 @@ module RubyGBA
               asm.ret
             end
 
-            def emit_tick(asm, memory, level)
+            # A game with sound effects plays a frame as the interpreter does (Reference::Player#advance):
+            # the tune caught up with, the effects that outrank it, its parts, and the other effects.
+            def emit_tick(asm, memory, level, sharing)
               h = Console::GBCHardware
               asm.label("rt_music_tick")
+              if sharing
+                asm.call("rt_music_switch")
+                asm.call("rt_music_tune_rank")
+                asm.call("rt_sfx_above")
+                asm.call("rt_music_song_frame")
+                asm.jump("rt_sfx_below")
+                asm.label("rt_music_switch")
+              end
               asm.load(:a, [memory[START]])
               asm.and_a(:a)
-              asm.jump_relative(:z, "rt_music_tick_playing")
+              if sharing
+                asm.ret(:z)
+              else
+                asm.jump_relative(:z, "rt_music_tick_playing")
+              end
               asm.xor_a(:a)
               asm.load([memory[START]], :a)
+              # The tune named last is the one playing — another named and then this one again in a
+              # pass — so it carries on, as Reference::Player#switch_to_wanted_song has it. A stop
+              # leaves nothing playing, so a tune named after one starts over.
+              asm.load(:a, [memory[NAMED]])
+              asm.load(:hl, memory[PLAYING])
+              asm.cp_a([:hl])
+              if sharing
+                asm.ret(:z)
+              else
+                asm.jump_relative(:z, "rt_music_tick_playing")
+              end
               asm.call("rt_music_quiet")
               asm.load(:a, [memory[NAMED]])
               asm.load([memory[PLAYING]], :a)
@@ -151,8 +209,15 @@ module RubyGBA
               asm.call("rt_music_from_the_top")
               asm.load(:a, 0)
               asm.load_high(h::NR10, :a) # no sweep on the first square voice
-              asm.call("rt_music_waveform")
+              # With sound effects, each wave note puts its own waveform in (rt_music_note_wave_on),
+              # since writing one now would quiet an effect sounding on the wave voice.
+              if sharing
+                asm.ret
+              else
+                asm.call("rt_music_waveform")
+              end
               asm.label("rt_music_tick_playing")
+              asm.label("rt_music_song_frame")
               asm.load(:a, [memory[PLAYING]])
               asm.and_a(:a)
               asm.ret(:z)
@@ -273,8 +338,11 @@ module RubyGBA
               asm.jump_relative(:nz, "rt_music_waveform_byte")
               asm.ret
 
-              # Every voice the tune plays on, quiet, and holding nothing.
+              # Every voice the tune plays on, quiet, and holding nothing. A voice a sound effect holds
+              # is the effect's, and is left alone (Reference::Player#silence_song).
               asm.label("rt_music_quiet")
+              return emit_quiet_beside_effects(asm, memory) if sharing
+
               asm.xor_a(:a)
               [h::NR12, h::NR22, h::NR30, h::NR42].each { |register| asm.load_high(register, :a) }
               HELD_VOICES.times { |i| asm.load([memory[HELD] + i], :a) }
@@ -283,8 +351,28 @@ module RubyGBA
               asm.ret
             end
 
-            # One part (HL = its entry, C = its number): each of its notes whose frame has come.
-            def emit_notes(asm, memory, level)
+            def emit_quiet_beside_effects(asm, memory)
+              (1..4).each do |voice|
+                holder = memory[Effects::HOLDERS] + voice - 1
+                asm.load(:a, [holder])
+                asm.load(:e, :a)
+                asm.load(:d, 0)
+                asm.load(:hl, "music_rank_effects")
+                asm.add_hl(:de)
+                asm.load(:a, [:hl])
+                asm.and_a(:a)
+                asm.jump_relative(:nz, "rt_music_quiet_kept_#{voice}")
+                asm.load([holder], :a)
+                asm.load([memory[HELD] + voice - 1], :a) if voice <= HELD_VOICES
+                emit_silence(asm, voice)
+                asm.label("rt_music_quiet_kept_#{voice}")
+              end
+              asm.ret
+            end
+
+            # One part (HL = its entry, C = its number): each of its notes whose frame has come. With
+            # sound effects, a note whose voice a higher rank holds is passed over, unplayed.
+            def emit_notes(asm, memory, level, sharing)
               h = Console::GBCHardware
               part = memory[PART]
               asm.label("rt_music_part")
@@ -346,10 +434,17 @@ module RubyGBA
               asm.cp_a([:hl])
               asm.jump_relative(:nz, "rt_music_part_later")
               asm.inc(:hl)
+              if sharing
+                asm.load(:a, [memory[Effects::TUNE_RANK]])
+                asm.load(:c, :a)
+                asm.call("rt_claim")
+                asm.jump_relative(:c, "rt_music_part_passed")
+              end
               asm.call("rt_music_note")
               # One note on, and the part done for this frame: a part plays one note a frame, as the
               # interpreter's does (Reference::Player#play_song_frame), so a second note written on
               # the same frame never plays, and holds back the rest of the part.
+              asm.label("rt_music_part_passed")
               asm.pop(:hl)
               asm.inc([:hl])
               asm.ret(:nz)
@@ -378,6 +473,8 @@ module RubyGBA
               # note's loudness here (GBC::SoundLog).
               asm.label("rt_music_note_voice")
               asm.call("rt_music_hold")
+              # rt_voice_write: B = the volume, DE = the tuning, onto the part's voice ([PART]).
+              asm.label("rt_voice_write")
               asm.load(:a, [part])
               asm.cp_a(GBC::Music::WAVE_VOICE)
               asm.jump_relative(:z, "rt_music_note_wave")
@@ -412,6 +509,13 @@ module RubyGBA
               asm.load_high(h::NR30, :a) # a rest: the voice off
               asm.ret
               asm.label("rt_music_note_wave_on")
+              if sharing
+                asm.load(:a, [part + 1])
+                asm.inc(:a)
+                asm.load(:hl, memory[WAVE_LOADED])
+                asm.cp_a([:hl])
+                asm.call(:nz, "rt_music_wave_load")
+              end
               asm.load(:a, 0x80)
               asm.load_high(h::NR30, :a)
               asm.load(:a, :b)
@@ -450,6 +554,7 @@ module RubyGBA
               asm.load_high(h::NR44, :a)
               asm.ret
 
+              emit_wave_load(asm, memory) if sharing
               emit_hold(asm, memory, part)
               emit_relevel(asm, memory, level) if level
 
@@ -461,6 +566,33 @@ module RubyGBA
             # The wave voice's loudness for each of Audio::Sound's levels, as its register has it;
             # the Advance's three-quarters, which the Color does not have, is full.
             WAVE_LEVEL_CODES = { mute: 0x00, quarter: 0x60, half: 0x40, three_quarter: 0x20, full: 0x20 }.freeze
+
+            # rt_music_wave_load: A = a waveform's number, 1 up, into the wave voice, with the voice off
+            # while it is written. HL = WAVE_LOADED. Keeps B and DE.
+            def emit_wave_load(asm, memory)
+              h = Console::GBCHardware
+              asm.label("rt_music_wave_load")
+              asm.load([:hl], :a)
+              asm.dec(:a)
+              asm.swap(:a) # music_waves + 16 × its number
+              asm.push(:de)
+              asm.load(:e, :a)
+              asm.load(:d, 0)
+              asm.load(:hl, "music_waves")
+              asm.add_hl(:de)
+              asm.pop(:de)
+              asm.xor_a(:a)
+              asm.load_high(h::NR30, :a)
+              asm.load(:c, h::WAVE_RAM & 0xFF)
+              asm.label("rt_music_wave_load_byte")
+              asm.load(:a, [:hli])
+              asm.load_high([:c], :a)
+              asm.inc(:c)
+              asm.load(:a, :c)
+              asm.cp_a((h::WAVE_RAM + 16) & 0xFF)
+              asm.jump_relative(:nz, "rt_music_wave_load_byte")
+              asm.ret
+            end
 
             # rt_music_hold: the note being played (DE its tuning, NOTE_VOLUME its volume) is what its
             # voice holds now, a rest holding nothing. Keeps B and DE.

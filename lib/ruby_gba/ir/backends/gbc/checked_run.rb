@@ -72,7 +72,7 @@ module RubyGBA
             # A log that grew differently says which entry it first differs at, read to the end.
             heard = self.class.sounds_difference(sounds, @cartridge.whole_audio)
             difference = [difference, heard].compact.join(", and ") if difference&.include?("sound log")
-            difference ||= self.class.sounds_difference(sounds, @cartridge.audio)
+            difference ||= self.class.sounds_difference(sounds, @cartridge.audio_played)
             difference ||= self.class.save_difference(saved, @save) if SaveLayout.named_by?(program)
             raise Disagreement, "the Game Boy Color lowering and the interpreter disagree at #{difference}" if difference
 

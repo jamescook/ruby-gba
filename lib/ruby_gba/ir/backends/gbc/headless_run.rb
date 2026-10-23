@@ -86,6 +86,8 @@ module RubyGBA
             @declared_lists = program.walk.select { |node| node.kind == :list_new }.map(&:name).uniq
             @sound_log = SoundLog.new(@places)
             @sounds = 0
+            @audio = []
+            @audio_handed = 0
             @frames_took = {}
             @deciding = false
             @decided = nil
@@ -113,8 +115,17 @@ module RubyGBA
           end
 
           # The sound log up to the moment the run ended, or the one at the frame boundary an input
-          # script or a watching block is asked at, in the interpreter's words (GBC::SoundLog).
-          def audio = @sound_log.entries.take(@sounds)
+          # script or a watching block is asked at, in the interpreter's words (GBC::SoundLog). It is
+          # the test's to clear as it watches, as the interpreter's is: what comes after is added to
+          # what the test left. The run is compared by every entry whatever the test did to it.
+          def audio
+            @audio.concat(@sound_log.entries[@audio_handed...@sounds]) if @sounds > @audio_handed
+            @audio_handed = [@audio_handed, @sounds].max
+            @audio
+          end
+
+          # The sound log up to the moment the run ended, every entry, whatever a test did to #audio.
+          def audio_played = @sound_log.entries.take(@sounds)
 
           # Every entry the cartridge played, past where the run ended too: the frames it is played
           # on after the last pass compared play the music on.

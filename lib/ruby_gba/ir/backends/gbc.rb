@@ -57,9 +57,10 @@ module RubyGBA
         # GameRoutine each — for a profile to say whose time it was without reading a label. And what
         # the sound routines are handed is to the interpreter, for a run to read back what the
         # cartridge played (GBC::SoundLog): what each table of sound writes plays, by its label, the
-        # songs' notes (GBC::Music#notes), and whether the music follows a level the game sets.
+        # songs' notes (GBC::Music#notes), whether the music follows a level the game sets, and the
+        # sound effects' names, by their numbers.
         Places = Data.define(:variables, :lists, :runtime, :source_program, :code, :routines, :sound_tables, :notes,
-                             :music_follows_level) do
+                             :music_follows_level, :sound_effects) do
           # THE SPRITES THE GAME PLACED IN ITS LAST PASS, as the interpreter says them
           # (Reference#sprites): who each is, which picture it shows and where, back to front. The
           # runtime keeps them in a table of its own (Runtime::Picture::DRAWN), front-most first as
@@ -95,10 +96,11 @@ module RubyGBA
           memory = Memory.new
           lowering = Lowering.new(program, memory: memory)
           # The runtime's places first, so they are in the half of work memory always in view.
-          Runtime.reserve(memory, art: lowering.art)
+          Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects)
           game = lowering.sections
           runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art, frame_begins: lowering.frame_begins,
-                                             music_level: lowering.music_level, songs: lowering.music.any?)
+                                             music_level: lowering.music_level, songs: lowering.music.any?,
+                                             music: lowering.music)
           data = [*lowering.art.sections, *(lowering.music.any? ? [lowering.music.section] : [])]
           linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END).link
           routines = lowering.section_routines.map do |label, routine|
@@ -108,7 +110,8 @@ module RubyGBA
           built = Places.new(variables: lowering.variables, lists: lowering.lists, runtime: runtime_places(memory),
                              source_program: program, code: linked.places, routines: routines,
                              sound_tables: lowering.sound_tables, notes: lowering.music.notes,
-                             music_follows_level: !lowering.music_level.nil?)
+                             music_follows_level: !lowering.music_level.nil?,
+                             sound_effects: lowering.music.effects.map(&:name))
           save_bytes = SaveLayout.named_by?(program) ? Runtime::Saving::SIZE : 0
           Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: save_bytes, built: built)
         end

@@ -9,6 +9,7 @@ require_relative "runtime/picture"
 require_relative "runtime/paint"
 require_relative "runtime/sound"
 require_relative "runtime/music"
+require_relative "runtime/effects"
 require_relative "runtime/saving"
 
 module RubyGBA
@@ -28,21 +29,23 @@ module RubyGBA
 
           # The runtime's own places in work memory, asked for before the game's, so they are in
           # the half always in view (a painted screen puts its banks in the other half while it
-          # works). +art+ is what the game's pictures were made into (GBC::Art).
-          def reserve(memory, art:)
+          # works). +art+ is what the game's pictures were made into (GBC::Art), +effects+ its sound
+          # effects (GBC::Music#effects).
+          def reserve(memory, art:, effects: [])
             Frame.reserve(memory)
             Picture.reserve(memory)
             Paint.reserve(memory, painting: art.painting?)
-            Music.reserve(memory)
+            Music.reserve(memory, effects: effects)
           end
 
           # The runtime's sections: the processor's entry points, and everything else in one.
           # +main+ is the label of the game's main routine, called in its own bank; +art+ is what its
           # pictures were made into (GBC::Art), which the runtime puts in the console at power-on;
           # +music_level+ is where the game keeps how loud its music is (nil for at full), +songs+
-          # whether it has any songs at all, and +frame_begins+ the label of the game's routine run
-          # at each frame boundary (its timers moving on, GBC::Timers), or nil for none.
-          def sections(memory, main:, art:, music_level: nil, songs: false, frame_begins: nil)
+          # whether it has any songs at all, +music+ its songs and sound effects (GBC::Music, nil for
+          # none), and +frame_begins+ the label of the game's routine run at each frame boundary
+          # (its timers moving on, GBC::Timers), or nil for none.
+          def sections(memory, main:, art:, music_level: nil, songs: false, music: nil, frame_begins: nil)
             asm = SM83.new("runtime", home: :fixed)
             Boot.emit(asm, main: "rt_main")
             Boot.emit_display_off(asm)
@@ -54,7 +57,8 @@ module RubyGBA
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length)
             Paint.emit(asm, memory, painting: art.painting?)
             Sound.emit(asm)
-            Music.emit(asm, memory, level: music_level, songs: songs)
+            Music.emit(asm, memory, level: music_level, songs: songs, effects: music&.effects || [],
+                                    by_rank: music&.effects_by_rank || [])
             Saving.emit(asm, memory)
             emit_start(asm)
             emit_main(asm, main)
