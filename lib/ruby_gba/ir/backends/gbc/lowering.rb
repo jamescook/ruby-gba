@@ -211,6 +211,7 @@ module RubyGBA
             keep_patches
             keep_tile_runs
             keep_drawn_palettes
+            keep_big_map_places
             keep_column_numbers
             routines = @called.flat_map do |name|
               routines_fitting(self.class.routine_label(name), @funcs.fetch(name).children, routine: routine_said(name))

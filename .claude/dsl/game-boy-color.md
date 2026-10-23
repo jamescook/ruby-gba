@@ -72,7 +72,7 @@ test fails when the two differ.
 - `pool` — works: its sprites count towards the forty.
 - `box` — works: the same as on the Advance.
 - `tiles` — works: tiles of four colours each.
-- `background` — works: one background at a time, on a grid of 32×32 cells, scrolled and changed as on the Advance, and bent row by row with `scroll_each_row`. A second background showing at once is refused, and so are `rotate` and `scale`: a Game Boy Color cannot turn or resize a background.
+- `background` — works: one background at a time, scrolled and changed as on the Advance, and bent row by row with `scroll_each_row`. The console holds 32×32 cells of a map at once, so a bigger map is brought into view as the view moves. A second background showing at once is refused, and so are `rotate` and `scale`: a Game Boy Color cannot turn or resize a background.
 - `canvas` — works: its colours are four, as a background's tiles' are.
 - `layers` — works: a layer holds a background or sprites; a background in front of a sprite works. `transparency:` is refused: a Game Boy Color cannot show one layer through another.
 - `layer` — works: see `layers`.
@@ -156,5 +156,5 @@ test fails when the two differ.
 ## Not made yet
 
 The build for the Color makes every kind of step that the answers above do not refuse. Some
-uses of a step are not made yet, such as a map bigger than the Color's grid of 32×32 cells.
+uses of a step are not made yet, such as a background of tiles smaller than 8×8.
 A game that reaches one is refused with words that name it.

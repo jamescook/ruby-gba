@@ -363,6 +363,8 @@ module RubyGBA
               asm.or_a(:b)
               asm.load_high(h::LCDC, :a)
               asm.call("rt_tile_runs_upload")
+              # The cells a big map's view brought in (Runtime::BigMaps).
+              asm.call("rt_big_view")
               # A grid being put up, and a painted screen's tiles: as much of each as the blank holds.
               asm.call("rt_picture_map_job")
               asm.push(:af)
@@ -760,6 +762,8 @@ module RubyGBA
               asm.ret(:z)
               asm.label("rt_picture_put_up") # A = the grid's number
               asm.load([memory[GRID_UP]], :a)
+              asm.load(:hl, memory[BigMaps::STATE] + BigMaps::ON) # a big map is not up any more
+              asm.load([:hl], 0)
               asm.load(:e, :a) # its entry in the grids' table, three bytes
               asm.load(:d, 0)
               asm.load(:hl, "art_grids")
@@ -863,7 +867,21 @@ module RubyGBA
               asm.load_hl_sp(2)
               asm.load(:a, [:hl])
               asm.load([memory[SCROLL] + 1], :a)
-              asm.ret
+              # ...and, for a map bigger than the grid, the cell each is in (Runtime::BigMaps).
+              big = memory[BigMaps::STATE]
+              [[6, BigMaps::WANT], [2, BigMaps::WANT + 2]].each do |from, want|
+                asm.load_hl_sp(from)
+                asm.load(:a, [:hli])
+                asm.load(:e, :a)
+                asm.load(:a, [:hl])
+                asm.load(:d, :a)
+                asm.call("rt_big_want")
+                asm.load(:a, :e)
+                asm.load([big + want], :a)
+                asm.load(:a, :d)
+                asm.load([big + want + 1], :a)
+              end
+              asm.jump("rt_big_prepare")
             end
 
             # CHOOSING BY NUMBER. rt_place_of_choice(which, others) is which list of colours a

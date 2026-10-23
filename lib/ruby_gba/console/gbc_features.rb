@@ -129,8 +129,9 @@ module RubyGBA
 
         # --- backgrounds and layers ---
         tiles: works("tiles of four colours each."),
-        background: works("one background at a time, on a grid of 32×32 cells, scrolled and changed " \
-                          "as on the Advance, and bent row by row with `scroll_each_row`. A second " \
+        background: works("one background at a time, scrolled and changed as on the Advance, and bent " \
+                          "row by row with `scroll_each_row`. The console holds 32×32 cells of a map at " \
+                          "once, so a bigger map is brought into view as the view moves. A second " \
                           "background showing at once is refused, and so are `rotate` and `scale`: a " \
                           "Game Boy Color cannot turn or resize a background."),
         canvas: works("its colours are four, as a background's tiles' are."),
@@ -250,7 +251,7 @@ module RubyGBA
       def self.not_yet_words(not_yet)
         if not_yet.empty?
           return "The build for the Color makes every kind of step that the answers above do not refuse. Some\n" \
-                 "uses of a step are not made yet, such as a map bigger than the Color's grid of 32×32 cells.\n" \
+                 "uses of a step are not made yet, such as a background of tiles smaller than 8×8.\n" \
                  "A game that reaches one is refused with words that name it."
         end
 

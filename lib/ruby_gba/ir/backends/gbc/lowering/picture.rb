@@ -54,6 +54,10 @@ module RubyGBA
             # a game that never does.
             attr_reader :drawn_palettes
 
+            # Where a game with a map bigger than the grid keeps its copy of the grid and its list of
+            # cells for the blank, [copy, list] (Runtime::BigMaps), or nil for a game with none.
+            attr_reader :big_map_places
+
             private
 
             def prepare_picture
@@ -403,7 +407,33 @@ module RubyGBA
               background_put_up(node) unless @handover.on_arrival?(node)
             end
 
-            def background_put_up(bg) = runtime_call("rt_background_put_up", [Build.int(grid_of(bg))])
+            # A background goes up as its grid, or as a map bigger than the grid (Runtime::BigMaps).
+            def background_put_up(bg)
+              return runtime_call("rt_big_put_up", [Build.int(big_map_of(bg))]) if big?(bg)
+
+              runtime_call("rt_background_put_up", [Build.int(grid_of(bg))])
+            end
+
+            # Whether any of a background's maps is bigger than the Color's grid of 32×32 cells.
+            def big?(bg)
+              bg.every_map.any? do |map|
+                cols, rows = TileMap.size_of(map)
+                cols > Art::GRID_CELLS || rows > Art::GRID_CELLS
+              end
+            end
+
+            # A background's map number +which+ kept whole, for a background one of whose maps is
+            # bigger than the grid (GBC::Art#big_map): every map of it is kept that way, so each stops
+            # at its own edge.
+            def big_map_of(bg, which = 0)
+              @big_maps ||= {}
+              @big_maps[[bg, which]] ||= begin
+                refuse_background!(bg)
+                @art.big_map(bg.every_map.fetch(which).map do |row|
+                  Array(row).map { |tile| tile.nil? || tile.negative? ? nil : background_tile_named(bg.tiles.fetch(tile)) }
+                end)
+              end
+            end
 
             def emit_scroll_background(node)
               declared_background!(node)
@@ -418,11 +448,15 @@ module RubyGBA
             # declared — its grid put up — and a number naming no map leaves it as it is. A number
             # written in the program is looked up here; one worked out as the game runs, in a table
             # of the maps' grids.
+            #
+            # A background bigger than the grid hands over its map kept whole (#big_map_of) and keeps
+            # its view where it is (Runtime::BigMaps's rt_big_show).
             def emit_show_map(node)
               bg = declared_background!(node)
-              grids = bg.every_map.each_index.map { |which| grid_of(bg, which) }
+              routine = big?(bg) ? "rt_big_show" : "rt_background_put_up"
+              grids = bg.every_map.each_index.map { |which| big?(bg) ? big_map_of(bg, which) : grid_of(bg, which) }
               known = folded(node.which)
-              return (background_put_up_grid(grids.fetch(known)) if known.between?(0, grids.length - 1)) if known
+              return (runtime_call(routine, [Build.int(grids.fetch(known))]) if known.between?(0, grids.length - 1)) if known
 
               table = drawing_table("map_grids", 1, grids)
               past = fresh("past_the_map")
@@ -440,12 +474,10 @@ module RubyGBA
               @asm.load(:a, [:hl])
               @asm.load(:e, :a)
               2.times { @asm.push(:de) } # the grid's number, as a four-byte argument
-              @asm.call("rt_background_put_up")
+              @asm.call(routine)
               @asm.add_sp(4)
               @asm.label(past)
             end
-
-            def background_put_up_grid(grid) = runtime_call("rt_background_put_up", [Build.int(grid)])
 
             # Reference#exec_camera: the view moved over the painted picture. The picture is the
             # screen's size, the console's grid of tiles holding it with nothing past its edge, so
@@ -517,6 +549,7 @@ module RubyGBA
             # so the edge is the same whichever is showing.
             def emit_set_tile(node)
               bg = declared_background!(node)
+              refuse_background!(bg, as_grid: true)
               cols, rows = map_size_of(bg)
               tile = node.tile
               number, palette = tile.nil? || tile.negative? ? [0, 0] : background_tile_named(bg.tiles.fetch(tile))
@@ -531,6 +564,15 @@ module RubyGBA
               return unless @reachable.any? { |node| node.kind == :background_colors }
 
               @drawn_palettes = @memory.reserve("the colours drawn now", 128)
+            end
+
+            # The copy of the grid a map bigger than it is worked out into — at an address that is a
+            # multiple of 16, which the console's copying reads from — and the list for the blank.
+            def keep_big_map_places
+              return unless @backgrounds.each_value.any? { |bg| big?(bg) }
+
+              copy = @memory.reserve("the copy of a big map's grid", Runtime::BigMaps::BUFFER_BYTES + 15)
+              @big_map_places = [(copy + 15) & ~15, @memory.reserve("the cells for the blank", Runtime::BigMaps::STAGED_BYTES)]
             end
 
             # Reference#exec_background_colors: the background's tiles drawn from another of its lists
@@ -630,7 +672,7 @@ module RubyGBA
             # no tile or does not reach.
             def grid_of(bg, which = 0)
               @grids[[bg, which]] ||= begin
-                refuse_background!(bg)
+                refuse_background!(bg, as_grid: true)
                 map = bg.every_map.fetch(which)
                 cells = Array.new(Art::GRID_CELLS) do |row|
                   Array.new(Art::GRID_CELLS) do |col|
@@ -644,13 +686,13 @@ module RubyGBA
               end
             end
 
-            def refuse_background!(bg)
+            # What a background has that this build does not make yet: tiles other than 8×8, and — as a
+            # grid, for a step that changes the grid (`set_tile`, `show_map`) — a map bigger than it.
+            def refuse_background!(bg, as_grid: false)
               sizes = bg.every_map.map { |map| TileMap.size_of(map) }
               cols, rows = sizes.max
-              what = if sizes.any? { |c, r| c > Art::GRID_CELLS || r > Art::GRID_CELLS }
-                       "a map of #{cols}×#{rows} cells"
-                     elsif bg.tile_w != 8 || bg.tile_h != 8 then "tiles of #{bg.tile_w}×#{bg.tile_h}"
-                     elsif bg.streams? then "a map that streams"
+              what = if bg.tile_w != 8 || bg.tile_h != 8 then "tiles of #{bg.tile_w}×#{bg.tile_h}"
+                     elsif as_grid && big?(bg) then "a map of #{cols}×#{rows} cells changed as the game runs"
                      end
               return unless what
 

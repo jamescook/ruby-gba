@@ -80,6 +80,7 @@ module RubyGBA
             @background_tile_of = {} # picture name -> [tile number, palette number]
             @run_tile_of = {} # a painted tile's name -> [tile number, palette number]
             @grids = []               # 2048 bytes each: the cells' tiles, then their attributes
+            @big_maps = []            # [bytes, columns, rows] of each map bigger than the grid
             background_tile_number(Array.new(16, 0)) # tile 0: nothing but the backdrop, for an empty cell
             grid(Array.new(GRID_CELLS) { Array.new(GRID_CELLS) }) # grid 0: nothing up
           end
@@ -225,6 +226,28 @@ module RubyGBA
             @grids.index(bytes) || (@grids << bytes).length - 1
           end
 
+          # The number of a map bigger than the grid (Runtime::BigMaps), kept whole: +cells+ is its
+          # rows, each cell [tile number, palette number] or nil for one with nothing in it, and every
+          # cell is two bytes, its tile and its colours, a row after another.
+          def big_map(cells)
+            cols = cells.map(&:length).max.to_i
+            if cols > 255 || cells.length > 255
+              raise LoweringError, "a map of #{cols}×#{cells.length} cells is bigger than a Game Boy Color build " \
+                                   "keeps, which is 255 each way."
+            end
+
+            bytes = cells.flat_map do |row|
+              Array.new(cols) do |col|
+                tile, palette = row[col]
+                next [0, 0] unless tile
+
+                [tile & 0xFF, palette | (tile >= 256 ? Console::GBCHardware::ATTR_TILE_BANK : 0)]
+              end.flatten
+            end
+            entry = [bytes, cols, cells.length]
+            @big_maps.index(entry) || (@big_maps << entry).length - 1
+          end
+
           # --- the cartridge's copy ---
 
           # What each of the art's sections is to the author, for a cartridge too full for them (see
@@ -249,6 +272,12 @@ module RubyGBA
                           holds: BACKGROUND_TILES),
              *@grids.each_with_index.map do |bytes, i|
                data_section("art grid #{i}", "art_grid_#{i}", bytes, holds: BACKGROUND_MAPS)
+             end,
+             *@big_maps.each_with_index.flat_map do |(bytes, cols, _), i|
+               # A row to a section, since a whole map can be more than a bank holds.
+               bytes.each_slice(cols * 2).each_with_index.map do |row, r|
+                 data_section("art big map #{i} row #{r}", "art_big_map_#{i}_#{r}", row, holds: BACKGROUND_MAPS)
+               end
              end]
           end
 
@@ -274,6 +303,20 @@ module RubyGBA
             @grids.each_index do |i|
               asm.data_words("art_grid_#{i}")
               asm.data_bank_of("art_grid_#{i}")
+            end
+            # Each map bigger than the grid as Runtime::BigMaps reads it: where its table of rows is
+            # (each row's place and bank), a byte unused, and its size.
+            asm.label("art_big_maps")
+            @big_maps.each_index do |i|
+              asm.data_words("art_big_rows_#{i}")
+              asm.data_bytes(0, @big_maps[i][1], @big_maps[i][2])
+            end
+            @big_maps.each_with_index do |(_, _, rows), i|
+              asm.label("art_big_rows_#{i}")
+              rows.times do |r|
+                asm.data_words("art_big_map_#{i}_#{r}")
+                asm.data_bank_of("art_big_map_#{i}_#{r}")
+              end
             end
             pictures.each do |picture|
               asm.label("art_pieces_#{picture.number}")

@@ -10,6 +10,7 @@ require_relative "runtime/paint"
 require_relative "runtime/sound"
 require_relative "runtime/music"
 require_relative "runtime/effects"
+require_relative "runtime/big_maps"
 require_relative "runtime/saving"
 
 module RubyGBA
@@ -34,6 +35,7 @@ module RubyGBA
           def reserve(memory, art:, effects: [])
             Frame.reserve(memory)
             Picture.reserve(memory)
+            BigMaps.reserve(memory)
             Paint.reserve(memory, painting: art.painting?)
             Music.reserve(memory, effects: effects)
           end
@@ -47,8 +49,10 @@ module RubyGBA
           # (its timers moving on, GBC::Timers), or nil for none. +runs+ are the tiles it paints from
           # lists (Lowering::TileRuns#run_uploads), and +drawn_palettes+ where it keeps the colours its
           # pictures are drawn in now, for a game that draws a background in others (nil for none).
+          # +big_maps+ is where a game with a map bigger than the grid keeps its copy of the grid and
+          # the list of cells for the blank (Runtime::BigMaps), or nil.
           def sections(memory, main:, art:, music_level: nil, songs: false, music: nil, frame_begins: nil, runs: [],
-                       drawn_palettes: nil)
+                       drawn_palettes: nil, big_maps: nil)
             asm = SM83.new("runtime", home: :fixed)
             Boot.emit(asm, main: "rt_main")
             Boot.emit_display_off(asm)
@@ -59,6 +63,7 @@ module RubyGBA
             Lists.emit(asm, memory)
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length,
                                       runs: runs, drawn_palettes: drawn_palettes)
+            BigMaps.emit(asm, memory, buffer: big_maps&.first, staged: big_maps&.last)
             Paint.emit(asm, memory, painting: art.painting?)
             Sound.emit(asm)
             Music.emit(asm, memory, level: music_level, songs: songs, effects: music&.effects || [],
