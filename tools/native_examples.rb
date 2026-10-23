@@ -42,6 +42,9 @@ module NativeExamples
     require path
     games = declared[before..]
     return "declares no game through RubyGBA.game" if games.empty?
+    if games.none? { |game| game.consoles.include?(:gba) }
+      return "is for the Game Boy Color alone, and the desktop build plays games for the Advance"
+    end
 
     native = RubyGBA::IR::Backends::Native.new
     games.each { |game| native.lower(native.checked_program(game, err: nil)) }

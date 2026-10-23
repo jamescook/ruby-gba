@@ -39,10 +39,8 @@
 require_relative "../lib/ruby_gba"
 
 # --- Build-time constants (plain Ruby, resolved before any ARM is emitted) ---
-# Everything that depends on how big the screen is — where the cpu's paddle stands, the net,
-# where the ball starts — is worked out inside the game from `screen_width` and
-# `screen_height`, so the same game lays itself out on the Advance's 240×160 and the Game Boy
-# Color's 160×144.
+SCREEN_W     = 240
+SCREEN_H     = 160
 PADDLE_W     = 4
 PADDLE_H     = 24
 BALL_SIZE    = 4
@@ -58,7 +56,8 @@ CPU_HARD     = 1.6
 WIN_SCORE    = 5
 STING_FRAMES = 18       # how long the red sting takes to fall away when the cpu scores
 LEFT_X       = 8        # player paddle x
-RIGHT_GAP    = 12       # how far in from the right edge the cpu's paddle stands
+RIGHT_X      = 228      # cpu paddle x
+NET_X        = SCREEN_W / 2 # the center line the two scores sit either side of
 SCORE_GAP    = 15       # how far from the net each score is pushed
 ZOOM_FRAMES    = 60     # how long the title's zoom-in takes once START is chosen (1 second)
 ZOOM_PER_FRAME = 0.05   # how much bigger the title backdrop gets each of those frames
@@ -67,7 +66,6 @@ ZOOM_PER_FRAME = 0.05   # how much bigger the title backdrop gets each of those 
 MUSIC_OFF      = "MUSIC: OFF"
 MUSIC_ON       = "MUSIC: ON"
 DIFFICULTY     = "DIFFICULTY" # the title row that opens the screen below
-LEVEL          = "LEVEL"      # ...said shorter where a row of the title holds fewer letters (below)
 NORMAL         = "NORMAL"     # ...and its two rows
 HARD           = "HARD"
 
@@ -76,20 +74,9 @@ HARD           = "HARD"
 # cores may never share — and that would stop this game being built anywhere but where it
 # was declared. Every other example is shaped this way already.
 module PongGame
-  GAME = RubyGBA.game("PONG", consoles: %i[gba gbc]) do
+  GAME = RubyGBA.game("PONG", consoles: %i[gba]) do
     screen :bitmap
     enable_sound
-
-    # --- The screen this build is for ---
-    width  = screen_width
-    height = screen_height
-    right_x = width - RIGHT_GAP # cpu paddle x
-    net_x   = width / 2         # the center line the two scores sit either side of
-    ball_start = [(width / 2) - (BALL_SIZE / 2), (height / 2) - (BALL_SIZE / 2)]
-    paddle_start = (height / 2) - (PADDLE_H / 2)
-    # The title's letters are sprites, and a Game Boy Color shows ten sprites on any one row of
-    # the screen: "DIFFICULTY" and the cursor beside it are eleven. So that row says LEVEL there.
-    difficulty_row = width < 240 ? LEVEL : DIFFICULTY
 
     # --- Sound presets ---
     define_sound :paddle_hit, frequency: 880, duty: :quarter, decay: :fast
@@ -129,14 +116,14 @@ module PongGame
 
     # --- RAM variables ---
     # Each `var` returns a handle we compare and mutate with the expression DSL.
-    ball_x       = var :ball_x, ball_start[0]
-    ball_y       = var :ball_y, ball_start[1]
+    ball_x       = var :ball_x, 118
+    ball_y       = var :ball_y, 78
     ball_dx      = var :ball_dx, BALL_SPEED
     ball_dy      = var :ball_dy, BALL_SPEED
-    player_y     = var :player_y, paddle_start
+    player_y     = var :player_y, 68
     # The cpu paddle holds a fraction, so its two speeds can differ by less than a pixel a
     # frame. Everything that reads it as a place on screen asks for the whole number.
-    cpu_y        = var :cpu_y, paddle_start.to_f
+    cpu_y        = var :cpu_y, 68.0
     player_score = var :player_score, 0
     cpu_score    = var :cpu_score, 0
     state        = var :state, 0    # 0=title, 1=playing, 2=player_wins, 3=cpu_wins, 4=difficulty
@@ -149,20 +136,20 @@ module PongGame
     # --- Subroutines ---
 
     func :reset_ball do
-      ball_x.set! ball_start[0]
-      ball_y.set! ball_start[1]
+      ball_x.set! 118
+      ball_y.set! 78
       ball_dx.flip! # reverse horizontal direction
     end
 
     func :reset_game do
       player_score.set! 0
       cpu_score.set! 0
-      player_y.set! paddle_start
-      cpu_y.set! paddle_start.to_f
+      player_y.set! 68
+      cpu_y.set! 68.0
       ball_dx.set! BALL_SPEED
       ball_dy.set! BALL_SPEED
-      ball_x.set! ball_start[0]
-      ball_y.set! ball_start[1]
+      ball_x.set! 118
+      ball_y.set! 78
       zoom_timer.set! 0 # so the title starts unzoomed the next time it shows
       fade_music_in     # the last game faded its music out; this one brings it up again
       state.set! 1
@@ -176,7 +163,7 @@ module PongGame
       # center — not its top — is what tracks the ball. The step is a variable rather
       # than a number, which is the whole of the difficulty setting.
       cpu_y.approach! (ball_y - PADDLE_H / 2).to_f, cpu_speed
-      cpu_y.clamp! 0, height - PADDLE_H
+      cpu_y.clamp! 0, SCREEN_H - PADDLE_H
     end
 
     func :update_ball do
@@ -191,7 +178,7 @@ module PongGame
       end
 
       # Bounce off bottom wall
-      (ball_y >= height - BALL_SIZE).then do
+      (ball_y >= SCREEN_H - BALL_SIZE).then do
         ball_dy.negate_abs!
         beep :wall_bounce
       end
@@ -204,7 +191,7 @@ module PongGame
       # a size — and ask whether they touch with `overlaps?`.
       ball       = box(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
       player_pad = box(LEFT_X, player_y, PADDLE_W, PADDLE_H)
-      cpu_pad    = box(right_x, cpu_y.to_i, PADDLE_W, PADDLE_H)
+      cpu_pad    = box(RIGHT_X, cpu_y.to_i, PADDLE_W, PADDLE_H)
 
       ball.overlaps?(player_pad).then do
         ball_dx.abs! # bounce right
@@ -231,7 +218,7 @@ module PongGame
       end
 
       # Score: ball went off right edge
-      (ball_x >= width).then do
+      (ball_x >= SCREEN_W).then do
         player_score.add! 1
         (player_score >= WIN_SCORE).then do
           state.set! 2
@@ -243,9 +230,9 @@ module PongGame
     end
 
     func :draw_field do
-      # Dashed center line, a dash every 20 pixels down the screen
-      (height / 20.0).ceil.times do |i|
-        dma_fill_rect net_x - 1, i * 20 + 2, 2, 12, :gray
+      # Dashed center line
+      8.times do |i|
+        dma_fill_rect 119, i * 20 + 2, 2, 12, :gray
       end
     end
 
@@ -271,14 +258,14 @@ module PongGame
       # The menu. Ask the font how wide its longest row comes out and centre the column on
       # that, so the rows share a left edge for the cursor to line up under and nothing
       # here is a number counted by eye.
-      menu_x = (width - [MUSIC_OFF, difficulty_row].map { |row| text_width(row) }.max) / 2
+      menu_x = (SCREEN_W - [MUSIC_OFF, DIFFICULTY].map { |row| text_width(row) }.max) / 2
       menu :title, at: [menu_x, 90], spacing: 16, color: :gray, picked: :white do |m|
         m.item("START") { zoom_timer.set! 1 }
         # A row whose words follow the setting. `1 - music_on` is the toggle: 1 becomes 0
         # and 0 becomes 1.
         m.item([MUSIC_OFF, MUSIC_ON], showing: music_on) { music_on.set! 1 - music_on }
         # ...and a row that opens a screen of its own, below.
-        m.item(difficulty_row) { state.set! 4 }
+        m.item(DIFFICULTY) { state.set! 4 }
       end
 
       # Zoom the backdrop in once START is chosen, then hand off to :playing when the zoom
@@ -297,7 +284,7 @@ module PongGame
       # Input
       held(:up).then   { player_y.sub! PADDLE_SPEED }
       held(:down).then { player_y.add! PADDLE_SPEED }
-      player_y.clamp! 0, height - PADDLE_H
+      player_y.clamp! 0, SCREEN_H - PADDLE_H
 
       # Update
       call :update_cpu
@@ -306,14 +293,14 @@ module PongGame
       # Draw
       call :draw_field
       draw_rect_at LEFT_X, :player_y, PADDLE_W, PADDLE_H, :white
-      draw_rect_at right_x, cpu_y.to_i, PADDLE_W, PADDLE_H, :white
+      draw_rect_at RIGHT_X, cpu_y.to_i, PADDLE_W, PADDLE_H, :white
       draw_rect_at :ball_x, :ball_y, BALL_SIZE, BALL_SIZE, :white
 
       # Live score, one digit each side of the center line (first to WIN_SCORE). Each is
       # pushed up against the net from its own half, so the two sit symmetrically whatever
       # the font is — no pair of numbers to keep in step by hand.
-      draw_number player_score, :right, 8, :white, digits: 1, within: 0..(net_x - SCORE_GAP)
-      draw_number cpu_score, :left, 8, :white, digits: 1, within: (net_x + SCORE_GAP)...width
+      draw_number player_score, :right, 8, :white, digits: 1, within: 0..(NET_X - SCORE_GAP)
+      draw_number cpu_score, :left, 8, :white, digits: 1, within: (NET_X + SCORE_GAP)...SCREEN_W
 
       # Background music, unless it was turned off on the title screen.
       (music_on == 1).then { play_song :gameplay }.else { stop_music }
@@ -333,7 +320,7 @@ module PongGame
       clear_screen :black
       draw_text DIFFICULTY, :center, 40, :white
 
-      diff_x = (width - text_width(NORMAL)) / 2
+      diff_x = (SCREEN_W - text_width(NORMAL)) / 2
       menu :difficulty, at: [diff_x, 80], spacing: 16, color: :gray, picked: :white,
                         starts_on: 1 do |m|
         m.item(NORMAL) { cpu_speed.set! CPU_NORMAL; state.set! 0 }

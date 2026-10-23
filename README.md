@@ -205,14 +205,14 @@ end
 ```
 
 ```bash
-ruby-gba build examples/pong.rb                   # pong.gba and pong.gbc, beside the game
-ruby-gba build examples/pong.rb --console gbc     # pong.gbc alone
-ruby-gba play examples/pong.rb --console gbc --script walk.rb   # play, profile and compare need --console for a game of two
+ruby-gba build examples/pacman.rb                 # pacman.gba and pacman.gbc, beside the game
+ruby-gba build examples/pacman.rb --console gbc   # pacman.gbc alone
+ruby-gba play examples/pacman.rb --console gbc --script walk.rb   # play, profile and compare need --console for a game of two
 ```
 
 When the Color cannot play a game that names it, `build` still writes the Advance's cartridge, says why the Color's was not made, and ends as a failure; take `:gbc` out of `consoles:` if the game is not for the Color.
 
-The Color is a smaller machine: a 160×144 screen, eight buttons, one background, forty sprites and ten on a row of the screen, and lists of four colours. What every verb does there is decided once, in `Console::GBCFeatures`, and written out in [`.claude/dsl/game-boy-color.md`](.claude/dsl/game-boy-color.md): it **works**, it **degrades** — the build goes on and says once what will look different (a turning background is shown as drawn) — or it is **refused** in plain words before anything is made (a recording, the shoulder buttons). A painted screen works too, holding four colours at once; fades and tints move the Color's colours, the only way it has. `examples/pong.rb` and `examples/pacman.rb` build for both consoles, and `rake test` plays them on the Color against the interpreter, frame by frame (`rake test:lowering:gbc`).
+The Color is a smaller machine: a 160×144 screen, eight buttons, one background, forty sprites and ten on a row of the screen, and lists of four colours. What every verb does there is decided once, in `Console::GBCFeatures`, and written out in [`.claude/dsl/game-boy-color.md`](.claude/dsl/game-boy-color.md): it **works**, or it is **refused** in plain words before anything is made, naming the hardware the Color lacks (a turning background, a recording, the shoulder buttons). Nothing is shown differently. A painted screen works too, holding four colours at once; fades and tints move the Color's colours, the only way it has. `examples/pacman.rb` builds for both consoles. `examples/pong.rb` zooms its title on a turning screen, so it is the Advance's alone, and `examples/pong_gbc.rb` is the same game changed for the Color. `rake test` plays both on the Color against the interpreter, frame by frame (`rake test:lowering:gbc`).
 
 ### Testing a game on every lowering
 
@@ -360,6 +360,7 @@ its approach over the alternatives*. Build any of them with `ruby examples/<name
 | Example | Teaches | How it draws |
 |---|---|---|
 | [`pong.rb`](examples/pong.rb) | Paddle/ball bounce, AABB `overlaps?` collision, scoring, music + SFX, a title `menu` over a zooming backdrop | Direct Mode 3 game, whole frame redrawn; the title on `screen :rotozoom` |
+| [`pong_gbc.rb`](examples/pong_gbc.rb) | `pong.rb` changed for the Game Boy Color: laid out from `screen_width`, the title still | Painted screen; the title on `screen :tiled` |
 | [`breakout.rb`](examples/breakout.rb) | A whole grid of `overlaps?` bricks, lives, angle-on-paddle-hit | Tear-free (double-buffered), whole frame redrawn |
 | [`snake.rb`](examples/snake.rb) | A growing `list` body, an `every` movement beat, live score | Direct Mode 3, **only the changed cells** redrawn |
 | [`snake_buffered.rb`](examples/snake_buffered.rb) | The *same* game written the naïve way and still tear-free | Double-buffered, whole board redrawn each frame |

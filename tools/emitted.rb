@@ -144,7 +144,11 @@ module Emitted
   # is reached by the file that uses it.
   def examples(only = nil)
     wanted = only.to_s.split(",").map { |name| name.strip.sub(/\.rb\z/, "") }.reject(&:empty?)
-    paths = Dir[File.join(EXAMPLES, "*.rb")].sort.select { |path| File.read(path).include?("RubyGBA.game") }
+    # A game for the Game Boy Color alone has no ARM to measure.
+    paths = Dir[File.join(EXAMPLES, "*.rb")].sort.select do |path|
+      source = File.read(path)
+      source.include?("RubyGBA.game") && !source.include?("consoles: %i[gbc]")
+    end
     return paths if wanted.empty?
 
     paths.select { |path| wanted.include?(File.basename(path, ".rb")) }
