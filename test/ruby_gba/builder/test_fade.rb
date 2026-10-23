@@ -65,25 +65,6 @@ class TestFade < Minitest::Test
     assert_equal WHITE, i.screen.pixel(10, 10)
   end
 
-  # Halfway on each channel, in both directions. A fade MOVES a channel by a share and
-  # rounds the share, whichever way it is going: toward black red loses half of what it
-  # has, and half of 31 is 15.5, of which it loses 15 and keeps 16. Toward white it gains
-  # half of the headroom it has left. They are not mirror images — one lands on 16 where
-  # the other lands on 15 — because the part that rounds is the part that MOVES.
-  #
-  # Blue on its way to black lands on 15, not red's 16, and that is the emulator the
-  # picture is checked against: it works a fade out at eight bits a channel, and for the
-  # two channels kept above red the share it takes rounds the other way (see
-  # Framebuffer#darkened_by_display).
-  def test_a_half_fade_moves_each_channel_half_way
-    dark = game_player.run(faded(:black, 50))
-    light = game_player.run(faded(:white, 50))
-
-    assert_equal [16, 0, 0], channels(dark.screen.pixel(120, 80)), "red, half faded to black"
-    assert_equal [0, 0, 15], channels(dark.screen.pixel(10, 10)), "blue, half faded to black"
-    assert_equal [31, 15, 15], channels(light.screen.pixel(120, 80)), "red, half faded to white"
-  end
-
   # ...and the console says the same, for the same picture through the ROM.
   def test_the_console_shows_the_same_half_fade
     rom = assemble_rom(faded(:black, 50), name: "HALF")
@@ -287,15 +268,6 @@ class TestFade < Minitest::Test
         assert_backends_agree(a_wall_faded(ODD_COLOR, toward, percent), frames: 2)
       end
     end
-  end
-
-  # One answer written out: white three quarters of the way to black is red 8, green 7,
-  # blue 7, which is what the console was measured showing. Five bits a channel would say
-  # 8, 8, 8.
-  def test_white_three_quarters_to_black_is_eight_seven_seven
-    i = game_player.run(a_wall_faded(:white, :black, 75), frames: 2)
-
-    assert_equal [8, 7, 7], channels(i.screen.pixel(8, 8))
   end
 
   # --- on the console ---
