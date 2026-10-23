@@ -74,7 +74,8 @@ program in `examples/` (see "Running a file on the native lowering too").
 
 The shared helpers — `test_helper.rb`, `differential.rb`, `emulator_blend.rb`,
 `mixed_sound.rb`, `conformance_fixture.rb`, `midpoint_circle.rb` (the console games' circle, the
-answer key a light's rows are checked against) — stay at `test/`, and are loaded **by bare name**
+answer key a light's rows are checked against), and the helpers a test file shares with its
+`_on_the_advance.rb` twin (`fade_watch.rb`, `tinted_handover.rb`) — stay at `test/`, and are loaded **by bare name**
 (`require "differential"`). That works from any depth because the Rakefile puts
 `test` on the load path. Never `require_relative` them: that one breaks the
 moment a file moves.

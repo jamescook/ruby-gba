@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "differential"
+require "tinted_handover"
 
 # A tint left on while the game changes screen. The plain bitmap screen holds a whole colour
 # in every pixel and has the display mix the tint in as it draws; the tear-free bitmap screen
@@ -10,6 +11,7 @@ require "differential"
 # round it goes, on every backend, and be mixed the way the new screen mixes it.
 class TestTintAcrossScreens < Minitest::Test
   include Differential
+  include TintedHandover
 
   private def program(&body)
     b = RubyGBA::Builder.new
@@ -20,57 +22,6 @@ class TestTintAcrossScreens < Minitest::Test
 
   GREEN = 0x03E0
   HALF_RED = 0x01EF # green half way to red
-
-  # Say one of the three screens: :plain, :tear_free or :tiled.
-  def self.say_screen(builder, kind)
-    case kind
-    when :plain then builder.screen :bitmap
-    when :tear_free then builder.screen :bitmap, tear_free: true
-    else builder.screen :tiled
-    end
-  end
-
-  # Two scenes on two screens and a tint said once before the loop, which takes +ground+
-  # toward +toward+. The game starts on +from+'s scene and moves to +to+'s on its fourth pass,
-  # where it stays. +before_loop+ is said after the tint.
-  private def tinted_handover(from, to, amount: 50, ground: :green, toward: :red, &before_loop)
-    tile = SOLID_TILE
-    screens = [from, to]
-    program do
-      TestTintAcrossScreens.say_screen(self, from)
-      image(:ground, "#" => ground) { tile }
-      tiles :grass, "#" => :ground
-      state = var :state, 0
-      ticks = var :ticks, 0
-      level = var :level, 0
-      screens.each_with_index do |kind, i|
-        scene :"screen#{i}" do
-          TestTintAcrossScreens.say_screen(self, kind)
-          if kind == :tiled
-            background :floor, tiles: :grass, map: Array.new(20) { "#" * 30 }
-          else
-            clear_screen ground
-          end
-        end
-      end
-      level.set! 50
-      tint toward, amount == :worked_out ? level : amount
-      instance_eval(&before_loop) if before_loop
-      game_loop do
-        ticks.add! 1
-        (ticks == 4).then { state.set! 1 }
-        case_var(:state) do
-          when_val 0, :screen0
-          when_val 1, :screen1
-        end
-      end
-    end
-  end
-
-  # The colour in the middle of the screen once the game is on its second screen.
-  private def shown_after_handover(handover)
-    game_player.run(handover, frames: 10).screen.pixel(120, 80)
-  end
 
   PAIRS = [%i[plain tiled], %i[tiled plain], %i[plain tear_free], %i[tear_free plain],
            %i[tear_free tiled], %i[tiled tear_free]].freeze

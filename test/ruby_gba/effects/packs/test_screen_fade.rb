@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "fade_watch"
 
 # The screen fade — `fade_out`, `fade_in` and `flash_screen`, and the level a game can
 # read to sequence a scene change.
@@ -11,6 +12,8 @@ require "test_helper"
 # lifts. The picture underneath never changes, which is exactly what makes a fade cheap
 # and also what makes a fade left un-lifted so hard to spot by eye.
 class TestScreenFade < Minitest::Test
+  include FadeWatch
+
   WHITE = RubyGBA::Graphics::Color.resolve(:white)
   RED = RubyGBA::Graphics::Color.resolve(:red)
   GREEN = RubyGBA::Graphics::Color.resolve(:green)
@@ -36,22 +39,6 @@ class TestScreenFade < Minitest::Test
         (frame == 2).then { instance_exec(&fade) }
       end
     end
-  end
-
-  # What one spot shows on each of the first +frames+ frames.
-  private def ramp(prog, frames) = watch(prog, frames) { |run| run.screen.pixel(120, 80) }
-
-  # What +read+ gives back on each of the first +frames+ frames, read from ONE run as each
-  # frame settles. Playing the game again for every frame looked at costs the square of the
-  # frames, which the game built as C, started afresh each time, makes a long wait. The first
-  # look comes at the frame boundary before the first pass, so the run plays one frame more
-  # and that look is dropped: what is left for frame n is what a run of n frames ends on.
-  private def watch(prog, frames, &read)
-    seen = []
-    run = game_player
-    run.each_vblank { seen << read.call(run) }
-    run.run(prog, frames: frames + 1)
-    seen.drop(1).first(frames)
   end
 
   # --- fading out and back in ---
@@ -503,30 +490,6 @@ class TestScreenFade < Minitest::Test
   end
 
   # --- a long fade steps every frame ---
-
-  # A red screen that fades up to white over 33 frames from frame 2, and back from frame
-  # 50. Red toward white leaves the red channel alone and walks green and blue from 0 to
-  # 31, which is 32 levels: a new picture on every frame of the fade but its first.
-  private def long_fade(screen_kind, frames: 33, toward: :white, color: :red)
-    tile = (["#" * 8] * 8).join("\n")
-    program do
-      screen screen_kind
-      if screen_kind == :tiled
-        image(:red_art, "#" => color) { tile }
-        tiles :set, "#" => :red_art
-        background :field, tiles: :set, map: Array.new(20) { "#" * 30 }
-      end
-      frame = var :frame, 0
-      level = var :fade_level_seen, 0
-      game_loop do
-        clear_screen color unless screen_kind == :tiled
-        level.set! fade_level.to_i
-        frame.add! 1
-        (frame == 2).then { fade_out toward, frames: frames }
-        (frame == 50).then { fade_in }
-      end
-    end
-  end
 
   def test_a_long_fade_shows_a_new_picture_on_every_frame
     seen = ramp(long_fade(:tiled), 90)
