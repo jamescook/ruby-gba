@@ -54,8 +54,6 @@ module RubyGBA
             # one: the boundary after it is where the interpreter stops a run, before it moves
             # anything on, so the game's timers do not move on there either.
             LAST_PASS_TAKEN = "rt last pass taken"
-            # 1 while the screen is tear-free (see rt_wait_vblank).
-            TWO_PAGES = "rt two pages"
             # HOW MANY FRAMES A PASS TOOK (IR::Frames). The screen's interrupt counts every frame it
             # draws (FRAMES, 32 bits, which a reader of the run reads too), whatever the game is
             # doing; where a pass's wait ends, the frames since the last wait ended are what that
@@ -90,7 +88,6 @@ module RubyGBA
               memory.reserve(FAULT, 11)
               memory.reserve(HOLD, 4)
               memory.reserve(LAST_PASS_TAKEN, 4) # the reader writes four bytes at a time
-              memory.reserve(TWO_PAGES, 1)
               memory.reserve(FRAMES, 4)
               memory.reserve(FRAMES_MARK, 1)
               memory.reserve(STEP_TAKEN, 1)
@@ -145,24 +142,17 @@ module RubyGBA
               # (Reference#advance_frame). So whoever reads the game while it waits reads it with
               # this boundary's ticks counted.
               #
-              # WHEN, AGAINST THE PICTURE, is the screen's to say, since a tick's handler can draw.
-              # A plain painted screen is one page, and what a handler paints at the boundary is in
-              # the picture that frame shows: the ticks come before the scan that finds what to
-              # send. A tear-free screen is two to the interpreter, which shows the finished page
-              # and only then moves the timers on, so a handler paints the page being drawn: the
-              # ticks come after the scan, and what they paint is sent with the next pass's picture.
+              # BEFORE THE SCAN that finds what to send, since a tick's handler can draw. A painted
+              # screen on a Color is one page, tear-free or not (Console::Description's
+              # painted_pages), so what a handler paints at the boundary is in the picture that
+              # frame shows, as it is to the interpreter.
               asm.label("rt_wait_vblank")
               asm.load(:hl, memory[PASSES])
               asm.call("rt_increment32")
               asm.xor_a(:a)
               asm.load_high(vblank, :a)
-              asm.load(:a, [memory[TWO_PAGES]])
-              asm.and_a(:a)
-              asm.call(:z, "rt_frame_begins_unless_last")
+              asm.call("rt_frame_begins_unless_last")
               asm.call("rt_paint_scan")
-              asm.load(:a, [memory[TWO_PAGES]])
-              asm.and_a(:a)
-              asm.call(:nz, "rt_frame_begins_unless_last")
               # Waiting from here, and the music owed by the frames the pass spanned played first,
               # with the interrupt held off so a frame drawn now is played after them.
               asm.di
@@ -217,13 +207,6 @@ module RubyGBA
               asm.and_a(:a)
               asm.ret(:nz)
               asm.jump("rt_frame_begins")
-
-              # rt_two_pages(yes): whether the screen is tear-free from here on (see rt_wait_vblank).
-              asm.label("rt_two_pages")
-              asm.load_hl_sp(2)
-              asm.load(:a, [:hl])
-              asm.load([memory[TWO_PAGES]], :a)
-              asm.ret
 
               asm.label("rt_shown_is_passes")
               asm.load(:hl, memory[PASSES])

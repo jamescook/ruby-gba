@@ -163,11 +163,10 @@ module RubyGBA
             # plays the game for a Color. A painted screen is 360 tiles of the background's
             # (Runtime::Paint). A change between the two replaces the display (rt_screen), and
             # what every tiled screen shows is put up again then (Reference#put_up_always_up). A
-            # tear-free screen is two pages to the interpreter, which changes nothing in how the
-            # Color shows it but when a timer's tick draws on it (Runtime::Frame, rt_two_pages).
+            # tear-free screen is the same one page: a Color only ever shows a picture whole, and
+            # the interpreter keeps one page for it too (Console::Description's painted_pages).
             def emit_screen(node)
               screen_change(node.mode)
-              runtime_call("rt_two_pages", [Build.int(node.buffered ? 1 : 0)])
             end
 
             def screen_change(mode)
@@ -194,12 +193,7 @@ module RubyGBA
             # nothing (Reference#take_over).
             def emit_scene_arrival(scene)
               arrival = @handover.arrival(scene)
-              if arrival.screen
-                emit_screen(arrival.screen)
-              else
-                screen_change(Modes::SCREEN_OF_MODE.fetch(arrival.mode))
-                runtime_call("rt_two_pages", [Build.int(arrival.mode == Modes::BUFFERED ? 1 : 0)])
-              end
+              screen_change(arrival.screen ? arrival.screen.mode : Modes::SCREEN_OF_MODE.fetch(arrival.mode))
               arrival.map_choices.each do |var|
                 load_constant(0)
                 store(var)

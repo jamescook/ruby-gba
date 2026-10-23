@@ -863,7 +863,9 @@ module RubyGBA
             reset_scenery_state
           end
           @screen_mode = node.mode
-          @buffered = node.buffered || false
+          # A tear-free screen is two pages only where the console keeps two; one that only ever
+          # shows a picture whole keeps one, and a single paint is on every frame there.
+          @buffered = (node.buffered || false) && (@console.nil? || @console.painted_pages == 2)
           @screen.paged = @buffered
           @screen.tint_by_display = tint_by_display? # a tint in force is mixed this screen's way
           @screen.show_in_blocks(painted_screen? ? @block : 1) # the size of a block outlasts the screen it was said on

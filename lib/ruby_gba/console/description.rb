@@ -18,10 +18,13 @@ module RubyGBA
     # +backgrounds+ is how many tiled layers it stacks, and +turning_backgrounds+ how many of
     # them can turn and resize. +blends+ says whether its display can mix colours as it draws —
     # fade the finished picture, mix one layer into another — rather than only change the colours
-    # in its lists. +list_colors+ is how many places a list of colours holds. +extension+ ends
-    # the name of a cartridge file for it.
+    # in its lists. +list_colors+ is how many places a list of colours holds. +painted_pages+ is
+    # how many pictures a tear-free painted screen keeps: two where one is drawn while the other
+    # is shown, one where the console only ever shows a picture whole. +extension+ ends the name
+    # of a cartridge file for it.
     Description = Data.define(:name, :title, :screen_width, :screen_height, :buttons, :sprites,
-                              :backgrounds, :turning_backgrounds, :blends, :list_colors, :extension) do
+                              :backgrounds, :turning_backgrounds, :blends, :list_colors, :painted_pages,
+                              :extension) do
       def screen_size = [screen_width, screen_height]
 
       # The middle of the screen, in whole pixels.
@@ -32,14 +35,14 @@ module RubyGBA
     ADVANCE = Description.new(name: :gba, title: "Game Boy Advance", screen_width: 240, screen_height: 160,
                               buttons: %i[a b select start right left up down r l].freeze, sprites: 128,
                               backgrounds: 4, turning_backgrounds: 1, blends: true, list_colors: 16,
-                              extension: ".gba")
+                              painted_pages: 2, extension: ".gba")
 
     # The Game Boy Color: a smaller screen, eight buttons, forty sprites, one background, and lists
     # of four colours. What each verb does on it is Console::GBCFeatures's to say.
     COLOR = Description.new(name: :gbc, title: "Game Boy Color", screen_width: 160, screen_height: 144,
                             buttons: %i[a b select start right left up down].freeze, sprites: 40,
                             backgrounds: 1, turning_backgrounds: 0, blends: false, list_colors: 4,
-                            extension: ".gbc")
+                            painted_pages: 1, extension: ".gbc")
 
     DESCRIPTIONS = Ractor.make_shareable({ gba: ADVANCE, gbc: COLOR })
 
