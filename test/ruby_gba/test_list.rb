@@ -232,6 +232,18 @@ class TestList < Minitest::Test
     assert_match(/out of range/i, err.message)
   end
 
+  def test_writing_out_of_range_raises
+    err = assert_raises(Reference::ProgramError) do
+      interpret do
+        body = list :body, capacity: 8
+        body.push 10
+        body[3] = 7 # only index 0 exists
+        halt
+      end
+    end
+    assert_match(/out of range/i, err.message)
+  end
+
   def test_using_a_list_before_it_is_created_raises
     # Built straight from the IR: the DSL can't express this (a handle only comes
     # from `list`), but a stray push must still fail loudly rather than silently.

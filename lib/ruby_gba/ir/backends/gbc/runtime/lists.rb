@@ -298,7 +298,7 @@ module RubyGBA
               asm.label("rt_list_set_taken") # the list and the index already where it takes them
               asm.load(:a, set_places(memory).first & 0xFF)
               asm.call("rt_list_open")
-              asm.load(:a, arg_at(memory, 1, 3))
+              asm.load(:a, set_places(memory).last & 0xFF)
               asm.call("rt_list_index")
               asm.call("rt_list_slot_address")
               load_arg(asm, arg(memory, 2, 3))
