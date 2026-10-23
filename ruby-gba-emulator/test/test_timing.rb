@@ -16,7 +16,7 @@ class TestRubyGBAEmulatorTiming < Minitest::Test
     build_rom("IDLE", code: "TIDL") do
       screen :bitmap
       clear_screen :black
-      game_loop { wait_vblank }
+      game_loop {}
     end
   end
 
@@ -27,7 +27,6 @@ class TestRubyGBAEmulatorTiming < Minitest::Test
       clear_screen :black
       var :x, 0
       game_loop do
-        wait_vblank
         repeat(500) { add! :x, 1 }
       end
     end
@@ -41,7 +40,7 @@ class TestRubyGBAEmulatorTiming < Minitest::Test
       screen :bitmap
       clear_screen :black
       b = self
-      game_loop { wait_vblank; b.dma_fill_rect 0, 0, 200, 100, :red }
+      game_loop { b.dma_fill_rect 0, 0, 200, 100, :red }
     end
   end
 
@@ -137,7 +136,6 @@ class TestRubyGBAEmulatorTiming < Minitest::Test
       clear_screen :black
       var :x, 0
       game_loop do
-        wait_vblank
         held(:left).then { repeat(500) { add! :x, 1 } }
       end
     end

@@ -22,7 +22,7 @@ class TestRubyGBAEmulatorCore < Minitest::Test
     core = RubyGBAEmulator::Core.new(build_rom("HELLO", code: "THEL", maker: "42") do
       screen :bitmap
       clear_screen :blue
-      game_loop { wait_vblank }
+      game_loop {}
     end)
     assert_equal "HELLO", core.title
     assert_equal "42", core.maker_code

@@ -66,7 +66,7 @@ class TestFrameEvents < Minitest::Test
         ########
       ART
       sprite :dot, at: [40, 24]
-      game_loop { wait_vblank }
+      game_loop {}
     end
 
     probe = RubyGBAEmulator.open(path)
@@ -92,7 +92,7 @@ class TestFrameEvents < Minitest::Test
       image :lots, width: 8, height: 8, data: (0...64).map { |i| many[i % many.length] }
       sprite :few, at: [40, 24]
       sprite :lots, at: [80, 24]
-      game_loop { wait_vblank }
+      game_loop {}
     end
 
     probe = RubyGBAEmulator.open(path)
@@ -120,7 +120,7 @@ class TestFrameEvents < Minitest::Test
       ART
       s = sprite :dot, at: [40, 24]
       s.hide
-      game_loop { wait_vblank }
+      game_loop {}
     end
 
     probe = RubyGBAEmulator.open(path)
@@ -139,7 +139,7 @@ class TestFrameEvents < Minitest::Test
       image(:brick, "#" => :red) { TILE_8X8 }
       tiles :set, "#" => :brick
       background :bg, tiles: :set, map: "##\n##\n"
-      game_loop { wait_vblank }
+      game_loop {}
     end
 
     probe = RubyGBAEmulator.open(path)
@@ -280,7 +280,7 @@ class TestFrameEvents < Minitest::Test
       tiles :set, "#" => :brick
       background :ground, tiles: :set, map: ["#" * 30] * 20
       sprite :dot, at: [40, 24]
-      game_loop { wait_vblank }
+      game_loop {}
     end
   end
 
@@ -333,7 +333,7 @@ class TestFrameEvents < Minitest::Test
       clear_screen :black
       enable_sound
       wave :triangle, :C4
-      game_loop { wait_vblank }
+      game_loop {}
     end
   end
 
@@ -415,7 +415,7 @@ class TestFrameEvents < Minitest::Test
       tiles :set, "#" => :brick
       bg = background :bg, tiles: :set, map: ["#" * 30] * 20
       bg.scroll_each_row { |row| row }
-      game_loop { wait_vblank }
+      game_loop {}
     end
 
     with_probe(path) do |probe|
@@ -439,7 +439,7 @@ class TestFrameEvents < Minitest::Test
       tiles :set, "#" => :brick
       background :bg, tiles: :set, map: ["#" * 30] * 20
       sprite :dot, at: [40, 24]
-      game_loop { wait_vblank }
+      game_loop {}
     end
 
     with_probe(path) do |probe|

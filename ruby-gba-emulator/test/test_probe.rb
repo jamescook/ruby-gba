@@ -26,7 +26,7 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
       screen :bitmap
       clear_screen :blue
       fill_rect 100, 60, 40, 40, :green
-      game_loop { wait_vblank }
+      game_loop {}
     end
     with_probe(rom) do |probe|
       probe.step(4)
@@ -87,7 +87,6 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
         screen :bitmap
         var :x, 20
         game_loop do
-          wait_vblank
           held(:right).then { add! :x, 2 }
           clear_screen :black
           draw_rect_at :x, 78, 8, 8, :white
@@ -112,7 +111,7 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
       clear_screen :black
       enable_sound
       wave :square, :A4 # a steady tone that holds
-      game_loop { wait_vblank }
+      game_loop {}
     end
     with_probe(rom) do |probe|
       probe.step(8)
@@ -129,7 +128,7 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
       clear_screen :black
       enable_sound
       wave :triangle, 440
-      game_loop { wait_vblank }
+      game_loop {}
     end
     with_probe(rom) do |probe|
       probe.step(8)
@@ -186,7 +185,7 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
       var :a, 11
       var :b, 22
       var :c, 33
-      game_loop { wait_vblank }
+      game_loop {}
     end
     with_probe(write_rom(rom, "bulk")) do |probe|
       probe.step(4)

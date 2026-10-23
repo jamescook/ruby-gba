@@ -16,7 +16,7 @@ module RubyGBAEmulatorTestSupport
 
   # Build a ROM from a ruby-gba DSL block and return the path to it on disk.
   #
-  #   path = build_rom("RED") { screen :bitmap; clear_screen :red; game_loop { wait_vblank } }
+  #   path = build_rom("RED") { screen :bitmap; clear_screen :red; game_loop {} }
   #   probe = RubyGBAEmulator.open(path)
   def build_rom(name = "TEST", code: "TEST", maker: "01", &block)
     rom = RubyGBA.build(name, code: code, maker: maker, &block)
@@ -44,7 +44,7 @@ module RubyGBAEmulatorTestSupport
     build_rom("RED", code: "TRED") do
       screen :bitmap
       clear_screen :red
-      game_loop { wait_vblank }
+      game_loop {}
     end
   end
 

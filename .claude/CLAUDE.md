@@ -133,6 +133,9 @@ the repository is public and a self-hosted runner executes whatever a workflow s
 machine. Never give it a push, pull_request or schedule trigger. A fork that wants CI registers a
 runner of its own and changes the label, the owner check and the shell's tool paths to match. A CI
 run takes the same machine-wide lock as a local `rake test`, so the two wait for each other.
+The runner is a service and never reads a login shell's settings, so anything the machine's own
+builds lean on from there (`MGBA_DIR`, for a libmgba built by hand) goes in the `.env` file in the
+runner's folder, which it reads when it starts: restart the runner after changing it.
 
 **Which run a change needs:** a change inside one lowering — the ARM the GBA lowering emits,
 the C the native lowering writes, the JavaScript runtime — can only break that lowering's run,
