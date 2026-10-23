@@ -808,7 +808,25 @@ module RubyGBA
                       node.at, Build.int(node.count))
           end
 
-          def value_of_list_get(node) = list_call("rt_list_get", node, node.index)
+          # Reference::ListValue#[]. The index is worked out first, and then it and the list's place
+          # are written straight where rt_list_get reads them, in quick memory, rather than pushed
+          # for it to copy off the stack: a pool's every field is a list, read several times a thing
+          # a pass, and the copy was a large part of each read.
+          def value_of_list_get(node)
+            place, = @lists.fetch(node.name) { raise LoweringError, "the list #{node.name.inspect} is used and never declared" }
+            value(node.index)
+            index_at = Runtime::Calls.arg(@memory, 1, 2)
+            list_at = Runtime::Calls.arg(@memory, 0, 2)
+            %i[e d c b].each_with_index do |byte, i|
+              @asm.load(:a, byte)
+              @asm.load_high(index_at + i, :a)
+            end
+            4.times do |i|
+              @asm.load(:a, (place >> (8 * i)) & 0xFF)
+              @asm.load_high(list_at + i, :a)
+            end
+            @asm.call("rt_list_get_taken")
+          end
           def value_of_list_len(node) = list_call("rt_list_length", node)
 
           # The runtime's list routine +routine+ on the list +node+ names, the list's place first.

@@ -14,7 +14,8 @@ module RubyGBA
           #
           # In work memory a list is a header of HEADER bytes and then its slots:
           #
-          #   +0 capacity (16 bits)   +2 slot width in bytes   +4 front (16 bits)   +6 length (16 bits)
+          #   +0 capacity (16 bits)   +2 slot width in bytes   +3 nothing   +4 front (16 bits)
+          #   +6 length (16 bits)
           #
           # An index out of range, a push onto a full list or a pop from an empty one stops the game
           # (Frame's rt_fault), as it stops the interpreter's, with the list and the numbers kept so a
@@ -63,6 +64,8 @@ module RubyGBA
               # is nothing, and is stepped over.
               at = 0
               { capacity: [CAPACITY, 2], width: [WIDTH, 1], front: [FRONT, 2], length: [LENGTH, 2] }.each do |field, (offset, bytes)|
+                raise ArgumentError, "the list header's fields are read in the order they are kept" if offset < at
+
                 (offset - at).times { asm.inc(:hl) }
                 bytes.times do |i|
                   asm.load(:a, [:hli])
@@ -270,9 +273,10 @@ module RubyGBA
               asm.load(:bc, 0)
               asm.ret
 
-              # rt_list_get(list, index)
+              # rt_list_get(list, index); rt_list_get_taken with the two already where it takes them.
               asm.label("rt_list_get")
               take_args(asm, 2)
+              asm.label("rt_list_get_taken")
               asm.load(:a, arg_at(memory, 0, 2))
               asm.call("rt_list_open")
               asm.load(:a, arg_at(memory, 1, 2))
