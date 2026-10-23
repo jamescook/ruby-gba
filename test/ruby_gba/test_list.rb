@@ -391,6 +391,29 @@ class TestList < Minitest::Test
     assert_equal 256 * 2, used[:word] - used[:half], "and a half slot saves two"
   end
 
+  # Many numbers fill the part of the console's memory that is always in view, so the last of
+  # them are kept further on. A painted screen still keeps every number right.
+  def test_a_painted_game_keeps_every_number_when_it_has_many
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      seen = list :seen, capacity: 120
+      90.times { |i| var :"spare#{i}", i }
+      count = var :count, 0
+      game_loop do
+        clear_screen :black
+        count.add! 1
+        seen.push count
+        fill_rect 8, 8, 16, 8, :white
+      end
+    end
+    builder.finalize_program
+    run = game_player.run(builder.program, frames: 6)
+
+    assert_equal 6, run[:count]
+    assert_equal [1, 2, 3, 4, 5, 6], run.list(:seen)
+  end
+
   def test_a_width_the_list_does_not_know_is_refused
     error = assert_raises(ArgumentError) do
       Builder.new.instance_eval { list :body, capacity: 8, width: :nibble }
