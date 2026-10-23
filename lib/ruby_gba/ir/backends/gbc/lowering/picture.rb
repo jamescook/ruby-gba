@@ -120,6 +120,28 @@ module RubyGBA
               end.uniq
             end
 
+            # THE SETS GIVEN TO `colors_in_use` HAVE TO FIT IN THE EIGHT. The lists a set names are
+            # shown together, so each takes turns in a list of its own (IR::Nodes::ColorList
+            # .shared_name), and the sprites of a scene and the sprites every scene shows are drawn
+            # through as many of those as its biggest set has lists. More than eight of them cannot
+            # all borrow one of the console's eight at once, and some of the set's things would be
+            # drawn in another list's colours, so it is refused, naming that set.
+            def refuse_lists_in_use_past_eight!
+              @objects.each_value.map(&:scene).uniq.each do |scene|
+                shared = @objects.each_value.select { |obj| obj.scene.nil? || obj.scene == scene }
+                                 .flat_map { |obj| Array(obj.recolors).grep(Symbol) }
+                                 .select { |name| Nodes::ColorList.shared?(name) }.uniq
+                next if shared.length <= Art::PALETTES
+
+                whose = scene ? "The sprites of the scene #{scene.inspect}" : "The game's sprites"
+                raise LoweringError, "#{whose} draw with the sets given to `colors_in_use`, and the biggest set " \
+                                     "needs #{shared.length} lists of colours at once. A Game Boy Color holds " \
+                                     "#{Art::PALETTES} lists for sprites. The biggest set is " \
+                                     "#{@color_lists.fetch(shared.first).busiest_set}. To fix this, give that " \
+                                     "set #{Art::PALETTES} lists or fewer."
+              end
+            end
+
             # A painted screen on a Color holds four colours at once (Runtime::Paint), so a program
             # that paints in more is refused, naming them.
             def refuse_too_many_paint_colors!
@@ -961,7 +983,10 @@ module RubyGBA
             def fixed_sprite(obj, pose, level)
               x = folded(obj.x)
               y = folded(obj.y)
-              return false if @art.lends? # which of the eight it is drawn in is known only as it runs
+              # In a game that lends its sprites' lists, which of the eight a sprite is drawn in is
+              # known only as it runs, so even a letter of text takes the slower way, through
+              # rt_lend_colors, every pass.
+              return false if @art.lends?
               return false unless pose && x && y && Array(obj.recolors).empty? && pose.between?(0, obj.poses.length - 1)
 
               name = obj.poses.fetch(pose)
@@ -995,15 +1020,20 @@ module RubyGBA
               rows = sets.flatten(1).flat_map do |colors|
                 obj.poses.map do |name|
                   palette = palette_of(name, colors)
-                  [picture_number(name), said_attributes(obj, name, @art.lends? ? 0 : palette, level), palette]
+                  PoseRow.new(picture: picture_number(name), palette: palette,
+                              attributes: said_attributes(obj, name, @art.lends? ? 0 : palette, level))
                 end
               end
-              pictures = drawing_table("pose_pictures", 2, rows.map(&:first))
-              palettes = drawing_table("pose_attributes", 4, rows.map { |row| row[1] })
+              pictures = drawing_table("pose_pictures", 2, rows.map(&:picture))
+              palettes = drawing_table("pose_attributes", 4, rows.map(&:attributes))
               at = lists.empty? ? pose : Sum.new(:+, Sum.new(:*, row_drawn_with(obj, lists, sets), Build.int(obj.poses.length)), pose)
               attributes = Entry.new(palettes, 4, true, at)
-              [Entry.new(pictures, 2, true, at), @art.lends? ? lent_attributes(attributes, rows.map(&:last), at) : attributes]
+              [Entry.new(pictures, 2, true, at), @art.lends? ? lent_attributes(attributes, rows.map(&:palette), at) : attributes]
             end
+
+            # One row of a sprite's tables: the picture a pose is drawn from in one list of colours,
+            # the palette that list makes of it, and the attributes rt_sprite is handed for it.
+            PoseRow = Data.define(:picture, :palette, :attributes)
 
             # A sprite's attributes in a game whose sprites' lists borrow the console's eight
             # (Art#lends?): the ones in the table, which name none of the eight, and the one its list

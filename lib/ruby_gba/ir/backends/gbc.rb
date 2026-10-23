@@ -96,14 +96,14 @@ module RubyGBA
         # A game whose sprites wear more lists of colours than the console holds is built again
         # with the lists borrowing them as it runs (Art::TooManySpriteLists).
         def build(program, title: "RUBYGBA")
-          build_lending(program, title, lends: false)
+          build_cartridge(program, title, lends: false)
         rescue Art::TooManySpriteLists
-          build_lending(program, title, lends: true)
+          build_cartridge(program, title, lends: true)
         end
 
         private
 
-        def build_lending(program, title, lends:)
+        def build_cartridge(program, title, lends:)
           memory = Memory.new
           lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends)
           # The runtime's places first, so they are in the half of work memory always in view.

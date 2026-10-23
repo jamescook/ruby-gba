@@ -200,6 +200,7 @@ module RubyGBA
             refuse_color_answer_errors!
             refuse_unsupported_save_memory!
             refuse_too_many_paint_colors!
+            refuse_lists_in_use_past_eight!
             refuse_routines_that_call_themselves!
             Reach.variables(@program).each { |name| @variables[name] = @memory.reserve("the variable #{name.inspect}", 4) }
             @declared_lists.each_value do |node|
