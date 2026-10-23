@@ -59,15 +59,16 @@ module RubyGBA
               asm.load(:h, :a)
               asm.load_high(q.list + 1, :a)
               asm.push(:hl)
-              { capacity: 2, width: 1, front: 2, length: 2 }.each do |field, bytes|
-                offset = { capacity: CAPACITY, width: WIDTH, front: FRONT, length: LENGTH }.fetch(field)
-                asm.pop(:hl)
-                asm.push(:hl)
-                offset.times { asm.inc(:hl) }
+              # The header in the order it is kept, read once along it: the byte after the width
+              # is nothing, and is stepped over.
+              at = 0
+              { capacity: [CAPACITY, 2], width: [WIDTH, 1], front: [FRONT, 2], length: [LENGTH, 2] }.each do |field, (offset, bytes)|
+                (offset - at).times { asm.inc(:hl) }
                 bytes.times do |i|
                   asm.load(:a, [:hli])
                   asm.load_high(q.public_send(field) + i, :a)
                 end
+                at = offset + bytes
               end
               asm.pop(:hl)
               asm.ret
