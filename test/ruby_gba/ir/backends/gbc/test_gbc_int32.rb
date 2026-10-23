@@ -132,6 +132,7 @@ class TestGBCInt32 < Minitest::Test
     asm.label("rt_start")
     asm.ret
     asm.label("rt_vblank_interrupt")
+    asm.label("rt_hblank_interrupt")
     asm.reti
     asm.label("rt_halt")
     asm.halt
