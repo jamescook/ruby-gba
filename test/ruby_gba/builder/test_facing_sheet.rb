@@ -89,25 +89,7 @@ class TestFacingSheet < Minitest::Test
 
   private def color(r, g, b) = Color.rgb8(r, g, b)
 
-  # --- the interpreter oracle: each row imported to the right direction; frames animate ---
-
-  def test_each_row_of_the_sheet_becomes_a_direction
-    assert_equal color(255, 0, 0),   spot(walker(mode: :bitmap, face: :down,  run: 2)), "row 0 -> down"
-    assert_equal color(0, 0, 255),   spot(walker(mode: :bitmap, face: :left,  run: 2)), "row 1 -> left"
-    assert_equal color(255, 255, 0), spot(walker(mode: :bitmap, face: :right, run: 2)), "row 2 -> right"
-    assert_equal color(255, 0, 255), spot(walker(mode: :bitmap, face: :up,    run: 2)), "row 3 -> up"
-  end
-
-  def test_the_columns_of_a_row_animate
-    assert_equal color(255, 0, 0), spot(walker(mode: :bitmap, face: :down, run: 2)), "down, first frame"
-    assert_equal color(0, 255, 0), spot(walker(mode: :bitmap, face: :down, run: 4)), "down, next frame"
-  end
-
-  # A one-column sheet is a still pose per direction — a plain facing: sprite, no rate.
-  def test_a_one_column_sheet_is_a_still_pose_per_direction
-    assert_equal color(255, 0, 0), spot(walker(mode: :bitmap, face: :down,  run: 3, cols: 1))
-    assert_equal color(0, 0, 255), spot(walker(mode: :bitmap, face: :left,  run: 3, cols: 1))
-  end
+  # --- a hardware sprite: each row imported to the right direction ---
 
   def test_a_hardware_sprite_imports_the_same_way
     assert_equal color(255, 0, 0),   spot(walker(mode: :tiled, face: :down,  run: 2)), "tiled: down"

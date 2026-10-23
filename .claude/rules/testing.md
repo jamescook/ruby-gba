@@ -223,7 +223,7 @@ screen with no framebuffer to read it off, where it says nothing rather than rep
 
 A feature isn't done until it's asserted on **both**. For anything with an
 observable screen result, run the *same* program on each and assert identical
-pixels — see `test/ruby_gba/builder/test_blit_clipping.rb` (`assert_same_pixels`)
+pixels — see `test/advance/ruby_gba/builder/test_blit_clipping.rb` (`assert_same_pixels`)
 and the two `*_at_the_left_edge` tests in
 `test/ruby_gba/dsl/test_sprite_mover.rb` as the worked examples.
 

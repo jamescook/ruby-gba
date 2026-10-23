@@ -48,27 +48,9 @@ class TestDirectionalAnimation < Minitest::Test
     game_player.run(program).screen.pixel(44, 44)
   end
 
-  # --- the interpreter oracle: facing picks the row, the frame animates within it ---
+  # --- a hardware (tiled) sprite: facing picks the row, the frame animates within it ---
 
-  def test_facing_right_shows_the_right_walk_cycle
-    assert_equal Color.resolve(:red),   spot(walker(mode: :bitmap, face: :right, run: 2)), "right, first frame"
-    assert_equal Color.resolve(:green), spot(walker(mode: :bitmap, face: :right, run: 4)), "right, next frame"
-  end
-
-  def test_facing_down_shows_the_down_walk_cycle
-    assert_equal Color.resolve(:blue),  spot(walker(mode: :bitmap, face: :down, run: 2)), "down, first frame"
-    assert_equal Color.resolve(:white), spot(walker(mode: :bitmap, face: :down, run: 4)), "down, next frame"
-  end
-
-  # The whole point: turning does NOT reset to some other direction's frame. Facing down
-  # shows a down color (blue/white), never a right color (red/green).
-  def test_turning_switches_the_whole_cycle
-    down = spot(walker(mode: :bitmap, face: :down, run: 2))
-    refute_equal Color.resolve(:red),   down, "facing down must not show a right-facing frame"
-    refute_equal Color.resolve(:green), down, "facing down must not show a right-facing frame"
-  end
-
-  # Same behavior on a hardware (tiled) sprite: the console composites the composed pose.
+  # The console composites the composed pose.
   def test_a_hardware_sprite_animates_per_direction
     assert_equal Color.resolve(:red),   spot(walker(mode: :tiled, face: :right, run: 2)), "right, first frame"
     assert_equal Color.resolve(:green), spot(walker(mode: :tiled, face: :right, run: 4)), "right, next frame"

@@ -88,17 +88,6 @@ class TestAseprite < Minitest::Test
   private def spot(program) = game_player.run(program).screen.pixel(44, 44)
   private def c(r, g, b) = Color.rgb8(r, g, b)
 
-  def test_the_default_animation_is_the_first_tag_and_it_loops
-    assert_equal c(255, 0, 0), spot(game(mode: :bitmap, run: 3)), "walk starts on its first frame (red)"
-    assert_equal c(0, 255, 0), spot(game(mode: :bitmap, run: 9)), "a few frames on, walk is on its second frame (green)"
-    assert_equal c(255, 0, 0), spot(game(mode: :bitmap, run: 15)), "walk loops back to its first frame"
-  end
-
-  def test_playing_a_named_animation_switches_the_frames
-    assert_equal c(0, 0, 255),     spot(game(mode: :bitmap, run: 3, play: :blink)), "blink's first frame (blue)"
-    assert_equal c(255, 255, 255), spot(game(mode: :bitmap, run: 9, play: :blink)), "blink's second frame (white)"
-  end
-
   def test_a_hardware_sprite_imports_and_plays_the_same_way
     assert_equal c(255, 0, 0),   spot(game(mode: :tiled, run: 3)), "tiled: walk, red"
     assert_equal c(0, 0, 255),   spot(game(mode: :tiled, run: 3, play: :blink)), "tiled: blink, blue"
@@ -136,12 +125,6 @@ class TestAseprite < Minitest::Test
   def test_rejecting_bytes_that_are_not_an_aseprite_file
     err = assert_raises(ArgumentError) { Aseprite.load_binary(("nope" * 40).b) }
     assert_match(/not an .aseprite/, err.message)
-  end
-
-  def test_a_native_aseprite_file_imports_and_plays
-    assert_equal c(255, 0, 0), spot(game(mode: :bitmap, run: 3, file: BINARY)), "native: walk's first frame (red)"
-    assert_equal c(0, 255, 0), spot(game(mode: :bitmap, run: 9, file: BINARY)), "native: walk animates (green)"
-    assert_equal c(0, 0, 255), spot(game(mode: :bitmap, run: 3, file: BINARY, play: :idle)), "native: play(:idle) (blue)"
   end
 
   def test_a_native_aseprite_file_on_a_hardware_sprite

@@ -44,6 +44,25 @@ class TestDifferentialOnTheAdvance < Minitest::Test
 
   # --- bitmap mode: the direct-color framebuffer ---
 
+  # Everything that draws to the framebuffer at once. Each op writes pixels a
+  # different way (whole-screen DMA, rect fill, per-row image copy, glyphs, a
+  # single word), so a mistake in any one of them shows up as a difference here.
+  # It paints in more colours than a painted Game Boy Color screen holds, so it plays
+  # on the Advance's runs alone.
+  def test_the_bitmap_drawing_ops_paint_the_same_screen
+    assert_backends_agree(build do
+      screen :bitmap
+      clear_screen :blue
+      fill_rect 8, 8, 40, 24, Color.resolve(:red)
+      fill_rect 200, 130, 32, 24, Color.resolve(:green)
+      image(:strip, "#" => :white, "." => :transparent) { "#.#.#.#.\n.#.#.#.#\n########" }
+      blit :strip, 100, 70
+      draw_text "DIFF", 60, 100, Color.resolve(:yellow)
+      pixel 239, 159, Color.resolve(:magenta)
+      halt
+    end)
+  end
+
   # THE EFFECTS THAT CHANGE NOTHING THAT WAS DRAWN — a fade, a tint, the camera.
   #
   # These are the hardest thing for a comparison like this to see, and for a while it

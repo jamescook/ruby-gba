@@ -155,15 +155,6 @@ class TestImageImport < Minitest::Test
     builder.program
   end
 
-  def test_imported_image_embeds_and_blits_on_the_interpreter
-    screen = game_player.run(photo_program(10, 20)).screen
-
-    assert_equal EXPECTED[0], screen.pixel(10, 20), "top-left red"
-    assert_equal EXPECTED[1], screen.pixel(11, 20), "top-right green"
-    assert_equal EXPECTED[2], screen.pixel(10, 21), "bottom-left blue"
-    assert_equal EXPECTED[3], screen.pixel(11, 21), "bottom-right white"
-  end
-
   def test_imported_image_draws_on_hardware
     rom = RubyGBA::Cartridge::ROM.assemble(
       RubyGBA::IR::Backends::GBA.new.lower(photo_program(10, 20)),

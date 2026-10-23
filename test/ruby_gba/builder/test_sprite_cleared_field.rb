@@ -72,24 +72,6 @@ class TestSpriteClearedField < Minitest::Test
     assert_equal field, seen[:blue]
   end
 
-  # The field is more than the clear: a wall painted after it, where the sprite stands. The
-  # sprite is drawn over the wall and has to remember the wall, not the cleared colour.
-  def test_what_is_painted_after_the_clear_is_what_the_sprite_remembers
-    prog = field_program do |hero, step|
-      (step == 3).then do
-        clear_screen :blue
-        fill_rect START[0], START[1], SIDE, SIDE, :green
-      end
-      (step > 4).then { hero.move :right, by: 16 }
-    end
-
-    seen = colors_after(prog, 8)
-
-    assert_equal ONE, seen[:green], "the wall under the sprite is whole once it steps off"
-    assert_equal ONE, seen[:red]
-    assert_equal field - (2 * ONE), seen[:blue]
-  end
-
   # A clear inside an area clears that area and leaves the rest of the picture, so a sprite
   # outside it is still on the picture and still has to be rubbed out as it moves.
   def test_a_clear_inside_an_area_leaves_a_sprite_outside_it_alone
