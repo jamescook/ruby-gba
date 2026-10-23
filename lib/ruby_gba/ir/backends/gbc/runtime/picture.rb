@@ -219,7 +219,7 @@ module RubyGBA
             #
             # rt_tile_runs_upload, in the blank: each run whose tiles were repacked since, put into
             # picture memory by the console's own copy, a tile at a time, since a run's tiles need not
-            # sit side by side there.
+            # sit side by side there — a background's or a sprite's picture's.
             def emit_tile_runs(asm, runs)
               h = Console::GBCHardware
               asm.label("rt_repack_tiles")
@@ -282,11 +282,11 @@ module RubyGBA
                 asm.jump(:z, past)
                 asm.xor_a(:a)
                 asm.load([run.owed], :a)
-                run.tiles.each_with_index do |tile, k|
-                  asm.load(:a, tile / 256)
+                run.tiles.each_with_index do |(bank, address), k|
+                  asm.load(:a, bank)
                   asm.load_high(h::VBK, :a)
                   asm.load(:hl, run.staging + (k * 16))
-                  asm.load(:de, background_tile_address(tile))
+                  asm.load(:de, address)
                   asm.load(:c, 0) # one block of 16 bytes
                   asm.call("rt_gdma")
                 end
@@ -295,13 +295,6 @@ module RubyGBA
                 asm.label(past)
               end
               asm.ret
-            end
-
-            # Where background tile +tile+ is kept in its bank of picture memory: the first 128 of a
-            # bank's 256 from 0x9000, as the grid reads them, and the rest from 0x8800.
-            def background_tile_address(tile)
-              m = tile % 256
-              m < 128 ? 0x9000 + (m * 16) : 0x8000 + (m * 16)
             end
 
             # IN THE BLANK: the sprite table, the colours if they changed, the scroll and the

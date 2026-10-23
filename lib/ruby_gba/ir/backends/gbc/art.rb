@@ -123,6 +123,33 @@ module RubyGBA
             end
           end
 
+          # A SPRITE'S PICTURE THE GAME PAINTS from a list (Nodes::TileRun with a picture): every 8×8
+          # piece of it, in the order the list keeps them — left to right, then top to bottom — a tile
+          # of its own, empty until the game's first copy. Its outline is not known while the game is
+          # built, so it collides with nothing.
+          def painted_sprite_picture(name, width, height)
+            @sprite_pictures[name] ||= begin
+              pieces = (0...height).step(8).flat_map do |y0|
+                (0...width).step(8).map do |x0|
+                  Piece.new(dx: x0, dy: y0, tile: (@sprite_tiles << Array.new(16, 0)).length - 1, flips: 0)
+                end
+              end
+              SpritePicture.new(name: name, number: @sprite_pictures.size, width: width, height: height, pieces: pieces,
+                                places: Array.new(width * height, 0), mask: Array.new(width * height, false))
+            end
+          end
+
+          # The palette a painted picture is drawn in from +colors+, a list by place, see-through first.
+          def painted_sprite_palette(name, colors)
+            if colors.length > PLACES
+              raise LoweringError, "the sprite picture #{name.inspect} is painted from a list with #{colors.length} " \
+                                   "colours, and a Game Boy Color sprite holds #{OWN_COLORS} and see-through. To fix " \
+                                   "this, give `colors:` #{PLACES} colours or fewer."
+            end
+
+            palette_number(@sprite_palettes, padded([BACKDROP, *colors.drop(1).map { |color| color & 0x7FFF }]), "sprites")
+          end
+
           # The palette a sprite picture drawn as +drawn+ shows is given: +drawn+ is each pixel's
           # colour, or NOT_DRAWN, as the interpreter draws the picture (in its own colours or in
           # another list's). The same list asked twice is the same palette.
@@ -147,7 +174,7 @@ module RubyGBA
                                      "build makes 8×8 tiles only so far."
               end
 
-              drawn = (0...64).reject { |i| image.tile_see_through_at?(i) }.map { |i| image.color_at(i) & 0x7FFF }.uniq
+              drawn = tile_colors(image)
               if drawn.size > OWN_COLORS
                 raise LoweringError, "the tile #{name.inspect} has #{drawn.size} colours, and a Game Boy Color tile holds " \
                                      "#{OWN_COLORS} and the backdrop. To fix this, draw it in #{OWN_COLORS} colours."
@@ -157,6 +184,12 @@ module RubyGBA
               places = Array.new(64) { |i| image.tile_see_through_at?(i) ? 0 : drawn.index(image.color_at(i) & 0x7FFF) + 1 }
               [background_tile_number(encode(places)), palette_number(@background_palettes, padded(colors), "backgrounds")]
             end
+          end
+
+          # The colours a background tile draws, in the order its palette holds them after the
+          # backdrop: the order it first draws each.
+          def tile_colors(image)
+            (0...64).reject { |i| image.tile_see_through_at?(i) }.map { |i| image.color_at(i) & 0x7FFF }.uniq
           end
 
           # A TILE THE GAME PAINTS from a list (Nodes::TileRun): a tile number of its own, never

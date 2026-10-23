@@ -160,11 +160,13 @@ module RubyGBA
                 load_constant(0)
                 store(var)
               end
+              # Tiles its scenery and its sprites paint from a list show the list as it is now, changed
+              # or not.
+              arrival.painted_pictures.each { |run| emit_run_copy(run) }
               scenery = arrival.scenery.empty? ? @handover.always_up.scenery : arrival.scenery
               return runtime_call("rt_background_put_up", [Build.int(0)]) if scenery.empty?
 
               scenery.each { |bg| background_put_up(bg) }
-              # Tiles its scenery paints from a list show the list as it is now, changed or not.
               painted = arrival.scenery.empty? ? @handover.always_up.painted_tiles : arrival.painted_tiles
               painted.each { |run| emit_run_copy(run) }
             end
@@ -700,7 +702,12 @@ module RubyGBA
               store(@held_colors.fetch(node.name))
             end
 
-            def picture_number(name) = @art.sprite_picture(name, picture_named(name)).number
+            def picture_number(name)
+              run = picture_painting(name)
+              return @art.painted_sprite_picture(name, run.width, run.height).number if run
+
+              @art.sprite_picture(name, picture_named(name)).number
+            end
 
             # A sprite's attributes as rt_sprite takes them: in the low byte, its palette and
             # whether it is behind the background, as the sprite table keeps them; above that, the
@@ -715,6 +722,9 @@ module RubyGBA
             # The palette picture +name+ is drawn in with the list +colors+ (nil for its own): the
             # colour each of its places shows, as the interpreter draws it.
             def palette_of(name, colors)
+              run = picture_painting(name)
+              return @art.painted_sprite_palette(name, painted_colors(run, colors)) if run
+
               image = picture_named(name)
               @art.sprite_palette(name, image, sprite_pixels(image, colors))
             end

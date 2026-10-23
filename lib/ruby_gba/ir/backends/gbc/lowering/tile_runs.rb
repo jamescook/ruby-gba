@@ -15,25 +15,24 @@ module RubyGBA
           # a stretch of work memory kept for the run, while the screen is being drawn; and the
           # console's own copying puts that into picture memory in the next blank, which is the gap
           # between frames the interpreter copies in (Reference#exec_copy_owed_tiles). Each painted
-          # tile has a tile of its own in picture memory (GBC::Art#run_tile).
-          #
-          # A sprite's picture painted from a list is not made yet.
+          # tile has a tile of its own in picture memory (GBC::Art#run_tile), and so does every piece
+          # of a sprite's picture painted from a list (GBC::Art#painted_sprite_picture), whose list
+          # keeps its tiles in the order a sprite's pieces are kept.
           module TileRuns
             STATEMENTS = Ractor.make_shareable({ copy_tiles: :emit_copy_tiles, copy_owed_tiles: :emit_copy_owed_tiles })
 
             # Where a run's repacked tiles wait for the blank, and its flag saying they are waiting,
-            # with the tile number each of its tiles has, for the runtime's copy (Runtime::Picture).
+            # with where in picture memory each of its tiles goes — its bank and its address — for the
+            # runtime's copy (Runtime::Picture).
             RunUpload = Data.define(:owed, :staging, :tiles)
 
-            # Bytes a tile takes: in the game's list, and in the Color's picture memory.
-            LIST_TILE_BYTES = 32
+            # Bytes a tile takes in the Color's picture memory.
             TILE_BYTES = 16
 
             # Every painted run's copy, for the runtime, once #keep_tile_runs has placed them.
             def run_uploads
               (@run_places || {}).filter_map do |name, (owed, staging)|
-                run = tile_runs.fetch(name)
-                RunUpload.new(owed: owed, staging: staging, tiles: run.tiles.map { |tile| @art.run_tile(tile, run.colors).first })
+                RunUpload.new(owed: owed, staging: staging, tiles: run_tile_places(tile_runs.fetch(name)))
               end
             end
 
@@ -43,6 +42,37 @@ module RubyGBA
 
             # The run a painted tile is one of, or nil for a tile drawn when the game was built.
             def run_painting(name) = tile_runs.each_value.find { |run| run.tiles.include?(name) }
+
+            # The run a sprite's picture is painted from, or nil for one drawn when the game was built.
+            def picture_painting(name) = tile_runs.each_value.find { |run| run.picture == name }
+
+            # The colours a painted picture shows, by place: its run's, or +colors+ in their place
+            # where it is drawn with another list (Assets::Recolor's rule, by place).
+            def painted_colors(run, colors)
+              return run.colors unless colors
+
+              Array.new([[run.colors.length, colors.length].max, Art::PLACES].min) { |place| colors[place] || run.colors.fetch(place, 0) }
+            end
+
+            # Where each of a run's tiles goes in picture memory, as [bank, address]: a background
+            # tile's 256 to a bank, the first 128 from 0x9000 and the rest from 0x8800; a sprite's
+            # pieces 128 to a bank from 0x8000.
+            def run_tile_places(run)
+              if run.picture
+                @art.painted_sprite_picture(run.picture, run.width, run.height).pieces.map do |piece|
+                  [piece.tile / 128, 0x8000 + ((piece.tile % 128) * TILE_BYTES)]
+                end
+              else
+                run.tiles.map do |tile|
+                  number = @art.run_tile(tile, run.colors).first
+                  m = number % 256
+                  [number / 256, (m < 128 ? 0x9000 : 0x8000) + (m * TILE_BYTES)]
+                end
+              end
+            end
+
+            # How many tiles a run's list holds.
+            def run_tile_count(run) = run.picture ? (run.width / 8) * (run.height / 8) : run.tiles.length
 
             # The tile number and palette number a background's tile +name+ is drawn with: a painted
             # tile's own (GBC::Art#run_tile), or a drawn one's (GBC::Art#background_tile).
@@ -54,16 +84,11 @@ module RubyGBA
             end
 
             # Each run's flag and its repacked tiles' stretch of work memory, which the console's copy
-            # reads from an address that is a multiple of 16. A sprite's painted picture is refused.
+            # reads from an address that is a multiple of 16.
             def keep_tile_runs
               @run_places = tile_runs.values.to_h do |run|
-                if run.picture
-                  raise LoweringError, "the picture #{run.picture.inspect} is painted from a list, which #{build_name} " \
-                                       "cannot make yet for a sprite."
-                end
-
                 owed = @memory.reserve("the painted tiles #{run.name.inspect}, waiting", 1)
-                room = @memory.reserve("the painted tiles #{run.name.inspect}", (run.tiles.length * TILE_BYTES) + 15)
+                room = @memory.reserve("the painted tiles #{run.name.inspect}", (run_tile_count(run) * TILE_BYTES) + 15)
                 [run.name, [owed, (room + 15) & ~15]]
               end
             end
@@ -92,7 +117,7 @@ module RubyGBA
               owed, staging = @run_places.fetch(run.name)
               @asm.load(:hl, list + Runtime::Lists::HEADER)
               @asm.load(:de, staging)
-              @asm.load(:bc, run.tiles.length)
+              @asm.load(:bc, run_tile_count(run))
               @asm.call("rt_repack_tiles")
               @asm.load(:a, 1)
               @asm.load([owed], :a)
