@@ -6,9 +6,9 @@ module RubyGBA
       class GBC
         # A Game Boy Color cartridge played in the emulator with nobody watching, driven and read back
         # through the calls a test makes on Backends::Reference — so a test written against the
-        # interpreter can be handed this instead and never know. Native::HeadlessRun does the same
-        # for the game as C; this is its twin for a cartridge, and makes the same Moments, which is
-        # what lets the checked run compare the two with the interpreter's words.
+        # interpreter can be handed this instead and never know. It makes the Moments every checked
+        # run compares (RunComparison), which is what lets the checked run compare the two with the
+        # interpreter's words.
         #
         # HOW A PASS IS READ. The emulator plays a frame at a time and stops as the console begins its
         # vertical blank. The runtime keeps, where this can read it, how many passes of the game loop
@@ -19,8 +19,8 @@ module RubyGBA
         # frame drawn showing it, and the two make the pass's moment. The buttons for the next pass are
         # set before the emulator plays on, and the game reads them in the blank.
         class HeadlessRun
-          CannotAnswer = Native::HeadlessRun::CannotAnswer
-          Moment = Native::HeadlessRun::Moment
+          CannotAnswer = RunComparison::CannotAnswer
+          Moment = RunComparison::Moment
 
           # How many frames a pass may take before the game is taken to be stuck.
           LONGEST_PASS_FRAMES = 600
@@ -83,7 +83,7 @@ module RubyGBA
 
             @rom = GBC.new.build(program, title: "CHECKED")
             @places = @rom.built
-            @drawn_sprites = Native::DrawnSprites.new(program)
+            @drawn_sprites = SpriteNames.new(program)
             @declared_lists = program.walk.select { |node| node.kind == :list_new }.map(&:name).uniq
             @sound_log = SoundLog.new(@places)
             @sounds = 0
@@ -136,11 +136,11 @@ module RubyGBA
           # is off again — so one image handed to two runs is a power cycle, as it is for the
           # interpreter.
           def play(frames)
-            saves = Native::Saving.named_by?(@rom.built.source_program)
+            saves = SaveLayout.named_by?(@rom.built.source_program)
             refuse_power_cut! if saves
             Diagnostics::Emulator.with_cartridge(@rom, file_name: "game.gbc", save: (@save if saves)) do |core|
               @core = core
-              @core.set_keys(Native::HeadlessRun.button_mask(@held))
+              @core.set_keys(IR::Buttons.mask(@held))
               @core.record_arrivals(@sound_log.addresses) if @sound_log.any?
               play_passes(frames)
             ensure
@@ -191,7 +191,7 @@ module RubyGBA
           # the game reads them in.
           def decide_buttons(pass)
             buttons = @input_script ? @input_script.call(pass) : @held
-            @core.set_keys(Native::HeadlessRun.button_mask(buttons))
+            @core.set_keys(IR::Buttons.mask(buttons))
           end
 
           # The moment of +frame+ — a pass's number, or :end for the moment the run ended on, which
@@ -231,7 +231,7 @@ module RubyGBA
             @sound_log.read(@core.take_arrivals) if @sound_log.any?
           end
 
-          def picture_check(picture) = Native::HeadlessRun.picture_check(picture.shown)
+          def picture_check(picture) = RunComparison.picture_check(picture.shown)
 
           # The emulator's picture, each pixel turned back into the 15-bit colour the console holds.
           def picture_now

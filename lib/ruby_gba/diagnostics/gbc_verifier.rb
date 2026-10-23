@@ -36,7 +36,7 @@ module RubyGBA
       def sprites(name = nil)
         refuse_missing_build_record!("which of its sprites is which")
         ensure_rendered!
-        @drawn ||= IR::Backends::Native::DrawnSprites.new(@rom.source_program)
+        @drawn ||= IR::Backends::SpriteNames.new(@rom.source_program)
         rows = @rom.built.drawn_sprite_rows(@drawn, method(:mem8))
         name ? @drawn.rows_named(rows, name) : rows
       end

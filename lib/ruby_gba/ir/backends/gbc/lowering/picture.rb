@@ -58,7 +58,7 @@ module RubyGBA
               @art = Art.new(paint_colors: @paint_colors&.first(Art::PLACES))
               @grids = {} # a background declaration -> its grid's number
               @backgrounds = by_name(@program.walk, :background)
-              @drawn_sprites = Native::DrawnSprites.new(@program) # the numbers a run says its sprites by
+              @drawn_sprites = SpriteNames.new(@program) # the numbers a run says its sprites by
               @patches = by_name(@program.walk, :backing_buffer) # what sprites on a painted screen cover
               @column_routines = {} # a picture drawn a column at a time -> its routine's label
               @drawing_tables = [] # [label, bytes an entry, the entries] for the data

@@ -44,7 +44,7 @@ module RubyGBA
 
       def measure(frames:, settle:, keys:)
         Emulator.with_cartridge(@rom, file_name: "game.gbc") do |core|
-          core.set_keys(IR::Backends::Native::HeadlessRun.button_mask(keys))
+          core.set_keys(IR::Buttons.mask(keys))
           settle.times { core.run_frame }
           before = passes(core)
           counted = core.profile_gb(frames)

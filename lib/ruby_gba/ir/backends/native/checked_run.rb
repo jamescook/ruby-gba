@@ -107,51 +107,6 @@ module RubyGBA
           def method_missing(name, ...) = @native.public_send(name, ...)
           def respond_to_missing?(name, include_private = false) = @native.respond_to?(name, include_private)
 
-          # The first moment +got+ (the C) disagrees with +want+ (the interpreter) on, said as the
-          # frame and everything that differs there; nil when they agree throughout.
-          def self.first_difference(want, got)
-            if want.map(&:frame) != got.map(&:frame)
-              return "how far the run went: the interpreter stopped after frame #{last_frame(want)}, " \
-                     "the #{lowered_side} after frame #{last_frame(got)}"
-            end
-
-            want.zip(got).each do |reference, native|
-              differences = variable_differences(reference.variables, native.variables)
-              differences << "the picture differs" if reference.picture != native.picture
-              if reference.sounds != native.sounds
-                differences << "the sound log holds #{native.sounds} entries in the #{lowered_side} and #{reference.sounds} in Reference"
-              end
-              differences.concat([sprites_difference(reference.sprites, native.sprites)].compact)
-              differences.concat(collections_differences(reference.collections, native.collections))
-              if reference.sounding != native.sounding
-                differences << "the mixer sounds #{native.sounding.inspect} in the #{lowered_side} and #{reference.sounding.inspect} in Reference"
-              end
-              return "#{heading(reference.frame)}: #{differences.join('; ')}" if differences.any?
-            end
-            nil
-          end
-
-          # Each list and each pool field +got+ (the C) holds differently from +want+ (the
-          # interpreter), said with both.
-          def self.collections_differences(want, got)
-            lists = (want[:lists].keys | got[:lists].keys).filter_map do |name|
-              mine, theirs = got[:lists][name], want[:lists][name]
-              "list :#{name}: #{lowered_side} has #{mine.inspect}, Reference #{theirs.inspect}" if mine != theirs
-            end
-            fields = (want[:pools].keys | got[:pools].keys).flat_map do |pool|
-              mine, theirs = got[:pools].fetch(pool, {}), want[:pools].fetch(pool, {})
-              (theirs.keys | mine.keys).filter_map do |field|
-                next if mine[field] == theirs[field]
-
-                "pool :#{pool} field :#{field}: #{lowered_side} has #{mine[field].inspect}, Reference #{theirs[field].inspect}"
-              end
-            end
-            lists + fields
-          end
-
-          def self.heading(frame) = frame == :end ? "the end of the run" : "frame #{frame}"
-          def self.last_frame(moments) = moments.map(&:frame).grep(Integer).max || 0
-
           private
 
           # The run of the game this checks: the game as C with no window. JS::CheckedRun checks

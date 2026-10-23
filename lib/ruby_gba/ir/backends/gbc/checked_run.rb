@@ -7,9 +7,9 @@ module RubyGBA
         # A Game Boy Color cartridge played in the emulator (HeadlessRun), and then the same buttons,
         # pass for pass, played on the interpreter — stopping at the first pass the two disagree on,
         # about any variable, any list or pool, any pixel, or how far the sound log has grown — and
-        # at the end, about every entry of the sound log (GBC::SoundLog reads the cartridge's).
-        # Native::CheckedRun is the same check of
-        # the game as C, and the two say their disagreements in the same words (Native::Differences).
+        # at the end, about every entry of the sound log (GBC::SoundLog reads the cartridge's) and the
+        # save memory. Every checked run makes the same comparison and says it in the same words
+        # (RunComparison).
         #
         # It takes the interpreter's calls, so a test written against Reference.new can be handed one
         # of these instead and play its game on a Game Boy Color with nothing else changed:
@@ -24,8 +24,7 @@ module RubyGBA
         # cartridge cannot show. (Whether a test of a program built for the Advance is played here at
         # all is RubyGBA::Testing's decision.)
         class CheckedRun
-          include Native::Differences
-          extend Native::Differences
+          extend RunComparison
 
           Moment = HeadlessRun::Moment
 
@@ -74,10 +73,8 @@ module RubyGBA
             heard = self.class.sounds_difference(sounds, @cartridge.whole_audio)
             difference = [difference, heard].compact.join(", and ") if difference&.include?("sound log")
             difference ||= self.class.sounds_difference(sounds, @cartridge.audio)
+            difference ||= self.class.save_difference(saved, @save) if SaveLayout.named_by?(program)
             raise Disagreement, "the Game Boy Color lowering and the interpreter disagree at #{difference}" if difference
-            if Native::Saving.named_by?(program) && saved.to_sav != @save.to_sav
-              raise Disagreement, "the Game Boy Color lowering and the interpreter end with different save memory"
-            end
 
             self
           end
@@ -88,30 +85,7 @@ module RubyGBA
           def method_missing(name, ...) = @cartridge.public_send(name, ...)
           def respond_to_missing?(name, include_private = false) = @cartridge.respond_to?(name, include_private)
 
-          def self.lowered_side = "the cartridge"
-
-          # The first moment +got+ (the cartridge) disagrees with +want+ (the interpreter) on.
-          def self.first_difference(want, got)
-            if want.map(&:frame) != got.map(&:frame)
-              return "how far the run went: the interpreter's moments were #{want.map(&:frame).last(3).inspect}, " \
-                     "the cartridge's #{got.map(&:frame).last(3).inspect}"
-            end
-
-            want.zip(got).each do |reference, cartridge|
-              differences = variable_differences(reference.variables, cartridge.variables)
-              differences << "the picture differs" if reference.picture != cartridge.picture
-              if reference.sounds != cartridge.sounds
-                differences << "the sound log holds #{cartridge.sounds} entries in the cartridge and #{reference.sounds} in Reference"
-              end
-              differences << "the sprites drawn differ" if reference.sprites != cartridge.sprites
-              differences.concat(Native::CheckedRun.collections_differences(reference.collections, cartridge.collections))
-              next if differences.empty?
-
-              heading = reference.frame == :end ? "the end of the run" : "frame #{reference.frame}"
-              return "#{heading}: #{differences.join('; ')}"
-            end
-            nil
-          end
+          def self.lowered_side = "cartridge"
 
           private
 
@@ -119,8 +93,8 @@ module RubyGBA
 
           # A game that never waits for the screen has no frames to count, so it is played on the
           # interpreter first, with the buttons held from power-on, to find whether it comes to an
-          # end by itself — as Native::CheckedRun does, and for the same reason: the cartridge
-          # keeps no count of its steps. A game the interpreter stops with an error stops here
+          # end by itself — as the native lowering's checked run does, and for the same reason: the
+          # cartridge keeps no count of its steps. A game the interpreter stops with an error stops here
           # with it.
           def refuse_endless_game_without_frames!(program)
             return if program.walk.any? { |node| node.kind == :wait_vblank }
@@ -149,7 +123,7 @@ module RubyGBA
           # The interpreter's picture over the cartridge's screen.
           def picture_check(screen, width, height)
             shown = (0...height).flat_map { |y| (0...width).map { |x| screen.pixel(x, y) || 0 } }
-            Native::HeadlessRun.picture_check(shown)
+            RunComparison.picture_check(shown)
           end
         end
       end

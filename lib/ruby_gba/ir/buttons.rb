@@ -32,6 +32,11 @@ module RubyGBA
 
       # Whether `held` and `pressed` can ask about +name+: a button, or any of them.
       def readable?(name) = known?(name) || name == ANY
+
+      # +held+ buttons as one number, a bit each in the order NAMES lists them — the order the
+      # Advance's key register has them in, which the emulator's keys and the native lowering's
+      # runtime both read.
+      def mask(held) = Array(held).sum { |button| 1 << NAMES.index(button) }
     end
   end
 end

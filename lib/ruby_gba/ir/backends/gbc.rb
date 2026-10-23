@@ -64,8 +64,8 @@ module RubyGBA
           # (Reference#sprites): who each is, which picture it shows and where, back to front. The
           # runtime keeps them in a table of its own (Runtime::Picture::DRAWN), front-most first as
           # the console draws them, so anything reading a running cartridge asks the same of it.
-          # +drawn+ is a Native::DrawnSprites of the program, which turns the table's numbers into
-          # names; +read8+ reads one byte of the running cartridge's memory, given its address.
+          # +drawn+ is the program's SpriteNames, which turns the table's numbers into names;
+          # +read8+ reads one byte of the running cartridge's memory, given its address.
           def drawn_sprite_rows(drawn, read8)
             at = runtime.fetch(Runtime::Picture::DRAWN)
             little = ->(address, width) { (0...width).sum { |i| read8.call(address + i) << (8 * i) } }
@@ -73,7 +73,7 @@ module RubyGBA
             rows = Array.new(read8.call(at)) do |i|
               place = at + 1 + (i * Runtime::Picture::DRAWN_BYTES)
               whose, picture, x, y = [[0, 1], [1, 2], [3, 2], [5, 2]].map { |from, width| little.call(place + from, width) }
-              drawn.row_from("sprite #{whose - 1} #{picture} #{signed16.call(x)} #{signed16.call(y)}")
+              drawn.row(whose - 1, picture, signed16.call(x), signed16.call(y))
             end
             rows.reverse
           end

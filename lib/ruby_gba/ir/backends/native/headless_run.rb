@@ -47,22 +47,13 @@ module RubyGBA
             def on_screen?(x, y) = x.between?(0, Screen::WIDTH - 1) && y.between?(0, Screen::HEIGHT - 1)
           end
 
-          # Where the game had got to at one frame boundary, or (+frame+ :end) when the run
-          # stopped: every variable, the picture as a check number (see .picture_check), how
-          # long the sound log was, the sprites it last drew (see #sprites), and its lists and
-          # pools as #game_state reads them, and the recordings the mixer is sounding, a voice
-          # each in the order of the voices — which says whose voice a new note took.
-          Moment = Data.define(:frame, :variables, :picture, :sounds, :sprites, :collections, :sounding) do
-            def initialize(frame:, variables:, picture:, sounds:, sprites:, collections: { lists: {}, pools: {} },
-                           sounding: [])
-              super
-            end
-          end
+          # Where the game had got to at one frame boundary (RunComparison::Moment).
+          Moment = RunComparison::Moment
 
           # Raised for something a test asks of the interpreter that the native lowering cannot
           # answer yet — which says the test's file was opted into native runs too early, or
           # the one test wants `skip_on_native`.
-          class CannotAnswer < StandardError; end
+          CannotAnswer = RunComparison::CannotAnswer
 
           # Whose a sounding mixer voice is, as the C prints it (rg_mix_voice_reading's owner).
           GAME_OWNS = 0
@@ -94,12 +85,12 @@ module RubyGBA
             rows.find { |row| row.start_with?("camera ") }.split(" ").drop(1).map { |number| Integer(number) }
           end
 
-          # A picture as the one number the program prints for it each frame: the CRC-32 of its
-          # pixels, two bytes each with the low byte first.
-          def self.picture_check(shown) = Zlib.crc32(shown.pack("v*"))
+          # A picture as the one number the program prints for it each frame
+          # (RunComparison.picture_check).
+          def self.picture_check(shown) = RunComparison.picture_check(shown)
 
-          # +held+ buttons as the program reads them: a bit each, in the order IR::Buttons lists.
-          def self.button_mask(held) = Array(held).sum { |button| 1 << IR::Buttons::NAMES.index(button) }
+          # +held+ buttons as the program reads them (IR::Buttons.mask).
+          def self.button_mask(held) = IR::Buttons.mask(held)
 
           # How many numbers a second the sound the program makes comes as (RG_SOUND_RATE).
           SOUND_RATE = 48_000
