@@ -255,6 +255,13 @@ module RubyGBA
             @big_maps.index(entry) || (@big_maps << entry).length - 1
           end
 
+          # The number of a big map of +cols+ × +rows+ kept in work memory at +address+ (one the game
+          # changes, Runtime::BigMaps's rt_big_copy_in): its table of rows says where each row is there.
+          def big_map_in_memory(cols, rows, address)
+            entry = [nil, cols, rows, address]
+            @big_maps.index(entry) || (@big_maps << entry).length - 1
+          end
+
           # --- the cartridge's copy ---
 
           # What each of the art's sections is to the author, for a cartridge too full for them (see
@@ -281,6 +288,8 @@ module RubyGBA
                data_section("art grid #{i}", "art_grid_#{i}", bytes, holds: BACKGROUND_MAPS)
              end,
              *@big_maps.each_with_index.flat_map do |(bytes, cols, _), i|
+               next [] unless bytes # kept in work memory
+
                # A row to a section, since a whole map can be more than a bank holds.
                bytes.each_slice(cols * 2).each_with_index.map do |row, r|
                  data_section("art big map #{i} row #{r}", "art_big_map_#{i}_#{r}", row, holds: BACKGROUND_MAPS)
@@ -318,11 +327,16 @@ module RubyGBA
               asm.data_words("art_big_rows_#{i}")
               asm.data_bytes(0, @big_maps[i][1], @big_maps[i][2])
             end
-            @big_maps.each_with_index do |(_, _, rows), i|
+            @big_maps.each_with_index do |(bytes, cols, rows, address), i|
               asm.label("art_big_rows_#{i}")
               rows.times do |r|
-                asm.data_words("art_big_map_#{i}_#{r}")
-                asm.data_bank_of("art_big_map_#{i}_#{r}")
+                if bytes
+                  asm.data_words("art_big_map_#{i}_#{r}")
+                  asm.data_bank_of("art_big_map_#{i}_#{r}")
+                else
+                  asm.data_words(address + (r * cols * 2))
+                  asm.data_bytes(1) # work memory reads the same whichever bank is in view
+                end
               end
             end
             pictures.each do |picture|

@@ -449,7 +449,7 @@ module RubyGBA
 
             # A background goes up as its grid, or as a map bigger than the grid (Runtime::BigMaps).
             def background_put_up(bg)
-              return runtime_call("rt_big_put_up", [Build.int(big_map_of(bg))]) if big?(bg)
+              return big_put_up(bg, 0, "rt_big_put_up") if big?(bg)
 
               runtime_call("rt_background_put_up", [Build.int(grid_of(bg))])
             end
@@ -493,6 +493,8 @@ module RubyGBA
             # its view where it is (Runtime::BigMaps's rt_big_show).
             def emit_show_map(node)
               bg = declared_background!(node)
+              return emit_show_changed_big_map(bg, node) if big?(bg) && changed_big?(bg)
+
               routine = big?(bg) ? "rt_big_show" : "rt_background_put_up"
               grids = bg.every_map.each_index.map { |which| big?(bg) ? big_map_of(bg, which) : grid_of(bg, which) }
               known = folded(node.which)
@@ -517,6 +519,20 @@ module RubyGBA
               @asm.call(routine)
               @asm.add_sp(4)
               @asm.label(past)
+            end
+
+            # ...a big background the game changes: the map named copied in as declared and handed
+            # over, by number, and a number naming none leaves it as it is.
+            def emit_show_changed_big_map(bg, node)
+              which = keep_local(:map)
+              value(node.which)
+              store(which)
+              bg.every_map.each_index do |at|
+                other = fresh("not_map")
+                jump_unless(Build.binop(:==, Build.var_ref(which), Build.int(at)), other)
+                big_put_up(bg, at, "rt_big_show")
+                @asm.label(other)
+              end
             end
 
             # Reference#exec_camera: the view moved over the painted picture. The picture is the
@@ -587,15 +603,43 @@ module RubyGBA
             # none, the backdrop — written into the console's grid (Runtime::Picture's
             # rt_background_cell), and a cell off the map changing nothing. Its maps must be one size,
             # so the edge is the same whichever is showing.
+            #
+            # A big map's cell is changed where the map is kept while it is up (Runtime::BigMaps's
+            # rt_big_set).
             def emit_set_tile(node)
               bg = declared_background!(node)
-              refuse_background!(bg, as_grid: true)
-              cols, rows = map_size_of(bg)
               tile = node.tile
               number, palette = tile.nil? || tile.negative? ? [0, 0] : background_tile_named(bg.tiles.fetch(tile))
               colours = palette | (number >= 256 ? Console::GBCHardware::ATTR_TILE_BANK : 0)
-              runtime_call("rt_background_cell", [node.col, node.row, Build.int(cols | (rows << 8)),
-                                                  Build.int((number & 0xFF) | (colours << 8))])
+              cell = Build.int((number & 0xFF) | (colours << 8))
+              return runtime_call("rt_big_set", [node.col, node.row, cell]) if big?(bg)
+
+              refuse_background!(bg, as_grid: true)
+              cols, rows = map_size_of(bg)
+              runtime_call("rt_background_cell", [node.col, node.row, Build.int(cols | (rows << 8)), cell])
+            end
+
+            # Whether the game changes a big background's cells as it runs, so it is kept in work
+            # memory while it is up.
+            def changed_big?(bg) = @reachable.any? { |node| node.kind == :set_tile && node.name == bg.name }
+
+            # A big background put up — or handed map number +which+ (+routine+ rt_big_show) — from its
+            # map kept whole; one the game changes copied into work memory first.
+            def big_put_up(bg, which, routine)
+              return runtime_call(routine, [Build.int(big_map_of(bg, which))]) unless changed_big?(bg)
+
+              runtime_call("rt_big_copy_in", [Build.int(big_map_of(bg, which)), Build.int(changed_big_place(bg))])
+              cols, rows = TileMap.size_of(bg.every_map.fetch(which))
+              runtime_call(routine, [Build.int(@art.big_map_in_memory(cols, rows, changed_big_place(bg)))])
+            end
+
+            # Where a big background the game changes is kept: room for the biggest of its maps.
+            def changed_big_place(bg)
+              @changed_big_places ||= {}
+              @changed_big_places[bg] ||= begin
+                bytes = bg.every_map.map { |map| TileMap.size_of(map).reduce(:*) * 2 }.max
+                @memory.reserve("the changed map of #{bg.name.inspect}", bytes)
+              end
             end
 
             # Room for every palette's colours as drawn now, in a game that draws a background in
