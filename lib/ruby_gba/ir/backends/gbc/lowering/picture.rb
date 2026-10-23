@@ -985,7 +985,7 @@ module RubyGBA
               y = folded(obj.y)
               # In a game that lends its sprites' lists, which of the eight a sprite is drawn in is
               # known only as it runs, so even a letter of text takes the slower way, through
-              # rt_lend_colors, every pass.
+              # rt_sprite and the list it borrows as its first piece is placed, every pass.
               return false if @art.lends?
               return false unless pose && x && y && Array(obj.recolors).empty? && pose.between?(0, obj.poses.length - 1)
 

@@ -671,9 +671,11 @@ module RubyGBA
               # rt_sprite(picture, x, y, attributes): HL in the pictures' table is the picture's
               # pieces — a count, then for each its dx, dy, tile and bank. The attributes are the
               # palette and whether it is drawn behind the background (OBJ_BEHIND), as the sprite
-              # table keeps them.
+              # table keeps them — in a game that lends its lists, with none of the eight named yet.
               # rt_sprite_fixed(record): the same, from a record in the cartridge of the four
-              # numbers, sixteen bits each, put where rt_sprite's numbers are put.
+              # numbers, sixteen bits each, put where rt_sprite's numbers are put. A game that lends
+              # its lists places none this way (Lowering::Picture#fixed_sprite), and one that did
+              # would borrow nothing.
               asm.label("rt_sprite_fixed")
               asm.load_hl_sp(2)
               asm.load(:a, [:hli])
@@ -684,6 +686,10 @@ module RubyGBA
                 asm.load_high(to, :a)
                 asm.load(:a, [:hli])
                 asm.load_high(to + 1, :a)
+              end
+              if lends
+                asm.xor_a(:a)
+                asm.load([memory[LENT] + LENT_PENDING], :a)
               end
               asm.jump_relative("rt_sprite_taken")
 
