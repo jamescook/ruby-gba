@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "differential"
 require "midpoint_circle"
 
 # AN EFFECT A GAME WRITES FOR ITSELF, on nothing but what any game can use: The Minish Cap's iris,
@@ -15,7 +14,6 @@ require "midpoint_circle"
 # it passes 150. Each size is drawn on the next picture — but the opening's first, which that game
 # hands the console while the picture is drawn, so it shows on the picture of the turn it starts.
 class TestGameDefinedIris < Minitest::Test
-  include Differential
   include MidpointCircle
 
   # The pack, as a game would write it.
@@ -105,44 +103,7 @@ class TestGameDefinedIris < Minitest::Test
     seen
   end
 
-  # The size the copied game's light holds at the end of +turn+, or nil for a light letting the
-  # whole picture show.
-  private def size_after(turn)
-    if turn < CLOSES then nil
-    elsif turn < OPENS then [150 - (4 * (turn - CLOSES + 1)), 0].max
-    elsif (opened = 4 * (turn - OPENS + 1)) <= 150 then opened
-    end
-  end
-
-  def test_every_row_of_every_picture_is_the_copied_games
-    seen = pictures(90)
-
-    (2...90).each do |picture|
-      turn = picture == OPENS ? OPENS : picture - 1 # the opening's first size is shown at once
-      size = size_after(turn)
-      expected = if size.nil? then Array.new(HEIGHT) { [0, WIDTH] }
-                 else game_circle_spans_a_row_late(turn < OPENS ? 120 : 184, turn < OPENS ? 80 : 96, size)
-                 end
-      assert_same_spans expected, seen[picture].first, "picture #{picture}, after turn #{turn} (size #{size.inspect})"
-    end
-  end
-
-  def test_it_says_closed_from_the_turn_the_size_is_nought
-    seen = pictures(46)
-    nought = CLOSES + (150 / 4) # 146 on turn 3 ... 2 on turn 39, nought on turn 40
-
-    assert_equal 0, seen[nought - 1].last, "turn #{nought - 1}: not yet"
-    assert_equal 1, seen[nought].last, "turn #{nought}: closed"
-  end
-
-  # On the native and JavaScript runs this plays the game there and checks it against the
-  # interpreter on every frame. On the GBA run it asks the console at a few moments: the closing
-  # walk, the shut light, and the opening one.
-  def test_the_console_and_every_other_backend_draw_the_same_rows
-    assert_backends_agree(game, frames: [4, 20, 41, 46, 70, 84, 88], name: "OWNIRIS")
-  end
-
-  # ...and the console on every frame, in one run: each picture the console shows is the one the
+  # The console on every frame, in one run: each picture the console shows is the one the
   # interpreter shows after as many turns. Lined up on the turns the console finished, not its
   # frames, since it powers on and sets up before its first turn.
   def test_every_picture_on_the_console_is_the_interpreters

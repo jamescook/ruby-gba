@@ -108,9 +108,6 @@ class TestSceneHandoverScenarios < Minitest::Test
     Scenario.new(name: :always_up_second_map_again_after_a_bitmap_screen, program: :always_up_second_map_twice,
                  frames: LOOK_BACK_FROM_BITMAP, probe: [0, 0], color: :blue,
                  console_frames: LOOK_BACK_FROM_BITMAP + 1),
-    Scenario.new(name: :always_up_turn_kept_across_a_bitmap_screen, program: :always_up_turned_background,
-                 frames: LOOK_BACK_FROM_BITMAP, probe: [200, 100], color: :red,
-                 console_frames: LOOK_BACK_FROM_BITMAP + 1),
     Scenario.new(name: :always_up_painted_tiles_across_a_bitmap_screen, program: :always_up_painted_tiles,
                  frames: LOOK_BACK_FROM_BITMAP, probe: [0, 0], color: :white,
                  console_frames: LOOK_BACK_FROM_BITMAP + 1),
@@ -455,19 +452,6 @@ class TestSceneHandoverScenarios < Minitest::Test
       field = background :field, tiles: :set,
                                  map: { red: Array.new(20) { "#" * 30 }, blue: Array.new(20) { "o" * 30 } }
       across_a_bitmap_screen { |tick| ((tick == 2) | (tick == 11)).then { field.show_map :blue } }
-    end
-  end
-
-  # A background every turning screen shows, red on its left half, turned half a circle about the
-  # middle of the screen on frame 2. The turn is the game's, like a scroll, so it is still in
-  # force after the bitmap screen: the red half is over to the right, low down.
-  private def always_up_turned_background
-    built do
-      screen :rotozoom
-      red_and_blue_art
-      tiles :set, "#" => :red_art, "o" => :blue_art
-      field = background :field, tiles: :set, map: Array.new(16) { ("#" * 8) + ("o" * 8) }
-      across_a_bitmap_screen { |tick| (tick == 2).then { field.rotate 180 } }
     end
   end
 

@@ -46,14 +46,6 @@ class TestSongParts < Minitest::Test
     b.program
   end
 
-  def test_every_part_sounds_on_the_downbeat_beside_the_games_own_sound
-    i = game_player.run(fourteen_part_game, frames: 3)
-
-    downbeat = i.audio.select { |entry| entry[0] == :note }.map(&:last)
-    assert_equal [NOTES[:C5], NOTES[:C3], *CHORD.map { |pitch| NOTES[pitch] }], downbeat
-    assert_equal [:hum] + ([:organ] * 12), i.active_samples, "the game's sound, and twelve recorded parts at once"
-  end
-
   def test_the_console_sounds_all_twelve_recorded_parts_at_their_pitches_beside_the_games_sound
     console = assert_emulator_loads_rom(assemble_rom(fourteen_part_game, name: "SONG14"), frames: 6)
     organ = console.voices.select { |voice| voice.sample == :organ }.map(&:step).sort

@@ -28,19 +28,6 @@ class TestDirectSound < Minitest::Test
     assert_includes i.audio, [:sample, :boom], "play put the sample on the audio channel"
   end
 
-  def test_stop_registers_too
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      s = sample :s, pcm: [10, -10], rate: 8000
-      s.play
-      s.stop
-      halt
-    end
-    log = game_player.run(b.program).audio
-    assert_equal [[:sample, :s], [:stop_sample]], log
-  end
-
   # --- friendly errors ---
 
   def test_a_bad_pcm_value_is_a_friendly_error

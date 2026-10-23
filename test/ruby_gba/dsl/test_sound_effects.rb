@@ -715,22 +715,6 @@ class TestSoundEffects < Minitest::Test
     assert_equal want, console_waveforms(program, frames: 50).take_while { |frame, _| frame <= 36 }
   end
 
-  # The game's own `wave` puts its waveform in wave RAM too, so the song's next note puts the
-  # song's back — in a game whose effects play the wave voice, whether or not one is playing. The
-  # game's own sound is compared by its place in the order only: the game's code and the player
-  # count their frames from different moments, so it lands a frame apart on the two backends.
-  def test_the_console_loads_the_songs_waveform_again_after_the_games_own_wave
-    triangle = every_ten_ticks(:C4, :E4, :G4, :C5, :E5, plays: :triangle)
-    hit = every_ten_ticks(:C5, plays: :sawtooth)
-    program = game([hit], tune: triangle) { |_sfx, pass| (pass == 5).then { wave :sine, :C5 } }
-    want = interpreted_waveforms(program, frames: 30)
-    got = console_waveforms(program, frames: 40).take_while { |frame, _| frame <= 26 }
-
-    assert_equal %i[triangle sine triangle].map { |shape| waveform(shape) }, want.map(&:last)
-    assert_equal want.map(&:last), got.map(&:last)
-    assert_equal want.last, got.last, "the song's note puts the triangle back on the same frame"
-  end
-
   # A waveform as the number wave RAM holds for it, reading its four words in order.
   private def waveform(shape)
     RubyGBA::Audio::Sound::Registers.wavetable_halfwords(shape).each_slice(2).each_with_index.sum do |(low, high), word|

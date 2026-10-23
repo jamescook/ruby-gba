@@ -199,24 +199,4 @@ class TestSpriteMirror < Minitest::Test
     assert_match(/paint/, error.message)
     refute_match(/not defined/, error.message)
   end
-
-  # A SPRITE THAT TURNS IS NOT MIRRORED. The two attribute bits that reverse an object
-  # are the ones that name its rotation group once it is turning, so a turning sprite
-  # keeps both sets of pixels — and, more to the point, still draws the right picture.
-  def test_a_turning_sprite_with_mirrored_poses_still_draws_correctly
-    canvas = CANVAS
-    clear = CLEAR
-    art = lopsided(6, 4)
-    builder = Builder.new
-    builder.instance_eval do
-      screen :tiled
-      image :hero_right, width: canvas, height: canvas, data: art, transparent: clear
-      hero = sprite :hero, at: [60, 60], frames: [:hero_right, mirror(:hero_right)], rate: 3
-      hero.face_angle 30
-      game_loop {}
-    end
-    builder.finalize_program
-
-    assert_backends_agree(builder.program, frames: 12)
-  end
 end

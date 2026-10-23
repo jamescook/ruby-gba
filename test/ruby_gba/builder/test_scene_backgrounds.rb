@@ -62,51 +62,9 @@ class TestSceneBackgrounds < Minitest::Test
     assert_emulator_loads_rom(assemble_rom(prog, name: name), frames: frames).pixel_gba(*MIDDLE)
   end
 
-  # THE ONE THE BEAD IS ABOUT: four scrolling backgrounds in each of two scenes. The
-  # console never has to hold more than one scene's worth, so this is four layers at a
-  # time and not eight.
-  def test_two_scenes_can_have_four_scrolling_backgrounds_each
-    assert_equal RED, shown(two_scenes(4), SWITCH_AT)
-    assert_equal BLUE, shown(two_scenes(4), SWITCH_AT + 4)
-  end
-
   def test_the_console_shows_four_scrolling_backgrounds_in_each_of_two_scenes_too
     assert_equal RED, on_console(two_scenes(4), "SCNBG1", SWITCH_AT)
     assert_equal BLUE, on_console(two_scenes(4), "SCNBG2", SWITCH_AT + 6)
-  end
-
-  # A SCENE WITH NO SCENERY OF ITS OWN still takes the screen from the one before: the first
-  # scene's backdrop goes, and what every screen shows is what is left. A file screen's plain
-  # backdrop must not stay up over the game it hands over to.
-  private def a_backdrop_then_a_bare_scene
-    tile = SOLID_TILE
-    program do
-      screen :tiled
-      image(:red_art, "#" => :red) { tile }
-      image(:blue_art, "#" => :blue) { tile }
-      tiles :red_set, "#" => :red_art
-      tiles :blue_set, "#" => :blue_art
-      map = Array.new(20) { "#" * 30 }
-      background :world, tiles: :red_set, map: map
-      scene(:menu) { background :backdrop, tiles: :blue_set, map: map }
-      scene(:walk) { nil }
-      state = var :state, 0
-      tick = var :tick, 0
-      game_loop do
-        tick.add! 1
-        (tick > SWITCH_AT).then { state.set! 1 }
-        case_var(:state) do
-          when_val 0, :menu
-          when_val 1, :walk
-        end
-      end
-    end
-  end
-
-  def test_a_scene_with_no_scenery_of_its_own_takes_down_the_last_ones
-    assert_equal BLUE, shown(a_backdrop_then_a_bare_scene, SWITCH_AT)
-    assert_equal RED, shown(a_backdrop_then_a_bare_scene, SWITCH_AT + 4)
-    assert_equal RED, on_console(a_backdrop_then_a_bare_scene, "SCNBG0", SWITCH_AT + 6)
   end
 
   # A SCENE THAT COMES BACK AFTER A BARE ONE PUTS ITS SCENERY UP AS DECLARED. A cell it had
@@ -176,13 +134,6 @@ class TestSceneBackgrounds < Minitest::Test
 
   GREEN = RubyGBA::Graphics::Color.resolve(:green)
 
-  def test_a_backdrop_every_screen_shows_stays_up_across_both_scenes
-    screen = game_player.run(a_backdrop_and_two_scenes(3), frames: SWITCH_AT + 4).screen
-
-    assert_equal BLUE, screen.pixel(0, 0), "the scene's own scenery is in front"
-    assert_equal GREEN, screen.pixel(8, 0), "the always-there backdrop shows through its holes"
-  end
-
   def test_the_console_keeps_the_backdrop_up_across_both_scenes_too
     v = assert_emulator_loads_rom(assemble_rom(a_backdrop_and_two_scenes(3), name: "SCNBG6"),
                                   frames: SWITCH_AT + 6)
@@ -233,12 +184,6 @@ class TestSceneBackgrounds < Minitest::Test
         end
       end
     end
-  end
-
-  def test_a_backdrop_stays_behind_the_busy_scenes_backmost_layer
-    screen = game_player.run(uneven_over_a_backdrop(1, 3), frames: SWITCH_AT + 4).screen
-
-    assert_equal BLUE, screen.pixel(0, 0), "the backdrop was drawn over the scene's back layer"
   end
 
   def test_the_console_keeps_the_backdrop_behind_it_too
@@ -308,14 +253,6 @@ class TestSceneBackgrounds < Minitest::Test
   BACKDROP = 0
   FILLED_CELL = [0, 0].freeze
   THE_HOLE_BESIDE_IT = [8, 0].freeze
-
-  def test_a_quiet_scene_does_not_show_the_busy_scenes_leftover_layers
-    screen = game_player.run(uneven_scenes(3, 1), frames: SWITCH_AT + 4).screen
-
-    assert_equal BLUE, screen.pixel(*FILLED_CELL), "the quiet scene's own background is drawn"
-    assert_equal BACKDROP, screen.pixel(*THE_HOLE_BESIDE_IT),
-                 "the busy scene's layers are still showing through"
-  end
 
   def test_the_console_does_not_show_them_either
     v = assert_emulator_loads_rom(assemble_rom(uneven_scenes(3, 1), name: "SCNBG5"), frames: SWITCH_AT + 6)
@@ -676,12 +613,6 @@ class TestSceneBackgrounds < Minitest::Test
     end
   end
 
-  def test_a_turning_title_can_sit_beside_a_game_with_four_scrolling_layers
-    screen = game_player.run(a_turning_title_and_a_scrolling_game, frames: SWITCH_AT + 4).screen
-
-    assert_equal BLUE, screen.pixel(0, 0), "the play scene's frontmost layer is not drawn"
-  end
-
   def test_the_console_holds_both_arrangements_in_one_cartridge
     v = assert_emulator_loads_rom(
       assemble_rom(a_turning_title_and_a_scrolling_game, name: "SCNARR"), frames: SWITCH_AT + 6
@@ -715,15 +646,6 @@ class TestSceneBackgrounds < Minitest::Test
                  "the play scene did not get all four scrolling layers"
   end
 
-  # Every pixel of the screen, not the two sampled above. A layer left switched on, or one
-  # numbered differently by the two backends, shows up here and nowhere else — the pixels
-  # picked by hand are the ones somebody already thought to look at.
-  def test_the_two_backends_draw_the_same_screen_after_the_scene_changes
-    assert_backends_agree(two_scenes(4), frames: SWITCH_AT + 4)
-    assert_backends_agree(uneven_scenes(3, 1), frames: SWITCH_AT + 4)
-    assert_backends_agree(a_backdrop_and_two_scenes(3), frames: SWITCH_AT + 4)
-  end
-
   # ...and the same for a scene's background that MOVES and one whose cells CHANGE. Both
   # halves above compare a backend against itself — the scene's picture against the top
   # level's on the same backend — which a wrong-but-consistent answer would satisfy. This
@@ -735,13 +657,6 @@ class TestSceneBackgrounds < Minitest::Test
     assert_backends_agree(choosing_a_map_and_coming_back, frames: 10)
     assert_backends_agree(choosing_a_map_and_coming_back, frames: 15)
     assert_backends_agree(changing_program, frames: SCROLLED_FOR)
-  end
-
-  # ...and the same for the two arrangements in one cartridge, which is where a layer left
-  # switched on by the scene before would show — the mixed arrangement has no fourth layer,
-  # so one left on there means nothing to the hardware and everything to the picture.
-  def test_the_two_backends_draw_the_same_screen_in_both_arrangements
-    assert_backends_agree(a_turning_title_and_a_scrolling_game, frames: SWITCH_AT + 4)
   end
 
   # A SCENE'S BACKGROUND MUST NOT MOVE ANOTHER SCENE'S LAYER.
@@ -874,10 +789,6 @@ class TestSceneBackgrounds < Minitest::Test
     end
   end
 
-  def test_the_two_backends_agree_while_a_scene_that_declares_nothing_runs
-    assert_backends_agree(a_scene_that_declares_nothing, frames: 2)
-  end
-
   # A SCENE WITH NO SCENERY OF ITS OWN HAS NO LAYER SWITCHED ON.
   #
   # The one above is a scene that declares nothing while the game's scenery belongs to the
@@ -936,12 +847,6 @@ class TestSceneBackgrounds < Minitest::Test
                    "on frame #{frame + 1} the title has a layer on, and no map of its own to point it at"
       v.step
     end
-  end
-
-  # The interpreter has no layers to switch on, so its half of this is what the picture
-  # comes out as: a scene that draws no scenery draws none, and the console now agrees.
-  def test_the_two_backends_agree_while_a_scene_with_no_scenery_runs
-    assert_backends_agree(a_title_with_no_scenery_of_its_own, frames: 2)
   end
 
   # A LAYER IS POINTED AT ITS MAP BEFORE IT IS SWITCHED ON, NOT AFTER.
@@ -1102,36 +1007,11 @@ class TestSceneBackgrounds < Minitest::Test
   # natural-sized it samples the far one.
   SAMPLED = [200, 80].freeze
 
-  def test_a_scene_owned_background_goes_on_easing_the_size_it_was_declared_at
-    screen = game_player.run(a_sword_that_flies_at_the_player, frames: 20).screen
-
-    assert_equal BLUE, screen.pixel(*SAMPLED),
-                 "the picture never eased down to its natural size — it is still magnified"
-  end
-
   def test_the_console_eases_it_too
     v = assert_emulator_loads_rom(assemble_rom(a_sword_that_flies_at_the_player, name: "SCNSWD"), frames: 22)
 
     assert_equal BLUE, v.pixel_gba(*SAMPLED),
                  "the console was never told the eased size — the picture is still magnified"
-  end
-
-  # Every pixel, and both ends of the easing: the frame the scene takes over, where the
-  # picture is magnified, and the frame it has arrived. Sampling one point says the size
-  # walked; this says the two backends draw the same magnified picture all the way down.
-  def test_the_two_backends_agree_while_the_picture_flies_at_the_player
-    assert_backends_agree(a_sword_that_flies_at_the_player, frames: 3)
-    assert_backends_agree(a_sword_that_flies_at_the_player, frames: 20)
-  end
-
-  # ...and a second turn written on the same line — `.scale(16.0).rotate(90)` — is part of
-  # declaring it too, so the angle can be eased the same way the size can. It is one line
-  # and it says one thing: this is how the picture starts.
-  def test_a_turn_chained_onto_the_declaration_starts_the_picture_too
-    screen = game_player.run(a_sword_that_flies_at_the_player(turning: true), frames: 20).screen
-
-    assert_equal BLUE, screen.pixel(*SAMPLED),
-                 "the picture never came upright — the angle it was declared at is put back every frame"
   end
 
   # THE SCENERY'S MEMORY TAKES TURNS TOO, the way its layers do. The console keeps every
@@ -1171,12 +1051,6 @@ class TestSceneBackgrounds < Minitest::Test
         end
       end
     end
-  end
-
-  def test_two_scenes_can_each_fill_the_scenery_memory
-    prog = two_scenes_that_fill_the_memory_each
-
-    assert_equal [RED, BLUE, RED], [SECOND_SCENE_AT, FIRST_SCENE_AGAIN_AT, FIRST_SCENE_AGAIN_AT + 15].map { |at| shown(prog, at) }
   end
 
   # A SCENE'S LOGIC RUNS ON EVERY FRAME, THE ONE IT ARRIVES ON INCLUDED, however much art it

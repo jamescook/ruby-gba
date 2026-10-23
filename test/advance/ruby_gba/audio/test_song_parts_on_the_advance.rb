@@ -49,6 +49,14 @@ class TestSongPartsOnTheAdvance < Minitest::Test
     b.program
   end
 
+  def test_every_part_sounds_on_the_downbeat_beside_the_games_own_sound
+    i = game_player.run(fourteen_part_game, frames: 3)
+
+    downbeat = i.audio.select { |entry| entry[0] == :note }.map(&:last)
+    assert_equal [NOTES[:C5], NOTES[:C3], *CHORD.map { |pitch| NOTES[pitch] }], downbeat
+    assert_equal [:hum] + ([:organ] * 12), i.active_samples, "the game's sound, and twelve recorded parts at once"
+  end
+
   # --- a recorded part on its own, with NOTHING sounding beside it ---
 
   # THE TEST THAT WAS MISSING, and the reason a real bug lived here unnoticed: every hardware
@@ -83,9 +91,4 @@ class TestSongPartsOnTheAdvance < Minitest::Test
     assert_equal %i[C4 E4 G4 C5].map { |pitch| NOTES[pitch] },
                  i.audio.select { |entry| entry[0] == :note }.map(&:last)
   end
-
-  # --- what cannot be had, said plainly ---
-
-  # --- what it costs is measured, by name ---
-
 end

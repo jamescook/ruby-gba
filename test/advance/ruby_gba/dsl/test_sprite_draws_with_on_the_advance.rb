@@ -143,6 +143,10 @@ class TestSpriteDrawsWithOnTheAdvance < Minitest::Test
     builder.program
   end
 
+  def test_every_way_the_console_draws_a_sprite_carries_the_colors
+    assert_backends_agree(every_draw_program, frames: 3)
+  end
+
   # --- every instance of a pool on its own ---
 
   # Two ships in a pool, and only the one on the right is hurt. After a few frames the hurt

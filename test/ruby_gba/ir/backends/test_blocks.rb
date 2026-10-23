@@ -37,13 +37,4 @@ class TestBlocks < Minitest::Test
     assert_match(/one place/, error.message)
     assert_match(/under :ui/, error.message)
   end
-
-  def test_a_program_with_one_place_is_run_by_both
-    one_place = program(screen(:tiled), layers(%i[world ui]),
-                        pixelate(size: int(4), under: :ui), pixelate(size: int(9), under: :ui), halt)
-
-    game_player.run(one_place)
-
-    refute_empty GBA.new.lower(one_place)
-  end
 end

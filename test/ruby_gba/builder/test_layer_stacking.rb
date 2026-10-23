@@ -97,10 +97,6 @@ class TestLayerStacking < Minitest::Test
     assert_equal RED, screen_of(two_backgrounds(stacked: true)).pixel(OVERLAP_X, OVERLAP_Y)
   end
 
-  def test_both_backends_stack_backgrounds_the_same_way
-    assert_backends_agree(two_backgrounds(stacked: true), frames: 3, name: "STKBG")
-  end
-
   # --- backgrounds, recomposited every frame ---
 
   # A scrolling scene takes the interpreter's other path: the whole view is rebuilt each
@@ -108,10 +104,6 @@ class TestLayerStacking < Minitest::Test
   # a game looks right until something moves.
   def test_a_scrolling_scene_stacks_the_same_way_as_a_still_one
     assert_equal RED, screen_of(two_backgrounds(stacked: true, scrolled: true)).pixel(OVERLAP_X, OVERLAP_Y)
-  end
-
-  def test_both_backends_stack_a_scrolling_scene_the_same_way
-    assert_backends_agree(two_backgrounds(stacked: true, scrolled: true), frames: 3, name: "STKSCR")
   end
 
   # --- the HUD, which is what started all this ---

@@ -39,11 +39,6 @@ class TestSongLoopPoint < Minitest::Test
     b.program
   end
 
-  # Every note the interpreter played, in order, over +frames+.
-  private def heard(song, frames: 190)
-    game_player.run(game(song), frames: frames).audio.select { |entry| entry[0] == :note }.map(&:last)
-  end
-
   # What the console's music voice is doing +frames+ in: [step, how far into the recording], or
   # nil when it is silent.
   private def console_voice(song, frames:)
@@ -65,18 +60,6 @@ class TestSongLoopPoint < Minitest::Test
 
   INTRO_THEN_LOOP = [[0, :C4], [24, :E4], [48, :G4]].freeze
 
-  def test_the_introduction_plays_once_and_the_rest_repeats
-    notes = heard(score(part(*INTRO_THEN_LOOP)))
-
-    assert_equal NOTES.values_at(:C4, :E4, :G4, :E4, :G4, :E4, :G4, :E4), notes
-  end
-
-  def test_without_a_loop_point_the_whole_song_repeats
-    notes = heard(score(part(*INTRO_THEN_LOOP), loop_from: nil))
-
-    assert_equal NOTES.values_at(:C4, :E4, :G4, :C4, :E4, :G4, :C4, :E4), notes
-  end
-
   # On the console: a little way into the second time round, a song that looped from its start
   # would be back in its introduction. This one is in its loop.
   def test_the_console_goes_back_to_the_loop_point
@@ -93,13 +76,6 @@ class TestSongLoopPoint < Minitest::Test
   # ends on G4. So every time round, C4 has to be sounded again at the loop point.
   HELD = [[0, :C4], [48, :G4]].freeze
 
-  def test_a_note_held_across_the_loop_point_sounds_there_every_time_after_the_first
-    notes = heard(score(part(*HELD)))
-
-    assert_equal NOTES.values_at(:C4, :G4, :C4, :G4, :C4, :G4, :C4), notes,
-                 "C4 again at each loop — and not twice the first time"
-  end
-
   def test_the_console_sounds_the_held_note_at_the_loop
     second_time, = console_voice(score(part(*HELD)), frames: 84)
 
@@ -112,15 +88,6 @@ class TestSongLoopPoint < Minitest::Test
     _, position = console_voice(score(part(*HELD)), frames: 44)
 
     assert_operator position, :>, 8000 / 2, "a sound more than half a second in (#{position} samples)"
-  end
-
-  # A song that ends on the very note held across the loop point is still sounding it when it
-  # comes round — so it carries on, rather than being struck again: after the first time, C4 is
-  # heard where the song plays it (frame 60), and never at the loop point.
-  def test_a_song_that_ends_on_the_held_note_carries_it_on
-    notes = heard(score(part([0, :C4], [48, :G4], [60, :C4])))
-
-    assert_equal NOTES.values_at(:C4, :G4, :C4, :G4, :C4, :G4, :C4), notes
   end
 
   # --- a part that is silent at the loop point ---

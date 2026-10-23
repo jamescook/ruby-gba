@@ -270,6 +270,22 @@ class TestSoundEffectsOnTheAdvance < Minitest::Test
     changes(readings.drop_while { |setting, _| setting.zero? }.map(&:last))
   end
 
+  # The game's own `wave` puts its waveform in wave RAM too, so the song's next note puts the
+  # song's back — in a game whose effects play the wave voice, whether or not one is playing. The
+  # game's own sound is compared by its place in the order only: the game's code and the player
+  # count their frames from different moments, so it lands a frame apart on the two backends.
+  def test_the_console_loads_the_songs_waveform_again_after_the_games_own_wave
+    triangle = every_ten_ticks(:C4, :E4, :G4, :C5, :E5, plays: :triangle)
+    hit = every_ten_ticks(:C5, plays: :sawtooth)
+    program = game([hit], tune: triangle) { |_sfx, pass| (pass == 5).then { wave :sine, :C5 } }
+    want = interpreted_waveforms(program, frames: 30)
+    got = console_waveforms(program, frames: 40).take_while { |frame, _| frame <= 26 }
+
+    assert_equal %i[triangle sine triangle].map { |shape| waveform(shape) }, want.map(&:last)
+    assert_equal want.map(&:last), got.map(&:last)
+    assert_equal want.last, got.last, "the song's note puts the triangle back on the same frame"
+  end
+
   # A song holding one long note, and an effect over it from pass 10, on the voice +plays+ and
   # +effect_plays+ name; the block says what else the game does on each pass.
   private def long_note_under_an_effect(plays: nil, effect_plays: nil, &body)

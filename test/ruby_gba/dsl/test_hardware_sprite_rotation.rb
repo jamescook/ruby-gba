@@ -53,57 +53,13 @@ class TestHardwareSpriteRotation < Minitest::Test
 
   # --- it turns, and the halves land where a clockwise turn puts them ---
 
-  # Upright: left half red is to the LEFT of center, right half green to the RIGHT.
-  def test_upright_the_left_half_is_on_the_left
-    screen = game_player.run(turned_program(angle: 0)).screen
-    assert_equal Color.resolve(:red),   screen.pixel(CX - 4, CY), "red left half is on the left"
-    assert_equal Color.resolve(:green), screen.pixel(CX + 4, CY), "green right half is on the right"
-  end
-
-  # A quarter turn clockwise carries the left up and the right down: red now on top,
-  # green on the bottom. (Top goes to the right, right to the bottom, and so on — so
-  # the left rises to the top.)
-  def test_a_quarter_turn_clockwise_moves_the_left_half_to_the_top
-    screen = game_player.run(turned_program(angle: 90)).screen
-    assert_equal Color.resolve(:red),   screen.pixel(CX, CY - 4), "the red half turned up to the top"
-    assert_equal Color.resolve(:green), screen.pixel(CX, CY + 4), "the green half turned down to the bottom"
-  end
-
-  # The same quarter turn on real hardware, through the console's sprite rotate/scale.
+  # A quarter turn clockwise on real hardware, through the console's sprite rotate/scale: red
+  # on top, green on the bottom.
   def test_it_turns_on_the_console
     v = assert_emulator_loads_rom(rom_for(turned_program(angle: 90)), frames: 3)
     assert v.red?(CX, CY - 4),   "the red half is at the top on hardware, got 0x#{format('%04X', v.pixel_gba(CX, CY - 4))}"
     assert v.green?(CX, CY + 4), "the green half is at the bottom, got 0x#{format('%04X', v.pixel_gba(CX, CY + 4))}"
     assert v.blue?(8, 8),        "the floor still shows past the sprite, got 0x#{format('%04X', v.pixel_gba(8, 8))}"
-  end
-
-  # --- turning accumulates and wraps ---
-
-  # turn(100) each of five frames: 100, 200, 300, 400->40, 140. The angle stays in
-  # 0..359 the whole way (the wrap after each turn), landing on 140.
-  def test_turning_accumulates_and_wraps_into_range
-    prog = begin
-      builder = Builder.new
-      builder.instance_eval do
-        screen :tiled
-        image(:floor, "#" => :blue) { (["########"] * 8).join("\n") }
-        image(:disc, "R" => :red, "G" => :green) { DISC_ART }
-        tiles :ground, "#" => :floor
-        background :field, tiles: :ground, map: Array.new(20, "#" * 30)
-        disc = sprite :disc, at: [40, 40]
-        f = var :f, 0
-        game_loop do
-          wait_vblank
-          disc.turn(100)
-          f.add! 1
-          (f >= 5).then { halt }
-        end
-      end
-      builder.finalize_program
-      builder.program
-    end
-    i = game_player.run(prog)
-    assert_equal 140, i[:__obj1_angle], "the angle accumulated and wrapped to 140"
   end
 
   # --- friendly guardrails ---

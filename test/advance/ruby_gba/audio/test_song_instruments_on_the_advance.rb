@@ -92,6 +92,50 @@ class TestSongInstrumentsOnTheAdvance < Minitest::Test
      assert_emulator_loads_rom(assemble_rom(program, name: "SONGSHARE"), frames: frames + 2).sounding]
   end
 
+  # A note already sounding keeps its voice, and the game's burst gets every voice left.
+  def test_a_sounding_note_keeps_its_voice_and_the_game_gets_the_rest
+    interpreted, console = sounding_on_both(sharing_game(at: 5) { note :C4, :whole }, frames: 10)
+
+    assert_equal [:piano] + clip_names(0...(VOICES - 1)), interpreted
+    assert_equal interpreted, console
+  end
+
+  # A part's next note takes over the voice its last note is still sounding in, rather than
+  # taking a second one and leaving the first to ring on underneath it.
+  def test_a_parts_next_note_takes_over_its_own_voice
+    interpreted, console = sounding_on_both(sharing_game(at: 999) { note :C4, :quarter; note :G4, :whole }, frames: 40)
+
+    assert_equal [:piano], interpreted
+    assert_equal interpreted, console
+  end
+
+  # A part that rests gives its voice up: while it rests, every voice is the game's.
+  def test_a_resting_part_lends_its_voice_to_the_game
+    interpreted, console = sounding_on_both(sharing_game(at: 40) { note :C4, :quarter; rest :whole },
+                                            frames: 50)
+
+    assert_equal clip_names(0...VOICES), interpreted, "all of them the game's, the part resting"
+    assert_equal interpreted, console
+  end
+
+  # THE MOMENT THE VOICES RUN OUT: every voice is the game's when the part's note comes, so the
+  # note takes the voice of the game's sound that has played longest.
+  def test_a_note_with_no_voice_free_takes_the_one_the_game_started_first
+    interpreted, console = sounding_on_both(sharing_game(at: 5) { rest :quarter; note :C4, :whole }, frames: 40)
+
+    assert_equal [:piano] + clip_names(1...VOICES), interpreted, "s0, the oldest, gave way"
+    assert_equal interpreted, console
+  end
+
+  # ...one that plays once before one that loops, since a loop never ends of its own accord.
+  def test_a_sound_that_loops_gives_way_last
+    program = sharing_game(at: 5, loop_first: true) { rest :quarter; note :C4, :whole }
+    interpreted, console = sounding_on_both(program, frames: 40)
+
+    assert_equal [:s0, :piano] + clip_names(2...VOICES), interpreted, "s0 loops, so s1 gave way"
+    assert_equal interpreted, console
+  end
+
   def test_changing_tunes_silences_the_instrument
     b = Builder.new
     b.instance_eval do

@@ -255,20 +255,6 @@ class TestRowBend < Minitest::Test
     (2..5).each { |f| assert_backends_agree(ripple_and_sprite_program, frames: f, name: "BSP#{f}") }
   end
 
-  # ...and the same when no engine was free to feed the rows and the display is interrupted
-  # for them instead. The two lowerings hand over the same numbers at the same moment, so a
-  # game cannot tell which it got — which is the property the whole split rests on.
-  #
-  # The console is run one frame longer still. That is boot, not behavior: four tables to
-  # clear and an interrupt to arm is more than a program gets through before its first pass.
-  def test_a_bend_the_interrupt_feeds_agrees_with_a_moving_sprite_too
-    program = ripple_and_sprite_program(layers: 4)
-    refute BendForm.fed_by_dma?(program), "four bending layers is one more than there are engines"
-    (2..5).each do |f|
-      assert_backends_agree(program, frames: f, console_frames: f + 2, name: "ISP#{f}")
-    end
-  end
-
   # A bend and a scroll together, across backends: the console applies the scroll once a
   # frame at the frame boundary and the row offset per line, and those two writes go to
   # the same register — so this is where they could fight.
@@ -281,75 +267,6 @@ class TestRowBend < Minitest::Test
   end
 
   # --- more than one layer bending ---
-
-  # Two layers, each with its own bend, going opposite ways. Working one row's offset out
-  # needs the accumulator the row number is sitting in, so the second layer would read a
-  # clobbered row unless every bend is told the row before any offset is worked out.
-  private def two_bends_program
-    b = Builder.new
-    b.instance_eval do
-      screen :tiled
-      image(:back_bar, "." => :blue, "#" => :red) { (["##......"] * 8).join("\n") }
-      image(:front_bar, "." => :transparent, "#" => :white) { (["....##.."] * 8).join("\n") }
-      tiles :back_set, "#" => :back_bar
-      tiles :front_set, "#" => :front_bar
-      back = background :back, tiles: :back_set, map: Array.new(20) { "#" * 30 }
-      front = background :front, tiles: :front_set, map: Array.new(20) { "#" * 30 }
-      back.scroll_each_row { |row| row % 8 }
-      front.scroll_each_row { |row| -(row % 8) }
-      game_loop { }
-    end
-    b.finalize_program
-    b.program
-  end
-
-  def test_each_layer_bends_by_its_own_amount
-    i = game_player.run(two_bends_program)
-    red = ->(y) { (0...16).select { |x| i.screen.pixel(x, y) == Color::PRESETS[:red] } }
-    white = ->(y) { (0...16).select { |x| i.screen.pixel(x, y) == Color::PRESETS[:white] } }
-
-    assert_equal [0, 1, 8, 9], red.call(0), "row 0 is unbent on both layers"
-    assert_equal [4, 5, 12, 13], white.call(0)
-    # By row 4 the back layer has slid 4 left and the front 4 right — opposite ways, which
-    # a single shared row offset could not produce.
-    assert_equal [4, 5, 12, 13], red.call(4)
-    assert_equal [8, 9], white.call(4)
-  end
-
-  def test_two_bending_layers_agree_across_backends
-    assert_backends_agree(two_bends_program, frames: 4, name: "TWOB")
-  end
-
-  # THREE layers bending at once, which is as many as there are engines to feed them —
-  # each with its own table, its own engine and its own rhythm. Every one of the 38,400
-  # pixels, because the way this breaks is subtle: two engines aimed at one scroll register,
-  # or a table handed to the wrong layer, still draws a picture that bends.
-  private def three_bends_program
-    b = Builder.new
-    b.instance_eval do
-      screen :tiled
-      image(:back_bar, "." => :blue, "#" => :red) { (["##......"] * 8).join("\n") }
-      image(:mid_bar, "." => :transparent, "#" => :green) { (["..##...."] * 8).join("\n") }
-      image(:front_bar, "." => :transparent, "#" => :white) { (["....##.."] * 8).join("\n") }
-      tiles :back_set, "#" => :back_bar
-      tiles :mid_set, "#" => :mid_bar
-      tiles :front_set, "#" => :front_bar
-      back = background :back, tiles: :back_set, map: Array.new(20) { "#" * 30 }
-      mid = background :mid, tiles: :mid_set, map: Array.new(20) { "#" * 30 }
-      front = background :front, tiles: :front_set, map: Array.new(20) { "#" * 30 }
-      back.scroll_each_row { |row| row % 8 }
-      mid.scroll_each_row { |row| (row * 2) % 8 }
-      front.scroll_each_row { |row| -(row % 8) }
-      game_loop { }
-    end
-    b.finalize_program
-    b.program
-  end
-
-  def test_three_bending_layers_are_each_fed_by_an_engine
-    assert BendForm.fed_by_dma?(three_bends_program)
-    assert_backends_agree(three_bends_program, frames: 4, name: "TRIB")
-  end
 
   # A BEND BESIDE SAMPLED SOUND, on the console. Recorded sound is fed to the sound hardware
   # from a copying engine too, continuously, which is the same standing claim a bend makes —

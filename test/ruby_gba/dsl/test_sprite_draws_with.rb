@@ -174,44 +174,6 @@ class TestSpriteDrawsWith < Minitest::Test
     assert_equal Color.resolve(:red), i.screen.pixel(42, 41)
   end
 
-  # The console writes a sprite's table entry four ways — upright in one pose, upright in a
-  # pose the game picks, turning, and poses that came out different sizes (a mirrored one
-  # among them) — and a picture too big for one object is several entries. Each carries the
-  # colours.
-  private def every_draw_program
-    long = Array.new(96 * 16) { |i| (i % 96) < 48 ? :red : :green }
-    builder = Builder.new
-    builder.instance_eval do
-      screen :tiled
-      image :floor, "#" => :blue do
-        (["########"] * 8).join("\n")
-      end
-      tiles :ground, "#" => :floor
-      background :field, tiles: :ground, map: Array.new(20, "#" * 30)
-      image :ship, width: 8, height: 8, data: SHIP, colors: OWN
-      image :long, width: 96, height: 16, data: long, colors: OWN
-      image :lean, width: 16, height: 16, data: Array.new(256) { |i| (i % 16) < 3 && i / 16 < 12 ? :red : :transparent },
-                   transparent: true, colors: OWN
-      image :ship_turned, width: 8, height: 8, data: Array.new(64) { |i| (i / 8) < 4 ? :red : :green }, colors: OWN
-      colors :hurt, HURT
-      turning = sprite :ship, at: [20, 20]
-      big = sprite :long, at: [40, 100]
-      facing = sprite :lean, at: [140, 20], facing: { right: :lean, left: mirror(:lean) }
-      flapping = sprite :flap, at: [200, 60], frames: [:ship, :ship_turned], rate: 1
-      game_loop do
-        turning.face_angle 45
-        facing.face :left
-        [turning, big, facing, flapping].each { |thing| thing.draw_with :hurt }
-      end
-    end
-    builder.finalize_program
-    builder.program
-  end
-
-  def test_every_way_the_console_draws_a_sprite_carries_the_colors
-    assert_backends_agree(every_draw_program, frames: 3)
-  end
-
   # --- every instance of a pool on its own ---
 
   # Two ships in a pool, and only the one on the right is hurt. After a few frames the hurt

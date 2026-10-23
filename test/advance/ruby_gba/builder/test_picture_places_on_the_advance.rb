@@ -95,6 +95,21 @@ class TestPicturePlacesOnTheAdvance < Minitest::Test
     builder.program
   end
 
+  def test_a_mirrored_pose_turns_its_places_round_with_it
+    i = game_player.run(mirrored_program, frames: 3)
+
+    assert_equal Color.resolve(:blue), i.screen.pixel(41, 41), "place 3, now on the left"
+    assert_equal Color.resolve(:yellow), i.screen.pixel(45, 41), "and place 1 on the right"
+  end
+
+  def test_the_console_carries_places_through_every_way_it_draws_a_sprite
+    oracle, console, = backend_pictures(mirrored_program, frames: 3)
+
+    assert_equal Color.resolve(:blue), console[(41 * 240) + 41], "place 3, now on the left"
+    assert_equal Color.resolve(:yellow), console[(41 * 240) + 45], "and place 1 on the right"
+    assert_empty mismatched_pixels(oracle, console)
+  end
+
   # A LIST SHAPED THE WAY A REAL CARTRIDGE'S IS, which differs from the lists above in two
   # ways that both bear on the same trap. Its entries are the console's own colour values
   # rather than names, so its see-through entry is written as a number like the rest; and
@@ -138,6 +153,28 @@ class TestPicturePlacesOnTheAdvance < Minitest::Test
     assert_empty mismatched_pixels(oracle, console)
   end
 
+  # A PICTURE THE CONSOLE STORES THE BIG WAY HAS NO PLACES TO KEEP. A background that can
+  # turn and resize reads a whole byte a pixel out of the one shared table, where a colour
+  # is a single entry however many places the author's list gave it — so a place number
+  # names an unrelated entry there and the colour has to be looked up instead.
+  def test_a_picture_stored_the_big_way_is_still_drawn_in_its_own_colors
+    map = Array.new(32) { Array.new(32, " ") }
+    map[10][25] = "#"
+    builder = Builder.new
+    builder.instance_eval do
+      screen :rotozoom
+      image :spot, width: 8, height: 8, colors: OWN, places: Array.new(64) { 3 }
+      tiles :t, "#" => :spot
+      background :board, tiles: :t, map: map.map(&:join)
+      game_loop {}
+    end
+    builder.finalize_program
+    oracle, console, = backend_pictures(builder.program, frames: 2)
+
+    assert_equal Color.resolve(:red), console[(80 * 240) + 200], "place 3 of the list is red"
+    assert_empty mismatched_pixels(oracle, console)
+  end
+
   # --- art given as colours, where the two places cannot be told apart ---
 
   # The same picture drawn the ordinary way: every pixel a colour, so the two reds are one
@@ -168,7 +205,4 @@ class TestPicturePlacesOnTheAdvance < Minitest::Test
     builder.finalize_program
     builder.program
   end
-
-  # --- friendly errors on the places themselves ---
-
 end
