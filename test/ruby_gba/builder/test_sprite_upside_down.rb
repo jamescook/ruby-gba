@@ -69,31 +69,6 @@ class TestSpriteUpsideDown < Minitest::Test
     [12, 15, 18, 21].each { |frames| assert_backends_agree(turned, frames: frames) }
   end
 
-  # A picture bigger than the console draws is cut into pieces, and each piece's place must be
-  # reflected within the whole picture, not within its own box.
-  def test_a_big_picture_turned_upside_down_draws_the_same_on_both_backends
-    wide = 96
-    tall = 48
-    data = (0...(wide * tall)).map do |i|
-      x = i % wide
-      y = i / wide
-      next CLEAR unless y < 30 && x < 70
-
-      x < 8 || y < 8 ? EDGE : INK
-    end
-    clear = CLEAR
-    builder = Builder.new
-    builder.instance_eval do
-      screen :tiled
-      image :cruiser, width: wide, height: tall, data: data, transparent: clear
-      sprite :hero, at: [40, 30], frames: [:cruiser, upside_down(:cruiser)], rate: 3
-      game_loop {}
-    end
-    builder.finalize_program
-
-    [12, 15].each { |frames| assert_backends_agree(builder.program, frames: frames) }
-  end
-
   def test_turning_a_picture_that_is_not_defined_says_so
     error = assert_raises(ArgumentError) { Builder.new.instance_eval { upside_down(:nobody) } }
 

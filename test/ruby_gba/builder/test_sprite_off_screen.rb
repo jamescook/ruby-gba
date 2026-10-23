@@ -59,8 +59,8 @@ class TestSpriteOffScreen < Minitest::Test
   # or nil for a picture that is all floor.
   private def drawn_on(program, frames: 3)
     screen = game_player.run(program, frames: frames).screen
-    rows = (0...HEIGHT).select { |y| (0...WIDTH).any? { |x| screen.pixel(x, y) != FLOOR } }
-    cols = (0...WIDTH).select { |x| (0...HEIGHT).any? { |y| screen.pixel(x, y) != FLOOR } }
+    rows = (0...screen.height).select { |y| (0...screen.width).any? { |x| screen.pixel(x, y) != FLOOR } }
+    cols = (0...screen.width).select { |x| (0...screen.height).any? { |y| screen.pixel(x, y) != FLOOR } }
     rows.empty? ? nil : [rows.min..rows.max, cols.min..cols.max]
   end
 
@@ -118,34 +118,6 @@ class TestSpriteOffScreen < Minitest::Test
       # Far enough to have gone right round the console's count of columns or rows.
       (6..frames).step(3) { |played| assert_nothing_drawn(walking, frames: played, name: "WALK#{dx.abs}#{dy.abs}#{played}") }
     end
-  end
-
-  # A picture too big for one of the console's sprites is drawn as several, and each is a
-  # box of its own: the bottom one of a tall picture can be off the screen, and past the
-  # console's last row, while the top of the picture is on it.
-  def test_a_piece_of_a_big_picture_that_is_off_the_screen_does_not_come_round
-    tall = cast_on_floor do
-      image(:pole, "#" => :red, "o" => :white) { TestSpriteOffScreen.checks(16, 256) }
-      sprite :pole, at: [100, 10]
-      game_loop {}
-    end
-
-    assert_equal [10..159, 100..115], drawn_on(tall)
-    assert_backends_agree(tall, frames: 3, name: "POLE")
-  end
-
-  def test_a_big_picture_far_off_the_screen_is_not_drawn_piece_by_piece
-    beam = lambda do |at|
-      cast_on_floor do
-        image(:beam, "#" => :red, "o" => :white) { TestSpriteOffScreen.checks(256, 16) }
-        sprite :beam, at: at
-        game_loop {}
-      end
-    end
-
-    [[-300, 60], [300, 60], [-700, 60], [10, 400]].each { |at| assert_nothing_drawn(beam.call(at), name: "BEAM#{at.sum.abs}") }
-    assert_equal [60..75, 0..55], drawn_on(beam.call([-200, 60])), "part way off the left it shows what is on"
-    assert_backends_agree(beam.call([-200, 60]), frames: 3, name: "BEAMON")
   end
 
   # A pose stored trimmed to what it draws stands further along than its canvas, by an

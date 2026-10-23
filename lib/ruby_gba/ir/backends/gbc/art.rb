@@ -98,7 +98,14 @@ module RubyGBA
           # are kept once each. +colors+ is the picture's own list by place, see-through first.
           def sprite_picture(name, image)
             @sprite_pictures[name] ||= begin
-              if image.width > LARGEST_SPRITE || image.height > LARGEST_SPRITE
+              pieces = ((image.width + 7) / 8) * ((image.height + 7) / 8)
+              too_big = image.width > LARGEST_SPRITE || image.height > LARGEST_SPRITE
+              if too_big && pieces > Console::GBCHardware::SPRITES
+                raise LoweringError, "the sprite picture #{name.inspect} is #{image.width}×#{image.height}, which is " \
+                                     "#{pieces} pieces of 8×8, and a Game Boy Color shows #{Console::GBCHardware::SPRITES} " \
+                                     "at once. To fix this, make the picture smaller."
+              end
+              if too_big
                 raise LoweringError, "the sprite picture #{name.inspect} is #{image.width}×#{image.height}, and a " \
                                      "Game Boy Color sprite is at most #{LARGEST_SPRITE}×#{LARGEST_SPRITE}."
               end
