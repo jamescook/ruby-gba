@@ -59,7 +59,7 @@ class TestIRGuardrailTooManySprites < Minitest::Test
   def test_the_interpreter_refuses_in_the_same_words
     error = assert_raises(Reference::ProgramError) { game_player.run(game) }
 
-    assert_equal refusal(game), error.message
+    assert_equal refusal(program_played(game)), error.message
   end
 
   def test_the_lowering_refuses_in_the_same_words

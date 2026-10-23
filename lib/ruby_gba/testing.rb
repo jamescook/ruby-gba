@@ -69,6 +69,14 @@ module RubyGBA
       save ? player.new(save: save) : player.new
     end
 
+    # +program+ as game_player plays it on this run: the same program, except on the Game Boy
+    # Color's run, where a program that names no console is played as a Color program. A test
+    # that asks a build check about the program it played asks it of this.
+    def program_played(program)
+      player = Testing.player_class
+      player.respond_to?(:program_played) ? player.program_played(program) : program
+    end
+
     # The class game_player makes one of, on each lowering's run.
     PLAYERS = Ractor.make_shareable({ gba: IR::Backends::Reference, native: CheckedPlayer, js: JSCheckedPlayer,
                                       gbc: GBCCheckedPlayer })
