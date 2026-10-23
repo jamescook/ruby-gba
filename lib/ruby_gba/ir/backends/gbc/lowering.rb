@@ -221,7 +221,7 @@ module RubyGBA
             # The routines the drawing asked for as the rest was made, and then the data last of
             # all, since the routines are what find the tables in it.
             columns = column_sections
-            [data_section, *routines, *timers, *main, *columns]
+            [data_section, *banked_table_sections, *routines, *timers, *main, *columns]
           end
 
           private
@@ -296,9 +296,17 @@ module RubyGBA
           def data_section
             asm = SM83.new("game data", home: :fixed, holds: DATA)
             tables_read.each do |table|
+              if banked_tables.include?(table.name)
+                asm.label(table_parts_label(table.name))
+                table_parts(table).each_index do |part|
+                  asm.data_words(table_part_label(table.name, part))
+                  asm.data_bank_of(table_part_label(table.name, part))
+                end
+                next
+              end
+
               asm.label(table_label(table.name))
-              bytes, = table_keeping(table)
-              table.values.each { |entry| asm.data_bytes(little_endian(Int32.wrap(entry), bytes)) }
+              table_parts(table).each { |part| asm.data_bytes(part) }
             end
             @drawing_tables.each do |label, bytes, entries|
               asm.label(label)
@@ -340,6 +348,51 @@ module RubyGBA
           end
 
           def table_label(name) = "table #{name}"
+
+          def table_parts_label(name) = "table #{name} parts"
+          def table_part_label(name, part) = "table #{name} part #{part}"
+
+          # THE TABLES KEPT OUT OF THE PART ALWAYS IN VIEW. That part is 16 kilobytes and holds the
+          # runtime and everything read without switching a bank in, so a big table there — the
+          # walls of a hundred-cell-square room are ten thousand bytes — leaves no room for the
+          # rest. A table at least this big is kept in banks instead, cut into parts so that one
+          # bigger than a bank still fits (Runtime::Calls::TABLE_PART_BYTES), and a read of it
+          # finds its part and puts that part's bank in view (rt_far_read_parts): a few dozen more
+          # instructions a read, and none for a small table. A table a list is filled from stays
+          # in view, since the list's copy reads it in a loop of its own.
+          BANKED_TABLE_BYTES = 1024
+
+          # The names of the tables kept in banks of their own.
+          def banked_tables
+            @banked_tables ||= begin
+              copied = @reachable.filter_map { |node| node.table if node.kind == :list_copy }
+              tables_read.filter_map do |table|
+                next if copied.include?(table.name)
+
+                bytes, = table_keeping(table)
+                table.name if bytes * table.values.length >= BANKED_TABLE_BYTES
+              end
+            end
+          end
+
+          # A section for each part of each table kept in banks.
+          def banked_table_sections
+            tables_read.select { |table| banked_tables.include?(table.name) }.flat_map do |table|
+              table_parts(table).each_with_index.map do |bytes, part|
+                asm = SM83.new(table_part_label(table.name, part), home: :banked, holds: DATA)
+                asm.label(table_part_label(table.name, part))
+                asm.data_bytes(bytes)
+                asm.section
+              end
+            end
+          end
+
+          # +table+'s bytes as the cartridge keeps them, in parts of Runtime::Calls::TABLE_PART_BYTES.
+          def table_parts(table)
+            bytes, = table_keeping(table)
+            table.values.flat_map { |entry| little_endian(Int32.wrap(entry), bytes) }
+                 .each_slice(Runtime::Calls::TABLE_PART_BYTES).to_a
+          end
 
           # How +table+ keeps its entries — [bytes an entry, whether signed] — as the cartridge
           # keeps it: at the width the game declared when every entry fits it, and whole words
@@ -777,9 +830,16 @@ module RubyGBA
               @asm.sla(:e)
               @asm.rl(:d)
             end
+            reader = TABLE_KEPT.fetch([bytes, signed]).last
+            if banked_tables.include?(table.name)
+              @asm.load(:hl, table_parts_label(table.name))
+              @asm.load(:bc, reader)
+              return @asm.call("rt_far_read_parts")
+            end
+
             @asm.load(:hl, table_label(table.name))
             @asm.add_hl(:de)
-            @asm.call(TABLE_KEPT.fetch([bytes, signed]).last)
+            @asm.call(reader)
           end
 
           # --- save memory (Runtime::Saving), laid out as IR::SaveLayout says ---

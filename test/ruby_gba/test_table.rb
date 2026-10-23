@@ -42,6 +42,26 @@ class TestTable < Minitest::Test
     assert_equal 30, i[:out]
   end
 
+  # A table bigger than a Game Boy Color bank is kept in parts, so the entries either side of
+  # each place one part ends and the next begins are the ones to read. Each entry is its own
+  # index, scrambled, so an entry read from the wrong place reads as the wrong number.
+  def test_a_big_table_reads_every_entry_either_side_of_where_its_parts_meet
+    places = [0, 4095, 4096, 8191, 8192, 11_999]
+    i = interpret do
+      t = table :big, (0...12_000).map { |n| (n * 7919) % 65_536 }, width: :half
+      at = var :at, 0
+      places.each_with_index do |place, n|
+        var :"out_#{n}", 0
+        at.set! place
+        set! :"out_#{n}", t[at]
+      end
+      halt
+    end
+    places.each_with_index do |place, n|
+      assert_equal (place * 7919) % 65_536, i[:"out_#{n}"], "entry #{place}"
+    end
+  end
+
   def test_signed_values_round_trip
     i = interpret do
       t = table :sines, [0, 127, -128, -1], width: :byte # signed is inferred (a negative present)

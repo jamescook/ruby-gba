@@ -592,17 +592,18 @@ class TestCLI < Minitest::Test
   end
 
   # And when the game's tables are more than the part of the Color's cartridge always in view
-  # holds: the refusal names the tables, not the linker's sections.
+  # holds: the refusal names the tables, not the linker's sections. A big table is kept in banks,
+  # so it takes many small ones, which stay in view, to fill that part.
   def test_build_refuses_a_game_too_big_for_the_colors_cartridge_without_a_backtrace
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "atlas.rb"), <<~GAME)
         require "ruby_gba"
         RubyGBA.game("ATLAS", consoles: %i[gba gbc]) do
-          heights = table :heights, Array.new(20_000) { |i| i % 100 }, width: :byte
           at = var :at, 0
           height = var :height, 0
+          heights = Array.new(20) { |n| table :"heights_\#{n}", Array.new(1000) { |i| (i + n) % 100 }, width: :byte }
           game_loop do
-            height.set! heights[at]
+            heights.each { |t| height.set! t[at] }
             at.add! 1
           end
         end

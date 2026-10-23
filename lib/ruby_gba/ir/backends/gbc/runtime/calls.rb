@@ -78,6 +78,27 @@ module RubyGBA
               asm.label("rt_jump_hl")
               asm.jump(:hl)
 
+              # The table entry at HL in bank A, read by the reader at DE (one of the table readers
+              # below). A big table is kept in a bank of its own rather than in the part always in
+              # view, so its bank is put in view for the read and the caller's put back after it.
+              asm.label("rt_far_read")
+              asm.load(:c, :a)
+              asm.load_high(:a, Memory::CURRENT_BANK)
+              asm.push(:af)
+              asm.load(:a, :c)
+              asm.load_high(Memory::CURRENT_BANK, :a)
+              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.call("rt_jump_de")
+              asm.pop(:af)
+              asm.load_high(Memory::CURRENT_BANK, :a)
+              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.ret
+              asm.label("rt_jump_de") # the return address is already pushed: DE is gone to
+              asm.push(:de)
+              asm.ret
+
+              emit_parted_read(asm)
+
               # BCDE = the 32-bit number at HL, and the number at HL = BCDE: a variable read and
               # written in the three bytes of a call rather than the eight of the loads themselves.
               asm.label("rt_load32")
@@ -92,6 +113,45 @@ module RubyGBA
 
               emit_table_readers(asm)
               emit_clamp(asm)
+            end
+
+            # How many bytes of a big table each of its parts holds. A bank holds sixteen kilobytes, so
+            # a table bigger than that cannot be one piece; it is cut into parts of this size, each
+            # placed wherever there is room, and a list of where each part went (three bytes a part:
+            # its address and its bank) is kept in view. A power of two, so the part an entry is in
+            # is the top bits of the entry's offset and its place in the part is the bottom ones.
+            TABLE_PART_BYTES = 8192
+
+            # The entry DE bytes into a big table, read by the reader at BC: HL is the table's list
+            # of parts. The offset never passes sixteen bits, so a table has eight parts at most.
+            def emit_parted_read(asm)
+              part_shift = TABLE_PART_BYTES.bit_length - 1 # 13: the part is the offset's top three bits
+              asm.label("rt_far_read_parts")
+              asm.push(:bc)
+              asm.load(:a, :d)
+              (16 - part_shift).times { asm.rlca } # the top bits of D, brought round to the bottom
+              asm.and_a((1 << (16 - part_shift)) - 1)
+              asm.load(:c, :a)
+              asm.add_a(:a)
+              asm.add_a(:c) # three bytes a part
+              asm.add_a(:l)
+              asm.load(:l, :a)
+              asm.jump_relative(:nc, "rt_far_read_parts_found")
+              asm.inc(:h)
+              asm.label("rt_far_read_parts_found")
+              asm.load(:a, :d)
+              asm.and_a((TABLE_PART_BYTES >> 8) - 1)
+              asm.load(:d, :a) # DE = the entry's place in its part
+              asm.load(:a, [:hli])
+              asm.load(:c, :a)
+              asm.load(:a, [:hli])
+              asm.load(:b, :a) # BC = where the part starts
+              asm.load(:a, [:hl]) # A = its bank
+              asm.load(:h, :b)
+              asm.load(:l, :c)
+              asm.add_hl(:de)
+              asm.pop(:de) # the reader
+              asm.jump("rt_far_read")
             end
 
             # BCDE = the table entry at HL, widened to 32 bits with its sign (or without).
