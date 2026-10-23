@@ -65,11 +65,16 @@ module RubyGBA
             # In the bank byte of an entry of the list to send: a cell pointed at a single colour,
             # the colour in the two bits above the bank's number.
             SOLID = 0x80
+            # In the bank byte of an entry for a tile's own picture: its cell of the grid shows it
+            # already, so only the tile is sent. Most of a picture painted again is such tiles.
+            KEEPS_CELL_BIT = 6
+            KEEPS_CELL = 1 << KEEPS_CELL_BIT
 
             # The runtime's own places: the kind of screen up; the three lists — what to send in
             # the blank, the tiles painted since the last pass, the tiles whose cells show their own
             # picture — each a count and then two bytes an entry (a tile's number in its bank, and
-            # the bank's among BANKS, with SOLID and a colour for a cell pointed at one); how far
+            # the bank's among BANKS, with SOLID and a colour for a cell pointed at one, or
+            # KEEPS_CELL for a tile whose cell shows it already); how far
             # the blank has got down the first; whether the screen was cleared since the last pass,
             # and the colour every cell not showing its own picture shows; and the area painting
             # is held to (rt_paint_area), its left, top, right and bottom.
@@ -1406,12 +1411,19 @@ module RubyGBA
               asm.load(:a, [:hl])
               asm.cp_a(OWN)
               asm.jump_relative(:z, "rt_paint_scan_dirty_next")
+              asm.jump_relative("rt_paint_scan_dirty_new_cell")
               asm.label("rt_paint_scan_dirty_send")
-              asm.call("rt_paint_send_own")
               asm.call("rt_paint_shown_at")
               asm.load(:a, [:hl])
               asm.cp_a(OWN)
-              asm.jump_relative(:z, "rt_paint_scan_dirty_next")
+              asm.jump_relative(:nz, "rt_paint_scan_dirty_new_cell")
+              asm.load(:a, :e)
+              asm.or_a(KEEPS_CELL)
+              asm.call("rt_paint_send")
+              asm.jump("rt_paint_scan_dirty_next")
+              asm.label("rt_paint_scan_dirty_new_cell")
+              asm.call("rt_paint_send_own")
+              asm.call("rt_paint_shown_at")
               asm.load([:hl], OWN)
               push_keeping(asm) do
                 asm.load(:d, :c)
@@ -1496,7 +1508,7 @@ module RubyGBA
               # Tile C of bank E is sent as it is painted, and its cell pointed at it.
               asm.label("rt_paint_send_own")
               asm.load(:a, :e)
-              asm.label("rt_paint_send") # A = the bank, and SOLID and a colour for a single colour
+              asm.label("rt_paint_send") # A = the bank, and SOLID and a colour for a single colour, or KEEPS_CELL
               push_keeping(asm) do
                 asm.load(:d, :c)
                 asm.load(:e, :a)
@@ -1571,8 +1583,8 @@ module RubyGBA
             end
 
             # IN THE BLANK: the list, from where it got to, for as long as the blank lasts. A tile
-            # of its own is copied by the console's own copy, and its cell pointed at it; a single
-            # colour is the cell pointed at that colour's tile. Carry set when some of it is left
+            # of its own is copied by the console's own copy, and its cell pointed at it unless it
+            # is already (KEEPS_CELL); a single colour is the cell pointed at that colour's tile. Carry set when some of it is left
             # for the next blank. With the screen off the line never moves, and it all goes now.
             def emit_upload(asm, memory)
               h = Console::GBCHardware
@@ -1611,7 +1623,7 @@ module RubyGBA
               asm.load(:a, [:hli])
               asm.load(:d, :a) # the tile in its bank
               asm.load(:a, [:hl])
-              asm.load(:e, :a) # its bank, and SOLID and a colour
+              asm.load(:e, :a) # its bank, and SOLID and a colour, or KEEPS_CELL
               # HL = its entry of rt_paint_cells: (bank × 128 + tile) × 8.
               asm.and_a(3)
               asm.rrca
@@ -1646,6 +1658,13 @@ module RubyGBA
               asm.load_high(h::HDMA3, :a)
               asm.xor_a(:a)
               asm.load_high(h::HDMA5, :a) # one block of 16: the copy runs now
+              asm.bit(KEEPS_CELL_BIT, :e) # its cell shows it already
+              asm.jump_relative(:z, "rt_paint_upload_new_cell")
+              asm.load_high(h::VBK, :a) # A is nought still
+              asm.inc(:a)
+              asm.load_high(h::SVBK, :a)
+              asm.jump("rt_paint_upload_next")
+              asm.label("rt_paint_upload_new_cell")
               asm.load(:a, [:hli]) # the number the grid shows it by
               asm.load(:c, :a)
               asm.load(:a, :b)
