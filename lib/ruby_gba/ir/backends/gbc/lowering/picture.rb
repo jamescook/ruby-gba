@@ -166,10 +166,10 @@ module RubyGBA
             # tear-free screen is the same one page: a Color only ever shows a picture whole, and
             # the interpreter keeps one page for it too (Console::Description's painted_pages).
             def emit_screen(node)
-              screen_change(node.mode)
+              emit_screen_change(node.mode)
             end
 
-            def screen_change(mode)
+            def emit_screen_change(mode)
               painted = mode == :bitmap
               runtime_call("rt_screen", [Build.int(painted ? Runtime::Paint::PAINTED : Runtime::Paint::TILED)])
               return if painted
@@ -193,7 +193,7 @@ module RubyGBA
             # nothing (Reference#take_over).
             def emit_scene_arrival(scene)
               arrival = @handover.arrival(scene)
-              screen_change(arrival.screen ? arrival.screen.mode : Modes::SCREEN_OF_MODE.fetch(arrival.mode))
+              emit_screen_change(arrival.screen ? arrival.screen.mode : Modes::SCREEN_OF_MODE.fetch(arrival.mode))
               arrival.map_choices.each do |var|
                 load_constant(0)
                 store(var)

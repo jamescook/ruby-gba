@@ -12,7 +12,9 @@ module RubyGBA
       # keeps TWO pictures and shows them in turn, so the program draws into the one
       # nobody is looking at and they trade places at the frame boundary. A change
       # painted a single time therefore reaches one of the two, and the screen flickers
-      # between the new figure and the old one, half the frames each.
+      # between the new figure and the old one, half the frames each. (A Game Boy Color
+      # shows a painted picture whole, so it keeps one page even there, and a second
+      # paint only draws the same picture again.)
       #
       # So a change is painted once per picture the screen keeps. The game says WHEN
       # the picture changed; how many paints that takes is read off the screen the game

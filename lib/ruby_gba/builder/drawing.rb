@@ -157,6 +157,8 @@ module RubyGBA
       # them in turn, so a change drawn once reaches only one of them; a plain screen
       # keeps one, so a change drawn once is done. This is the number of times a
       # picture that is drawn and then left alone has to be painted (Packs::KeepShowing).
+      # A Game Boy Color keeps one page even then (Console::Description's painted_pages),
+      # and the second paint there only draws the same picture again.
       def screen_pages = @tear_free ? 2 : 1
 
       # Everything the block draws stays inside this part of the screen. What falls outside is

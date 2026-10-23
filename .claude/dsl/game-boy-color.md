@@ -16,7 +16,7 @@ four colours. Every verb has one of two answers there, decided once in
 This file is `Console::GBCFeatures.reference` written out (`ruby tools/gbc_answers.rb`), and a
 test fails when the two differ.
 
-- `screen` — works: `screen :tiled` and `screen :bitmap` work. A painted (bitmap) screen is painted into tiles behind the scenes, and holds four colours at once: a game that paints with more is refused, naming them. `screen :rotozoom` is refused: a Game Boy Color cannot turn or resize a background.
+- `screen` — works: `screen :tiled` and `screen :bitmap` work. A painted (bitmap) screen is painted into tiles behind the scenes, and holds four colours at once: a game that paints with more is refused, naming them. `tear_free: true` keeps one picture, since a Game Boy Color always shows a painted picture whole. `screen :rotozoom` is refused: a Game Boy Color cannot turn or resize a background.
 - `setting` — works: the same as on the Advance.
 - `screen_width` — works: 160 on a Game Boy Color.
 - `screen_height` — works: 144 on a Game Boy Color.

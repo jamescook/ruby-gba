@@ -183,7 +183,8 @@ class TestTimer < Minitest::Test
 
   # A HANDLER CAN DRAW. On a painted screen it draws what the game's own lines draw, a number
   # here; on a tear-free one what it draws goes on the page being drawn, so the loop's next
-  # clear takes it away before that page is shown and the screen stays blue. Every lowering
+  # clear takes it away before that page is shown and the screen stays blue. (A Color keeps one
+  # page, the one being drawn, so there too the clear covers it before the run ends.) Every lowering
   # plays these against the interpreter, picture and all.
   def test_a_handler_draws_on_a_painted_screen
     b = Builder.new

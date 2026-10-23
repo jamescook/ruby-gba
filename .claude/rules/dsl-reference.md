@@ -23,7 +23,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 - A `:byte` or `:half` slot keeps only the low bits: 200 in a `:byte` reads back as -56. (lists)
 - `pressed` read inside `once_a_frame` fires once for each frame a late pass catches up; keep press tests in the loop. (control-flow)
 - `pixelate_size == 16` and `iris_shut?` hold on two frames running; keep a flag of your own in the test. (drawing)
-- On a tear-free screen a picture painted once flickers between two pages; use `keep_showing`. (drawing)
+- On a tear-free screen a picture painted once flickers between two pages (one page on the Color); use `keep_showing`. (drawing)
 
 ## Build / screen — `.claude/dsl/screen.md`
 

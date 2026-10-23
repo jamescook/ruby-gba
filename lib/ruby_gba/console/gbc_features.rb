@@ -46,7 +46,9 @@ module RubyGBA
         # --- building, the screen and settings ---
         screen: works("`screen :tiled` and `screen :bitmap` work. A painted (bitmap) screen is " \
                       "painted into tiles behind the scenes, and holds four colours at once: a game " \
-                      "that paints with more is refused, naming them. `screen :rotozoom` is refused: " \
+                      "that paints with more is refused, naming them. `tear_free: true` keeps one " \
+                      "picture, since a Game Boy Color always shows a painted picture whole. " \
+                      "`screen :rotozoom` is refused: " \
                       "a Game Boy Color cannot turn or resize a background."),
         setting: works,
         screen_width: works("160 on a Game Boy Color."),
