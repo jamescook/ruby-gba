@@ -309,13 +309,15 @@ module RubyGBA
               asm.jump_relative(:nz, "rt_music_part_later")
               asm.inc(:hl)
               asm.call("rt_music_note")
-              asm.pop(:hl) # one note on
+              # One note on, and the part done for this frame: a part plays one note a frame, as the
+              # interpreter's does (Reference::Player#play_song_frame), so a second note written on
+              # the same frame never plays, and holds back the rest of the part.
+              asm.pop(:hl)
               asm.inc([:hl])
-              asm.jump_relative(:nz, "rt_music_part_note")
+              asm.ret(:nz)
               asm.inc(:hl)
               asm.inc([:hl])
-              asm.dec(:hl)
-              asm.jump_relative("rt_music_part_note")
+              asm.ret
               asm.label("rt_music_part_later")
               asm.pop(:hl)
               asm.ret
@@ -355,6 +357,9 @@ module RubyGBA
                 asm.and_a(0x0F)
                 asm.load(:b, :a)
               end
+              # B = the volume the voice is told, DE = its tuning. A run of the cartridge reads the
+              # note's loudness here (GBC::SoundLog).
+              asm.label("rt_music_note_voice")
               asm.load(:a, [part])
               asm.cp_a(GBC::Music::WAVE_VOICE)
               asm.jump_relative(:z, "rt_music_note_wave")

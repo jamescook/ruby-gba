@@ -26,6 +26,13 @@ module RubyGBA
           # What the songs are to the author, for a cartridge too full for them (see Linker::TooBig).
           SONGS = SM83::Holding.new(what: "the game's songs", fix: "make its songs shorter, or use fewer of them")
 
+          # How many bytes a note takes in a part's list: when it starts, its tuning, its volume.
+          NOTE_BYTES = 5
+
+          # One note of a part as the music table holds it, with what it is to the interpreter: the
+          # song's name, the part, the voice it plays on, its pitch (0 for a rest) and its volume.
+          Note = Data.define(:song, :part, :voice, :pitch, :volume)
+
           def initialize(program)
             @songs = program.walk.select { |node| node.kind == :song }.uniq(&:name)
           end
@@ -49,6 +56,22 @@ module RubyGBA
             waveforms.each { |shape| asm.data_bytes(packed_waveform(shape)) }
             asm.data_bytes(0) # a label has to be somewhere
             asm.section
+          end
+
+          # Every list of notes in the section, by its label: each note, in the order the list holds
+          # them, NOTE_BYTES apart.
+          def notes
+            @songs.each_with_index.each_with_object({}) do |(song, i), lists|
+              passes = Tunes.loop_passes(song)
+              voices_of(song).each_with_index do |(part, voice), p|
+                pass = passes.fetch(song.voices.index(part))
+                { "first" => pass.first, "again" => pass.again }.each do |which, held|
+                  lists["music_notes_#{i}_#{p}_#{which}"] = held.map do |_, pitch, _, volume|
+                    Note.new(song: song.name, part: part, voice: voice, pitch: pitch, volume: volume || part.volume)
+                  end
+                end
+              end
+            end
           end
 
           private

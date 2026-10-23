@@ -85,6 +85,8 @@ module RubyGBA
             @places = @rom.built
             @drawn_sprites = Native::DrawnSprites.new(program)
             @declared_lists = program.walk.select { |node| node.kind == :list_new }.map(&:name).uniq
+            @sound_log = SoundLog.new(@places)
+            @sounds = 0
             @moments = []
             @vars = {}
             @lists = {}
@@ -104,7 +106,15 @@ module RubyGBA
             name ? @drawn_sprites.rows_named(rows, name) : rows
           end
 
-          %i[audio mixed_sound active_samples peak_voices sound_drops sound_owners frame log screen_mode
+          # The sound log up to the moment the run ended, or the one at the frame boundary an input
+          # script or a watching block is asked at, in the interpreter's words (GBC::SoundLog).
+          def audio = @sound_log.entries.take(@sounds)
+
+          # Every entry the cartridge played, past where the run ended too: the frames it is played
+          # on after the last pass compared play the music on.
+          def whole_audio = @sound_log.entries.dup
+
+          %i[mixed_sound active_samples peak_voices sound_drops sound_owners frame log screen_mode
              buffered].each do |name|
             define_method(name) { |*| refuse_unanswered!(name) }
           end
@@ -131,6 +141,7 @@ module RubyGBA
             Diagnostics::Emulator.with_cartridge(@rom, file_name: "game.gbc", save: (@save if saves)) do |core|
               @core = core
               @core.set_keys(Native::HeadlessRun.button_mask(@held))
+              @core.record_arrivals(@sound_log.addresses) if @sound_log.any?
               play_passes(frames)
             ensure
               @core = nil
@@ -149,18 +160,18 @@ module RubyGBA
           # to play +frames+ frames, plays one pass more and stops as that one ends, without a frame
           # boundary for it: the end of the run is that pass.
           def play_passes(frames)
-            pending = nil # [pass, variables, lists] whose picture is not on the screen yet
+            pending = nil # [pass, variables, lists, sprites, sounds] whose picture is not on the screen yet
             waited = 0
             loop do
-              @core.run_frame
+              play_frame
               waited += 1
               refuse_stuck_game! if waited > LONGEST_PASS_FRAMES
               if pending && shown_pass == pending.first
-                pass, variables, lists, @sprites = pending
+                pass, variables, lists, @sprites, sounds = pending
                 pending = nil
-                return record_moment(:end, variables, lists, picture_now) if pass > frames
+                return record_moment(:end, variables, lists, picture_now, sounds) if pass > frames
 
-                record_moment(pass, variables, lists, picture_now)
+                record_moment(pass, variables, lists, picture_now, sounds_after_pass(pass))
               end
               case state
               when Runtime::Frame::HALTED then return finish_after_halt
@@ -168,7 +179,7 @@ module RubyGBA
               end
               next unless pending.nil? && waiting? && passes > @moments.size
 
-              pending = [passes, read_variables, read_lists, read_sprites]
+              pending = [passes, read_variables, read_lists, read_sprites, @sound_log.entries.size]
               mark_last_pass_taken if passes == frames
               hold_after_this_pass if passes > frames
               waited = 0
@@ -185,11 +196,12 @@ module RubyGBA
 
           # The moment of +frame+ — a pass's number, or :end for the moment the run ended on, which
           # is no frame boundary and so is not shown to a block watching each one.
-          def record_moment(frame, variables, lists, picture)
+          def record_moment(frame, variables, lists, picture, sounds)
             @vars = variables
             @lists = lists
             @screen = picture
-            @moments << Moment.new(frame: frame, variables: variables, picture: picture_check(picture), sounds: 0,
+            @sounds = sounds
+            @moments << Moment.new(frame: frame, variables: variables, picture: picture_check(picture), sounds: sounds,
                                    sprites: @sprites, collections: game_state.except(:vars), sounding: [])
             @on_vblank&.call(frame) unless frame == :end
           end
@@ -197,14 +209,26 @@ module RubyGBA
           # The game halted: its picture copied to the console once more, then shown; the moment is
           # the end of the run.
           def finish_after_halt
+            sounds = @sound_log.entries.size
             frames = 0
             until shown_pass == Runtime::Frame::END_SHOWN || frames > 3
-              @core.run_frame
+              play_frame
               frames += 1
             end
-            @core.run_frame
+            play_frame
             @sprites = read_sprites
-            record_moment(:end, read_variables, read_lists, picture_now)
+            record_moment(:end, read_variables, read_lists, picture_now, sounds)
+          end
+
+          # How many entries of the sound log are pass +pass+'s, the frame boundary after it included
+          # (GBC::SoundLog). The end of the run has no boundary after it, so its moment counts the log
+          # as the game was found waiting.
+          def sounds_after_pass(pass) = @sound_log.any? ? @sound_log.size_after_pass(pass) : 0
+
+          # One frame of the emulator, and what the cartridge played in it into the sound log.
+          def play_frame
+            @core.run_frame
+            @sound_log.read(@core.take_arrivals) if @sound_log.any?
           end
 
           def picture_check(picture) = Native::HeadlessRun.picture_check(picture.shown)

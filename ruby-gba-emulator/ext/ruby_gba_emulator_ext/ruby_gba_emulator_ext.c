@@ -55,6 +55,7 @@ static VALUE ra_empty_array; /* frozen [] returned by do_frame when nothing trig
 #define LOG_LINES 64
 #define LOG_LINE_MAX 256
 #define CHANGES_MAX 4096
+#define ARRIVAL_RECORDS_MAX 4096
 
 /* One frame's worth of writes to the display. A background bent row by row writes the camera
  * on every one of 160 rows, a game's sprites are 512 halfwords and its colours another 512,
@@ -193,6 +194,15 @@ struct mgba_core {
         uint32_t was;
         uint32_t now;
     } changes[CHANGES_MAX];
+    /* Every arrival at a recorded instruction, with what the processor held there — see
+     * Core#record_arrivals. Game Boy only. */
+    int recording_arrivals;
+    int arrival_record_count;
+    int arrival_record_dropped;
+    struct recorded_arrival {
+        uint16_t pc, af, bc, de, hl, sp;
+        uint16_t stack[2];          /* the two words on the top of the stack */
+    } arrival_records[ARRIVAL_RECORDS_MAX];
     /* Every write the game makes to the display — see Core#watch_display. NULL until asked
      * for, since it puts a shim in front of the renderer that costs a call per write. */
     struct display_recorder *display;
@@ -1759,6 +1769,31 @@ mgba_core_bios_loaded_p(VALUE self)
 /* The debugger has nowhere to hang a context of its own, so the core being watched is kept
  * in a file-level pointer (declared above) — the same one-at-a-time limitation the logger
  * has, and for the same reason. */
+/* What the Game Boy's processor holds as it reaches a recorded instruction, kept for
+ * Core#take_arrivals. The stack is read the way the processor would read it, without going
+ * through the debugger, so the reading is not itself something watched. */
+static void
+record_arrival(struct mgba_core *mc)
+{
+    if (mc->arrival_record_count >= ARRIVAL_RECORDS_MAX) {
+        mc->arrival_record_dropped++;
+        return;
+    }
+    struct SM83Core *cpu = ((struct GB *)mc->core->board)->cpu;
+    struct recorded_arrival *slot = &mc->arrival_records[mc->arrival_record_count++];
+    slot->pc = cpu->pc;
+    slot->af = cpu->af;
+    slot->bc = cpu->bc;
+    slot->de = cpu->de;
+    slot->hl = cpu->hl;
+    slot->sp = cpu->sp;
+    for (int i = 0; i < 2; i++) {
+        uint16_t at = (uint16_t)(cpu->sp + (i * 2));
+        slot->stack[i] = (uint16_t)(mc->core->rawRead8(mc->core, at, -1) |
+                                    (mc->core->rawRead8(mc->core, (uint16_t)(at + 1), -1) << 8));
+    }
+}
+
 static void
 watch_entered(struct mDebugger *debugger, enum mDebuggerEntryReason reason,
               struct mDebuggerEntryInfo *info)
@@ -1767,6 +1802,7 @@ watch_entered(struct mDebugger *debugger, enum mDebuggerEntryReason reason,
 
     if (mc && reason == DEBUGGER_ENTER_BREAKPOINT) {
         mc->arrivals++;
+        if (mc->recording_arrivals) record_arrival(mc);
     } else if (mc && reason == DEBUGGER_ENTER_WATCHPOINT && info) {
         if (mc->change_count < CHANGES_MAX) {
             struct watched_change *slot = &mc->changes[mc->change_count];
@@ -1854,6 +1890,72 @@ static VALUE
 mgba_core_arrivals(VALUE self)
 {
     return ULONG2NUM(get_mgba_core(self)->arrivals);
+}
+
+/* Core#record_arrivals(addresses) — keep what the processor holds each time the program reaches
+ * one of these instructions: its registers and the top of its stack, read with Core#take_arrivals.
+ *
+ * WHY THE REGISTERS. A routine is told what to do by what it is handed, and on a Game Boy what it
+ * is handed is in its registers and on its stack as it starts. So a recorded arrival at the
+ * routine that plays a sound says which sound, and the cartridge that is read is the one that
+ * ships: nothing is added to it to say so. Game Boy only. */
+static VALUE
+mgba_core_record_arrivals(VALUE self, VALUE rb_addresses)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    if (mc->core->platform(mc->core) != mPLATFORM_GB)
+        rb_raise(rb_eRuntimeError, "record_arrivals is Game Boy-only");
+
+    Check_Type(rb_addresses, T_ARRAY);
+    attach_debugger(mc);
+    s_watching_core = mc;
+    for (long i = 0; i < RARRAY_LEN(rb_addresses); i++) {
+        struct mBreakpoint bp;
+        memset(&bp, 0, sizeof(bp));
+        bp.address   = (uint32_t)NUM2ULONG(rb_ary_entry(rb_addresses, i));
+        bp.segment   = -1;
+        bp.type      = BREAKPOINT_HARDWARE;
+        bp.condition = NULL;
+        if (mc->debugger->platform->setBreakpoint(mc->debugger->platform, &bp) < 0) {
+            rb_raise(rb_eRuntimeError, "could not record arrivals at 0x%04X", (unsigned)bp.address);
+        }
+    }
+    mc->recording_arrivals = 1;
+    return self;
+}
+
+/* Core#take_arrivals — every arrival recorded since the last time this was asked, oldest first,
+ * each [pc, af, bc, de, hl, sp, top of the stack, the word under it]; and the record starts again.
+ * Drained once a frame, so it only has to hold a frame's worth. */
+static VALUE
+mgba_core_take_arrivals(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    VALUE out = rb_ary_new_capa(mc->arrival_record_count);
+
+    for (int i = 0; i < mc->arrival_record_count; i++) {
+        const struct recorded_arrival *a = &mc->arrival_records[i];
+        VALUE entry = rb_ary_new_capa(8);
+        rb_ary_push(entry, UINT2NUM(a->pc));
+        rb_ary_push(entry, UINT2NUM(a->af));
+        rb_ary_push(entry, UINT2NUM(a->bc));
+        rb_ary_push(entry, UINT2NUM(a->de));
+        rb_ary_push(entry, UINT2NUM(a->hl));
+        rb_ary_push(entry, UINT2NUM(a->sp));
+        rb_ary_push(entry, UINT2NUM(a->stack[0]));
+        rb_ary_push(entry, UINT2NUM(a->stack[1]));
+        rb_ary_push(out, entry);
+    }
+    mc->arrival_record_count = 0;
+    return out;
+}
+
+/* Core#arrivals_missed — arrivals that came after the record filled up, so a list cut short says
+ * so rather than reading like the whole story. */
+static VALUE
+mgba_core_arrivals_missed(VALUE self)
+{
+    return INT2NUM(get_mgba_core(self)->arrival_record_dropped);
 }
 
 /* Core#watch(address) — report every change to the word at this address. */
@@ -4152,6 +4254,9 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "watch",       mgba_core_watch, 1);
     rb_define_method(cCore, "watch_arrivals", mgba_core_watch_arrivals, 1);
     rb_define_method(cCore, "arrivals",    mgba_core_arrivals, 0);
+    rb_define_method(cCore, "record_arrivals", mgba_core_record_arrivals, 1);
+    rb_define_method(cCore, "take_arrivals",   mgba_core_take_arrivals, 0);
+    rb_define_method(cCore, "arrivals_missed", mgba_core_arrivals_missed, 0);
     rb_define_method(cCore, "take_changes",   mgba_core_take_changes, 0);
     rb_define_method(cCore, "changes_missed", mgba_core_changes_missed, 0);
     rb_define_method(cCore, "crashed?",    mgba_core_crashed_p, 0);

@@ -241,9 +241,11 @@ lowering has it. It needs zig 0.17 and node 18 or later as well as the emulator.
 
 **The Game Boy Color run plays every test it can make work, and never sees the rest.** Its player
 (`GBCCheckedPlayer`, `GBC::CheckedRun`) plays each test's program as a Color program and compares
-variables, lists, the picture, sprites and save memory with the interpreter's — playing the
-interpreter as a Color, so a fade or a turned background the Color shows differently is checked as
-the Color shows it. What the Color's hardware cannot do — fading part of the screen, a recording
+variables, lists, the picture, sprites, the sound log and save memory with the interpreter's —
+playing the interpreter as a Color, so a fade or a turned background the Color shows differently is
+checked as the Color shows it. The sound log is read off the cartridge that ships, with nothing
+added to it: the emulator records the processor at each of the runtime's sound routines, and what
+each was handed says what it played (`GBC::SoundLog`). What the Color's hardware cannot do — fading part of the screen, a recording
 in a song, a save on flash, more colours, tiles or memory than it holds — is tested in
 `test/advance/` (`TestSuites::ADVANCE_DIR`), which every run of an Advance game loads (GBA, native,
 JavaScript) and the Color's never does; so is every example whose game says it is for the Advance

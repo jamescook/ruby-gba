@@ -6,7 +6,9 @@ module RubyGBA
       class GBC
         # A Game Boy Color cartridge played in the emulator (HeadlessRun), and then the same buttons,
         # pass for pass, played on the interpreter — stopping at the first pass the two disagree on,
-        # about any variable, any list or pool, or any pixel. Native::CheckedRun is the same check of
+        # about any variable, any list or pool, any pixel, or how far the sound log has grown — and
+        # at the end, about every entry of the sound log (GBC::SoundLog reads the cartridge's).
+        # Native::CheckedRun is the same check of
         # the game as C, and the two say their disagreements in the same words (Native::Differences).
         #
         # It takes the interpreter's calls, so a test written against Reference.new can be handed one
@@ -66,8 +68,12 @@ module RubyGBA
             before = @save.dup # the interpreter starts from the save memory the cartridge started from
             @cartridge.run(program, frames: frames)
             width, height = @cartridge.screen.then { |picture| [picture.width, picture.height] }
-            moments, saved = play_on_interpreter(program, frames, width, height, before)
+            moments, saved, sounds = play_on_interpreter(program, frames, width, height, before)
             difference = self.class.first_difference(moments, @cartridge.moments)
+            # A log that grew differently says which entry it first differs at, read to the end.
+            heard = self.class.sounds_difference(sounds, @cartridge.whole_audio)
+            difference = [difference, heard].compact.join(", and ") if difference&.include?("sound log")
+            difference ||= self.class.sounds_difference(sounds, @cartridge.audio)
             raise Disagreement, "the Game Boy Color lowering and the interpreter disagree at #{difference}" if difference
             if Native::Saving.named_by?(program) && saved.to_sav != @save.to_sav
               raise Disagreement, "the Game Boy Color lowering and the interpreter end with different save memory"
@@ -94,6 +100,9 @@ module RubyGBA
             want.zip(got).each do |reference, cartridge|
               differences = variable_differences(reference.variables, cartridge.variables)
               differences << "the picture differs" if reference.picture != cartridge.picture
+              if reference.sounds != cartridge.sounds
+                differences << "the sound log holds #{cartridge.sounds} entries in the cartridge and #{reference.sounds} in Reference"
+              end
               differences << "the sprites drawn differ" if reference.sprites != cartridge.sprites
               differences.concat(Native::CheckedRun.collections_differences(reference.collections, cartridge.collections))
               next if differences.empty?
@@ -128,13 +137,13 @@ module RubyGBA
             interpreter.input_each_frame { |frame| @played.fetch(frame, []) }
                        .each_vblank { |frame| moments << moment_of(interpreter, frame, width, height) }
                        .run(program, frames: frames)
-            [moments << moment_of(interpreter, :end, width, height), save]
+            [moments << moment_of(interpreter, :end, width, height), save, interpreter.audio]
           end
 
           def moment_of(interpreter, frame, width, height)
             Moment.new(frame: frame, variables: interpreter.vars.dup, picture: picture_check(interpreter.screen, width, height),
-                       sounds: 0, sprites: interpreter.sprites, collections: interpreter.game_state.except(:vars),
-                       sounding: [])
+                       sounds: interpreter.audio.size, sprites: interpreter.sprites,
+                       collections: interpreter.game_state.except(:vars), sounding: [])
           end
 
           # The interpreter's picture over the cartridge's screen.

@@ -147,6 +147,43 @@ class TestGBCCheckedRun < Minitest::Test
     assert_operator run[:hits], :>, 0
   end
 
+  def test_the_sounds_a_game_makes_are_logged_as_the_interpreter_logs_them
+    run = checked(frames: 12) do
+      enable_sound
+      pass = var :pass, 0
+      game_loop do
+        pass.add! 1
+        (pass % 4 == 0).then { beep :blip }
+        (pass == 6).then { noise :hit }
+      end
+    end
+
+    assert_equal %i[enabled beep noise beep beep], run.audio.map(&:first)
+  end
+
+  def test_a_songs_notes_are_logged_as_the_interpreter_logs_them
+    run = checked(frames: 20) do
+      enable_sound
+      song(:tune) do
+        tempo 600
+        note :C4, :quarter
+        note :E4, :quarter
+      end
+      game_loop { play_song :tune }
+    end
+
+    notes = run.audio.select { |entry| entry.first == :note }.first(2)
+    assert_equal [[:tune, 262], [:tune, 330]], notes.map { |_, name, pitch| [name, pitch.round] }
+  end
+
+  def test_a_sound_log_that_grows_differently_is_a_disagreement
+    moment = ->(sounds) { GBC::CheckedRun::Moment.new(frame: 3, variables: {}, picture: 0, sounds: sounds, sprites: [],
+                                                       collections: { lists: {}, pools: {} }, sounding: []) }
+    difference = GBC::CheckedRun.first_difference([moment.call(2)], [moment.call(1)])
+
+    assert_match(/frame 3: the sound log holds 1 entries in the cartridge and 2 in Reference/, difference)
+  end
+
   def test_a_routine_that_can_call_itself_is_refused_in_plain_words
     program = RubyGBA::IR::Build.program(
       RubyGBA::IR::Build.func(:again, RubyGBA::IR::Build.call(:again)), RubyGBA::IR::Build.call(:again)

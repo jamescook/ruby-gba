@@ -23,6 +23,7 @@ require_relative "gbc/sound_registers"
 require_relative "gbc/lowering/picture"
 require_relative "gbc/lowering/sound"
 require_relative "gbc/lowering"
+require_relative "gbc/sound_log"
 require_relative "gbc/headless_run"
 require_relative "gbc/checked_run"
 
@@ -53,8 +54,12 @@ module RubyGBA
         # every variable by the game's name, every list (its place, its capacity, its slot width),
         # where the runtime keeps how the run stands (Runtime::Frame's names), where every label of
         # the code went (the Linker's places), and where each of the game's routines is — a
-        # GameRoutine each — for a profile to say whose time it was without reading a label.
-        Places = Data.define(:variables, :lists, :runtime, :source_program, :code, :routines) do
+        # GameRoutine each — for a profile to say whose time it was without reading a label. And what
+        # the sound routines are handed is to the interpreter, for a run to read back what the
+        # cartridge played (GBC::SoundLog): what each table of sound writes plays, by its label, the
+        # songs' notes (GBC::Music#notes), and whether the music follows a level the game sets.
+        Places = Data.define(:variables, :lists, :runtime, :source_program, :code, :routines, :sound_tables, :notes,
+                             :music_follows_level) do
           # THE SPRITES THE GAME PLACED IN ITS LAST PASS, as the interpreter says them
           # (Reference#sprites): who each is, which picture it shows and where, back to front. The
           # runtime keeps them in a table of its own (Runtime::Picture::DRAWN), front-most first as
@@ -101,7 +106,9 @@ module RubyGBA
             GameRoutine.new(bank: placed.bank, addresses: placed.address...(placed.address + placed.section.size), routine: routine)
           end
           built = Places.new(variables: lowering.variables, lists: lowering.lists, runtime: runtime_places(memory),
-                             source_program: program, code: linked.places, routines: routines)
+                             source_program: program, code: linked.places, routines: routines,
+                             sound_tables: lowering.sound_tables, notes: lowering.music.notes,
+                             music_follows_level: !lowering.music_level.nil?)
           save_bytes = SaveLayout.named_by?(program) ? Runtime::Saving::SIZE : 0
           Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: save_bytes, built: built)
         end
