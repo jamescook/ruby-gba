@@ -62,7 +62,8 @@ module RubyGBA
             Frame.emit(asm, memory)
             Lists.emit(asm, memory)
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length,
-                                      runs: runs, drawn_palettes: drawn_palettes, lends: art.lends?)
+                                      runs: runs, drawn_palettes: drawn_palettes, lends: art.lends?,
+                                      palettes_in_use: art.palettes_in_use)
             BigMaps.emit(asm, memory, buffer: big_maps&.first, staged: big_maps&.last)
             Paint.emit(asm, memory, painting: art.painting?)
             Sound.emit(asm)

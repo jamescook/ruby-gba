@@ -105,6 +105,16 @@ module RubyGBA
           # palette's number counts into every list the game has (art_lent_palettes), not the eight.
           def lends? = @lends
 
+          # The palettes the game can show, by the console's numbers: the backgrounds' from 0 — the
+          # first always, since its first colour is the backdrop — the painted screen's, and the
+          # sprites' from 8, all eight of those when they are lent.
+          def palettes_in_use
+            backgrounds = (0...[@background_palettes.length, 1].max).to_a
+            backgrounds << PAINTING_PALETTES if painting?
+            sprites = (0...(lends? ? PALETTES : @sprite_palettes.length)).map { |n| PALETTES + n }
+            (backgrounds + sprites).uniq
+          end
+
           # The place a painted colour is kept at in the painted screen's palette.
           def paint_place(color)
             @paint_colors.index(color & 0x7FFF) or raise LoweringError, "the colour #{color} is not among the painted ones"

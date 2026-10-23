@@ -91,8 +91,11 @@ module RubyGBA
             # colours its pictures are drawn in now (Lowering::Picture#drawn_palettes), or nil for
             # one whose colours are the art's from power-on: a fade moves those.
             # +lends+ says the sprites' lists borrow the console's eight as the game runs (Art#lends?),
-            # which needs +drawn_palettes+.
-            def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false)
+            # which needs +drawn_palettes+. +palettes_in_use+ are the numbers of the palettes the game
+            # can show, backgrounds' 0 to 7 and sprites' 8 to 15 (Art#palettes_in_use): a fade
+            # moves those alone.
+            def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false,
+                     palettes_in_use: ALL_PALETTES)
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
                                       drawn_palettes: drawn_palettes)
               emit_upload(asm, memory)
@@ -102,7 +105,7 @@ module RubyGBA
               emit_background(asm, memory)
               emit_choices(asm, memory)
               emit_overlap(asm, memory)
-              emit_tint(asm, memory, drawn_palettes)
+              emit_tint(asm, memory, drawn_palettes, palettes_in_use)
               emit_background_colors(asm, drawn_palettes) if drawn_palettes
             end
 
@@ -228,6 +231,14 @@ module RubyGBA
             TOWARD_BLACK = 0
             TOWARD_WHITE = 1
             TOWARD_COLOR = 2
+
+            # Every palette: the backgrounds' eight, then the sprites'.
+            ALL_PALETTES = (0...16).to_a.freeze
+
+            # The palettes +numbers+ as runs of neighbours, [first, how many], for one walk each.
+            def palette_runs(numbers)
+              numbers.sort.slice_when { |a, b| b != a + 1 }.map { |run| [run.first, run.length] }
+            end
 
             # A colour has three channels of five bits, red in the lowest.
             CHANNEL_MAX = 31
@@ -1328,7 +1339,7 @@ module RubyGBA
             #
             # rt_tint_apply moves them again by the fade in force, from the colours they are drawn in
             # now: the art's, or +drawn_palettes+ for a game that draws a background in others.
-            def emit_tint(asm, memory, drawn_palettes = nil)
+            def emit_tint(asm, memory, drawn_palettes = nil, palettes_in_use = ALL_PALETTES)
               at = memory[TINT]
               arg = ->(i) { Calls.arg(memory, i, 3) }
               asm.label("rt_tint")
@@ -1377,11 +1388,24 @@ module RubyGBA
               asm.load([:hli], :a)
               asm.load(:a, :b)
               asm.load([:hl], :a)
-              # Every colour: its channels apart, each moved, and put back together.
+              # Every colour of the palettes the game uses: its channels apart, each moved, and put
+              # back together. The others are never shown, so are left as they are.
               asm.label("rt_tint_apply")
-              asm.load(:hl, drawn_palettes || "art_palettes")
-              asm.load(:de, memory[SHADOW_PALETTES])
-              asm.load(:c, 64)
+              palette_runs(palettes_in_use).each do |first, count|
+                asm.load(:hl, drawn_palettes ? drawn_palettes + (first * 8) : "art_palettes")
+                if !drawn_palettes && first.positive?
+                  asm.load(:de, first * 8)
+                  asm.add_hl(:de)
+                end
+                asm.load(:de, memory[SHADOW_PALETTES] + (first * 8))
+                asm.load(:c, count * Art::PLACES)
+                asm.call("rt_tint_colors")
+              end
+              asm.load(:a, 1)
+              asm.load([memory[PALETTES_CHANGED]], :a)
+              asm.ret
+              # C colours from HL into the copy at DE.
+              asm.label("rt_tint_colors")
               asm.label("rt_tint_color")
               asm.push(:bc)
               asm.push(:de)
@@ -1446,8 +1470,6 @@ module RubyGBA
               asm.pop(:bc)
               asm.dec(:c)
               asm.jump_relative(:nz, "rt_tint_color")
-              asm.load(:a, 1)
-              asm.load([memory[PALETTES_CHANGED]], :a)
               asm.ret
 
               # A = channel A (0..31) of a colour moved; B says which channel of the tint's colour
