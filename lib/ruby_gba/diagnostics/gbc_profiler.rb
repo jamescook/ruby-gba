@@ -62,9 +62,11 @@ module RubyGBA
         out.puts "Game Boy Color: #{result.passes} passes of the game loop in #{result.frames} frames " \
                  "(#{format('%.1f', result.fps)} a second), asleep #{percent(result.idle_share)} of the time."
         if result.lists_missed&.positive?
-          out.puts "", "#{result.lists_missed} times a sprite found none of the console's 8 lists of colours free, " \
-                       "and it showed another list's colours. More than 8 lists of colours were on the screen " \
-                       "at once. To fix this, draw the sprites on the screen together with fewer lists."
+          times = result.lists_missed == 1 ? "1 time" : "#{result.lists_missed} times"
+          out.puts "", "A sprite found none of the console's eight lists of colours free #{times}. Each time, the " \
+                       "sprite showed the colours of another list. The sprites on the screen used more than eight " \
+                       "lists, or a list started on the same pass that another stopped. To fix this, use fewer " \
+                       "lists of colours for the sprites that are on the screen at the same time."
         end
         { "Your routines" => result.game, "The runtime" => result.runtime }.each do |heading, spent|
           next if spent.empty?
@@ -84,8 +86,7 @@ module RubyGBA
       # that lends none.
       def lists_missed(core)
         lent = @places.runtime[IR::Backends::GBC::Runtime::Picture::LENT] or return nil
-        at = lent + IR::Backends::GBC::Runtime::Picture::LENT_MISSED
-        core.bus_read8(at) | (core.bus_read8(at + 1) << 8)
+        core.bus_read16(lent + IR::Backends::GBC::Runtime::Picture::LENT_MISSED)
       end
 
       # The runtime's HALT instructions — waiting for the screen, and stopped for good. The emulator

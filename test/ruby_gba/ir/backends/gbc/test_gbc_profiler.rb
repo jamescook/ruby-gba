@@ -40,25 +40,44 @@ class TestGBCProfiler < Minitest::Test
   # NINE THINGS IN NINE LISTS OF COLOURS ON THE SCREEN AT ONCE: the Color lends its eight lists
   # to the lists on the screen, so one thing finds none free every pass and is drawn in another
   # list's colours. Nothing in the picture says so to the author; the profile does.
-  CROWD = RubyGBA.game("CROWD", consoles: %i[gba gbc]) do
-    screen :tiled
-    image :ship, width: 8, height: 8, data: Array.new(64, :red), colors: %i[transparent red]
-    lists = (0...9).map do |n|
-      colors :"kind#{n}", [:transparent, RubyGBA::Graphics::Color.rgb(n * 3, 31 - (n * 3), 5)]
-      :"kind#{n}"
+  # +on_screen+ of nine kinds of thing, each kind in a list of colours of its own.
+  def self.crowd(on_screen)
+    RubyGBA.game("CROWD #{on_screen}", consoles: %i[gba gbc]) do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: Array.new(64, :red), colors: %i[transparent red]
+      lists = (0...9).map do |n|
+        colors :"kind#{n}", [:transparent, RubyGBA::Graphics::Color.rgb(n * 3, 31 - (n * 3), 5)]
+        :"kind#{n}"
+      end
+      things = pool :thing, x: 0, y: 0, kind: 0, capacity: 9, image: :ship
+      on_screen.times { |n| things.spawn x: 10 + (n * 12), y: 40, kind: n }
+      game_loop { things.each { |thing| thing.draw_with lists, showing: thing.kind } }
     end
-    things = pool :thing, x: 0, y: 0, kind: 0, capacity: 9, image: :ship
-    9.times { |n| things.spawn x: 10 + (n * 12), y: 40, kind: n }
-    game_loop { things.each { |thing| thing.draw_with lists, showing: thing.kind } }
+  end
+
+  CROWD = crowd(9)
+  FEW = crowd(4)
+
+  private def lent_profile(game, out: StringIO.new)
+    game.build_rom(console: :gbc, out: StringIO.new, err: StringIO.new, profile: false).profile(out: out, frames: 30)
   end
 
   def test_a_sprite_that_finds_no_list_free_is_counted
-    rom = CROWD.build_rom(console: :gbc, out: StringIO.new, err: StringIO.new, profile: false)
     out = StringIO.new
-    result = rom.profile(out: out, frames: 30)
+    result = lent_profile(CROWD, out: out)
 
     assert_predicate result.lists_missed, :positive?
-    assert_match(/found none of the console's 8 lists of colours free/, out.string)
+    assert_match(/found none of the console's eight lists of colours free/, out.string)
+  end
+
+  # Nine lists, four of them worn on the screen: the console lends its eight, and every thing
+  # finds one.
+  def test_a_game_that_lends_lists_and_fits_counts_no_miss
+    out = StringIO.new
+    result = lent_profile(FEW, out: out)
+
+    assert_equal 0, result.lists_missed
+    refute_match(/lists of colours free/, out.string)
   end
 
   def test_a_game_that_lends_no_lists_counts_nothing
