@@ -29,8 +29,12 @@ module RubyGBA
         # screen's interrupt while the game waits, so a pass's log is read where the game takes up
         # its next pass, the wait over (rt_wait_vblank_buttons).
         class SoundLog
-          ROUTINES = %w[rt_sound_writes rt_music_note rt_music_note_voice rt_music_quiet rt_music_from_the_top
-                        rt_wait_vblank_buttons].freeze
+          # A new music level reaching a voice already sounding (Runtime::Music#emit_relevel), by
+          # voice: B holds the voice's new loudness there.
+          RELEVELS = (1..Runtime::Music::HELD_VOICES).to_h { |voice| ["rt_music_relevel_voice_#{voice}", voice] }.freeze
+
+          ROUTINES = (%w[rt_sound_writes rt_music_note rt_music_note_voice rt_music_quiet rt_music_from_the_top
+                         rt_wait_vblank_buttons] + RELEVELS.keys).freeze
 
           # +places+ is the build record (GBC::Places).
           def initialize(places)
@@ -72,6 +76,7 @@ module RubyGBA
                 @playing = false
               when "rt_music_from_the_top" then @playing = true
               when "rt_wait_vblank_buttons" then @passes << @entries.size
+              when *RELEVELS.keys then @entries << [:loudness, RELEVELS.fetch(@routines[pc]), bc >> 8]
               end
             end
             self

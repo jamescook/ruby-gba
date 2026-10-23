@@ -27,6 +27,18 @@ module RubyGBA
             NEXT = "rt music next" # each part's next note, 16 bits each
             PART = "rt music part" # the part being played: its voice, its tone, how many notes, where they are
             PARTS = 4
+            # WHAT EACH VOICE IS HOLDING, for a new music level to reach it: the volume its note was
+            # written at (0 for a rest), for the two square voices and the wave voice; and for the
+            # two square voices, which take a volume only as a note starts and so are sounded again,
+            # the note's tuning and duty. A drum hit on the noise voice rings and fades by itself,
+            # so it is not held. LEVEL_SET is the level the held notes were set at, kept as the
+            # level with its 16s bit turned over, so a memory that starts at nought says full.
+            HELD = "rt music held"
+            TUNINGS = "rt music tunings"
+            DUTIES = "rt music duties"
+            LEVEL_SET = "rt music level set"
+            NOTE_VOLUME = "rt music note volume" # the note being played's volume, as written
+            HELD_VOICES = 3
 
             # A square part's first register, by voice.
             SQUARE_REGISTERS = { 1 => Console::GBCHardware::NR11, 2 => Console::GBCHardware::NR21 }.freeze
@@ -42,6 +54,11 @@ module RubyGBA
               memory.reserve(SONG, 2)
               memory.reserve(NEXT, PARTS * 2)
               memory.reserve(PART, 6)
+              memory.reserve(HELD, HELD_VOICES)
+              memory.reserve(TUNINGS, 4)
+              memory.reserve(DUTIES, 2)
+              memory.reserve(LEVEL_SET, 1)
+              memory.reserve(NOTE_VOLUME, 1)
             end
 
             # +level+ is where the game keeps the music's level, or nil for a game that never sets it.
@@ -122,6 +139,9 @@ module RubyGBA
               asm.load(:a, [memory[PLAYING]])
               asm.and_a(:a)
               asm.ret(:z)
+              # A new level reaches the notes already sounding before any new note is played, which
+              # is the order the interpreter does it in (Reference::Player#play_song_frame).
+              asm.call("rt_music_relevel") if level
               # Every part: each note whose frame this is.
               asm.call("rt_music_song")
               asm.inc(:hl)
@@ -236,10 +256,11 @@ module RubyGBA
               asm.jump_relative(:nz, "rt_music_waveform_byte")
               asm.ret
 
-              # Every voice the tune plays on, quiet.
+              # Every voice the tune plays on, quiet, and holding nothing.
               asm.label("rt_music_quiet")
               asm.xor_a(:a)
               [h::NR12, h::NR22, h::NR30, h::NR42].each { |register| asm.load_high(register, :a) }
+              HELD_VOICES.times { |i| asm.load([memory[HELD] + i], :a) }
               asm.load(:a, 0x80)
               [h::NR14, h::NR24, h::NR44].each { |register| asm.load_high(register, :a) }
               asm.ret
@@ -329,37 +350,17 @@ module RubyGBA
               asm.load(:a, [:hli])
               asm.load(:d, :a)
               asm.load(:b, [:hl]) # its volume, times the music's level over 16
+              asm.load(:a, :b)
+              asm.load([memory[NOTE_VOLUME]], :a)
               if level
-                asm.load(:a, [level + 3]) # a level below nought is nothing, above 16 is 16
-                asm.bit(7, :a)
-                asm.load(:c, 0)
-                asm.jump_relative(:nz, "rt_music_note_level")
-                asm.load(:hl, level + 1)
-                asm.or_a([:hl])
-                asm.inc(:hl)
-                asm.or_a([:hl])
-                asm.load(:c, IR::Tunes::FULL_LEVEL)
-                asm.jump_relative(:nz, "rt_music_note_level")
-                asm.load(:a, [level])
-                asm.cp_a(IR::Tunes::FULL_LEVEL)
-                asm.jump_relative(:nc, "rt_music_note_level")
-                asm.load(:c, :a)
-                asm.label("rt_music_note_level")
-                asm.xor_a(:a)
-                asm.inc(:c)
-                asm.jump_relative("rt_music_note_times_next")
-                asm.label("rt_music_note_times")
-                asm.add_a(:b)
-                asm.label("rt_music_note_times_next")
-                asm.dec(:c)
-                asm.jump_relative(:nz, "rt_music_note_times")
-                asm.swap(:a)
-                asm.and_a(0x0F)
+                asm.call("rt_music_level")
+                asm.call("rt_music_scale")
                 asm.load(:b, :a)
               end
               # B = the volume the voice is told, DE = its tuning. A run of the cartridge reads the
               # note's loudness here (GBC::SoundLog).
               asm.label("rt_music_note_voice")
+              asm.call("rt_music_hold")
               asm.load(:a, [part])
               asm.cp_a(GBC::Music::WAVE_VOICE)
               asm.jump_relative(:z, "rt_music_note_wave")
@@ -432,6 +433,9 @@ module RubyGBA
               asm.load_high(h::NR44, :a)
               asm.ret
 
+              emit_hold(asm, memory, part)
+              emit_relevel(asm, memory, level) if level
+
               # The volume a voice is told, in its top four bits: none for a rest.
               asm.label("rt_music_wave_levels")
               asm.data_bytes((0..15).map { |volume| WAVE_LEVEL_CODES.fetch(RubyGBA::Audio::Sound.wave_level(volume)) })
@@ -440,6 +444,130 @@ module RubyGBA
             # The wave voice's loudness for each of Audio::Sound's levels, as its register has it;
             # the Advance's three-quarters, which the Color does not have, is full.
             WAVE_LEVEL_CODES = { mute: 0x00, quarter: 0x60, half: 0x40, three_quarter: 0x20, full: 0x20 }.freeze
+
+            # rt_music_hold: the note being played (DE its tuning, NOTE_VOLUME its volume) is what its
+            # voice holds now, a rest holding nothing. Keeps B and DE.
+            def emit_hold(asm, memory, part)
+              asm.label("rt_music_hold")
+              asm.load(:a, :d)
+              asm.and_a(:e)
+              asm.inc(:a) # nought for a rest
+              asm.load(:a, [memory[NOTE_VOLUME]])
+              asm.jump_relative(:nz, "rt_music_hold_volume")
+              asm.xor_a(:a)
+              asm.label("rt_music_hold_volume")
+              asm.load(:c, :a)
+              asm.load(:a, [part])
+              (1..HELD_VOICES).each do |voice|
+                asm.cp_a(voice)
+                asm.jump_relative(:z, "rt_music_hold_#{voice}")
+              end
+              asm.ret
+              (1..HELD_VOICES).each do |voice|
+                asm.label("rt_music_hold_#{voice}")
+                asm.load(:a, :c)
+                asm.load([memory[HELD] + voice - 1], :a)
+                if voice < GBC::Music::WAVE_VOICE
+                  asm.load(:a, :e)
+                  asm.load([memory[TUNINGS] + ((voice - 1) * 2)], :a)
+                  asm.load(:a, :d)
+                  asm.load([memory[TUNINGS] + ((voice - 1) * 2) + 1], :a)
+                  asm.load(:a, [part + 1])
+                  asm.load([memory[DUTIES] + voice - 1], :a)
+                end
+                asm.ret
+              end
+            end
+
+            # THE MUSIC LEVEL MOVED: every voice holding a note takes the new level, as
+            # Reference::Player#apply_music_volume does. A square voice takes a volume only as a note
+            # starts, so its note is started again at the new volume; the wave voice takes one while
+            # it plays. A run of the cartridge reads each voice's new loudness at
+            # rt_music_relevel_voice_N (GBC::SoundLog).
+            #
+            # rt_music_level: C = the level the game keeps, below nought taken as nought and above 16
+            # as 16. rt_music_scale: A = the volume B times the level C, over 16; keeps BC.
+            def emit_relevel(asm, memory, level)
+              h = Console::GBCHardware
+              asm.label("rt_music_level")
+              asm.load(:a, [level + 3])
+              asm.bit(7, :a)
+              asm.load(:c, 0)
+              asm.ret(:nz)
+              asm.load(:hl, level + 1)
+              asm.or_a([:hl])
+              asm.inc(:hl)
+              asm.or_a([:hl])
+              asm.load(:c, IR::Tunes::FULL_LEVEL)
+              asm.ret(:nz)
+              asm.load(:a, [level])
+              asm.cp_a(IR::Tunes::FULL_LEVEL)
+              asm.ret(:nc)
+              asm.load(:c, :a)
+              asm.ret
+
+              asm.label("rt_music_scale")
+              asm.push(:bc)
+              asm.xor_a(:a)
+              asm.inc(:c)
+              asm.jump_relative("rt_music_scale_next")
+              asm.label("rt_music_scale_add")
+              asm.add_a(:b)
+              asm.label("rt_music_scale_next")
+              asm.dec(:c)
+              asm.jump_relative(:nz, "rt_music_scale_add")
+              asm.swap(:a)
+              asm.and_a(0x0F)
+              asm.pop(:bc)
+              asm.ret
+
+              asm.label("rt_music_relevel")
+              asm.call("rt_music_level")
+              asm.load(:a, [memory[LEVEL_SET]])
+              asm.xor_a(IR::Tunes::FULL_LEVEL)
+              asm.cp_a(:c)
+              asm.ret(:z)
+              asm.load(:a, :c)
+              asm.xor_a(IR::Tunes::FULL_LEVEL)
+              asm.load([memory[LEVEL_SET]], :a)
+              squares = { 1 => [h::NR11, h::NR12, h::NR13, h::NR14], 2 => [h::NR21, h::NR22, h::NR23, h::NR24] }
+              (1..HELD_VOICES).each do |voice|
+                asm.load(:a, [memory[HELD] + voice - 1])
+                asm.and_a(:a)
+                asm.jump_relative(:z, "rt_music_relevel_past_#{voice}")
+                asm.load(:b, :a)
+                asm.call("rt_music_scale")
+                asm.load(:b, :a)
+                asm.label("rt_music_relevel_voice_#{voice}")
+                if (registers = squares[voice])
+                  duty, volume, low, high = registers
+                  asm.load(:a, [memory[DUTIES] + voice - 1])
+                  asm.load_high(duty, :a)
+                  asm.load(:a, :b)
+                  asm.swap(:a)
+                  asm.and_a(0xF0)
+                  asm.load_high(volume, :a)
+                  asm.load(:a, [memory[TUNINGS] + ((voice - 1) * 2)])
+                  asm.load_high(low, :a)
+                  asm.load(:a, [memory[TUNINGS] + ((voice - 1) * 2) + 1])
+                  asm.and_a(7)
+                  asm.or_a(0x80)
+                  asm.load_high(high, :a)
+                else
+                  asm.load(:a, :b)
+                  asm.load(:hl, "rt_music_wave_levels")
+                  asm.add_a(:l)
+                  asm.load(:l, :a)
+                  asm.load(:a, :h)
+                  asm.adc_a(0)
+                  asm.load(:h, :a)
+                  asm.load(:a, [:hl])
+                  asm.load_high(h::NR32, :a)
+                end
+                asm.label("rt_music_relevel_past_#{voice}")
+              end
+              asm.ret
+            end
 
             # A = the volume (B) in the top four bits, or nought for a rest (DE = REST).
             def rest_or_volume(asm, voice)
