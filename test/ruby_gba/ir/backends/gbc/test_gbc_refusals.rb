@@ -34,6 +34,20 @@ class TestGBCRefusals < Minitest::Test
     assert_match(/no shoulder buttons/, error.message)
   end
 
+  # A program that names no console is still made for the Color here, so it is asked about as one.
+  def test_a_turning_sprite_in_a_program_naming_no_console_is_refused
+    program = color_program do
+      screen :tiled
+      image(:ship, "#" => :white) { "########\n" * 8 }
+      ship = sprite :ship, at: [40, 40]
+      game_loop { ship.turn 4 }
+    end
+    program.console = nil
+    error = assert_raises(GBC::LoweringError) { GBC.new.build(program) }
+
+    assert_match(/cannot turn or resize a sprite/, error.message)
+  end
+
   private
 
   def ghost_program(&amount)

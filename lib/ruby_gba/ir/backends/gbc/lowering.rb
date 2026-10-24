@@ -252,9 +252,12 @@ module RubyGBA
           end
 
           # What a Color cannot do at all, refused as a game's build refuses it (Checks::ColorAnswers).
-          # A program handed straight to a lowering, as a test's is, never passes the build's checks.
+          # A program handed straight to a lowering, as a test's is, never passes the build's checks;
+          # and one that names no console, or another, is asked about as the Color's, which the
+          # check otherwise leaves alone.
           def refuse_color_answer_errors!
-            refused = Guardrails::Checks::ColorAnswers.new.detect(@program).find { |finding| finding.severity == :error }
+            asked = @program.console == :gbc ? @program : @program.copy.tap { |copy| copy.console = :gbc }
+            refused = Guardrails::Checks::ColorAnswers.new.detect(asked).find { |finding| finding.severity == :error }
             raise LoweringError, refused.message if refused
           end
 
