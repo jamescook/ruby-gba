@@ -975,7 +975,6 @@ module RubyGBA
             # +level+ is the depth it is placed at: its own, or for a sprite that changes layer as
             # the game runs, the one this placing is for (#emit_layer_changing_sprites).
             def sprite_placement(obj, level = sprite_level(obj))
-              refuse_turning_sprite!(obj)
               hidden = fresh("sprite_hidden")
               jump_unless(Build.binop(:==, value_node(obj.active), Build.int(1)), hidden)
               # A pose the program never changes is used as it is, so the build can see it is in range.
@@ -1027,15 +1026,6 @@ module RubyGBA
 
             # Whether a sprite at depth +level+ is behind the scenery: a background sits in front of it.
             def behind_scenery?(level) = @stacking.scenery.any? { |bg| @stacking.depths[bg.name] > level }
-
-            # Reference#object_transformed?: a sprite turns or resizes unless both its angle and its
-            # size are still the numbers every sprite starts with.
-            def refuse_turning_sprite!(obj)
-              return if folded(obj.angle)&.zero? && folded(obj.scale) == Build::SCALE_ONE
-
-              raise LoweringError, "the sprite #{obj.declared.inspect} turns or changes size, which #{build_name} cannot " \
-                                   "make yet."
-            end
 
             # Which picture a sprite showing pose number +pose+ is drawn from, and the attributes its
             # pieces are drawn with — which palette, and whether behind the background — now. Its

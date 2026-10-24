@@ -17,6 +17,14 @@ class TestColorAnswers < Minitest::Test
     game_loop { board.rotate 30 }
   end
 
+  # A sprite turned by a little more each pass: its angle is worked out as the game runs.
+  SPINNING = RubyGBA.game("SPINNING", consoles: %i[gba gbc]) do
+    screen :tiled
+    image(:ship, "#" => :white) { "########\n" * 8 }
+    ship = sprite :ship, at: [40, 40]
+    game_loop { ship.turn 4 }
+  end
+
   SHOULDERS = RubyGBA.game("SHOULDERS", consoles: %i[gba gbc]) do
     count = var :count, 0
     game_loop { held(:l).then { count.add! 1 } }
@@ -95,6 +103,14 @@ class TestColorAnswers < Minitest::Test
 
     assert_equal %i[error error], found.map(&:severity)
     assert(found.any? { |finding| finding.message.include?("cannot turn or resize a background") })
+  end
+
+  def test_a_turning_sprite_is_refused_naming_what_the_color_lacks
+    found = findings(SPINNING, :gbc)
+
+    assert_equal [:error], found.map(&:severity)
+    assert_match(/cannot turn or resize a sprite/, found.first.message)
+    assert_empty findings(SPINNING, :gba)
   end
 
   def test_a_shoulder_button_is_refused_in_plain_words
