@@ -1103,8 +1103,60 @@ static void attach_keyboard_pad(void) {
   read_events(); /* takes it up as a gamepad, with any real ones already plugged in */
 }
 
+/* What --help prints: the keys as the window starts with them, read from the window's own table so
+ * this cannot say a key the window does not use, and the options a player has a use for. The rest
+ * (--headless, --scripted-keys, --trace, --window-picture, --usual-settings, and --frame-times and
+ * --refresh-rate, which measure the pacing and are told in .claude/rules/testing.md) are how the
+ * tests and the framework's own people drive the program, and are left out. Nothing is opened: no
+ * window, no settings file, no folder. */
+static void print_usage(const char *program) {
+  const char *name = program;
+  for (const char *c = program; *c; c++) {
+    if (*c == '/' || *c == '\\') name = c + 1; /* the program's own name, not the folders it is in */
+  }
+  rg_window_use_key_names(scancode_name, scancode_named);
+  rg_window_use_defaults();
+
+  printf("Usage: %s [options]\n\n", name);
+  printf("Play %s, a game built with ruby-gba.\n\n", rg_game_title);
+  printf("Keys:\n");
+  for (int button = 0; button < RG_WINDOW_BUTTONS; button++) {
+    printf("  %-18s", rg_window_button_name(button));
+    const char *between = "";
+    for (int slot = 0; slot < RG_WINDOW_KEYS_A_BUTTON; slot++) {
+      int key = rg_window_button_key(button, slot);
+      if (key == RG_NO_KEY) continue;
+      printf("%s%s", between, rg_window_key_name(key));
+      between = ", ";
+    }
+    printf("\n");
+  }
+  for (int hotkey = 0; hotkey < RG_HOTKEY_COUNT; hotkey++) {
+    printf("  %-18s%s%s\n", rg_window_hotkey_name(hotkey), rg_window_key_name(rg_window_hotkey_key(hotkey)),
+           hotkey == RG_HOTKEY_FAST_FORWARD ? " (hold it down)" : "");
+  }
+  printf("\nA gamepad works too. The menu (move the mouse over the window, or press the\n"
+         "Show menu key) changes the keys, the gamepad buttons, the window's size and\n"
+         "the volume.\n\n");
+  printf("Files:\n"
+         "  The save and the settings are kept in a folder named for the game, among\n"
+         "  the files this computer keeps for each program. The settings are a text\n"
+         "  file, settings.txt, which you can edit.\n\n");
+  printf("Options:\n"
+         "  --save-file PATH       Keep the save in PATH. A .sav file from an emulator\n"
+         "                         works.\n"
+         "  --settings-file PATH   Read and write the settings in PATH only.\n"
+         "  -h, --help             Print this.\n");
+}
+
 int main(int argc, char **argv) {
   if (argc > 1 && strcmp(argv[1], "--headless") == 0) return rg_headless_main(argc - 1, argv + 1);
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+      print_usage(argv[0]);
+      return 0;
+    }
+  }
   const char *save_file_asked_for = NULL;
   const char *settings_file_asked_for = NULL;
   int usual_settings_asked_for = 0;

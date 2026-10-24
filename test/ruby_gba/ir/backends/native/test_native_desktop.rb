@@ -134,6 +134,25 @@ class TestNativeDesktop < Minitest::Test
     end
   end
 
+  # --help (or -h) says what the program's keys are and what it takes, and opens no window: it
+  # needs no display, so nothing stands in for one here.
+  def test_the_program_a_player_runs_says_how_to_use_it
+    Dir.mktmpdir do |dir|
+      exe = Native.new.build_desktop(game_that_counts, File.join(dir, "windowed"), err: nil)
+      said, status = Open3.capture2e(exe, "--help", chdir: dir)
+
+      assert status.success?, said
+      assert_match(/\AUsage: windowed \[options\]/, said)
+      assert_match(/^  A +X$/, said, "the A button's key, as the window starts")
+      assert_match(/^  Select +Backspace, Right Shift$/, said, "a button with two keys says both")
+      assert_match(/^  Pause +P$/, said, "and the window's own keys")
+      %w[--save-file --settings-file].each { |option| assert_includes said, option }
+      refute_includes said, "--refresh-rate", "the tests' own options are not a player's"
+      assert_empty said.lines.map(&:chomp).select { |line| line.length > 80 }, "it fits in 80 columns"
+      assert_equal said, Open3.capture2e(exe, "-h", chdir: dir).first, "-h says the same"
+    end
+  end
+
   # A game that counts its frames and, for each console button, the frames it was held: what the
   # window does to itself must leave every one of these as a run with none of it would, and what a
   # button does must show in its own. It plays a long note so there is a sound to hear.
