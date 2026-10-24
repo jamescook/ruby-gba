@@ -203,7 +203,10 @@ module RubyGBA
               # or not.
               arrival.painted_pictures.each { |run| emit_run_copy(run) }
               scenery = arrival.scenery.empty? ? @handover.always_up.scenery : arrival.scenery
-              return runtime_call("rt_background_put_up", [Build.int(0)]) if scenery.empty?
+              if scenery.empty?
+                emit_bends_shown(nil)
+                return runtime_call("rt_background_put_up", [Build.int(0)])
+              end
 
               scenery.each { |bg| background_put_up(bg) }
               painted = arrival.scenery.empty? ? @handover.always_up.painted_tiles : arrival.painted_tiles
@@ -476,6 +479,7 @@ module RubyGBA
             # on every pass, after the game has said where its view sits, shows from its corner on
             # every frame (Runtime::Picture's rt_background_put_up_unscrolled).
             def background_put_up(bg)
+              emit_bends_shown(bg)
               return big_put_up(bg, 0, "rt_big_put_up") if big?(bg)
 
               runtime_call("rt_background_put_up_unscrolled", [Build.int(grid_of(bg))])
@@ -568,62 +572,82 @@ module RubyGBA
             # the picture, as the interpreter shows it.
             def emit_camera(node) = runtime_call("rt_background_scroll", [node.x, node.y])
 
-            # A BACKGROUND BENT ROW BY ROW (Reference#exec_scroll_rows): a standing declaration, so
-            # reaching it switches the bending on (Runtime::Picture's rt_bends_on) and the rows are
-            # worked out at every frame boundary (#emit_bends).
-            def emit_scroll_rows(node)
-              declared_background!(node)
-              @asm.call("rt_bends_on")
+            # A BACKGROUND BENT ROW BY ROW (Reference#exec_scroll_rows): a standing declaration,
+            # gathered up front. Its rows are worked out at every frame boundary (#emit_bends), and
+            # shown while its background is up (#emit_bends_shown).
+            def emit_scroll_rows(node) = declared_background!(node)
+
+            # Reference#work_out_bends, where the pass's wait ends: every bend's, whichever
+            # background is up, as the interpreter works every one out. Each row of the screen, its
+            # number in the bend's variable, the bend's own steps, and how far along it sits kept in
+            # the bend's table for the frame after (#bend_table); the first row of each bend, then
+            # the rest of each; then the variable left past the last row. +painting+ is the
+            # interpreter painting a game that never waits, row by row (Reference#bend_offset_at),
+            # which leaves the variable at the last row.
+            def emit_bends(painting: false)
+              height = Console::GBCHardware::SCREEN_HEIGHT
+              bends.each { |bend| emit_bend_rows(bend, 0...1) }
+              bends.each do |bend|
+                emit_bend_rows(bend, 1...height)
+                statement(Build.set(bend.row, height - 1)) if painting
+              end
             end
 
-            # Reference#work_out_bends, where the pass's wait ends: every row of the screen, its
-            # number in the bend's variable, the bend's own steps, and how far along it sits kept for
-            # the frame after (Runtime::Picture::BENDS_NEXT); then the variable left past the last row.
-            # +painting+ is the interpreter painting a game that never waits, row by row
-            # (Reference#bend_offset_at), which leaves the variable at the last row.
-            def emit_bends(painting: false)
-              bend = bend_of or return
-
-              height = Console::GBCHardware::SCREEN_HEIGHT
+            # Rows +rows+ (a range short of its end) of +bend+: the first in its variable, its
+            # steps, the row kept, and on to the next until the last, leaving the variable at the end.
+            def emit_bend_rows(bend, rows)
               row = fresh("bend_row")
-              statement(Build.set(bend.row, 0))
+              statement(Build.set(bend.row, rows.begin))
               @asm.label(row)
               bend.children.each { |child| statement(child) }
-              emit_bend_row(BendRow.new(row: bend.row, offset: bend.offset))
+              emit_bend_row(bend)
               statement(Build.add(bend.row, 1))
+              return if rows.size == 1
+
               value(bend.row) # rows from nought to the last, so the low byte is all there is to ask
               @asm.load(:a, :e)
-              @asm.cp_a(height)
+              @asm.cp_a(rows.end)
               @asm.jump(:c, row)
-              statement(Build.set(bend.row, height - 1)) if painting
             end
 
-            # The one bend the game declares, or nil. The Color shows one background, so it bends one.
-            def bend_of
-              return @bend if defined?(@bend)
-
-              bends = @program.walk.select { |node| node.kind == :scroll_rows }.uniq(&:name)
-              if bends.length > 1
-                raise LoweringError, "this game bends #{bends.length} backgrounds row by row, which #{build_name} cannot make yet."
-              end
-
-              @bend = bends.first
+            # The game's bends, one for each background bent (Reference#collect_definitions): the
+            # last a background is given, in the order the backgrounds were first bent.
+            def bends
+              @bends ||= @program.walk.select { |node| node.kind == :scroll_rows }.group_by(&:name).map { |_, said| said.last }
             end
 
-            # One row's bend, kept: its row's place in BENDS_NEXT, the low byte of how far along.
-            BendRow = Data.define(:row, :offset)
+            # Where a bend's rows are kept as a pass works them out: a byte for each row of the screen.
+            def bend_table(bend)
+              @bend_tables ||= {}
+              @bend_tables[bend.name] ||= @memory.reserve("the bend of #{bend.name.inspect}", Console::GBCHardware::SCREEN_HEIGHT)
+            end
 
-            def emit_bend_row(node)
-              value(node.row)
+            # The row in the bend's variable kept in its table: the low byte of how far along.
+            def emit_bend_row(bend)
+              value(bend.row)
               @asm.load(:a, :e)
               @asm.push(:af)
-              value(node.offset)
+              value(bend.offset)
               @asm.pop(:af)
               @asm.load(:l, :a)
               @asm.load(:h, 0)
-              @asm.load(:bc, @memory[Runtime::Picture::BENDS_NEXT])
+              @asm.load(:bc, bend_table(bend))
               @asm.add_hl(:bc)
               @asm.load([:hl], :e)
+            end
+
+            # Reference#bend_offset_at: a background is drawn with its own bend, or flat when it has
+            # none, so the background going up says which table the rows are shown from
+            # (Runtime::Picture's rt_bends_on), or that none is (rt_bends_off) — +bg+ nil for no
+            # background at all. A game that bends nothing says neither.
+            def emit_bends_shown(bg)
+              return if bends.empty?
+
+              bend = bg && bends.find { |said| said.name == bg.name }
+              return @asm.call("rt_bends_off") unless bend
+
+              @asm.load(:hl, bend_table(bend))
+              @asm.call("rt_bends_on")
             end
 
             # Reference#exec_set_tile: one cell of the background given another of its tiles — or

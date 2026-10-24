@@ -42,11 +42,13 @@ module RubyGBA
             CELLS_KEPT = 32
             CELL_BYTES = 4
             # A BACKGROUND BENT ROW BY ROW (`scroll_each_row`): how far each of the screen's rows
-            # sits along, worked out once a pass into BENDS_NEXT and shown from BENDS in the frame
-            # after, as the scroll is; BEND_BASE the scroll the shown rows are along from, and
-            # BENDING 1 once a game bends.
+            # sits along, worked out once a pass into a table of the bend's own (the lowering keeps
+            # one for each bend) and shown from BENDS in the frame after, as the scroll is.
+            # BENDS_FROM is the table of the background up, BENDING 1 while that background has a
+            # bend (rt_bends_on, rt_bends_off), and BEND_BASE the scroll the shown rows are along
+            # from.
             BENDS = "rt picture bends"
-            BENDS_NEXT = "rt picture bends next"
+            BENDS_FROM = "rt picture bends from"
             BEND_BASE = "rt picture bend base"
             BENDING = "rt picture bending"
             TINT = "rt picture tint" # what the colours are moved toward (TOWARD_*), the colour, and how far
@@ -85,7 +87,7 @@ module RubyGBA
               memory.reserve(MAP_JOB, 6)
               memory.reserve(CELLS, 1 + (CELLS_KEPT * CELL_BYTES))
               memory.reserve(BENDS, Console::GBCHardware::SCREEN_HEIGHT)
-              memory.reserve(BENDS_NEXT, Console::GBCHardware::SCREEN_HEIGHT)
+              memory.reserve(BENDS_FROM, 2)
               memory.reserve(BEND_BASE, 1)
               memory.reserve(BENDING, 1)
               memory.reserve(LCDC_WANTED, 1)
@@ -487,6 +489,12 @@ module RubyGBA
             # IN THE BLANK: the sprite table, the colours if they changed, the scroll and the
             # screen's switches; and a few more rows of a grid being put up. Carry set when a grid
             # is still being put up, so the frame waits for another blank before it counts as shown.
+            #
+            # The rows' bends are copied last. The blank is the only time video memory can be
+            # written, and a grid being put up takes as much of it as it can; the bends are work
+            # memory, which can be written at any time, so they wait until the video memory is done
+            # with. Copied first, they used up the blank, and the grid's rows written after it
+            # were lost while the display was reading them.
             def emit_upload(asm, memory)
               h = Console::GBCHardware
               asm.label("rt_upload")
@@ -499,9 +507,7 @@ module RubyGBA
               asm.load_high(h::SCX, :a)
               asm.load(:a, [:hl])
               asm.load_high(h::SCY, :a)
-              asm.load(:a, [memory[BENDING]])
-              asm.and_a(:a)
-              asm.call(:nz, "rt_bends_shown")
+              asm.call("rt_bends_first_row")
               asm.load_high(:a, h::LCDC) # the screen's switches, left on if it is on
               asm.and_a(h::LCDC_ON)
               asm.load(:b, :a)
@@ -517,6 +523,7 @@ module RubyGBA
               asm.push(:af)
               asm.call(:nc, "rt_picture_cells") # once the grid is all up, the cells changed since
               asm.call("rt_paint_upload")
+              asm.call("rt_bends_copied")
               asm.jump_relative(:c, "rt_upload_more")
               asm.pop(:af)
               asm.ret
@@ -538,40 +545,81 @@ module RubyGBA
               asm.scf
               asm.ret
 
-              # THE ROWS' BENDS FOR THE FRAME ABOUT TO BE DRAWN: the ones the pass worked out, from
-              # the scroll just set, the first row's set now and each row after it as the line before
-              # it ends (rt_hblank_interrupt).
-              asm.label("rt_bends_shown")
-              asm.load(:hl, memory[BENDS_NEXT])
-              asm.load(:de, memory[BENDS])
-              asm.load(:b, Console::GBCHardware::SCREEN_HEIGHT)
-              asm.label("rt_bends_shown_row")
-              asm.load(:a, [:hli])
-              asm.load([:de], :a)
-              asm.inc(:de)
-              asm.dec(:b)
-              asm.jump_relative(:nz, "rt_bends_shown_row")
-              asm.load_high(:a, h::SCX)
-              asm.load([memory[BEND_BASE]], :a)
-              asm.load(:hl, memory[BENDS])
-              asm.add_a([:hl])
-              asm.load_high(h::SCX, :a)
-              asm.ret
-
-              # rt_bends_on(): a background bends from here — the interrupt at the end of each line
-              # switched on, as well as the frame's.
-              asm.label("rt_bends_on")
+              # THE ROWS' BENDS FOR THE FRAME ABOUT TO BE DRAWN, from the scroll just set: the first
+              # row's set now, and each row after it as the line before it ends
+              # (rt_hblank_interrupt), which is switched on here while the background up bends and
+              # off while it does not. Switched in the blank, not where the game says, so the frame
+              # being drawn as a pass changes it is drawn whole, as the pass before had it.
+              asm.label("rt_bends_first_row")
               asm.load(:a, [memory[BENDING]])
               asm.and_a(:a)
+              asm.jump_relative(:z, "rt_bends_first_row_flat")
+              asm.load_high(:a, h::SCX)
+              asm.load([memory[BEND_BASE]], :a)
+              asm.load(:b, :a)
+              asm.load(:a, [memory[BENDS_FROM]])
+              asm.load(:l, :a)
+              asm.load(:a, [memory[BENDS_FROM] + 1])
+              asm.load(:h, :a)
+              asm.load(:a, :b)
+              asm.add_a([:hl])
+              asm.load_high(h::SCX, :a)
+              asm.load_high(:a, h::IE)
+              asm.and_a(h::INT_STAT) # on already
               asm.ret(:nz)
-              asm.inc(:a)
-              asm.load([memory[BENDING]], :a)
+              asm.load_high(:a, h::IF) # the line interrupt asked for while it was off is not answered
+              asm.and_a(~h::INT_STAT & 0xFF)
+              asm.load_high(h::IF, :a)
               asm.load_high(:a, h::STAT)
               asm.or_a(STAT_HBLANK)
               asm.load_high(h::STAT, :a)
               asm.load_high(:a, h::IE)
               asm.or_a(h::INT_STAT)
               asm.load_high(h::IE, :a)
+              asm.ret
+              asm.label("rt_bends_first_row_flat")
+              asm.load_high(:a, h::IE)
+              asm.and_a(~h::INT_STAT & 0xFF)
+              asm.load_high(h::IE, :a)
+              asm.ret
+
+              # The rest of the rows into BENDS, for the line interrupt to read, after the blank's
+              # video memory (rt_upload). It keeps ahead of the display: a row is copied many times
+              # over in the time the display draws one line. Flags as they were, for rt_upload.
+              asm.label("rt_bends_copied")
+              asm.push(:af)
+              asm.load(:a, [memory[BENDING]])
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_bends_copied_done")
+              asm.load(:a, [memory[BENDS_FROM]])
+              asm.load(:l, :a)
+              asm.load(:a, [memory[BENDS_FROM] + 1])
+              asm.load(:h, :a)
+              asm.load(:de, memory[BENDS])
+              asm.load(:b, Console::GBCHardware::SCREEN_HEIGHT)
+              asm.label("rt_bends_copied_row")
+              asm.load(:a, [:hli])
+              asm.load([:de], :a)
+              asm.inc(:de)
+              asm.dec(:b)
+              asm.jump_relative(:nz, "rt_bends_copied_row")
+              asm.label("rt_bends_copied_done")
+              asm.pop(:af)
+              asm.ret
+
+              # rt_bends_on(), HL the bend's table: a background with a bend is up, from the next
+              # blank (rt_bends_first_row). rt_bends_off(): one without.
+              asm.label("rt_bends_on")
+              asm.load(:a, :l)
+              asm.load([memory[BENDS_FROM]], :a)
+              asm.load(:a, :h)
+              asm.load([memory[BENDS_FROM] + 1], :a)
+              asm.load(:a, 1)
+              asm.load([memory[BENDING]], :a)
+              asm.ret
+              asm.label("rt_bends_off")
+              asm.xor_a(:a)
+              asm.load([memory[BENDING]], :a)
               asm.ret
 
               # At the end of each line drawn: the next line along by its bend. After the last, the

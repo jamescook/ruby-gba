@@ -266,6 +266,56 @@ class TestRowBend < Minitest::Test
     assert_backends_agree(program, frames: 4, name: "BSCR")
   end
 
+  # --- bends in scenes ---
+
+  # A SCENE WHOSE BACKGROUND BENDS, away to a scene with a background of its own and back. Each
+  # background is drawn with its own bend or with none, so the second scene's sits flat, and the
+  # first comes back bent as it was. A scene's background goes up as the scene arrives, with the
+  # screen on and the bend running, which a background declared outside any scene never does.
+  private def bending_scenes_program
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image :bar, "." => :transparent, "#" => :red do
+        <<~ART
+          ##......
+          ##......
+          ##......
+          ##......
+          ##......
+          ##......
+          ##......
+          ##......
+        ART
+      end
+      tiles :stripes, "#" => :bar
+      state = var :state, 0
+      passes = var :passes, 0
+      scene(:sea) do
+        sea = background :sea, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+        sea.scroll_each_row { |row| row % 8 }
+        (passes == 3).then { state.set! 1 }
+      end
+      scene(:shore) do
+        background :shore, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+        (passes == 6).then { state.set! 0 }
+      end
+      game_loop do
+        passes.add! 1
+        case_var(:state) do
+          when_val 0, :sea
+          when_val 1, :shore
+        end
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_a_bent_scene_and_a_flat_one_agree_across_backends
+    assert_backends_agree(bending_scenes_program, frames: 9, name: "BSCN")
+  end
+
   # --- more than one layer bending ---
 
   # A BEND BESIDE SAMPLED SOUND, on the console. Recorded sound is fed to the sound hardware
