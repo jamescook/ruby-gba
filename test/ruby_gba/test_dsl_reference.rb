@@ -12,11 +12,11 @@ require "test_helper"
 class TestDslReference < Minitest::Test
   SHEET = RubyGBA.root.join(".claude/rules/dsl-reference.md").to_s
 
-  # The index is loaded into every session, so it is held to a line a verb. The cap is a
-  # little over twice its size when it was split off, and well under the 150,000 characters
-  # at which a session warns that a rules file is slowing it down. A paragraph belongs in a
-  # group file.
-  MOST_INDEX_CHARACTERS = 40_000
+  # The index is loaded into every session, so it is held to a few words a verb. Under a
+  # cap of twice its size it once grew to 19,000 characters, an option list and a paragraph
+  # at a time, so the cap is now about half again its size after that was cut back. An
+  # option, a handle method or a paragraph belongs in a group file.
+  MOST_INDEX_CHARACTERS = 12_000
 
   # The DSL verbs are the public methods the concern modules mix into Builder…
   CONCERNS = RubyGBA::Builder.included_modules.select { |m| m.name&.start_with?("RubyGBA::Builder::") }
