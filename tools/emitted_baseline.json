@@ -26,7 +26,7 @@
       "data": 0
     },
     "dive": {
-      "code": 50660,
+      "code": 50840,
       "data": 0
     },
     "floating_digits": {
@@ -106,7 +106,7 @@
       "data": 0
     },
     "shmup": {
-      "code": 41344,
+      "code": 41440,
       "data": 0
     },
     "snake": {

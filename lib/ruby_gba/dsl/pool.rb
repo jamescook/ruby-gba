@@ -166,7 +166,10 @@ module RubyGBA
       # One part of the thing with +rank+ older things before it, as a value node.
       def stacked_at(part, rank) = Build.list_get(stacked_list(part), Build.int(rank))
 
-      # Whether any live thing has +rank+ older things before it, as a value node.
+      # Whether any live thing has +rank+ older things before it, as a value node. The GBA
+      # lowering reads this shape — the count held, greater than the rank — to hide the places
+      # past the count a store each (Backends::GBA::SpriteDrawing#live_count_var): change it,
+      # and change that.
       def rank_taken(rank) = Build.binop(:>, Build.var_ref(stacked_var), Build.int(rank))
 
       # The statements that make the copy: walk the chain from its first thing and copy each

@@ -479,13 +479,18 @@ module RubyGBA
           # free to use every register there is.
           #
           # What it costs against a copy apiece is a load of the row's address before each
-          # store, and stepping the two variables — a handful of instructions a sprite.
+          # store, and stepping the two variables — a handful of instructions a sprite. A pool's
+          # sprites with nothing to show are passed over first, a store a row
+          # (#emit_hide_places_left_over), and the walk starts at the first that shows something.
           def emit_sprite_repeat(repeat)
             again = gensym
+            done = gensym
             emit_number(ACC, repeat.first_index)
             store_var(ACC, SpriteRepeats::INDEX)
             emit_number(ACC, repeat.first_row)
             store_var(ACC, REPEAT_ROW)
+            live = live_count_var(repeat)
+            emit_hide_places_left_over(repeat, live, done) if live
             place_label(again)
             emit_present_object(repeat.sprite, rows: Array.new(repeat.sprite.pieces) { |piece| MovingRow.new(offset: piece * 8) })
             load_var(ACC, REPEAT_ROW)
@@ -497,6 +502,83 @@ module RubyGBA
             emit_number(TMP, repeat.index_after)
             emit(ASM.cmp_reg(ACC, TMP))
             emit_branch(:bcond, again, cond: :ne)
+            place_label(done)
+          end
+
+          # A POOL'S SPRITES, AND HOW MANY OF THEM SHOW. Each of a pool's sprites shows a place
+          # in the order its things were spawned (DSL::Pool#stacked_list), and is shown while the
+          # pool holds more things than that place's rank (DSL::Pool#rank_taken) — so the places
+          # with something in them are the lowest ranks, all together. The sprites are declared
+          # back to front, so a walk of the table meets the ranks going down: every sprite with
+          # nothing to show first, then every one that shows something. Answers the variable
+          # holding how many things are in place, read off the sprites' own test, or nil for a
+          # repeat that is not a pool's that way, which is written in full as before.
+          #
+          # ONLY WHERE THAT RANK TEST HAS THE LAST WORD: the whole test, or one of several each of
+          # which has to hold — joined by `&`, or by `*` of two tests that are each 0 or 1, which is
+          # how a scene's own pool is shown only while the scene is up (Builder#gated_by_scene). A
+          # sprite past the count is then hidden whatever the rest says. Found inside anything else
+          # (an `|`, a test turned round) it settles nothing, and the sprites are written in full.
+          #
+          # Not for sprites given rooms of their own in sprite memory, whose hiding gives the room
+          # back (#emit_let_go_of_shared_room), which a plain hidden mark does not.
+          def live_count_var(repeat)
+            return nil unless repeat.index_step == -1 && repeat.sprite.rooms.nil?
+
+            rank_test_held(repeat.sprite.active)&.lhs&.name
+          end
+
+          # The rank test (count > INDEX) in +test+ that has to hold for +test+ to, or nil.
+          def rank_test_held(test)
+            return nil unless test.is_a?(IR::Node) && test.kind == :binop
+            return test if test.op == :> && test.lhs.kind == :var_ref && test.rhs.kind == :var_ref &&
+                           test.rhs.name == SpriteRepeats::INDEX
+            return nil unless %i[& *].include?(test.op)
+
+            rank_test_held(test.lhs) || rank_test_held(test.rhs)
+          end
+
+          # MARK THE PLACES WITH NOTHING IN THEM HIDDEN, a store for each of a place's rows,
+          # before the walk writes the places that show something. Written in full, such a place
+          # cost its whole test and write and the walk's bookkeeping in memory, and a game sized
+          # for its biggest room keeps pools mostly empty in every other room, so the frame paid
+          # that for every slot a room did not use. Here an empty place is its rows' stores and a
+          # few instructions on. The walk then carries on from the first place that shows
+          # something, or is over.
+          #
+          # In registers that are a statement's own scratch — the place in SPARE, its row in HIGH,
+          # where to stop in TMP, the hidden mark in ACC, and ADDR for a row step too big to add
+          # at once — since this runs between statements of the sprites routine and nothing is
+          # held across it.
+          def emit_hide_places_left_over(repeat, live, done)
+            place, row, stop = SPARE, HIGH, TMP
+            walk = gensym
+            next_place = gensym
+            past_empty = gensym
+            load_var(stop, live)
+            emit_number(ACC, repeat.index_after + 1)
+            emit(ASM.cmp_reg(stop, ACC))
+            emit_branch(:bcond, walk, cond: :ge)
+            # Fewer things than this repeat's first place: nothing in it shows, so the walk stops
+            # at its last place. (A pool's sprites can be several repeats.)
+            emit(ASM.mov_reg(stop, ACC))
+            place_label(walk)
+            emit_number(place, repeat.first_index)
+            emit_number(row, repeat.first_row)
+            emit_number(ACC, OBJ_HIDDEN_ATTR0)
+            place_label(next_place)
+            emit(ASM.cmp_reg(place, stop))
+            emit_branch(:bcond, past_empty, cond: :lt)
+            repeat.sprite.pieces.times { |piece| emit(ASM.store_halfword_offset(ACC, row, piece * 8)) }
+            emit_add_const(row, row, repeat.row_step, ADDR)
+            emit(ASM.sub_imm(place, place, 1))
+            emit_branch(:b, next_place)
+            place_label(past_empty)
+            store_var(place, SpriteRepeats::INDEX)
+            store_var(row, REPEAT_ROW)
+            emit_number(ACC, repeat.index_after)
+            emit(ASM.cmp_reg(place, ACC))
+            emit_branch(:bcond, done, cond: :eq)
           end
 
           # Store the low half of r0 in the half of +row+ that starts +half+ bytes into it.
