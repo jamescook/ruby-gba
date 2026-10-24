@@ -218,6 +218,7 @@ module RubyGBA
           # pictures draws it on the frame it first shows it (see PictureGroupCopying).
           def emit_present_objects(node)
             by_scene = @layout.scene_sprites
+            emit_switch_sprite_layer
             @picture_group_copying.emit_calls_to_routines
             emit_count_lending_frame
             emit_hide_scene_rows_on_change
@@ -225,6 +226,72 @@ module RubyGBA
             by_scene.each { |group| emit_scene_sprites(group) }
             emit_refresh_still_sprites
             @layout.draw_runs.each { |run| emit_copy_draw_run(run) }
+          end
+
+          # EVERY SPRITE OFF FOR A FRAME (see Builder::Sprites#hide_sprites).
+          #
+          # The console draws its sprites as a layer of their own over the backgrounds, and one
+          # bit of its display-control register says whether that layer is drawn at all. With it
+          # off nothing of any sprite shows, and the table of rows and the pictures stay exactly
+          # as they are, so turning it on again a frame later shows every sprite where it would
+          # have been.
+          #
+          # `hide_sprites` only notes that it was asked. The bit is changed here, between frames,
+          # where nothing is being drawn: changed while the pass runs, it would take the sprites
+          # off the lower part of the frame being drawn then. The note is one of three:
+          SPRITES_HIDDEN = :_sprites_hidden
+          SPRITES_SHOWN = 0 # the layer is on, and nothing asked
+          SPRITES_ASKED = 1 # the pass just run asked for a frame without them
+          SPRITES_OFF = 2   # the layer is off for this frame, and comes on again at the next gap
+
+          # Whether the game ever asks, so that a game that never does emits nothing for it.
+          attr_writer :hides_sprites
+
+          def hides_sprites? = @hides_sprites && @layout.has_objects
+
+          # `hide_sprites`: note it, for the gap after this pass.
+          def emit_hide_sprites(_node)
+            store_word_immediate(SPRITES_ASKED, var_addr(SPRITES_HIDDEN)) if hides_sprites?
+          end
+
+          # At power-on the layer is on, whatever the memory held.
+          def emit_sprites_shown_at_power_on
+            store_word_immediate(SPRITES_SHOWN, var_addr(SPRITES_HIDDEN)) if hides_sprites?
+          end
+
+          # Between frames: the layer off for a frame that was asked for, and on again the gap
+          # after. Turning it on is only for a screen drawn from tiles. A bitmap screen paints
+          # its sprites into the picture and keeps that bit clear, and a game can go to one on
+          # the pass after asking. The low three bits of the register say which kind is up, and
+          # tiled screens are the kinds below 3. A frame asked for while the layer is already
+          # off keeps it off. On a frame nobody asked, this costs a load, two compares and two
+          # branches.
+          def emit_switch_sprite_layer
+            return unless hides_sprites?
+
+            done = gensym
+            turn_on = gensym
+            load_var(ACC, SPRITES_HIDDEN)
+            emit(ASM.cmp_imm(ACC, SPRITES_ASKED))
+            emit_branch(:bcond, turn_on, cond: :ne)
+            store_word_immediate(SPRITES_OFF, var_addr(SPRITES_HIDDEN))
+            emit_number(TMP, REG_DISPCNT)
+            emit(ASM.load_halfword(ACC, TMP))
+            emit(ASM.bic_imm(ACC, ACC, OBJ_ENABLE))
+            emit(ASM.store_halfword(ACC, TMP))
+            emit_branch(:b, done)
+            place_label(turn_on)
+            emit(ASM.cmp_imm(ACC, SPRITES_OFF))
+            emit_branch(:bcond, done, cond: :ne)
+            store_word_immediate(SPRITES_SHOWN, var_addr(SPRITES_HIDDEN))
+            emit_number(TMP, REG_DISPCNT)
+            emit(ASM.load_halfword(ACC, TMP))
+            emit(ASM.and_imm(2, ACC, 7))
+            emit(ASM.cmp_imm(2, 3))
+            emit_branch(:bcond, done, cond: :hs) # a bitmap screen
+            emit(ASM.orr_imm(ACC, ACC, OBJ_ENABLE))
+            emit(ASM.store_halfword(ACC, TMP))
+            place_label(done)
           end
 
           # A RUN OF THE TABLE DRAWN IN AN ORDER THE GAME WORKS OUT (see Builder#draw_in_order).

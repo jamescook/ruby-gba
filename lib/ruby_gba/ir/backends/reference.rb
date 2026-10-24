@@ -194,6 +194,7 @@ module RubyGBA
           @scene = nil             # the scene that last took over (see #take_over)
           @obj_prev = {}           # object name -> [x, y] it was last drawn at (to erase before redrawing)
           @drawn = []              # ...and what this frame put on screen: which picture, where, whose
+          @sprites_hidden = false  # is the next frame drawn without its sprites? (see #exec_hide_sprites)
           @repaints = false        # must the whole view be rebuilt every frame? (decided in collect_definitions)
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
           @bg_maps = {}            # ...and this run's own copy of its cells, once any of them has changed
@@ -649,6 +650,7 @@ module RubyGBA
           case: :exec_case,
           halt: :exec_halt,
           wait_vblank: :exec_wait_vblank,
+          hide_sprites: :exec_hide_sprites,
           screen: :exec_screen,
           clear_screen: :exec_clear_screen,
           pixel: :exec_pixel,
@@ -2303,7 +2305,8 @@ module RubyGBA
         # screen this frame and recomposite the whole view (scrolled scene, then these
         # objects on top). See #request_repaint.
         def exec_present_objects(node)
-          @drawn = objects_on_screen(names_in_draw_order(node))
+          @drawn = @sprites_hidden ? [] : objects_on_screen(names_in_draw_order(node))
+          @sprites_hidden = false
           refuse_pictures_not_up!(@drawn)
           # Kept whichever way the picture is made, with each sprite's depth and colours as they
           # are now: a scene taking over later in this pass builds the picture again from it
@@ -2325,6 +2328,16 @@ module RubyGBA
             draw_object(on[:object], on[:picture], on[:x], on[:y])
             @obj_prev[on[:object].name] = [on[:x], on[:y]]
           end
+        end
+
+        # NO SPRITE ON THE NEXT FRAME. The sprites are drawn as the next pass begins, from the
+        # pass that just ran, and that drawing draws none and forgets this was asked: every
+        # sprite is where it was, so the drawing after puts each one back where it would have
+        # been. On the console the sprite layer is switched off for that frame, which hides the
+        # same things — and so a sprite showing a grouped picture whose group is not up is no
+        # mistake on that frame, since nothing draws it.
+        def exec_hide_sprites(_node)
+          @sprites_hidden = true
         end
 
         # The frame's objects in the order they are drawn: as listed, except that each run the

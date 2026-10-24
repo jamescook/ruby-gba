@@ -491,6 +491,10 @@ module RubyGBA
         Nodes.build(:halt)
       end
 
+      def hide_sprites
+        Nodes.build(:hide_sprites)
+      end
+
       # A raw escape hatch: pre-assembled target bytes a native backend appends
       # verbatim. Not portable — the interpreter refuses it, so a program using it
       # runs only on hardware. Reaching for this is a sign the IR has a gap: the

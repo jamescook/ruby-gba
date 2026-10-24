@@ -325,6 +325,7 @@ module ConformanceFixture
       B.show_picture_group(:fixture_rooms, slot: 1, which: B.int(1)),
 
       B.present_objects([:hero_obj]),   # draw the declared objects for this frame
+      B.hide_sprites,                   # ...and none on the next frame drawn, asked after this one's
       B.save_region(:under, :x, :y),    # remember the pixels under a moving object
       B.restore_region(:under, :x, :y), # then paint them back
 

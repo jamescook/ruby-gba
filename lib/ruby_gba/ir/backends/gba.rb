@@ -524,6 +524,7 @@ module RubyGBA
             color_list_holds: @sprite_drawing.method(:emit_color_list_holds),
             show_picture_group: @picture_group_copying.method(:emit_show_picture_group),
             present_objects: @sprite_drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
+            hide_sprites: @sprite_drawing.method(:emit_hide_sprites),
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
             beep: @audio.method(:emit_beep),
             noise: @audio.method(:emit_noise), wave: @audio.method(:emit_wave),
@@ -953,6 +954,7 @@ module RubyGBA
           @buffered.layout = layout
           @effects.layout = layout
           @sprite_drawing.layout = layout
+          @sprite_drawing.hides_sprites = program.walk.any? { |node| node.kind == :hide_sprites }
           @background_drawing.layout = layout
           # Fast ROM + prefetch, first, unless it's all raw or the caller asked to keep
           # the console's cautious power-on timing.
@@ -967,6 +969,7 @@ module RubyGBA
           @framebuffer.emit_clear_remembered_column_step # no stretched column has worked out a step yet
           @drawing.emit_late_pages_at_power_on # what the game's own screen does with a late page
           @picture_group_copying.emit_clear_groups_at_power_on # no picture group wanted or up yet
+          @sprite_drawing.emit_sprites_shown_at_power_on # no frame without sprites asked for yet
           emit_copy_hot_code_to_iwram unless @fast_funcs.empty?
           emit_call_power_on_swap # the scenes' own routines that fit side by side, the ones the game loop runs first
           # THE MIXER IS BROUGHT UP BEFORE THE INTERRUPTS ARE ARMED, and the order is load-bearing

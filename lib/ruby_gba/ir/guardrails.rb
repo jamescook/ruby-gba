@@ -279,6 +279,7 @@ require_relative "guardrails/frame_reach"
 require_relative "guardrails/tiled_display" # shared by the two tiled-screen checks below
 require_relative "guardrails/empty_tiled_screen"
 require_relative "guardrails/bitmap_draw_on_tiled"
+require_relative "guardrails/hide_sprites_on_bitmap"
 require_relative "guardrails/call_inside_area"
 require_relative "guardrails/screen_inside_scene"
 require_relative "guardrails/painted_picture_with_other_poses"
@@ -335,6 +336,7 @@ module RubyGBA
       BUILTIN_CHECKS = Ractor.make_shareable([
         Checks::EmptyTiledScreen.new,
         Checks::BitmapDrawOnTiled.new,
+        Checks::HideSpritesOnBitmap.new,
         Checks::CallInsideArea.new,
         Checks::FadeNeverLifted.new,
         Checks::TintNeverLifted.new,

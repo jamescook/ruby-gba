@@ -557,6 +557,14 @@ module RubyGBA
         operands toward: :option, amount: :value, under: :name, fraction_bits: :int, reaches: :option, area: :list
       end
 
+      # No sprite is drawn on the next frame drawn after this pass, and on the frame after that
+      # every one is drawn again as it would have been. Nothing about any sprite changes.
+      class HideSprites
+        include Node
+        kind :hide_sprites
+        category :draw
+      end
+
       class FillRect
         include Node
         kind :fill_rect

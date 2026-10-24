@@ -77,6 +77,7 @@ module RubyGBA
         fade: :whole_screen,
         tint: :whole_screen,
         pixelate: :whole_screen,
+        hide_sprites: :whole_screen,
 
         # nothing a layer has an opinion about: the display mode, a background's window,
         # and the painting the framework itself does to put a software sprite on screen
