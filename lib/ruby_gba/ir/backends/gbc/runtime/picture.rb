@@ -493,8 +493,7 @@ module RubyGBA
             # The rows' bends are copied last. The blank is the only time video memory can be
             # written, and a grid being put up takes as much of it as it can; the bends are work
             # memory, which can be written at any time, so they wait until the video memory is done
-            # with. Copied first, they used up the blank, and the grid's rows written after it
-            # were lost while the display was reading them.
+            # with: a grid row written once the blank is over is lost, as the display is reading.
             def emit_upload(asm, memory)
               h = Console::GBCHardware
               asm.label("rt_upload")
@@ -523,7 +522,7 @@ module RubyGBA
               asm.push(:af)
               asm.call(:nc, "rt_picture_cells") # once the grid is all up, the cells changed since
               asm.call("rt_paint_upload")
-              asm.call("rt_bends_copied")
+              asm.call("rt_bends_copy")
               asm.jump_relative(:c, "rt_upload_more")
               asm.pop(:af)
               asm.ret
@@ -586,24 +585,24 @@ module RubyGBA
               # The rest of the rows into BENDS, for the line interrupt to read, after the blank's
               # video memory (rt_upload). It keeps ahead of the display: a row is copied many times
               # over in the time the display draws one line. Flags as they were, for rt_upload.
-              asm.label("rt_bends_copied")
+              asm.label("rt_bends_copy")
               asm.push(:af)
               asm.load(:a, [memory[BENDING]])
               asm.and_a(:a)
-              asm.jump_relative(:z, "rt_bends_copied_done")
+              asm.jump_relative(:z, "rt_bends_copy_done")
               asm.load(:a, [memory[BENDS_FROM]])
               asm.load(:l, :a)
               asm.load(:a, [memory[BENDS_FROM] + 1])
               asm.load(:h, :a)
               asm.load(:de, memory[BENDS])
               asm.load(:b, Console::GBCHardware::SCREEN_HEIGHT)
-              asm.label("rt_bends_copied_row")
+              asm.label("rt_bends_copy_row")
               asm.load(:a, [:hli])
               asm.load([:de], :a)
               asm.inc(:de)
               asm.dec(:b)
-              asm.jump_relative(:nz, "rt_bends_copied_row")
-              asm.label("rt_bends_copied_done")
+              asm.jump_relative(:nz, "rt_bends_copy_row")
+              asm.label("rt_bends_copy_done")
               asm.pop(:af)
               asm.ret
 

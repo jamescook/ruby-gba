@@ -172,7 +172,7 @@ module RubyGBA
             def emit_screen_change(mode)
               painted = mode == :bitmap
               runtime_call("rt_screen", [Build.int(painted ? Runtime::Paint::PAINTED : Runtime::Paint::TILED)])
-              return if painted
+              return emit_bends_shown(nil) if painted # a painted screen has no background to bend
 
               always = @handover.always_up
               return if always.map_choices.empty? && always.scenery.empty?
@@ -600,7 +600,7 @@ module RubyGBA
               statement(Build.set(bend.row, rows.begin))
               @asm.label(row)
               bend.children.each { |child| statement(child) }
-              emit_bend_row(bend)
+              emit_store_row_offset(bend)
               statement(Build.add(bend.row, 1))
               return if rows.size == 1
 
@@ -623,7 +623,7 @@ module RubyGBA
             end
 
             # The row in the bend's variable kept in its table: the low byte of how far along.
-            def emit_bend_row(bend)
+            def emit_store_row_offset(bend)
               value(bend.row)
               @asm.load(:a, :e)
               @asm.push(:af)
