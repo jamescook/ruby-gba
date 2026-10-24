@@ -286,6 +286,10 @@ module RubyGBA
             # one a sprite draws with landed (see #place_changing_color_lists).
             @color_list_nodes = program.walk.select { |node| node.kind == :color_list }.to_h { |node| [node.name, node] }
             @color_lists = {}
+            # The sets of picture groups, and what the cartridge needs to bring each set's groups up
+            # (see GroupedPictures).
+            @grouped_pictures = GroupedPictures.new(program)
+            @picture_group_plans = {}
             # Each tile the game paints from a list, by its picture's name -> its run; and
             # where each run landed in video memory (see #note_painted_runs).
             runs = program.walk.select { |node| node.kind == :tile_run }
@@ -365,6 +369,9 @@ module RubyGBA
           # Does any scene own sprites of its own? Then a scene's sprite pictures are marked
           # as up or not as scenes take turns, even for a scene with nothing to send.
           def scene_art? = @scene_sends.each_value.any?(&:art)
+
+          # What the cartridge needs to bring each set of picture groups up, by the set's name.
+          attr_reader :picture_group_plans
 
           # Does any scene send a sprite colour table of its own?
           def scene_obj_palettes? = @scene_sends.each_value.any?(&:obj_palette)
@@ -1607,6 +1614,7 @@ module RubyGBA
             # fitted into memory below, so it is done once.
             cutter = PoseCutter.new(@bitmaps)
             @obj_pictures = nodes.to_h { |node| [node.name, sprite_pictures(node, cutter)] }
+            @grouped_pictures.place_pictures(@obj_pictures)
             # Which row each sprite is given, the ones of scenes never up together taking turns
             # at the same rows (see IR::SpriteRows). Weighed in pieces, since a picture drawn as
             # several objects takes a row for each.
@@ -1628,9 +1636,13 @@ module RubyGBA
             blobs = SpriteLayout::Blobs.new(data_blobs: @blobs, keep_plain: method(:keep_unpacked!))
             painted = nodes.select { |node| painted_sprite?(node) }.to_h { |node| [node.name, node.poses.first] }
             sets.reject! { |set| set.names.any? { |name| painted.key?(name) } } # nothing to give back
+            # ...and a sprite whose poses are copied in by their groups keeps its places: its
+            # pictures are already in sprite memory only while their groups are up.
+            sets.reject! { |set| set.sprites.any?(&:grouped?) }
             loop do
               @sprite_art = SpriteLayout.new(nodes: nodes, pictures: @obj_pictures, painted: painted,
-                                             one_frame: one_frame, blobs: blobs) do |pictures, placed|
+                                             one_frame: one_frame, blobs: blobs,
+                                             grouped: @grouped_pictures) do |pictures, placed|
                 object_record(pictures, slot: slot_of.fetch(pictures.name),
                                         affine_slot: affine_of[pictures.name], **placed)
               end
@@ -1659,6 +1671,17 @@ module RubyGBA
             @sprite_art.scene_art.each do |scene, sent|
               sent.each { |blob, *| keep_unpacked!(blob) }
               record_scene_send(scene, art: sent.reject { |blob, *| @pools_sending_poses.key?(blob) })
+            end
+            # A grouped picture is copied out of the cartridge as its group comes up, so it stays
+            # unpacked too.
+            @picture_group_plans = @grouped_pictures.copy_plans(@sprite_art.group_bases) do |blob, bytes|
+              @blobs[blob] = bytes
+              keep_unpacked!(blob)
+            end
+            # A scene whose only sprite pictures are grouped still puts something down as it takes
+            # over: the groups of the scene before.
+            @picture_group_plans.each_value do |plan|
+              record_scene_send(plan.scene, art: []) if plan.scene && scene_send(plan.scene).art.nil?
             end
           end
 
@@ -1704,7 +1727,8 @@ module RubyGBA
             smaller = sets.select { |set| set.can_keep_to_one_frame? && set.smaller_kept_to_one_frame? }
             blobs = SpriteLayout::Blobs.new(data_blobs: {}, keep_plain: ->(_name) {})
             SpriteLayout.new(nodes: nodes, pictures: @obj_pictures, painted: painted,
-                             one_frame: Set.new(smaller.flat_map(&:names)), blobs: blobs) { |_pictures, placed| placed }
+                             one_frame: Set.new(smaller.flat_map(&:names)), blobs: blobs,
+                             grouped: @grouped_pictures) { |_pictures, placed| placed }
                         .screens
           end
 
@@ -2316,6 +2340,8 @@ module RubyGBA
             encoded = node.poses.each_with_index.map do |image, k|
               boxes[k].map { |box| cutter.encode(@bitmaps.fetch(image), place, box) } unless mirrors[k]
             end
+            in_set = grouped_pose_sets(node, mirrors)
+            grouped = {}
             stored = +"".b
             starts = []
             repeats = 0
@@ -2323,6 +2349,16 @@ module RubyGBA
             node.poses.each_index do |k|
               if mirrors[k]
                 starts << starts[mirrors[k].source].dup # point it at the pose it mirrors and store nothing
+                grouped[k] = grouped[mirrors[k].source] if grouped.key?(mirrors[k].source)
+                next
+              end
+              if in_set[k]
+                # A grouped pose keeps its pieces to itself, each distinct one once, counted from
+                # its own start: they are copied in as one of its groups comes up.
+                own = +"".b
+                mine = {}
+                starts << encoded[k].map { |bytes| mine[bytes] ||= (own.bytesize / 32).tap { own << bytes } }
+                grouped[k] = GroupedPose.new(set: in_set[k], bytes: own, pieces: encoded[k].length)
                 next
               end
               starts << encoded[k].map do |bytes|
@@ -2340,7 +2376,36 @@ module RubyGBA
             SpritePictures.new(node: node, place: place, boxes: boxes, mirrors: mirrors, encoded: encoded,
                                stored: stored, starts: starts, repeats: repeats,
                                width: cut[:width], height: cut[:height],
-                               animates: const_int(node.pose).nil? && node.poses.length > 1)
+                               animates: const_int(node.pose).nil? && node.poses.length > 1, grouped: grouped)
+          end
+
+          # THE SET OF PICTURE GROUPS EACH POSE OF A SPRITE IS COPIED IN BY, by the pose's number,
+          # for the poses that are.
+          #
+          # Two kinds of sprite keep every picture whatever its groups: one that turns or resizes,
+          # whose draw finds its poses one fixed stride apart, and one showing a picture the game
+          # paints. And a pose another pose of the sprite is drawn from, reversed, is grouped only
+          # when that pose is in exactly the same groups: the build can find a picture that is
+          # another one mirrored without the game saying so, and the two can be in different rooms.
+          def grouped_pose_sets(node, mirrors)
+            return {} unless @grouped_pictures&.any?
+            return {} if object_transformed?(node) || painted_sprite?(node)
+
+            node.poses.each_with_index.each_with_object({}) do |(picture, k), sets|
+              next if mirrors[k]
+
+              set = @grouped_pictures.set_holding(node, picture)
+              next unless set
+
+              groups = set.groups_holding(picture)
+              reversed = node.poses.each_index.select { |other| mirrors[other]&.source == k }
+              next unless reversed.all? do |other|
+                @grouped_pictures.set_holding(node, node.poses[other]) == set &&
+                set.groups_holding(node.poses[other]) == groups
+              end
+
+              sets[k] = set.name
+            end
           end
 
           # The record the drawing reads, from what either layout worked out. +starts+ is where

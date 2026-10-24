@@ -5,6 +5,8 @@ require_relative "gba/sprite" # what the build worked out about one sprite, for 
 require_relative "gba/pose_cutter" # how a sprite's picture is cut into the rectangles the console draws
 require_relative "gba/sprite_pictures" # one sprite's pictures, and the sets of them sprites share
 require_relative "gba/object_art" # where the sprites' pictures go in sprite memory
+require_relative "gba/picture_group_places" # ...and a scene's grouped pictures, by what can be up together
+require_relative "gba/grouped_pictures" # ...and what bringing each set's groups up takes
 require_relative "gba/sprite_layout" # ...and one attempt at fitting them all into it
 require_relative "gba/pose_sends" # ...and a pool's poses, sent the first time one is shown
 require_relative "gba/placed_fade" # a fade that sits at a place in the stack, and the twins holding it off
@@ -26,6 +28,7 @@ require_relative "gba/blob_upload" # copying data out of the cartridge into vide
 require_relative "gba/screen_effects" # the camera, fades and tints: the whole picture, not what is in it
 require_relative "gba/sprite_repeats" # which sprites are one sprite written out several times
 require_relative "gba/sprite_drawing" # writing the rows of the console's sprite table
+require_relative "gba/picture_group_copying" # ...and bringing a set of picture groups' groups up between frames
 require_relative "gba/map_streaming" # a map bigger than the grid, brought into view a strip at a time
 require_relative "gba/background_drawing" # putting background layers up, and changing them as the game runs
 require_relative "gba/framebuffer"
@@ -454,6 +457,10 @@ module RubyGBA
                                  uploads: @uploads, sprite_drawing: @sprite_drawing,
                                  background_drawing: @background_drawing, backing_info: method(:backing_info),
                                  call_cold_routine: method(:emit_call_cold_routine), frames: @frames)
+          @picture_group_copying = PictureGroupCopying.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
+                                                           scene_entry: @drawing.scene_entry)
+          @sprite_drawing.picture_group_copying = @picture_group_copying
+          @drawing.picture_group_copying = @picture_group_copying
           # Every value kind's handler, registered once in one place — see {Lowering}.
           @lowering.values(
             int: @expressions.method(:eval_int), var_ref: @expressions.method(:eval_var_ref),
@@ -515,9 +522,7 @@ module RubyGBA
             copy_owed_tiles: @background_drawing.method(:emit_copy_owed_tiles),
             background_colors: @background_drawing.method(:emit_background_colors),
             color_list_holds: @sprite_drawing.method(:emit_color_list_holds),
-            # Every picture is kept in sprite memory for its whole scene, groups or none, so there
-            # is nothing to bring in yet.
-            show_picture_group: Lowering::NOTHING,
+            show_picture_group: @picture_group_copying.method(:emit_show_picture_group),
             present_objects: @sprite_drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
             beep: @audio.method(:emit_beep),
@@ -895,6 +900,12 @@ module RubyGBA
           @fading = IR::Fading.resolve(program)
           @layer_blend.note_display_fades(@fading, @scene_blend)
           prepare_still_objects(program) if @has_objects
+          # Each set of picture groups brings its groups up with a routine of its own, so a profile
+          # can say what that cost (see PictureGroupCopying).
+          @picture_group_copying.plans = @screen.picture_group_plans
+          @screen.picture_group_plans.each_value do |plan|
+            @functions.define_generated_func(plan.routine) { @picture_group_copying.emit_routine(plan) }
+          end
           # The runs of the sprite table drawn in an order the program works out, each given a
           # copy in work memory (see SpriteDrawing::DrawRun).
           @draw_runs = if @has_objects
@@ -955,6 +966,7 @@ module RubyGBA
           emit_copy_divide_routines_to_iwram # a no-op when neither routine was reserved
           @framebuffer.emit_clear_remembered_column_step # no stretched column has worked out a step yet
           @drawing.emit_late_pages_at_power_on # what the game's own screen does with a late page
+          @picture_group_copying.emit_clear_groups_at_power_on # no picture group wanted or up yet
           emit_copy_hot_code_to_iwram unless @fast_funcs.empty?
           emit_call_power_on_swap # the scenes' own routines that fit side by side, the ones the game loop runs first
           # THE MIXER IS BROUGHT UP BEFORE THE INTERRUPTS ARE ARMED, and the order is load-bearing

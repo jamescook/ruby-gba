@@ -28,9 +28,10 @@ module RubyGBA
             @uploads = uploads
             @call_cold_routine = call_cold_routine
             @layout = nil
+            @picture_group_copying = nil
           end
 
-          attr_writer :layout
+          attr_writer :layout, :picture_group_copying
 
           def placed_fade = @layout.screen.placed_fade
 
@@ -114,6 +115,9 @@ module RubyGBA
               @uploads.emit_dma_blob(obj.tiles, OBJ_TILE_BASE + (obj.tile_index * 32), obj.tile_units * 16) # tiles -> sprite memory
             end
             emit_reset_resident_frames(@layout.screen.objects.each_value)
+            # ...and no group's pictures are in sprite memory, so the groups the game says are up
+            # are copied in again before the sprites are next written.
+            @picture_group_copying.emit_forget_every_set_up
             emit_boot_object_windows
             @palette_tint.emit_tint_reset_if_tinting # the table now holds the originals again
           end
@@ -209,8 +213,12 @@ module RubyGBA
           # with no tearing. A game playing recorded sound keeps that: its mixing waits for
           # the display to start the next picture, so it never takes the gap from this. The console composites the sprites over the background for
           # free — there's nothing to erase, unlike a software sprite.
+          #
+          # The groups the game says are up are brought in first, so a sprite showing one of their
+          # pictures draws it on the frame it first shows it (see PictureGroupCopying).
           def emit_present_objects(node)
             by_scene = @layout.scene_sprites
+            @picture_group_copying.emit_calls_to_routines
             emit_count_lending_frame
             emit_hide_scene_rows_on_change
             emit_write_sprite_rows(node.names - @layout.movement.still - by_scene.flat_map(&:names))

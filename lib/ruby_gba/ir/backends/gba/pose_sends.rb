@@ -67,7 +67,9 @@ module RubyGBA
 
           # The sprites of one scene that show one set of pictures, group by group.
           def showing_one_set
-            @objects.select { |_name, obj| obj.scene && obj.frames.nil? }
+            # A sprite whose poses are copied in by their groups has its pictures brought in that
+            # way instead.
+            @objects.select { |name, obj| obj.scene && obj.frames.nil? && !@pictures.fetch(name).grouped? }
                     .group_by { |_name, obj| [obj.scene, obj.tile_index] }
                     .values.map { |pairs| pairs.map(&:first) }
           end

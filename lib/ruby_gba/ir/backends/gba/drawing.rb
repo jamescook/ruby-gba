@@ -68,6 +68,10 @@ module RubyGBA
           # that touches what the scene put up (see PaletteTint#emit_recolored_banks).
           attr_reader :scene_entry
 
+          # What brings the sets of picture groups up, made once this has made the notes above
+          # (see PictureGroupCopying); a scene taking over puts its own sets down.
+          attr_writer :picture_group_copying
+
           # Say no scene's scenery or sprite pictures are up (see SceneEntry#emit_clear_used_markers).
           def emit_clear_used_scene_markers = @scene_entry.emit_clear_markers_at_power_on
 
@@ -655,7 +659,8 @@ module RubyGBA
             arrival = @layout.screen.handover.arrival(name)
             painted = arrival.painted_pictures
             pools = @layout.screen.pools_sending_poses_in(name)
-            if art.empty? && rooms.empty? && colors.nil? && painted.empty? && pools.empty?
+            owns_groups = @picture_group_copying.sets_of?(name)
+            if art.empty? && rooms.empty? && colors.nil? && painted.empty? && pools.empty? && !owns_groups
               # A scene with no sprite art of its own normally leaves the last scene's marked as
               # loaded, which is right: nothing overwrote it. A painted picture is the exception,
               # since its list can change while its scene is away and it goes up from the list
@@ -671,6 +676,8 @@ module RubyGBA
               art.each { |blob, at, units| @uploads.emit_dma_blob(blob, SpriteDrawing::OBJ_TILE_BASE + (at * 32), units * 16) }
               @sprite_drawing.emit_reset_resident_frames(rooms)
               pools.each { |pool| @sprite_drawing.emit_forget_poses_sent(pool) }
+              @picture_group_copying.emit_forget_sets_of(name) # copied in once the scene says which it wants
+
               # A picture the game paints goes up from its list as it is now: the scene before
               # used the same memory (see IR::SceneHandover).
               painted.each { |run| @background_drawing.emit_copy_tiles(Build.copy_tiles(run.name)) }

@@ -100,6 +100,8 @@ module RubyGBA
                                   words: ->(_) { "hiding the sprites of a scene that went" }),
         scene_loop_work: Kind.new(spelling: "__loop_for_scene_%{scene}__%{number}", parts: { scene: ANY, number: "\\d+" },
                                   words: ->(parts) { "the game loop's own work for scene :#{parts[:scene]}" }),
+        picture_groups: Kind.new(spelling: "__picture_groups_%{set}", parts: { set: ANY },
+                                 words: ->(parts) { "bringing in the pictures of picture_groups :#{parts[:set]}" }),
         still_sprites: Kind.new(spelling: "__still_objects", parts: {},
                                 words: ->(_) { "writing the sprites nothing moves" }),
         tile_run_tile: Kind.new(spelling: "__tile_run_%{run}__%{number}", parts: { run: ANY, number: "\\d+" },

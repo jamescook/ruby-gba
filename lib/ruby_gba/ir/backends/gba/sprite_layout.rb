@@ -78,9 +78,15 @@ module RubyGBA
           # +painted+ is each sprite showing a picture the game paints from a list, by name, with
           # that picture's name. Such a sprite gets a room of its own the list is copied into,
           # and every sprite showing the same painted picture shares it.
-          def initialize(nodes:, pictures:, one_frame:, blobs:, painted: {}, &record)
+          #
+          # +grouped+ is the game's sets of picture groups (see GroupedPictures). Each set's room
+          # is kept on the screen it belongs to, ahead of that screen's sprites, and a grouped
+          # pose is drawn from its place there.
+          def initialize(nodes:, pictures:, one_frame:, blobs:, painted: {}, grouped: nil, &record)
             @art = ObjectArt.new(blobs.data_blobs)
             @pictures = pictures
+            @grouped = grouped
+            @group_bases = {} # a set of picture groups -> the unit its room starts at
             @painted = painted
             @painted_rooms = {} # painted picture -> the unit its room starts at
             @one_frame = one_frame
@@ -97,7 +103,7 @@ module RubyGBA
             lay_out(nodes)
           end
 
-          attr_reader :sprites, :scene_art, :repeats, :shared_rooms
+          attr_reader :sprites, :scene_art, :repeats, :shared_rooms, :group_bases
 
           def fits?(capacity) = bytes <= capacity
           def bytes = @art.bytes
@@ -128,6 +134,7 @@ module RubyGBA
           # gets a room of its own (and the copy is told where, see ScreenLayout::PaintedRun).
           def lay_out(nodes)
             by_scene = nodes.group_by(&:scene)
+            reserve_group_rooms(nil)
             place_screen(by_scene[nil] || [])
             @art.finish_resident_art
             resident_rooms = @painted_rooms.dup
@@ -136,6 +143,7 @@ module RubyGBA
 
               @art.begin_scene
               @painted_rooms = resident_rooms.dup
+              reserve_group_rooms(scene)
               place_screen(in_scene)
               @scene_bytes[scene] = @art.bytes_so_far
               @scene_art[scene] = @art.end_scene
@@ -173,6 +181,8 @@ module RubyGBA
                 @record.call(pictures, one_frame_placement(pictures))
               elsif (picture = @painted[node.name])
                 @record.call(pictures, painted_placement(pictures, picture))
+              elsif pictures.grouped?
+                @record.call(pictures, grouped_placement(pictures))
               else
                 @repeats += pictures.repeats
                 blob, unit = @art.place(node.name, pictures.stored, narrow: pictures.place.narrow?)
@@ -181,6 +191,33 @@ module RubyGBA
                   tiles: blob, tile_units: pictures.stored_bytes / 32, tile_index: unit }
                   .then { |placed| @record.call(pictures, placed) }
               end
+          end
+
+          # THE ROOM OF EACH SET OF PICTURE GROUPS THIS SCREEN OWNS, before any of its sprites: room
+          # for nothing is kept for nothing.
+          def reserve_group_rooms(scene)
+            @grouped&.rooms_on(scene).each do |name, units|
+              @group_bases[name] = @art.reserve(units, narrow: false) if units.positive?
+            end
+          end
+
+          # A SPRITE SOME OF WHOSE POSES ARE COPIED IN BY THEIR GROUPS. Its other poses are kept
+          # the ordinary way, and a grouped pose's pieces point at the place its set gave it, so
+          # the poses are not an even stride apart and the sprite reads a table of them. Every
+          # number in that table counts from the sprite's own first tile, so a grouped piece is
+          # that far back from its place.
+          def grouped_placement(pictures)
+            @repeats += pictures.repeats
+            blob, unit = pictures.stored.empty? ? [nil, 0] : @art.place(pictures.name, pictures.stored, narrow: pictures.place.narrow?)
+            starts = pictures.starts.each_with_index.map do |list, k|
+              pose = pictures.grouped[k]
+              next list unless pose
+
+              along = @group_bases.fetch(pose.set) + @grouped.offset(pose.set, pose.bytes) - unit
+              list.each_with_index.map { |at, piece| piece < pose.pieces ? at + along : at }
+            end
+            { starts: starts, alike: false, per_pose: 0, tiles: blob, tile_units: pictures.stored_bytes / 32,
+              tile_index: unit }
           end
 
           # THE ROOM A PAINTED PICTURE IS COPIED INTO, out of the game's list rather than the
