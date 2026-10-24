@@ -234,7 +234,7 @@ class TestCLI < Minitest::Test
   def test_explain_is_no_longer_a_command
     out, status = cli("explain", "demo.rb", dir: Dir.tmpdir)
     refute status.success?
-    assert_match(/Could not find command "explain"/, out)
+    assert_match(/There is no command "explain"/, out)
   end
 
   def test_profile_prints_the_report_without_building_a_cartridge

@@ -6,6 +6,14 @@ require_relative "../ruby_gba"
 module RubyGBA
   # Thor is required here and in bin/ruby-gba only — never by the library — so
   # building a ROM in code or in a test does not depend on it.
+  #
+  # THE HELP IS WRITTEN OUT BY HAND, one page a command, beside the options it explains. Thor can
+  # make a help page from each option's own line, and what it makes is one line an option, as
+  # wide as the longest, with every option of every format in one list and the explaining in a
+  # paragraph after. Nobody reads that. A page here is what a person wants first, the commands
+  # they came to type, and then the options in groups, short, in 80 columns. The class refuses to
+  # load if a page leaves out an option its command takes (#refuse_undocumented_options!), so a
+  # new option cannot go unexplained.
   class CLI < Thor
     # Without this, Thor reports a failed command but still exits 0.
     def self.exit_on_failure?
@@ -19,99 +27,287 @@ module RubyGBA
     DRIFTED = 1
     NOT_COMPARED = 2
 
+    # The words that ask for help, wherever on the line they are.
+    HELP_FLAGS = %w[--help -h].freeze
+
+    # Each command's help page, by the command's name: filled as each command is declared
+    # below, and frozen after the last.
+    HELP_PAGES = {}
+
+    def self.help_page(command, text)
+      HELP_PAGES[command] = text.freeze
+    end
+
     def self.start(given_args = ARGV, config = {})
-      super(given_args, config.merge(debug: true))
+      args = route_help_flags(given_args)
+      args = checked_args(args) unless args.first == "help"
+      super(args, config.merge(debug: true))
     rescue Thor::Error => e
       raise if ENV["THOR_DEBUG"] == "1"
 
-      warn e.message
+      # Thor raises exactly this class, and none of its kinds, when a command is given too few
+      # words or too many; its kinds (a value an option does not take) say something worth keeping.
+      warn(e.instance_of?(Thor::InvocationError) ? wrong_words_message(args) : e.message)
       exit(given_args.first == "compare" ? NOT_COMPARED : 1)
     end
 
-    # The options `play` and `compare` both take: what says which buttons to press, and the
-    # settings a game file is built with.
-    def self.options_for_playing(tape:)
-      option :script, banner: "PATH", desc: "A Ruby file that declares playthroughs with RubyGBA.playthrough"
-      option :playthrough, banner: "NAME", desc: "Which playthrough in the script file to play, when it declares several"
-      option :tape, banner: "PATH", desc: tape
-      option :set, type: :array, banner: "NAME=VALUE", default: [],
-                   desc: "Tell every game file a setting it reads with `setting` (for example --set floors=1)"
+    # `ruby-gba`, `ruby-gba --help` and `ruby-gba build --help` become `ruby-gba help` and
+    # `ruby-gba help build`. Thor would take the --help after a command for an argument, and
+    # build would go looking for a game file of that name. A word after `--` is never a flag.
+    def self.route_help_flags(args)
+      asked = args.take_while { |word| word != "--" }
+      return ["help"] if asked.empty? || HELP_FLAGS.include?(asked.first)
+      return ["help", asked.first] if asked.intersect?(HELP_FLAGS)
+
+      args
     end
 
-    desc "build GAME_FILE", "Build a game file into a .gba cartridge"
-    long_desc <<~TEXT
-      Build the game declared in GAME_FILE into a Game Boy Advance cartridge. The file
-      declares its game with:
+    # The list of commands: `ruby-gba help`, and `ruby-gba help help`.
+    def self.help(_shell, _subcommand = false)
+      $stdout.print COMMAND_LIST
+    end
 
-        RubyGBA.game "NAME" do
-          # ...the game...
+    # One command's page: `ruby-gba help build`.
+    def self.command_help(_shell, name)
+      return help(nil) if name == "help"
+      raise Thor::Error, no_command_message(name) unless HELP_PAGES.key?(name)
+
+      $stdout.print HELP_PAGES.fetch(name)
+    end
+
+    def self.no_command_message(name)
+      meant = DidYouMean::SpellChecker.new(dictionary: HELP_PAGES.keys).correct(name).first
+      "There is no command \"#{name}\".#{" Did you mean #{meant}?" if meant} The commands are: " \
+        "#{HELP_PAGES.keys.join(', ')}. Run ruby-gba --help to see what each one does."
+    end
+
+    # What a command and its options say, checked before Thor sees them, and given back with each
+    # option's value joined to it (-o out.gba becomes --output=out.gba). Thor hands an option it
+    # does not know to the command as a word, so a misspelled --format became a file name, or was
+    # dropped without a word and a cartridge built where a web page was asked for; it takes an
+    # option given no value for its own name, so -o alone wrote a file called "output"; and it
+    # takes a value that starts with a dash for an option.
+    def self.checked_args(args)
+      name = args.first
+      raise Thor::Error, no_command_message(name) unless HELP_PAGES.key?(name)
+
+      options = options_by_switch(all_commands.fetch(name))
+      words = args.drop(1)
+      checked = [name]
+      until words.empty?
+        word = words.shift
+        if word == "--"
+          checked.push(word, *words)
+          break
+        end
+        unless switch?(word)
+          checked << word
+          next
         end
 
-      The .gba is written next to the game file, named from the title, unless you pass
-      --output.
+        switch, value = word.split("=", 2)
+        switch = switch.tr("_", "-")
+        option = options[switch] or refuse_unknown_option!(args, word, switch, options.keys)
+        if value || option.boolean? || option.type == :array
+          checked << word
+          next
+        end
 
-      --format=ir emits the game's intermediate representation instead of a cartridge:
-      a standalone Ruby class that reconstructs the IR and lowers it to machine code,
-      nothing more. It's paged to your terminal, or written to --output like the .gba
-      would be.
+        given = words.first
+        if given.nil? || options.key?(given.split("=", 2).first)
+          raise Thor::Error, "#{switch} needs a value. Write it as: #{switch} #{option.banner}. " \
+                             "Run ruby-gba #{name} --help to see the options."
+        end
+        checked << "#{option.switch_name}=#{words.shift}"
+      end
+      checked
+    end
 
-      --format=native builds the game as a program for this computer instead: one file
-      with a window, the keyboard as the console's buttons (mGBA's keys), and nothing
-      else to install. It is written next to the game file, named from the title with no
-      extension. It needs zig (`mise install`), and the first one takes a while because
-      it compiles SDL. --target builds it for another computer instead: windows, linux
-      or linux-arm. Those programs are built here and have not been run on those systems.
+    # A word written the way an option is: one or two dashes, then a letter.
+    def self.switch?(word) = word.match?(/\A--?[a-zA-Z]/)
 
-      --format=web builds the game as one web page instead: open it in a browser and the
-      game plays there, drawn in the page, with the same keys. It is written next to the
-      game file, named from the title with .html on the end, and needs nothing else.
-      A step only the console can run (raw instructions given with `entry`) cannot be
-      built for the web; the build names each such line.
+    # Every way a command's options can be written, and the option each one is: --format, -o,
+    # and --no-stats and --skip-stats for an option that is on or off.
+    def self.options_by_switch(command)
+      command.options.values.each_with_object({}) do |option, found|
+        plain = option.switch_name
+        found[plain] = option
+        option.aliases.each { |short| found[short] = option }
+        next unless option.boolean?
 
-      A game that saves keeps its save in a file, in the folder your computer has for
-      each program's own files. To keep it in a different file, start the program with
-      --save-file PATH. The file holds the bytes of a cartridge's save memory, so a .sav
-      file from an emulator starts the same game there.
+        found["--no-#{plain.delete_prefix('--')}"] = option
+        found["--skip-#{plain.delete_prefix('--')}"] = option
+      end
+    end
 
-      The program's window has a menu over the picture (move the mouse to see it, or
-      press F1) and keys of its own that the game never sees: P pauses, N steps one
-      frame while paused, Tab fast forwards while held, F11 is fullscreen, M mutes and
-      F3 shows or hides the frame rate. The menu changes the window's size, the volume,
-      which key and gamepad button is each console button, and those hotkeys. What it
-      changes is kept in a small text file you can edit, `settings.txt`, in the same
-      folder as the save: one in a folder for every game and one for each game, whose
-      settings win. --settings-file PATH keeps them in a different file.
+    # Other names people reach for, for what a build makes, and the option that says it.
+    NATIVE = ["--format=native", "a program for this computer"].freeze
+    WEB = ["--format=web", "a web page"].freeze
+    CARTRIDGE = [nil, "a .gba cartridge"].freeze
+    FORMAT_FLAGS = {
+      "--native" => NATIVE, "--desktop" => NATIVE, "--web" => WEB, "--html" => WEB,
+      "--gba" => CARTRIDGE, "--cartridge" => CARTRIDGE, "--rom" => CARTRIDGE
+    }.freeze
+
+    def self.refuse_unknown_option!(args, word, switch, known)
+      name = args.first
+      said = "ruby-gba #{name} has no option #{switch}."
+      if name == "build" && FORMAT_FLAGS.key?(switch)
+        option, what = FORMAT_FLAGS.fetch(switch)
+        line = ["ruby-gba", *args].filter_map { |part| part == word ? option : part }.join(" ")
+        raise Thor::Error, "#{said} To build #{what}, write:\n  #{line}"
+      end
+
+      meant = DidYouMean::SpellChecker.new(dictionary: known).correct(switch).first
+      said += " Did you mean #{meant}?" if meant
+      said += " To choose what is built, use --format game, native or web." if name == "build"
+      raise Thor::Error, "#{said} Run ruby-gba #{name} --help to see the options."
+    end
+
+    # A command given too few words, or too many: how it is written, in place of Thor's
+    # "was called with arguments". The usual way to get there is an option that takes several
+    # words (--set, --keys) written before the game file, which it then takes as one of them, so
+    # that is said, with the line put right.
+    def self.wrong_words_message(args)
+      name = args.first
+      command = all_commands.fetch(name)
+      wanted = command.usage.split.drop(1)
+      plain = wanted.size == 1 ? "one #{wanted.first}" : wanted.join(" and ")
+      said = "ruby-gba #{name} takes #{plain}. Write it as: ruby-gba #{command.usage} [options]."
+      taken = words_taken_by_lists(args, command, wanted.size)
+      if taken
+        list, words = taken
+        line = ["ruby-gba", name, *words, *(args.drop(1) - words)].join(" ")
+        said = "#{list} took #{words.join(' ')}, since it takes every word after it. Put #{plain} first:\n  #{line}"
+      end
+      "#{said}\nRun ruby-gba #{name} --help to see more."
+    end
+
+    # The option that takes several words and the words it took that were meant for the command,
+    # when that is what happened; nil otherwise.
+    def self.words_taken_by_lists(args, command, wanted)
+      lists = command.options.values.select { |option| option.type == :array }.map(&:switch_name)
+      at = args.index { |word| lists.include?(word) } or return nil
+      before = args[1...at].reject { |word| switch?(word) }
+      missing = wanted - before.size
+      run = args.drop(at + 1).take_while { |word| !switch?(word) }
+      return nil unless missing.positive? && run.size > missing
+
+      [args[at], run.last(missing)]
+    end
+
+    # A page that leaves out an option its command takes stops the program loading, so the
+    # tests catch it the first time anything runs the command. An option counts as explained
+    # where its whole name is on the page: --save is not explained by --save-file.
+    def self.refuse_undocumented_options!
+      HELP_PAGES.each do |name, page|
+        missing = all_commands.fetch(name).options.values.map(&:switch_name).reject do |switch|
+          page.match?(/(?<![\w-])#{Regexp.escape(switch)}(?![\w-])/)
+        end
+        raise "The help page for ruby-gba #{name} does not explain #{missing.join(', ')}." unless missing.empty?
+      end
+      # help and tree are Thor's own: help prints these pages, and tree is refused as a command
+      # that is not there.
+      undescribed = all_commands.keys - HELP_PAGES.keys - %w[help tree]
+      raise "These commands have no help page: #{undescribed.join(', ')}." unless undescribed.empty?
+    end
+
+    COMMAND_LIST = <<~TEXT
+      Usage: ruby-gba COMMAND [options]
+
+      Make a game:
+        ruby-gba new NAME              Write a starter game to NAME.rb.
+        ruby-gba build GAME_FILE       Build a .gba cartridge, a program for this
+                                       computer, or a web page.
+        ruby-gba preview GAME_FILE     Play the game in a browser. Reload the page
+                                       to build it again.
+
+      Check a game:
+        ruby-gba profile GAME_FILE     Run the game and report what it costs.
+        ruby-gba play CARTRIDGE        Play a script of button presses on a game.
+        ruby-gba compare FIRST SECOND  Play two games on the same presses and say
+                                       where their screens differ.
+        ruby-gba inspect ROM_FILE      Print a .gba's header and first instructions.
+
+      Run ruby-gba COMMAND --help to see a command's options.
     TEXT
-    option :output, aliases: "-o", banner: "PATH",
-                    desc: "Where to write the .gba, the IR under --format=ir, the program under --format=native, " \
-                          "or the page under --format=web (default: beside the game file, named from its title; " \
-                          "the pager for IR)"
-    option :format, banner: "NAME", default: "game",
-                    desc: "What to emit: game (a .gba cartridge), ir (a standalone Ruby class holding the IR), " \
-                          "native (a program for this computer), or web (a page that plays it in a browser)"
-    option :profile, type: :boolean, default: false,
-                     desc: "Also run the game and report what the build made and what it cost (see `profile`)"
-    option :stats, type: :boolean, default: false,
-                   desc: "Print how far asset packing shrank the cartridge, and what is kept in quick memory"
-    option :scene, banner: "NAME",
-                   desc: "With --profile, measure this scene, holding the game there"
-    option :keys, type: :array, banner: "BUTTON", default: [],
-                  desc: "With --profile, hold these buttons while measuring"
-    option :set, type: :array, banner: "NAME=VALUE", default: [],
-                 desc: "Tell the game a setting it reads with `setting` (for example --set floors=1)"
-    option :target, banner: "COMPUTER",
-                    desc: "With --format=native, build for another computer: windows, linux or linux-arm"
-    option :template, banner: "FILE",
-                      desc: "With --format=web, write the page from this .html.erb template; it must have <%= game %>"
-    option :js, default: "page", enum: %w[page module script],
-                desc: "With --format=web, what to write: page (one HTML page that plays the game), module " \
-                      "(an ES module exporting createGame, for a page of your own) or script (a classic script " \
-                      "that puts createGame on window.RubyGBA)"
-    option :global, banner: "NAME",
-                    desc: "With --js=script, the name on window.RubyGBA the game is put under (the file's own name)"
-    option :data, default: "inline", enum: %w[inline separate],
-                  desc: "With --format=web, where the game's big tables go: inline (in the one file, which opens " \
-                        "from a disk) or separate (a .data file beside it, fetched when the game starts; serve it)"
+
+    # The words for --set, the same on every command that takes it.
+    SET = "--set NAME=VALUE ...     Values for the game's `setting` lines."
+
+    # The words for the buttons --keys holds.
+    BUTTONS = RubyGBA::IR::Buttons::NAMES.join(" ")
+
+    # The words for what to press, the same on `play` and `compare`.
+    PRESSES = <<~TEXT.chomp
+      --script PATH            The script file.
+      --playthrough NAME       Which playthrough, when the script has several.
+      --tape PATH              Play this tape, in place of a script.
+    TEXT
+
+    desc "build GAME_FILE", "Build a .gba cartridge, a program for this computer, or a web page"
+    help_page "build", <<~TEXT
+      Usage: ruby-gba build GAME_FILE [--format game|native|web] [options]
+
+      Build the game in GAME_FILE, a Ruby file with RubyGBA.game "NAME" do ... end
+      in it. What is built goes beside GAME_FILE, named from the game's title.
+
+      Examples:
+        ruby-gba build game.rb                    a .gba cartridge
+        ruby-gba build game.rb --format=native    a program for this computer
+        ruby-gba build game.rb --format=web       a web page that plays the game
+        ruby-gba build game.rb -o roms/pong.gba   a cartridge, written to roms/
+        ruby-gba build game.rb --set floors=3     with `setting :floors` as 3
+
+      Put GAME_FILE before --set and --keys: they take every word after them.
+
+      Options:
+        -o, --output PATH        Where to write what is built.
+        --format FORMAT          game, native or web. Default: game.
+        #{SET}
+
+      Measuring (see ruby-gba profile --help):
+        --stats                  Say how far packing shrank the pictures and
+                                 sounds, and what is kept in quick memory.
+        --profile                Run the cartridge and report what it costs.
+        --scene NAME             Profile this scene. Turns on --profile.
+        --keys BUTTON ...        Profile with these buttons held. Turns on
+                                 --profile. The buttons are:
+                                 #{BUTTONS}
+
+      --format native, a program for this computer:
+        --target COMPUTER        windows, linux or linux-arm. Default: this
+                                 computer. Not tested on those systems.
+        Needs zig 0.17. Run the program with --help to see its keys and options.
+
+      --format web, a web page:
+        --js KIND                page, module or script. Default: page.
+                                 page: one HTML file that plays the game.
+                                 module: an ES module that exports createGame.
+                                 script: a script that puts createGame on
+                                 window.RubyGBA.
+        --global NAME            With --js script: its name on window.RubyGBA.
+                                 Default: the file's name.
+        --template FILE          An .html.erb file with <%= game %> in it, to
+                                 make the page from.
+        --data WHERE             inline or separate. Default: inline.
+                                 separate: the game's big tables go in a .data
+                                 file beside the page, which must be served.
+
+      --format ir prints the game's IR as Ruby, for work on ruby-gba itself.
+    TEXT
+    option :output, aliases: "-o", banner: "PATH"
+    option :format, banner: "NAME", default: "game"
+    option :profile, type: :boolean, default: false
+    option :stats, type: :boolean, default: false
+    option :scene, banner: "NAME"
+    option :keys, type: :array, banner: "BUTTON", default: []
+    option :set, type: :array, banner: "NAME=VALUE", default: []
+    option :target, banner: "COMPUTER"
+    option :template, banner: "FILE"
+    option :js, default: "page", enum: %w[page module script]
+    option :global, banner: "NAME"
+    option :data, default: "inline", enum: %w[inline separate]
     def build(game_file)
       refuse_web_options_out_of_place!
       case options[:format]
@@ -127,48 +323,43 @@ module RubyGBA
       raise Thor::Error, e.message
     end
 
-    desc "profile GAME_FILE", "Report what the build made of the game, and what it cost when it ran"
-    long_desc <<~TEXT
-      Build the game in GAME_FILE and report on it in two halves.
+    desc "profile GAME_FILE", "Run the game and report what it costs"
+    help_page "profile", <<~TEXT
+      Usage: ruby-gba profile GAME_FILE [options]
 
-      First what the BUILD made: how big each of your routines came out, which ones fit in
-      the console's quick memory and which missed, what a routine that missed wanted and
-      what was left when its turn came. None of that can be recovered from a running
-      cartridge — by then the decisions are made and the evidence is gone.
+      Build the game in GAME_FILE, run the cartridge in an emulator, and report
+      two things: what the build made (how big each routine is, and which ones
+      fit in the console's quick memory), and where the frames went while it ran
+      (the frame rate, and how much of each frame was left over).
 
-      Then what it COST: the game is run, and this reports which of your routines the
-      console really spent its frames in, the frame rate it produced, and how much of each
-      frame was left over. Nothing here is predicted, so nothing here can be wrong about a
-      loop nobody could see through.
+      Examples:
+        ruby-gba profile game.rb
+        ruby-gba profile game.rb --keys right a     with right and A held
+        ruby-gba profile game.rb --scene level      in the scene named :level
+        ruby-gba profile game.rb --from boss.ss1    from an emulator save state
 
-      --keys holds buttons for the whole run, and it is worth passing: a game costs what
-      the player makes it cost, so a profile with nothing held is a profile of a game
-      standing still. --settle runs that many frames first, so the measuring starts in the
-      game rather than on its title screen.
-
-      --scene holds the game in one screen and measures that, with nobody having to play to
-      it. --from measures a saved moment instead — an emulator save state you made by
-      playing to it once. Use --from for a moment a scene cannot give: a scene says which
-      routines run, a saved moment also carries the state that makes them expensive, so the
-      boss fight with twelve fireballs on screen needs the state. A state saved from a
-      different build of the game is refused, since all of its addresses have moved.
-
-      --format=json prints the same numbers as data, for comparing two builds.
+      Options:
+        --keys BUTTON ...        Hold these buttons for the whole run. The
+                                 buttons are:
+                                 #{BUTTONS}
+        --scene NAME             Hold the game in this scene, and measure that.
+        --from PATH              Start from an emulator save state, made by
+                                 playing to that moment once. The state must come
+                                 from this same build of the game.
+        --frames N               Measure this many frames. Default: #{RubyGBA::Diagnostics::Profiler::FRAMES}.
+        --settle N               Run this many frames first, so the game is past
+                                 its start. Default: #{RubyGBA::Diagnostics::Profiler::SETTLE}.
+        --format FORMAT          human or json. Default: human. json is the
+                                 same numbers, to compare two builds.
+        #{SET}
     TEXT
-    option :format, banner: "NAME", default: "human",
-                    desc: "What to print: human (the report) or json (the same numbers as data)"
-    option :frames, type: :numeric, banner: "N", default: RubyGBA::Diagnostics::Profiler::FRAMES,
-                    desc: "How many frames to measure over"
-    option :settle, type: :numeric, banner: "N", default: RubyGBA::Diagnostics::Profiler::SETTLE,
-                    desc: "Frames to run first, so the game is past its boot"
-    option :keys, type: :array, banner: "BUTTON", default: [],
-                  desc: "Hold these buttons for the whole run"
-    option :scene, banner: "NAME",
-                   desc: "Measure this scene, holding the game there (default: measure it as it boots)"
-    option :from, banner: "PATH",
-                  desc: "Measure a saved moment: an emulator save state, made by playing to it once"
-    option :set, type: :array, banner: "NAME=VALUE", default: [],
-                 desc: "Tell the game a setting it reads with `setting` (for example --set floors=1)"
+    option :format, banner: "NAME", default: "human"
+    option :frames, type: :numeric, banner: "N", default: RubyGBA::Diagnostics::Profiler::FRAMES
+    option :settle, type: :numeric, banner: "N", default: RubyGBA::Diagnostics::Profiler::SETTLE
+    option :keys, type: :array, banner: "BUTTON", default: []
+    option :scene, banner: "NAME"
+    option :from, banner: "PATH"
+    option :set, type: :array, banner: "NAME=VALUE", default: []
     def profile(game_file)
       format = { "human" => :human, "json" => :json }[options[:format]] or
         raise Thor::Error, "#{options[:format].inspect} is not a profile format. The formats are: human, json."
@@ -182,15 +373,24 @@ module RubyGBA
       raise Thor::Error, e.message
     end
 
-    desc "play CARTRIDGE", "Play a game from a script or a tape, with nobody at the controls"
-    long_desc <<~TEXT
-      Play CARTRIDGE with nobody at the controls, and say how many frames went by and the
-      frame each named moment fell on. CARTRIDGE is a game file (a .rb that declares a
-      game, which is built first) or a cartridge file (a .gba, yours or somebody else's).
+    # The options `play` and `compare` both take: what says which buttons to press, and the
+    # settings a game file is built with.
+    def self.options_for_playing
+      option :script, banner: "PATH"
+      option :playthrough, banner: "NAME"
+      option :tape, banner: "PATH"
+      option :set, type: :array, banner: "NAME=VALUE", default: []
+    end
 
-      What to press comes from a script or from a tape.
+    desc "play CARTRIDGE", "Play a script of button presses on a game"
+    help_page "play", <<~TEXT
+      Usage: ruby-gba play CARTRIDGE [options]
 
-      A SCRIPT FILE is a plain Ruby file that declares one or more playthroughs:
+      Play CARTRIDGE with nobody at the controls, and print how many frames went
+      by and the frame each named moment fell on. CARTRIDGE is a game file (a
+      .rb, built first) or a .gba.
+
+      What to press comes from a script or a tape. A script is a Ruby file:
 
         RubyGBA.playthrough "walk to the door" do
           wait frames: 10
@@ -198,107 +398,128 @@ module RubyGBA
           moment :at_the_door
         end
 
-      Give it with --script. When the file declares several, --playthrough says which.
+      A tape is the presses of an earlier play, written by --write-tape. It
+      plays the same presses on the same frames on any cartridge.
 
-      A TAPE is the presses of an earlier playing, written down by --write-tape. Give it
-      with --tape. It plays the same presses on the same frames whatever it is played on.
+      Examples:
+        ruby-gba play game.rb --script walk.rb
+        ruby-gba play game.gba --tape walk.tape --pictures-in shots
 
-      --save starts the cartridge from a save file. --lead-in names another playthrough
-      to play first and not count: a way past logos or a title screen, so that frame 1 is
-      where the playing begins. A lead-in is declared in the script file, so --script is
-      needed for one even when a tape says what to press.
-
-      --pictures-in writes the screen at each named moment into a folder, as a PNG named
-      for the moment. --write-tape writes the presses that were made. --write-save writes
-      the cartridge's save memory as the last frame left it.
+      Options:
+        #{PRESSES.gsub("\n", "\n  ")}
+        --lead-in NAME           Play this playthrough first, and do not count it:
+                                 a way past logos and a title screen. Needs
+                                 --script, even with --tape.
+        --save PATH              Start from this save file.
+        --pictures-in DIR        Write the screen at each moment to DIR, as a PNG
+                                 named for the moment.
+        --write-tape PATH        Write the presses that were made, as a tape.
+        --write-save PATH        Write the save memory as the last frame left it.
+        #{SET}
     TEXT
-    options_for_playing tape: "Play this tape, in place of a script"
-    option :save, banner: "PATH", desc: "Start from this save file"
-    option :lead_in, banner: "NAME", desc: "A playthrough in the script file to play first and not count"
-    option :pictures_in, banner: "DIR", desc: "Write the screen at each named moment into this folder"
-    option :write_tape, banner: "PATH", desc: "Write the presses that were made to this file, as a tape"
-    option :write_save, banner: "PATH", desc: "Write the save memory as the last frame left it to this file"
+    options_for_playing
+    option :save, banner: "PATH"
+    option :lead_in, banner: "NAME"
+    option :pictures_in, banner: "DIR"
+    option :write_tape, banner: "PATH"
+    option :write_save, banner: "PATH"
     def play(cartridge_file)
       with_playthroughs_command_line { |command| command.play(cartridge_file) }
     end
 
-    desc "compare FIRST SECOND", "Play two cartridges on the same presses, and say where they drift"
-    long_desc <<~TEXT
-      Play the cartridges FIRST and SECOND side by side and say the first frame on which
-      they differ. Each is a game file (a .rb, built first) or a cartridge file (a .gba).
+    desc "compare FIRST SECOND", "Play two games on the same presses and say where they differ"
+    help_page "compare", <<~TEXT
+      Usage: ruby-gba compare FIRST SECOND [options]
 
-      HOW IT ENDS, for another program to act on: with 0 when the two agree, with 1 when
-      they drift, and with 2 when they could not be compared (a file that is not there, a
-      setting that makes no sense, a script that gave up).
+      Play two cartridges on the same presses, and say the first frame on which
+      their screens differ. Each is a game file (a .rb, built first) or a .gba.
 
-      What to press comes from --script (and --playthrough) or --tape, as for `play`.
-      --set goes to every game file, so two builds of one game file that differ in a
-      setting are two files, or one cartridge file built ahead of time.
+      Exit status: 0 the same, 1 different, 2 not compared (a file that is not
+      there, a script that gave up).
 
-      Every setting a comparison takes from Ruby is the flag of the same name.
+      Examples:
+        ruby-gba compare old.gba new.gba --tape walk.tape
+        ruby-gba compare game.rb theirs.gba --script walk.rb --carrying-on
+        ruby-gba compare a.gba b.gba --tape walk.tape --ignoring-frames 1..120
 
-      HOW ALIKE IS ALIKE. With nothing said, one pixel out on one frame is drift.
-      --share-may-differ is the share of the pixels that can differ, from 0 to 1.
-      --frames-in-a-row is how many frames running have to differ. --ignoring-rectangles
-      leaves parts of the screen out, each written X,Y,WIDTH,HEIGHT. --ignoring-frames
-      leaves stretches of the playing out, each a range of frame numbers (1..120) or of
-      moments, by their names with no colon (title..in_the_world); an end can be left
-      open (900..).
+      What to press, as for ruby-gba play:
+        #{PRESSES.gsub("\n", "\n  ")}
+        --same WHICH             tape or script. Default: tape.
+                                 tape: both get the same presses on the same
+                                 frames.
+                                 script: the script plays each one by itself,
+                                 and the two are compared at each moment.
+        --frames-apart N         With --same script: how many frames apart the
+                                 two can reach a moment.
 
-      WHAT IS COMPARED. --readings names variables to compare as well as the picture:
-      NAME reads the variable NAME from both, NAME=VARIABLE reads that variable from both,
-      and NAME=FIRST,SECOND reads one from each. Variables have names in a game file and
-      none in a cartridge file. A reading that needs Ruby to read is given from Ruby.
-      --comparing says which of picture and readings is compared.
+      Where the two start:
+        --save PATH              Start both from this save file.
+        --lead-ins FIRST SECOND  A playthrough for each to play first and not
+                                 count, or - for none. Needs --script.
 
-      HOW THE TWO ARE PLAYED. --same tape, the default, gives both the same presses on the
-      same frames. --same script plays the script on each by itself and compares the two
-      at each named moment, which forgives timing; --frames-apart then says how many
-      frames apart they can reach a moment. --carrying-on plays on past the first drift
-      and lists every one.
+      What counts as different (with none of these, one pixel is a difference):
+        --share-may-differ SHARE
+                                 The share of the pixels that can differ, 0 to 1.
+        --frames-in-a-row N      How many frames in a row must differ.
+        --ignoring-rectangles X,Y,WIDTH,HEIGHT ...
+                                 Parts of the screen to leave out.
+        --ignoring-frames RANGE ...
+                                 Frames to leave out: 1..120, 900.., or moments
+                                 by name, title..in_the_world.
 
-      WHERE THE TWO START. --save starts both from one save file. --lead-ins names a
-      playthrough for each cartridge to play first and not count, the first cartridge's
-      and then the second's, with - for none. A lead-in is declared in the script file,
-      so --script is needed for one even when a tape says what to press.
-
-      --reports-in writes a folder for each drift: the two screens, a picture of where
-      they differ, a text file, and a tape that plays a cartridge back to that frame.
+      What is compared:
+        --readings NAME ...      Variables to compare as well as the screen. NAME
+                                 reads NAME from both. NAME=VARIABLE reads
+                                 VARIABLE from both. NAME=FIRST,SECOND reads a
+                                 different one from each. Only a game file has
+                                 variable names; a .gba has none.
+        --comparing WHAT         picture or readings: compare only that one.
+                                 Default: the picture, and any --readings.
+        --carrying-on            Go on past the first difference and list them all.
+        --reports-in DIR         Write a folder to DIR for each difference: both
+                                 screens, where they differ, and a tape that plays
+                                 a cartridge to that frame.
+        #{SET}
     TEXT
-    options_for_playing tape: "Compare on this tape, in place of a script"
-    option :share_may_differ, type: :numeric, banner: "SHARE", desc: "The share of the pixels that can differ, from 0 to 1"
-    option :frames_in_a_row, type: :numeric, banner: "N", desc: "How many frames running have to differ before it is drift"
-    option :ignoring_rectangles, type: :array, banner: "X,Y,WIDTH,HEIGHT", desc: "Parts of the screen that are not looked at"
-    option :ignoring_frames, type: :array, banner: "RANGE", desc: "Stretches that are not looked at: 1..120, or title..in_the_world"
-    option :readings, type: :array, banner: "NAME[=VARIABLE[,VARIABLE]]", desc: "Variables to compare as well as the picture"
-    option :comparing, type: :array, banner: "WHAT", enum: %w[picture readings], desc: "What is compared"
-    option :carrying_on, type: :boolean, desc: "Play on past the first drift, and list every one"
-    option :same, banner: "WHICH", enum: %w[tape script],
-                  desc: "tape (the same presses for both) or script (the script plays each by itself)"
-    option :frames_apart, type: :numeric, banner: "N", desc: "With --same script, how many frames apart the two can reach a moment"
-    option :save, banner: "PATH", desc: "Start both cartridges from this save file"
-    option :lead_ins, type: :array, banner: "NAME", desc: "A playthrough for each cartridge to play first, or - for none"
-    option :reports_in, banner: "DIR", desc: "Write a folder for each drift into this folder"
+    options_for_playing
+    option :share_may_differ, type: :numeric, banner: "SHARE"
+    option :frames_in_a_row, type: :numeric, banner: "N"
+    option :ignoring_rectangles, type: :array, banner: "X,Y,WIDTH,HEIGHT"
+    option :ignoring_frames, type: :array, banner: "RANGE"
+    option :readings, type: :array, banner: "NAME[=VARIABLE[,VARIABLE]]"
+    option :comparing, type: :array, banner: "WHAT", enum: %w[picture readings]
+    option :carrying_on, type: :boolean
+    option :same, banner: "WHICH", enum: %w[tape script]
+    option :frames_apart, type: :numeric, banner: "N"
+    option :save, banner: "PATH"
+    option :lead_ins, type: :array, banner: "NAME"
+    option :reports_in, banner: "DIR"
     def compare(first_file, second_file)
       result = with_playthroughs_command_line { |command| command.compare(first_file, second_file) }
       exit DRIFTED if result.drift?
     end
 
-    desc "preview GAME_FILE", "Play a game in a browser tab, built again from the file on every reload"
-    long_desc <<~TEXT
-      Serve the game declared in GAME_FILE as a web page on this computer, and say where it is.
-      Open it in a browser and the game plays there. Change the game file and reload the page:
-      the page is built again from the file as it is now, with no cartridge and no emulator. A
-      build that stops shows its reason in the page.
+    desc "preview GAME_FILE", "Play the game in a browser, built again on every reload"
+    help_page "preview", <<~TEXT
+      Usage: ruby-gba preview GAME_FILE [options]
 
-      The browser plays the game as the framework understands it. A mistake in the game's own
-      logic shows there. A mistake that only the console makes does not, so check the cartridge
-      as well before you ship it.
+      Serve the game in GAME_FILE as a web page on this computer, and print its
+      address. Open it in a browser to play. Change the game file and reload the
+      page: the page is built again from the file. If the build stops, the page
+      says why. Press Ctrl-C to stop the server.
+
+      The browser does not run the cartridge. Test the .gba as well before you
+      give it to anybody.
+
+      Options:
+        --port N                 The port to serve the page on. Default: 8000.
+        --template FILE          Make the page from FILE, an .html.erb file with
+                                 <%= game %> in it.
+        #{SET}
     TEXT
-    option :port, type: :numeric, default: 8000, desc: "The port to serve the page on"
-    option :template, banner: "FILE", desc: "Write the page from this .html.erb template; it must have <%= game %>"
-    option :set, type: :array, banner: "NAME=VALUE", default: [],
-                 desc: "Tell the game a setting it reads with `setting` (for example --set floors=1)"
+    option :port, type: :numeric, default: 8000
+    option :template, banner: "FILE"
+    option :set, type: :array, banner: "NAME=VALUE", default: []
     def preview(game_file)
       raise Thor::Error, "I cannot find the game file #{game_file}." unless File.file?(game_file)
 
@@ -310,15 +531,32 @@ module RubyGBA
       raise Thor::Error, "Port #{options[:port]} is in use already. Give another with --port."
     end
 
-    desc "inspect ROM_FILE", "Show a built .gba's header and a disassembly"
+    desc "inspect ROM_FILE", "Print a .gba's header and first instructions"
+    help_page "inspect", <<~TEXT
+      Usage: ruby-gba inspect ROM_FILE
+
+      Print the header of a .gba (its title, game code, maker and checksum, and
+      whether the checksum is right), then its first instructions, disassembled.
+    TEXT
     def inspect(rom_file)
       raise Thor::Error, "I cannot find the ROM file #{rom_file}." unless File.file?(rom_file)
 
       RubyGBA::Diagnostics::Inspector.new(rom_file).report
     end
 
-    desc "new NAME", "Write a runnable starter game as NAME.rb"
-    option :force, type: :boolean, default: false, desc: "Overwrite the file if it already exists"
+    desc "new NAME", "Write a starter game to NAME.rb"
+    help_page "new", <<~TEXT
+      Usage: ruby-gba new NAME [options]
+
+      Write NAME.rb: a game that builds and runs, to start from.
+
+      Example:
+        ruby-gba new pong        writes pong.rb. Then: ruby-gba build pong.rb
+
+      Options:
+        --force                  Write over NAME.rb if it is there already.
+    TEXT
+    option :force, type: :boolean, default: false
     def new(name)
       file = "#{name}.rb"
       if File.exist?(file) && !options[:force]
@@ -328,6 +566,9 @@ module RubyGBA
       File.write(file, starter_source(name))
       say "Wrote #{file}. Run it with `ruby #{file}` or `ruby-gba build #{file}`."
     end
+
+    refuse_undocumented_options!
+    HELP_PAGES.freeze
 
     private
 
@@ -539,7 +780,7 @@ module RubyGBA
     # for a string with nothing constant-safe in it (all punctuation, a leading digit).
     def constantize(str)
       const = str.to_s.split(/[^a-zA-Z0-9]+/).map(&:capitalize).join
-      const =~ /\A[A-Z]/ ? const : "Game"
+      const.match?(/\A[A-Z]/) ? const : "Game"
     end
   end
 end
