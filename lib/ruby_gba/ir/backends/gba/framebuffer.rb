@@ -529,9 +529,11 @@ module RubyGBA
 
           # Walk the ten-glyph table for a run-time digit, calling +block+ once per set
           # pixel to plot it — the shared skeleton behind the direct and tear-free
-          # digit renders. The ten glyphs live in ROM as row bytes (glyph d at
-          # d*height, one byte per row, the low +width+ bits being that row, leftmost =
-          # the top bit).
+          # digit renders. The ten glyphs live in ROM as rows of bits (glyph d at
+          # d*height rows, the low +width+ bits of each being that row, leftmost = the
+          # top bit). A row is a byte when the font is no wider than eight pixels, and a
+          # whole word when it is wider: one load either way, so a game's own big
+          # figures cost a table four times as long rather than an instruction a pixel.
           # +width+ is the digits' shared width (the caller checked all ten match) and
           # the cell is on-screen, so the walk needs no clipping.
           #
@@ -548,17 +550,19 @@ module RubyGBA
           def emit_digit_glyph_loop(font_name, font, width)
             table = ensure_digit_table(font_name, font)
             top_bit = 1 << (width - 1)
+            row_size = digit_row_size(width)
 
             @emitter.emit_load_data_address(1, table) # r1 = the glyph table's ROM address
-            @emitter.emit_number(2, font.height)
-            @emitter.emit(ASM.mul(3, 0, 2))          # r3 = digit * height (its row offset)
+            @emitter.emit_number(2, font.height * row_size)
+            @emitter.emit(ASM.mul(3, 0, 2))          # r3 = digit * a glyph's bytes (its offset)
             @emitter.emit(ASM.add_reg(6, 1, 3))      # r6 = &glyph[digit], row 0
             yield :hold                              # the plot loads its per-glyph register(s)
             @emitter.emit_number(5, 0)  # r5 = row = 0
 
             row_loop = @emitter.gensym
             @emitter.place_label(row_loop)
-            @emitter.emit(ASM.ldrb_offset(7, 6, 0))  # r7 = this row's byte
+            # r7 = this row's bits
+            @emitter.emit(row_size == 1 ? ASM.ldrb_offset(7, 6, 0) : ASM.ldr_offset(7, 6, 0))
             @emitter.emit_number(4, 0)  # r4 = col = 0
 
             col_loop = @emitter.gensym
@@ -573,23 +577,27 @@ module RubyGBA
             @emitter.emit(ASM.cmp_imm(4, width))
             @emitter.emit_branch(:bcond, col_loop, cond: :lt)
 
-            @emitter.emit(ASM.add_imm(6, 6, 1))      # advance to the next row's byte
+            @emitter.emit(ASM.add_imm(6, 6, row_size)) # advance to the next row
             @emitter.emit(ASM.add_imm(5, 5, 1))
             @emitter.emit(ASM.cmp_imm(5, font.height))
             @emitter.emit_branch(:bcond, row_loop, cond: :lt)
           end
 
           # The width the ten digit glyphs share, if the data-driven loop can render
-          # them: they must all exist, agree on a width, and be no wider than a byte
-          # (so a row is one ldrb). Otherwise nil — a font with missing, ragged, or
+          # them: they must all exist, agree on a width, and be no wider than a word
+          # (so a row is one load). Otherwise nil — a font with missing, ragged, or
           # oversized digits falls back to the per-digit fan-out, which reads each
           # glyph's own width. Fixed-width fonts always qualify; a proportional font
           # does when its figures are tabular.
           def uniform_digit_width(font)
             widths = (0..9).map { |d| font.glyph_width(d.to_s) }
             width = widths.first
-            width if width && width <= 8 && widths.all?(width)
+            width if width && width <= 32 && widths.all?(width)
           end
+
+          # How many bytes one row of a digit glyph takes in the table: a byte for a font
+          # up to eight pixels wide, a word for anything wider.
+          def digit_row_size(width) = width <= 8 ? 1 : 4
 
           # True when the whole width×height digit cell at (x, y) fits on-screen, so
           # the data-driven loop can skip per-pixel clipping.
@@ -600,14 +608,17 @@ module RubyGBA
           private
 
           # Embed a font's ten digit glyphs as a ROM blob once, returning its blob
-          # name. Laid out as glyph 0's +height+ row bytes, then glyph 1's, and so on,
-          # so digit d begins at d*height. A digit the font happens to lack contributes
-          # blank rows (it simply draws nothing), matching the fan-out's skip.
+          # name. Laid out as glyph 0's +height+ rows, then glyph 1's, and so on, so
+          # digit d begins at d*height rows — each row a byte or a word, as
+          # #digit_row_size says. A digit the font happens to lack contributes blank
+          # rows (it simply draws nothing), matching the fan-out's skip. Every blob
+          # starts on a word boundary, so a table of words is read whole.
           def ensure_digit_table(name, font)
             blob = :"__digits_#{name}"
             unless @emitter.data_blobs.key?(blob)
-              bytes = (0..9).flat_map { |d| font.glyph(d.to_s) || Array.new(font.height, 0) }
-              @emitter.data_blobs[blob] = bytes.pack("C*")
+              rows = (0..9).flat_map { |d| font.glyph(d.to_s) || Array.new(font.height, 0) }
+              wide = digit_row_size(font.glyph_width("0")) == 4
+              @emitter.data_blobs[blob] = rows.pack(wide ? "V*" : "C*")
             end
             blob
           end

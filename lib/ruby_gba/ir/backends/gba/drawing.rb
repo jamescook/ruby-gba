@@ -1480,10 +1480,16 @@ module RubyGBA
           # The fan-out fallback: ten guarded draw_texts, exactly one of which matches
           # the value and draws. Built as a sub-tree and emitted through the shared
           # statement paths, so it honors the current screen mode via draw_text.
+          #
+          # Each guard is hung from the digit it stands for, though it is never one of its
+          # children: a draw_text finds its font by climbing to the top of its tree, and a
+          # piece standing on its own would find only the fonts that ship, never the game's.
           def emit_draw_digit_unrolled(node)
             10.times do |k|
-              @lowering.statement(Build.if_(Build.binop(:==, node.value, Build.int(k)),
-                                       Build.draw_text(k.to_s, node.x, node.y, node.color, font: node.font)))
+              guard = Build.if_(Build.binop(:==, node.value, Build.int(k)),
+                                Build.draw_text(k.to_s, node.x, node.y, node.color, font: node.font))
+              guard.parent = node
+              @lowering.statement(guard)
             end
           end
 
