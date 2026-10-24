@@ -865,7 +865,8 @@ module RubyGBA
           @blob_codecs.merge!(@screen.codecs)
           @layer_blend.screen = @screen # built here, not at construction — see LayerBlend's class comment
           @raster.register_row_bends(program) # which layers bend row by row (armed at boot, run per line)
-          @raster.prepare_row_bends(program, layers: @screen.hardware_layers)
+          @raster.prepare_row_bends(program, layers: @screen.hardware_layers, scene_entry: scene_entry,
+                                             scene_scenery: @screen.picture.scenery.select { |bg| @screen.handover.on_arrival?(bg) })
           @has_objects = program.walk.any? { |node| node.kind == :object }
           @layer_blend.prepare_layer_blend(program) # ...and which layer, if any, you can see through
           @layer_blend.amount_routines.each_key do |name|

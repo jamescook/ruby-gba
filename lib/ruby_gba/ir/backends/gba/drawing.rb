@@ -534,6 +534,7 @@ module RubyGBA
                 @uploads.emit_dma_blob(tiles.blob, VRAM_START + tiles.offset, tiles.units) if tiles
                 arrival.scenery.each { |node| @background_drawing.emit_background_hardware(node) }
                 arrival.painted_tiles.each { |run| @background_drawing.emit_copy_tiles(Build.copy_tiles(run.name)) }
+                @raster.emit_bends_on_arrival(name)
               end
               # The maps just sent are the first ones declared, so what says which map is
               # showing goes back to the first as well (see IR::SceneHandover).

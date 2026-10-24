@@ -280,6 +280,84 @@ class TestRowBend < Minitest::Test
     assert_backends_agree(program, frames: 4, name: "BSCR")
   end
 
+  # --- bends in scenes ---
+
+  # A SCENE WHOSE BACKGROUND BENDS, away to a scene with a background of its own and back. Each
+  # background is drawn with its own bend or with none, so the second scene's sits flat, and the
+  # first comes back bent as it was. A scene's background goes up as the scene arrives, with the
+  # screen on and the bend running, which a background declared outside any scene never does.
+  # With +second_bends+ the shore bends too, by a bend of its own, on the same layer of the
+  # console the sea is shown on. With +more_bends+ two backgrounds up in every scene bend as well,
+  # which is more bends than there are copying engines, so the per-line interrupt feeds them all.
+  private def bending_scenes_program(second_bends: false, more_bends: false)
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image :bar, "." => :transparent, "#" => :red do
+        <<~ART
+          ##......
+          ##......
+          ##......
+          ##......
+          ##......
+          ##......
+          ##......
+          ##......
+        ART
+      end
+      tiles :stripes, "#" => :bar
+      if more_bends
+        %i[cloud mist].each_with_index do |name, i|
+          sky = background name, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+          sky.scroll_each_row { |row| (row + (i * 3)) % 5 }
+        end
+      end
+      state = var :state, 0
+      passes = var :passes, 0
+      scene(:sea) do
+        sea = background :sea, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+        sea.scroll_each_row { |row| row % 8 }
+        (passes == 3).then { state.set! 1 }
+      end
+      scene(:shore) do
+        shore = background :shore, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+        shore.scroll_each_row { |row| (row / 4) % 8 } if second_bends
+        (passes == 6).then { state.set! 0 }
+      end
+      game_loop do
+        passes.add! 1
+        case_var(:state) do
+          when_val 0, :sea
+          when_val 1, :shore
+        end
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  # Every frame of the sea (1-3), the shore (4-6) and the sea again: the first frame of each scene
+  # is the one a bend switching over gets wrong.
+  SCENE_FRAMES = (1..9).to_a.freeze
+
+  def test_a_bent_scene_and_a_flat_one_agree_across_backends
+    assert_backends_agree(bending_scenes_program, frames: SCENE_FRAMES, name: "BSCN")
+  end
+
+  def test_two_scenes_each_bending_their_own_background_agree_across_backends
+    assert_backends_agree(bending_scenes_program(second_bends: true), frames: SCENE_FRAMES, name: "BSC2")
+  end
+
+  # The same, fed line by line by the interrupt. The console is run two frames longer, as for the
+  # interrupt-fed ripple above: four tables to clear and an interrupt to arm is boot, not behavior.
+  def test_scenes_bending_on_the_interrupt_agree_across_backends
+    program = bending_scenes_program(second_bends: true, more_bends: true)
+    refute BendForm.fed_by_dma?(program), "four bends is one more than there are engines"
+    SCENE_FRAMES.each do |f|
+      assert_backends_agree(program, frames: f, console_frames: f + 2, name: "BSI#{f}")
+    end
+  end
+
   # --- more than one layer bending ---
 
   # Two layers, each with its own bend, going opposite ways. Working one row's offset out

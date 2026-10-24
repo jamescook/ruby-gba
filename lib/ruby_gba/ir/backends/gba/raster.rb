@@ -228,10 +228,16 @@ module RubyGBA
           end
 
           # +layers+ says which of the console's layers draws each background, which is what a
-          # bend writes the offsets of.
-          def prepare_row_bends(program, layers:)
+          # bend writes the offsets of. +scene_scenery+ is the backgrounds a scene puts up as it
+          # takes over, each saying its scene, and +scene_entry+ keeps the note of whose are up (see
+          # #emit_if_bend_up). A background not among them is up in every scene it is shown in.
+          def prepare_row_bends(program, layers:, scene_scenery:, scene_entry:)
             @layers = layers
+            @scene_of = scene_scenery.to_h { |node| [node.name, node.scene] }
+            @scene_entry = scene_entry
             @row_bends.each_key { |name| @row_bend_base[name] = row_bend_base(program, name) }
+            @flat_on_bent_layers = flat_backgrounds_on_bent_layers
+            @flat_scroll = @flat_on_bent_layers.to_h { |name, _| [name, row_bend_base(program, name)] }
             @copies_row_bends = BendForm.fed_by_dma?(program)
             return unless BendForm.rows_precomputed?(program)
 
@@ -345,13 +351,57 @@ module RubyGBA
           # It aims one entry IN, because the engine's first move of a frame lands on row 1
           # — the end of line 0 is the first line-end there is. Row 0 is the frame's own to
           # write (see #emit_fill_row_bend_tables).
+          #
+          # An engine whose bend is not up is stopped and left stopped (see #emit_if_bend_up).
           def emit_rearm_row_bend_copiers
             @row_bend_table.each do |name, base|
               engine = engine_for(name)
               @primitives.store_word_immediate(0, COPIER_CNT[engine])
-              @primitives.store_word_immediate(base + 2, COPIER_SAD[engine])
-              @primitives.store_word_immediate(COPIER_CONTROL, COPIER_CNT[engine])
+              emit_if_bend_up(name) do
+                @primitives.store_word_immediate(base + 2, COPIER_SAD[engine])
+                @primitives.store_word_immediate(COPIER_CONTROL, COPIER_CNT[engine])
+              end
             end
+          end
+
+          # A BEND IS FED ONLY WHILE ITS BACKGROUND IS UP. Scenes take turns showing their
+          # backgrounds, and two scenes' backgrounds can be shown on the same layer of the console,
+          # one at a time. Each bend has a table and a feeder of its own, all aimed at that one
+          # layer's scroll register: fed regardless, the last one fed wins, and a scene that bends
+          # its background bends the next scene's as well. So everything that FEEDS a bend — its
+          # row 0 into the register at the gap, its engine, the per-line handler — asks first
+          # whether the scene its background belongs to is the one whose backgrounds are up, from
+          # the same note the scene keeps as it puts them up (SceneEntry). Its rows are still worked
+          # out at every gap, up or not, because a scene's first picture is drawn from the rows the
+          # gap before it worked out, while the last scene was still up (see #emit_bends_on_arrival).
+          # A background up in every scene is fed every frame, as before, and so is the light.
+          def emit_if_bend_up(key, &block)
+            scene = key == LIGHT ? nil : @scene_of[key]
+            return yield unless scene
+
+            @scene_entry.emit_if_scene_up(:scenery, scene, &block)
+          end
+
+          # ...and a layer whose bend is not up gets back the plain sideways scroll of the
+          # background that is, since the last bend fed left its own last row in the register. A
+          # scene's background is up only while its scene's are, so on each layer at most one of
+          # these writes. Written at the gap with the bends' first rows, before the picture starts.
+          def emit_flat_scroll_of_backgrounds_up
+            @flat_on_bent_layers.each do |name, scene|
+              @scene_entry.emit_if_scene_up(:scenery, scene) { emit_flat_scroll(name) }
+            end
+          end
+
+          def emit_flat_scroll(name)
+            @lowering.value(@flat_scroll.fetch(name))
+            @primitives.store_halfword_acc(register_fed(name))
+          end
+
+          # The backgrounds a scene puts up that do not bend, name -> scene, on a layer some scene's
+          # bend is fed to.
+          def flat_backgrounds_on_bent_layers
+            bent = @row_bends.keys.select { |name| @scene_of[name] }.map { |name| bg_number(name) }
+            @scene_of.select { |name, _| !@row_bends.key?(name) && bent.include?(bg_number(name)) }
           end
 
           # Which engine feeds this layer, settled in #prepare_row_bends.
@@ -383,8 +433,51 @@ module RubyGBA
           # the engine has walked the register on through the table. The picture is the same.
           def emit_fill_row_bend_tables
             emit_light_this_frame if @light
-            feed_keys.each { |key| key == LIGHT ? emit_light_first_row : emit_first_row(key) }
+            feed_keys.each { |key| key == LIGHT ? emit_light_first_row : emit_bend_first_row(key) }
+            emit_flat_scroll_of_backgrounds_up
             feed_keys.each { |key| key == LIGHT ? emit_if_light_rows { emit_fill_row_table(key) } : emit_fill_row_table(key) }
+          end
+
+          # A bend's row 0: always into its table, since every bend is worked out at every gap
+          # whether its background is up or not, as the interpreter works them out; into the
+          # layer's register only while its background is up.
+          def emit_bend_first_row(key)
+            return emit_first_row(key) unless @scene_of[key]
+
+            emit_first_row_into_table(key)
+            emit_if_bend_up(key) { emit_table_top_into_register(key) }
+          end
+
+          # The row 0 a bend's table holds, into its layer's register.
+          def emit_table_top_into_register(key)
+            @emitter.emit_number(ADDR, @row_bend_table.fetch(key))
+            @emitter.emit(ASM.load_halfword(ACC, ADDR))
+            @primitives.store_halfword_acc(register_fed(key))
+          end
+
+          # A SCENE TAKING OVER SWITCHES ITS LAYERS' BENDS, as its backgrounds go up. The gap before
+          # fed whatever was up then, the last scene's, and the scene's first picture is drawn
+          # from the bends of the backgrounds it shows: so here the other scenes' engines on the
+          # layers this scene's backgrounds use stop, this scene's bend is pointed at its table
+          # (worked out at that gap, as every bend is), and a background of its own that does not
+          # bend puts its plain scroll back.
+          def emit_bends_on_arrival(scene)
+            return unless row_bend_tables?
+
+            layers = @scene_of.select { |_, owner| owner == scene }.keys.map { |name| bg_number(name) }
+            sharing = @row_bends.keys.select { |name| @scene_of[name] && layers.include?(bg_number(name)) }
+            arriving, leaving = sharing.partition { |name| @scene_of[name] == scene }
+            leaving.each { |name| @primitives.store_word_immediate(0, COPIER_CNT[engine_for(name)]) } if copies_row_bends?
+            arriving.each do |name|
+              emit_table_top_into_register(name)
+              next unless copies_row_bends?
+
+              engine = engine_for(name)
+              @primitives.store_word_immediate(0, COPIER_CNT[engine])
+              @primitives.store_word_immediate(@row_bend_table.fetch(name) + 2, COPIER_SAD[engine])
+              @primitives.store_word_immediate(COPIER_CONTROL, COPIER_CNT[engine])
+            end
+            @flat_on_bent_layers.each { |name, owner| emit_flat_scroll(name) if owner == scene }
           end
 
           # Whether this frame works the light's rows out, 1 or 0; whether the rows in the table were
@@ -564,7 +657,7 @@ module RubyGBA
             @emitter.emit_branch(:bcond, done, cond: :ge)      # below the picture: nothing to bend
             if row_bend_tables?
               @emitter.emit(ASM.lsl_imm(SPARE, ACC, 1))        # two bytes an entry, held for them all
-              feed_keys.each { |key| emit_read_row_from_table(key) }
+              feed_keys.each { |key| emit_if_bend_up(key) { emit_read_row_from_table(key) } }
             else
               # Every bend is told the line first, because working one offset out needs the
               # accumulator the line number is sitting in.
