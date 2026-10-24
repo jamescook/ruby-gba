@@ -1636,7 +1636,7 @@ module RubyGBA
               end
               break if @sprite_art.fits?(OBJ_TILE_CAPACITY)
 
-              set = pick_set_for_one_frame(sets, one_frame) or raise LoweringError, sprite_art_overflow_message(nodes)
+              set = pick_set_for_one_frame(sets, one_frame) or sprite_memory_full!(nodes)
               set.names.each { |name| @blobs.delete(:"__obj_tiles_#{name}") }
               one_frame.merge(set.names)
             end
@@ -1711,13 +1711,85 @@ module RubyGBA
           # Each scene's sprite memory for the report: what it takes, how much of that is shared
           # rooms, and the least it could take — never more than it takes, since a set the least
           # layout keeps to one frame on a screen where that is bigger is not one the build would.
-          def sprite_screens_report
+          #
+          # +least+ is nil where the build stopped before working it out, and then the least is
+          # said as what the scene took.
+          def sprite_screens_report(objects, least)
+            sent = sprites_sent_as_shown(objects)
             @sprite_art.screens.map do |scene, (bytes, rooms)|
-              least, = @least_sprite_screens.fetch(scene)
+              fewest, = least ? least.fetch(scene) : [bytes]
               RubyGBA::Diagnostics::VideoMemory::Screen.new(scene: scene && Modes.strip_scene_prefix(scene).to_sym,
                                                             used: bytes, room_bytes: rooms,
-                                                            least_needed: [least, bytes].min)
+                                                            least_needed: [fewest, bytes].min,
+                                                            sprites: sprite_map(scene, objects, sent),
+                                                            own_from: scene ? @sprite_art.resident_tiles : 0)
             end
+          end
+
+          # WHERE EACH SPRITE UP IN +scene+ DREW FROM, its own and the ones every screen shows: the
+          # run of tiles it was given, what is in them and who else draws from the same run.
+          # A sprite is listed under the name the game wrote — nil for one it named nothing, a
+          # letter of text — and the sprites of one name drawing from one run, a pool's slots, are
+          # one entry saying how many there are. +sent+ is the names of the sprites whose pool's
+          # pictures are copied in the first time each is shown.
+          def sprite_map(scene, objects, sent)
+            nodes = @picture.objects.select { |node| up_in_scene?(node, scene) }
+            runs = nodes.to_h { |node| [node.name, sprite_tile_run(objects.fetch(node.name))] }
+            nodes.group_by { |node| [node.declared, runs.fetch(node.name)] }.map do |(name, (first, tiles)), alike|
+              node = alike.first
+              record = objects.fetch(node.name)
+              RubyGBA::Diagnostics::VideoMemory::Placed.new(
+                sprite: name, count: alike.size, pictures: node.poses.uniq, first_tile: first, tiles: tiles,
+                tiles_alone: record.rooms ? record.rooms.units : tiles,
+                address: SpriteDrawing::OBJ_TILE_BASE + (first * RubyGBA::Diagnostics::VideoMemory::TILE_BYTES),
+                pieces: record.pieces, poses: pose_piece_tiles(node, record, first),
+                held: tiles_held(node, record, sent),
+                shares_with: nodes.select { |other| other.declared != name && runs.fetch(other.name) == [first, tiles] }
+                                  .map(&:declared).uniq
+              )
+            end
+          end
+
+          # Is +node+ up while +scene+ is (nil being what every screen shows)?
+          def up_in_scene?(node, scene) = node.scene.nil? || node.scene == scene
+
+          # A sprite's run of tiles: the one it was given, or, for a sprite sharing rooms with the
+          # others of its scene showing the same pictures, every one of those rooms.
+          def sprite_tile_run(record)
+            rooms = record.rooms
+            rooms ? [rooms.first, rooms.units * rooms.count] : [record.tile_index, record.tile_units]
+          end
+
+          # Each of a sprite's pictures with the first tile of each of its pieces. A sprite kept to
+          # one frame lays every picture out the same way in its room, so they all start alike.
+          def pose_piece_tiles(node, record, first)
+            pictures = @obj_pictures.fetch(node.name)
+            starts = record.frames ? pictures.room_starts : pictures.starts
+            node.poses.zip(starts).map { |pose, at| [pose, at.map { |tile| first + tile }] }
+          end
+
+          # What a sprite's run holds, in the words of Diagnostics::VideoMemory::Placed.
+          def tiles_held(node, record, sent)
+            return :shared_rooms if record.rooms
+            return :one_frame if record.frames
+            return :painted if painted_sprite?(node)
+            return :sent_as_shown if sent.include?(node.name)
+
+            :whole
+          end
+
+          # The sprites whose pool's pictures are copied in the first time each is shown, worked
+          # out from +objects+ the way the finished build works them out (see PoseSends), so a
+          # build that stops on sprite memory says the same of them. The tables it would write
+          # are thrown away.
+          def sprites_sent_as_shown(objects)
+            PoseSends.new(objects: objects, pictures: @obj_pictures, blobs: {}).pools.values.flat_map(&:sprites).to_set
+          end
+
+          # OUT OF SPRITE MEMORY: the friendly words, and the map of the last try with them.
+          def sprite_memory_full!(nodes)
+            raise SpriteMemoryFull.new(sprite_art_overflow_message(nodes),
+                                       sprite_memory: sprite_memory_report(@sprite_art.sprites, least: nil))
           end
 
           # Out of room for sprite pictures. Name the greediest, since the fix is nearly
@@ -1727,8 +1799,7 @@ module RubyGBA
           def sprite_art_overflow_message(nodes)
             scene = @sprite_art.fullest_scene
             sprites = @sprite_art.sprites
-            worst = nodes.select { |node| node.scene.nil? || node.scene == scene }
-                         .max_by(3) { |node| sprites[node.name].tile_units }
+            worst = nodes.select { |node| up_in_scene?(node, scene) }.max_by(3) { |node| sprites[node.name].tile_units }
             # Name the PICTURES rather than the sprites: an author named the pictures, and a
             # sprite's own name is the framework's.
             named = worst.map { |node| ":#{node.poses.first} (#{sprites[node.name].tile_units * 32})" }
@@ -2432,27 +2503,31 @@ module RubyGBA
                                               capacity: MAX_SPRITES, big: big, twins: twins)
           end
 
-          def sprite_memory_report
-            return nil if @objects.empty?
+          # +objects+ is every sprite's record: the finished ones, or, where the build stops on
+          # sprite memory, the last try's (see #sprite_memory_full!), with each scene's least left
+          # as what it used, since the build never got as far as working the least out.
+          def sprite_memory_report(objects = @objects, least: @least_sprite_screens)
+            return nil if objects.empty?
 
-            small = @objects.count { |name, _obj| @obj_pictures.fetch(name).place.narrow? }
+            small = objects.count { |name, _obj| @obj_pictures.fetch(name).place.narrow? }
             # A sprite that stores no pictures of its own is either showing another sprite's or
             # keeping one frame here at a time, and those are different savings to report.
-            one_frame = @objects.count { |_name, obj| obj.frames }
-            shared = @objects.count { |_name, obj| obj.tiles.nil? && obj.frames.nil? }
+            one_frame = objects.count { |_name, obj| obj.frames }
+            shared = objects.count { |_name, obj| obj.tiles.nil? && obj.frames.nil? }
             RubyGBA::Diagnostics::VideoMemory::Area.new(used: @sprite_art.bytes, capacity: OBJ_TILE_CAPACITY,
-                                           small: small, big: @objects.size - small,
-                                           saved: sprite_memory_saved, shared: shared,
+                                           small: small, big: objects.size - small,
+                                           saved: sprite_memory_saved(objects), shared: shared,
                                            one_frame: one_frame, repeats: @sprite_art.repeats,
-                                           screens: sprite_screens_report)
+                                           screens: sprite_screens_report(objects, least),
+                                           start: SpriteDrawing::OBJ_TILE_BASE)
           end
 
           # What the same pictures would have cost stored the old way: a small one is exactly
           # half the size, so the saving is its own size again. A sprite sharing another's
           # pictures costs nothing either way and is not counted twice — what sharing saved
           # is its own number.
-          def sprite_memory_saved
-            @objects.sum do |name, obj|
+          def sprite_memory_saved(objects)
+            objects.sum do |name, obj|
               # A sprite showing another's pictures costs nothing either way. One keeping a
               # frame at a time does take room here, and its room is half the size too.
               next 0 if (obj.tiles.nil? && obj.frames.nil?) || !@obj_pictures.fetch(name).place.narrow?

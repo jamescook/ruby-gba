@@ -103,6 +103,10 @@ module RubyGBA
           def bytes = @art.bytes
           def saved = @art.saved
 
+          # How many tiles the pictures every screen shows take, from the first: each scene's own
+          # start after them.
+          def resident_tiles = @art.resident_units
+
           # The scene whose pictures, with the ones every screen shows, need the most sprite
           # memory — or nothing, for a game whose sprites all belong to every screen.
           def fullest_scene = @scene_bytes.max_by { |_scene, bytes| bytes }&.first

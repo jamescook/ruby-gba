@@ -123,6 +123,18 @@ module RubyGBA
         # SceneQuickMemory), before it lets the author see it.
         class QuickMemoryFull < LoweringError; end
 
+        # The sprites' pictures do not fit the console's sprite memory. It carries the map of
+        # where every scene's sprites were put on the last try (Diagnostics::VideoMemory::Area),
+        # so the scene that does not fit can be read, and not only one that does.
+        class SpriteMemoryFull < LoweringError
+          attr_reader :sprite_memory
+
+          def initialize(message, sprite_memory:)
+            super(message)
+            @sprite_memory = sprite_memory
+          end
+        end
+
         # Friendly screen-mode names → the display-control register value. Only
         # the direct-color bitmap mode is lowered here; other modes are their own
         # work. (This mirrors the DSL's names.)
