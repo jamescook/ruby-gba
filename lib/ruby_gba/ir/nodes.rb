@@ -397,6 +397,46 @@ module RubyGBA
         operands name: :name, which: :value
       end
 
+      # A SCENE'S SPRITE PICTURES IN GROUPS, only some of which are up at a time — a room's
+      # things, where a scene is many rooms. +groups+ is each group's picture names, by its
+      # number (nil for a number naming none); +together+ is each set of group numbers that can
+      # be up at once, a group always being able to be up alone. A picture in no group is up the
+      # whole time. +scene+ is the game state they belong to, nil for every screen's. A target
+      # that keeps every picture in reach whatever is up needs none of this to draw.
+      class PictureGroups
+        include Node
+        kind :picture_groups
+        declaration!
+        category :data
+        operands name: :name, groups: :list, together: :list, scene: :name
+
+        # No group: what a slot of ShowPictureGroup holds before the game says, and when it
+        # names no group.
+        NONE = -1
+
+        # How many groups can be up at once: the biggest set +together+ names, or one.
+        def slots = [*together.map(&:length), 1].max
+
+        # The numbers of the groups holding +picture+.
+        def groups_holding(picture) = groups.each_index.select { |number| groups[number]&.include?(picture) }
+
+        # Does +number+ name a group?
+        def names_group?(number) = number.between?(0, groups.length - 1) && !groups[number].nil?
+
+        # Can the groups +numbers+ be up at once?
+        def together?(numbers) = numbers.length < 2 || together.any? { |set| (numbers - set).empty? }
+      end
+
+      # One of a PictureGroups' slots holds group +which+ from now on, a number worked out as the
+      # program runs; a number naming no group leaves nothing up in that slot. The groups up are
+      # the ones the slots hold.
+      class ShowPictureGroup
+        include Node
+        kind :show_picture_group
+        category :draw
+        operands name: :name, slot: :int, which: :value
+      end
+
       class Copy
         include Node
         kind :copy

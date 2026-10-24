@@ -67,6 +67,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 - `colors :hurt, [...]` + `sprite.draw_with :hurt` (or a list with `showing:`, or `:own`) — draw a sprite from another colour list, by place.
 - `recolor :slot, :goblin` (or a list with `showing:`, or `:own`) — change what colours a list holds at run time, so one group dresses many things.
 - `colors_in_use [:door, :zelda]` (or several sets with `showing:`) — a hint: the lists the room uses share groups by set. Not needed: the console already lends groups to the lists on screen.
+- `rooms = picture_groups :rooms, { 0 => [...], 1 => [...] }, up_together: [[0, 1]]` + `rooms.show here` / `rooms.show here, beside` — a scene's sprite pictures by room, so only the rooms up need room in sprite memory (checked, not yet saved on the cartridge); a sprite showing a picture whose group is not up stops the game in plain words.
 - `mirror(:pic)` / `upside_down(:pic)` — the same picture turned; free in sprite memory on tiled.
 - `blit :name, x, y` — draw a picture at a run-time place, clipped; `blit [:a, :b], x, y, showing: n` picks one by number.
 - `sprite :name, at: [x, y]` → a sprite (software on bitmap, hardware on tiled): `x`/`y`, `move`, `move_to`, `clamp_to_screen`, `center_on_screen`, `face`, `hide`/`show`, `overlaps?`; `facing:`, `frames:` + `rate:`, `frames_from:`, `facing_from:`, `from_aseprite:` (+ `play`), `face [...], showing:`; tiled also `scale`, `face_angle`, `turn`, `angle`.

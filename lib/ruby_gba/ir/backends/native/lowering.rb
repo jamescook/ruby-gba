@@ -84,6 +84,8 @@ module RubyGBA
                                                set_tile: :lower_set_tile, show_map: :lower_show_map,
                                                background_colors: :lower_background_colors,
                                                color_list_holds: :lower_color_list_holds,
+                                               # every picture is in reach whatever is up: nothing to do
+                                               show_picture_group: :lower_nothing,
                                                copy_tiles: :lower_copy_tiles,
                                                copy_owed_tiles: :lower_copy_owed_tiles,
                                                present_objects: :lower_present_objects,

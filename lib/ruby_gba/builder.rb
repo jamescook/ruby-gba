@@ -9,6 +9,7 @@ require_relative "builder/music"
 require_relative "builder/text"
 require_relative "builder/images"
 require_relative "builder/color_lists"
+require_relative "builder/picture_groups"
 require_relative "builder/sprites"
 require_relative "builder/sprite_import"
 require_relative "builder/input"
@@ -68,6 +69,7 @@ module RubyGBA
     include Text       # draw_text, draw_number
     include Images     # image, blit, rgb, rgb8, color
     include ColorLists # recolor (a list of sprite colours that holds other colours as the game runs)
+    include PictureGroups # picture_groups (a scene's sprite pictures by room, only some of them up at a time)
     include Sprites    # sprite (software + hardware, facing/frames/clip animation, hitboxes)
     include SpriteImport # sprite art adapters (sheets, Aseprite) feeding the sprite builder
     include Input      # if_held, if_pressed, held, pressed
@@ -137,6 +139,7 @@ module RubyGBA
       @turned_images = {}      # [:mirrored or :upside_down, image name] → the turned picture's name, so turning one twice makes one picture
       @color_lists = {}        # `colors` name → its colours, see-through first, for a sprite told to draw with it
       @changing_color_lists = {} # `colors` name → what the build keeps about a list told to hold other colours (see ColorLists)
+      @picture_groups = {}     # `picture_groups` name → its declaration (see PictureGroups)
       @sprite_recolors = []    # every sprite's and pool's other colours, to find who draws with a changing list
       @lists_in_use = []       # each set of lists `colors_in_use` named, in the order the game counts them
       @lists_backgrounds_draw_with = {} # `colors` name → the background drawn with it, which a changing list cannot reach
@@ -553,6 +556,7 @@ module RubyGBA
       finalize_tile_copies
       finalize_background_colors
       finalize_changing_color_lists
+      finalize_picture_groups
       finalize_background_affine
       finalize_layer_blend
       finalize_light_switch

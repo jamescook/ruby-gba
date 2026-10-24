@@ -515,6 +515,9 @@ module RubyGBA
             copy_owed_tiles: @background_drawing.method(:emit_copy_owed_tiles),
             background_colors: @background_drawing.method(:emit_background_colors),
             color_list_holds: @sprite_drawing.method(:emit_color_list_holds),
+            # Every picture is kept in sprite memory for its whole scene, groups or none, so there
+            # is nothing to bring in yet.
+            show_picture_group: Lowering::NOTHING,
             present_objects: @sprite_drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
             beep: @audio.method(:emit_beep),

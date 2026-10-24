@@ -662,6 +662,16 @@ module RubyGBA
         Nodes.build(:color_list, name: name, colors: colors, recolors: recolors)
       end
 
+      # A scene's sprite pictures in groups, and one slot of them holding a group from now on.
+      # See Nodes::PictureGroups and Nodes::ShowPictureGroup.
+      def picture_groups(name, groups:, together: [], scene: nil)
+        Nodes.build(:picture_groups, name: name, groups: groups, together: together, scene: scene)
+      end
+
+      def show_picture_group(name, slot:, which:)
+        Nodes.build(:show_picture_group, name: name, slot: slot, which: to_value_node(which))
+      end
+
       # The named list of colours holds the set numbered +which+ from now on, and everything
       # drawn with the list shows it. +which+ counts from 0 through the list's other sets and
       # is a value operand; a number naming none of them is the colours it was declared with.

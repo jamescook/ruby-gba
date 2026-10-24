@@ -203,6 +203,8 @@ module RubyGBA
           @bg_affine = {}          # background name -> the Turn it is being drawn under this frame
           @bg_colors = {}          # ...and which of the lists of colours it was given is drawing it
           @color_lists = {}        # a list of colours that can hold other colours -> its declaration
+          @picture_groups = {}     # sprite pictures in groups -> the declaration (see #refuse_pictures_not_up!)
+          @groups_up = {}          # ...and the group each of its slots holds, PictureGroups::NONE for none
           @held_colors = {}        # ...and which of its other sets it holds now
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @fade_placed = nil       # [layer, toward, amount] while a fade sits under a layer rather than over everything
@@ -515,6 +517,9 @@ module RubyGBA
               @backing[n.name] = { width: n.width, height: n.height, pixels: nil }
             when :color_list
               @color_lists[n.name] = n
+            when :picture_groups
+              @picture_groups[n.name] = n
+              @groups_up[n.name] = Array.new(n.slots, Nodes::PictureGroups::NONE)
             when :object
               # Register the object, so present_objects can find its picture and the
               # variables holding where it is and whether it's shown.
@@ -658,6 +663,7 @@ module RubyGBA
           affine_background: :exec_affine_background,
           background_colors: :exec_background_colors,
           color_list_holds: :exec_color_list_holds,
+          show_picture_group: :exec_show_picture_group,
           scroll_rows: :exec_scroll_rows,
           shade_outside: :exec_shade_outside,
           show_light_now: :exec_show_light_now,
@@ -1294,6 +1300,10 @@ module RubyGBA
             take_down_scenery
           end
           arrival.map_choices.each { |var| @vars[var] = 0 }
+          # ...and none of its picture groups is up, as none of its backgrounds' other maps is.
+          @picture_groups.each_value do |groups|
+            @groups_up[groups.name].fill(Nodes::PictureGroups::NONE) if groups.scene == scene
+          end
           (arrival.painted_tiles + arrival.painted_pictures).each { |run| copy_run_tiles(run) }
           arrival.scenery.each { |bg| put_up_background(bg) }
           redraw_sprites_over_arrived_scenery(arrival)
@@ -2293,6 +2303,7 @@ module RubyGBA
         # objects on top). See #request_repaint.
         def exec_present_objects(node)
           @drawn = objects_on_screen(names_in_draw_order(node))
+          refuse_pictures_not_up!(@drawn)
           # Kept whichever way the picture is made, with each sprite's depth and colours as they
           # are now: a scene taking over later in this pass builds the picture again from it
           # (see #redraw_sprites_over_arrived_scenery).
@@ -2388,6 +2399,73 @@ module RubyGBA
         # here: everything drawn with the list reads it as it is next drawn.
         def exec_color_list_holds(node)
           @held_colors[node.name] = eval_value(node.which)
+        end
+
+        # One slot of a set of picture groups holds the group numbered +which+ from now on.
+        # Nothing is drawn here: the groups up are only asked about as the sprites are drawn.
+        def exec_show_picture_group(node)
+          @groups_up.fetch(node.name)[node.slot] = eval_value(node.which)
+        end
+
+        # GROUPED PICTURES ARE UP ONLY WHILE ONE OF THEIR GROUPS IS. This backend has every
+        # picture in reach whatever is up, so it would draw a sprite showing a picture whose
+        # group is not up exactly as the game meant — and the console, which keeps only the
+        # groups up in its sprite memory, would draw it from tiles holding some other room's
+        # pictures. Stopped here, in plain words, it is a failed test on every build rather than
+        # garbage on one of them. So is two groups up at once that up_together never said can be,
+        # since the console may have put their pictures in the same place.
+        #
+        # A sprite answers to the groups of its own scene and to the groups every screen has, and
+        # only once its scene has taken over: until then its scene's pictures are not the ones up
+        # on the console either, groups or none.
+        def refuse_pictures_not_up!(drawn)
+          return if @picture_groups.empty?
+
+          @picture_groups.each_value { |groups| refuse_groups_not_together!(groups) if up_in_this_scene?(groups.scene) }
+          drawn.each do |on|
+            scene = on[:object].scene
+            next unless up_in_this_scene?(scene)
+
+            @picture_groups.each_value do |groups|
+              next unless groups.scene.nil? || groups.scene == scene
+
+              holding = groups.groups_holding(on[:picture])
+              next if holding.empty? || holding.intersect?(up_numbers(groups))
+
+              raise ProgramError, picture_not_up_message(on, groups, holding)
+            end
+          end
+        end
+
+        # Is what belongs to +scene+ (nil: every screen) up now?
+        def up_in_this_scene?(scene) = scene.nil? || scene == @scene
+
+        # The numbers of the groups of +groups+ up now: the slots' that name a group.
+        def up_numbers(groups) = @groups_up.fetch(groups.name).select { |number| groups.names_group?(number) }.uniq
+
+        def refuse_groups_not_together!(groups)
+          up = up_numbers(groups)
+          raise ProgramError, groups_not_together_message(groups, up) unless groups.together?(up)
+        end
+
+        def groups_not_together_message(groups, up)
+          "The groups #{up.join(' and ')} of :#{groups.name} are up together, and up_together: does not say " \
+            "they can be. So on the console their pictures can be in the same place in sprite memory. To fix " \
+            "this, add #{up.inspect} to up_together: of :#{groups.name}."
+        end
+
+        def picture_not_up_message(on, groups, holding)
+          sprite = on[:object].declared || on[:object].name
+          up = up_numbers(groups)
+          state = case up.length
+                  when 0 then "No group of :#{groups.name} is up"
+                  when 1 then "Only group #{up.first} of :#{groups.name} is up"
+                  else "Only the groups #{up.join(' and ')} of :#{groups.name} are up"
+                  end
+          which = holding.length == 1 ? "group #{holding.first}" : "groups #{holding.join(' or ')}"
+          "The sprite :#{sprite} shows :#{on[:picture]}, which is in #{which} of :#{groups.name}. #{state}. So on " \
+            "the console :#{sprite} will show other pictures. To fix this, show #{which} of :#{groups.name} before " \
+            ":#{sprite} shows :#{on[:picture]}."
         end
 
         # Does this object turn or resize? It does unless BOTH its angle and its size are

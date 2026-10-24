@@ -98,6 +98,9 @@ module RubyGBA
         # ...or a list of colours holding other colours, which reaches every sprite drawn
         # with it, at whatever depth each one is.
         color_list_holds: :free,
+        # ...or a group of sprite pictures put up, which reaches every sprite showing one of
+        # them, at whatever depth each one is.
+        show_picture_group: :free,
         affine_background: :free,
         scroll_rows: :free,
         # ...and a light, which darkens the finished picture wherever its circle is not,

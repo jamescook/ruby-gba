@@ -318,6 +318,12 @@ module ConformanceFixture
       B.color_list(:fixture_slot, colors: [0x0000, 0x03E0], recolors: [[0x0000, 0x001F]]),
       B.color_list_holds(:fixture_slot, which: B.var_ref(:y)),
 
+      # The sprite's picture in a group of two that can be up together: the first is up, from a
+      # number the program works out, and the second slot names no group at all.
+      B.picture_groups(:fixture_rooms, groups: [[:obj8], nil, [:obj8]], together: [[0, 2]]),
+      B.show_picture_group(:fixture_rooms, slot: 0, which: B.binop(:-, B.var_ref(:x), B.var_ref(:x))),
+      B.show_picture_group(:fixture_rooms, slot: 1, which: B.int(1)),
+
       B.present_objects([:hero_obj]),   # draw the declared objects for this frame
       B.save_region(:under, :x, :y),    # remember the pixels under a moving object
       B.restore_region(:under, :x, :y), # then paint them back
