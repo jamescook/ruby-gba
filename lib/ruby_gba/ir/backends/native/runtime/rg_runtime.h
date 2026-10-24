@@ -70,6 +70,13 @@ void rg_timer_stop(int32_t timer);
 int32_t rg_timer_ticks(int32_t timer);
 int32_t rg_timer_ticking(int32_t timer);
 
+/* THE CARTRIDGE'S CLOCK (`clock`): one reading of it, by its place in IR::Clock::READINGS —
+ * the hour, minute, second, year, month, day and day of the week (0 for Sunday), then whether
+ * there is a clock and whether it was set, 1 or 0. Every reading is 0 when either of those two is.
+ * Where the time comes from is the driver's to say (rg_driver.h); a run it says nothing about has
+ * no clock. */
+int32_t rg_clock_reading(int32_t reading);
+
 /* One variable's name and value, for whatever the runtime does with them (the headless one
  * prints them, so a test can compare them with the interpreter's). */
 void rg_dump_variable(const char *name, int32_t value);

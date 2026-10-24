@@ -1010,6 +1010,16 @@ static bool end_of_slot(void) {
   return true;
 }
 
+/* The computer's own clock, in its local time, handed to the cartridge's (rg_clock_reads). A
+ * computer whose clock cannot be read leaves the cartridge's as it last was, or with no clock at
+ * all, which the game is told. */
+static void read_computer_clock(void) {
+  SDL_Time now;
+  SDL_DateTime local;
+  if (!SDL_GetCurrentTime(&now) || !SDL_TimeToDateTime(now, &local, true)) return;
+  rg_clock_reads(local.year, local.month, local.day, local.hour, local.minute, local.second);
+}
+
 /* The frame boundary: the picture the frame drew is shown, the clock comes round, and the
  * buttons for the next frame are read. */
 static void sdl_wait_vblank(void) {
@@ -1018,6 +1028,7 @@ static void sdl_wait_vblank(void) {
   rg_window_frame_played(frame_ended, game_resumed_ns ? frame_ended - game_resumed_ns : 0);
   play_frame_sound();
   rg_frame_begins();
+  read_computer_clock();
   frames_played++;
   bool shown = end_of_slot();
   if (shown) present();
@@ -1149,6 +1160,7 @@ int main(int argc, char **argv) {
   choose_save_file(save_file_asked_for);
   read_save_file();
 
+  read_computer_clock();
   rg_active_driver = &sdl;
   rg_game_main();
   /* A game with no game loop ends; its last picture stays up like a halt's. */

@@ -101,6 +101,39 @@ class TestNativeDesktop < Minitest::Test
     end
   end
 
+  # A game that keeps what the cartridge's clock says in variables, every pass.
+  private def game_that_reads_the_clock
+    RubyGBA.game("CLOCKED") do
+      screen :bitmap
+      now = clock
+      present = var :present, 0
+      set = var :set, 0
+      readings = %i[year month day hour minute].to_h { |name| [name, var(name, -1)] }
+      game_loop do
+        clear_screen :black
+        now.present?.then { present.set! 1 }
+        now.set?.then { set.set! 1 }
+        readings.each { |name, reading| reading.set! now.public_send(name) }
+      end
+    end
+  end
+
+  # THE WINDOW'S CLOCK IS THE COMPUTER'S, in its local time: the game is told there is a clock,
+  # that it was set, and the date and the minute the computer says — at the start of the run or
+  # at its end, should a minute turn over between the two.
+  def test_the_program_a_player_runs_reads_the_computers_clock
+    Dir.mktmpdir do |dir|
+      exe = Native.new.build_desktop(game_that_reads_the_clock, File.join(dir, "clocked"), err: nil)
+      before = Time.now
+      read = play_window(exe, dir, [], frames: 3).variables
+      after = Time.now
+      said = ->(time) { [time.year, time.month, time.day, time.hour, time.min] }
+
+      assert_equal [1, 1], read.values_at(:present, :set)
+      assert_includes [said.call(before), said.call(after)], read.values_at(:year, :month, :day, :hour, :minute)
+    end
+  end
+
   # A game that counts its frames and, for each console button, the frames it was held: what the
   # window does to itself must leave every one of these as a run with none of it would, and what a
   # button does must show in its own. It plays a long note so there is a sound to hear.

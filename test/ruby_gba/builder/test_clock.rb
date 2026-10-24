@@ -26,7 +26,6 @@ class TestClock < Minitest::Test
   end
 
   private def skip_where_there_is_no_clock_yet
-    skip_on_native "the desktop build has no clock yet"
     skip_on_js "the browser build has no clock yet"
   end
 
@@ -47,6 +46,15 @@ class TestClock < Minitest::Test
     assert_equal 6, readings_after(60, THURSDAY)[:second]
   end
 
+  # A clock started half way through a second, as a test handed the time now starts one, turns
+  # over half a second sooner: thirty frames are a little more than that.
+  def test_a_clock_started_part_way_through_a_second_turns_over_sooner
+    halfway = THURSDAY + Rational(1, 2)
+
+    assert_equal 5, readings_after(29, halfway)[:second]
+    assert_equal 6, readings_after(30, halfway)[:second]
+  end
+
   # A second before the new year: the date rolls over with the time, to a Friday.
   def test_the_date_rolls_over_at_midnight_on_new_years_eve
     assert_equal({ hour: 0, minute: 0, second: 0, year: 2027, month: 1, day: 1, weekday: 5 },
@@ -63,6 +71,7 @@ class TestClock < Minitest::Test
   # A pass the console took three frames over still lets three frames of time go by: the clock
   # keeps real time, not the game's. Twenty passes of three frames are a second.
   def test_a_late_pass_lets_its_frames_of_time_go_by
+    skip_on_native "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
     skip_where_there_is_no_clock_yet
     player = game_player.clock_at(THURSDAY).frames_each_pass { 3 }.run(program, frames: 20)
 

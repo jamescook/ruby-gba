@@ -175,6 +175,15 @@ module RubyGBA
             self
           end
 
+          # Give the cartridge a clock reading +time+ at power-on, as the interpreter's #clock_at
+          # does, moved on a frame of the console's each frame; +set: false+ is a clock that is
+          # there and was never set. A run never told has no clock. Gives back self.
+          def clock_at(time, set: true)
+            @clock_started = time
+            @clock_set = set
+            self
+          end
+
           # Drive input that changes over time: the block is called for each frame with its
           # number (1, 2, 3, …) and gives back the buttons held during it. It may read the game
           # (#[], #screen, #sprites) as it stands at the end of the frame before. Gives back self.
@@ -292,7 +301,6 @@ module RubyGBA
           # a sentence saying so rather than a NoMethodError that reads like a typo in the test.
           # test_native_headless_run.rb holds this list to every public method the interpreter
           # has, so one added there and not here fails that test.
-          def clock_at(*, **) = refuse_unanswered!(:clock_at)
           def frame = refuse_unanswered!(:frame)
           def frames_each_pass(&) = refuse_unanswered!(:frames_each_pass)
           def log = refuse_unanswered!(:log)
@@ -325,7 +333,7 @@ module RubyGBA
               File.open(File.join(dir, "picture"), "w+b") do |pictures|
                 @pictures = pictures
                 play_frames(exe, frames, ["--picture-out", pictures.path, *sound_options(dir), *save_options(dir),
-                                          *held_options])
+                                          *held_options, *clock_options])
               end
               @sound = File.binread(File.join(dir, "sound")).unpack("s<*") if @records_sound
               @save.replace_with_sav(File.binread(save_file(dir)), from: "The save memory the program wrote") if @keeps_save
@@ -351,6 +359,17 @@ module RubyGBA
           # frame on, as the interpreter's does.
           def held_options
             @held.empty? ? [] : ["--held-from-power-on", self.class.button_mask(@held).to_s]
+          end
+
+          # The clock's moment as the program takes it: the date and the hour the Time says, as
+          # seconds from the start of 1970 with no time zone (see IR::Clock.reading), and its part
+          # of a second as the console's ticks.
+          def clock_options
+            return [] unless @clock_started
+
+            said = IR::Clock.moved_on(@clock_started, 0)
+            ticks = (said.subsec * Console::Hardware::CYCLES_A_SECOND).floor
+            ["--clock-at", said.to_i.to_s, ticks.to_s, @clock_set ? "1" : "0"]
           end
 
           def sound_options(dir)

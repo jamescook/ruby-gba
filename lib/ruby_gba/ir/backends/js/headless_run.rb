@@ -16,6 +16,10 @@ module RubyGBA
           # answer yet. The native one's, since both are asked the same questions.
           CannotAnswer = Native::HeadlessRun::CannotAnswer
 
+          # The browser build has no clock yet: its runtime answers every reading as a cartridge
+          # with no clock chip does.
+          def clock_at(*, **) = refuse_unanswered!(:clock_at)
+
           private
 
           def headless_program(program) = JS.new.build_headless(program)

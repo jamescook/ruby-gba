@@ -643,10 +643,10 @@ module RubyGBA
           end
           def value_of_shift_right(node) = call("rg_shr", value(node.operand), C::Int.new(node.bits))
 
-          # A READING OF THE CARTRIDGE'S CLOCK, which this build does not ask the computer's clock
-          # for yet. So it answers what a cartridge with no clock chip answers — no clock, and
-          # every reading 0 (see IR::Clock) — which the game is written to expect anyway.
-          def value_of_clock(_node) = C::Int.new(0)
+          # A READING OF THE CARTRIDGE'S CLOCK, asked of the runtime by its place in
+          # IR::Clock::READINGS. Where the time comes from is the runtime's driver's to say: the
+          # computer's clock in a window, the test's moment with none (rg_driver.h).
+          def value_of_clock(node) = call("rg_clock_reading", C::Int.new(IR::Clock::READINGS.index(node.reading)))
 
           def value_of_held(node) = call("rg_held", C::Int.new(button_number(node.button)))
           def value_of_pressed(node) = call("rg_pressed", C::Int.new(button_number(node.button)))
