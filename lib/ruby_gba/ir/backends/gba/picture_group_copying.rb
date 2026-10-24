@@ -70,10 +70,13 @@ module RubyGBA
             @plans.each_value { |plan| emit_forget(plan.up) }
           end
 
-          # AS A SCENE TAKES OVER none of its own groups is wanted or up, as the interpreter has
-          # it: another scene's pictures were in their room, and the scene says which it wants.
+          # AS A SCENE TAKES OVER none of its own groups is up, since another scene's pictures were
+          # in their room. The groups it wants are still the ones it wanted as it left, as the
+          # interpreter has it, and they are copied in again before its sprites are next written:
+          # a scene given the screen back draws its sprites as they were left, and a scene that
+          # loads first does so before any of its own code has run to say which groups it wants.
           def emit_forget_sets_of(scene)
-            @plans.each_value { |plan| emit_forget(plan.shown + plan.up) if plan.scene == scene }
+            @plans.each_value { |plan| emit_forget(plan.up) if plan.scene == scene }
           end
 
           # Does +scene+ own a set, which it has to put down as it takes over?

@@ -207,13 +207,47 @@ class TestPictureGroups < Minitest::Test
     assert_equal red, game_player.run(program, frames: 3).screen.pixel(42, 42)
   end
 
-  # A scene taking over has none of its groups up until it says so, as its backgrounds start on
-  # their first maps: the boat, drawn before the scene says which room is up, has nothing to
-  # draw from.
+  # A scene taking over for the first time has none of its groups up until it says so: the boat,
+  # drawn before the scene says which room is up, has nothing to draw from.
   def test_a_scene_taking_over_has_no_group_up_until_it_says
     program = harbor_scene { |rooms, passes| (passes > 2).then { rooms.show 0 } }
 
     error = assert_raises(Reference::ProgramError) { game_player.run(program, frames: 3) }
     assert_match(/No group of :rooms is up/, error.message)
+  end
+
+  # The sea loads first, hands the screen to the port for two passes, and is given it back. On
+  # the pass it takes over on none of its own code runs, so it cannot say which room is up before
+  # its boat is drawn again, showing what it showed as the sea was left.
+  private def harbor_left_and_given_back
+    b = Builder.new
+    paint = boxes
+    b.instance_eval do
+      screen :tiled
+      paint.call(self)
+      state = var :state, 0
+      passes = var :passes, 0
+      scene(:sea, loads_first: true) do
+        rooms = picture_groups :rooms, { 0 => %i[red_box], 1 => %i[blue_box] }
+        sprite :boat, facing: { red: :red_box }, at: [40, 40]
+        rooms.show 0
+      end
+      scene(:port) { sprite :flag, facing: { white: :white_box }, at: [80, 40] }
+      game_loop do
+        passes.add! 1
+        (passes == 3).then { state.set! 1 }
+        (passes == 5).then { state.set! 0 }
+        case_var(:state) { when_val 0, :sea; when_val 1, :port }
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  # A scene given the screen back has its groups up as it left them, as it has its sprites.
+  def test_a_scene_given_the_screen_back_has_its_groups_up_as_it_left_them
+    screen = game_player.run(harbor_left_and_given_back, frames: 8).screen
+
+    assert_equal red, screen.pixel(42, 42)
   end
 end

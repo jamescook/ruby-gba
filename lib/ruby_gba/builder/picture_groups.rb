@@ -25,7 +25,9 @@ module RubyGBA
       # picture in a group is up only while one of its groups is, and a sprite drawn showing
       # it at any other moment is a mistake the game is stopped for, on every build, in plain
       # words. Groups that can be up at once say so in +up_together+; without it, one group at
-      # a time. As a scene takes over, none of its groups is up until the game says one is.
+      # a time. The first time a scene takes over, none of its groups is up until the game says
+      # one is; given the screen back, it has the groups up it had as it was left, as its
+      # sprites are left as they were.
       #
       # @param name [Symbol] what the groups are called, in errors and reports
       # @param groups [Hash{Integer => Array<Symbol>}] each group's pictures, by its number

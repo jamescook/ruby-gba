@@ -676,7 +676,7 @@ module RubyGBA
               art.each { |blob, at, units| @uploads.emit_dma_blob(blob, SpriteDrawing::OBJ_TILE_BASE + (at * 32), units * 16) }
               @sprite_drawing.emit_reset_resident_frames(rooms)
               pools.each { |pool| @sprite_drawing.emit_forget_poses_sent(pool) }
-              @picture_group_copying.emit_forget_sets_of(name) # copied in once the scene says which it wants
+              @picture_group_copying.emit_forget_sets_of(name) # the groups it wants copied in before its sprites
 
               # A picture the game paints goes up from its list as it is now: the scene before
               # used the same memory (see IR::SceneHandover).

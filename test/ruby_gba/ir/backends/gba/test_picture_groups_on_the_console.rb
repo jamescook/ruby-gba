@@ -148,6 +148,47 @@ class TestPictureGroupsOnTheConsole < Minitest::Test
     end
   end
 
+  # A SCENE THAT LOADS FIRST, GIVEN THE SCREEN BACK. Its room is up as it leaves, and the scene
+  # away fills sprite memory with pictures of its own. Back again, none of the harbor's code runs
+  # on the pass it takes over on, and its things are drawn after that pass showing the room they
+  # showed as it was left: its pictures have to be back in their places by then.
+  private def harbor_given_back
+    program do |t|
+      screen :tiled
+      rooms = (0...2).map { |n| :"dock_#{n}" }
+      rooms.each_with_index { |name, n| image name, width: 64, height: 64, data: t.big_art(n) }
+      banners = (0...8).map { |n| :"banner_#{n}" }
+      banners.each_with_index { |name, n| image name, width: 64, height: 64, data: t.big_art(100 + n) }
+      state = var :state, 0
+      tick = var :tick, 0
+      scene(:harbor, loads_first: true) do
+        up = picture_groups :docks, rooms.each_with_index.to_h { |name, n| [n, [name]] }
+        boats = pool :boat, x: 0, y: 0, capacity: 4, facing: rooms.to_h { |name| [name, name] }
+        (boats.count == 0).then do
+          boats.spawn(x: 8, y: 8)
+          boats.spawn(x: 88, y: 40)
+        end
+        up.show 1
+        boats.each { |boat| boat.face rooms, showing: 1 }
+      end
+      scene(:away) { sprite :banner, at: [8, 8], frames: banners, rate: 60 }
+      game_loop do
+        tick.add! 1
+        (tick == 3).then { state.set! 1 }
+        (tick == 6).then { state.set! 0 }
+        case_var(:state) { when_val 0, :harbor; when_val 1, :away }
+      end
+    end
+  end
+
+  # Frames 3 and 6 are the frames each scene takes over on, where the scene leaving still has
+  # its sprites up over pictures the next one is copying in. Frame 7 is the first the harbor's
+  # boats are drawn again.
+  def test_a_scene_that_loads_first_shows_its_rooms_on_the_pass_it_is_given_back
+    prog = harbor_given_back
+    [2, 4, 5, 7, 8, 10].each { |frames| assert_backends_agree(prog, frames: frames, name: "HARBOR") }
+  end
+
   def test_groups_of_every_screen_stay_up_across_a_change_of_scene
     prog = walker_between_scenes
     [2, 4, 6, 7, 8, 13].each { |frames| assert_backends_agree(prog, frames: frames, name: "WALKER") }

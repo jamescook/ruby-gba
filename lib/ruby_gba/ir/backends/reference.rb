@@ -1299,11 +1299,12 @@ module RubyGBA
             paint_owed_repaint
             take_down_scenery
           end
+          # Its picture groups are left as the scene left them, since they say what its sprites
+          # can show and its sprites are left as they were too: a scene given the screen back
+          # draws them again before it can say anything, and a scene that loads first not until
+          # the pass after. The console copies those groups in again before the sprites are
+          # drawn (see GBA::PictureGroupCopying#emit_forget_sets_of).
           arrival.map_choices.each { |var| @vars[var] = 0 }
-          # ...and none of its picture groups is up, as none of its backgrounds' other maps is.
-          @picture_groups.each_value do |groups|
-            @groups_up[groups.name].fill(Nodes::PictureGroups::NONE) if groups.scene == scene
-          end
           (arrival.painted_tiles + arrival.painted_pictures).each { |run| copy_run_tiles(run) }
           arrival.scenery.each { |bg| put_up_background(bg) }
           redraw_sprites_over_arrived_scenery(arrival)
