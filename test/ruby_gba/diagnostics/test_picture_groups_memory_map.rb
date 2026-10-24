@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "many_rooms_game"
 
 # A SCENE'S PICTURE GROUPS IN THE MAP OF SPRITE MEMORY. A grouped picture has one place there,
 # shared with pictures whose groups are never up with its own, and is copied in as one of its
@@ -28,6 +29,7 @@ class TestPictureGroupsMemoryMap < Minitest::Test
 
   TILES = 64 # one picture's tiles
   BYTES = TILES * 32
+  CONSOLE_SPRITE_BYTES = 32_768 # the console's sprite memory
 
   # A badge in every scene, and a harbor of three rooms in a row, each up beside the next while
   # the screen slides: two pictures in the first room, one in the second, three in the third. A
@@ -142,6 +144,23 @@ class TestPictureGroupsMemoryMap < Minitest::Test
     assert_match(/groups 0 and 1/, error.message)
     assert_match(/:art_1 \(2048\)/, error.message)
     assert_match(/picture_groups :rooms/, error.sprite_memory.to_s)
+  end
+
+  # A GRID OF ROOMS (see ManyRoomsGame): every room's pictures come to several times what the
+  # console holds, and the busiest set up together is two rooms across an edge. The rooms are
+  # placed like a chessboard's squares, those of one colour sharing places, so the room the
+  # groups take is the pair's and the scene is the pair with the hero and the heart.
+  def test_the_busiest_set_of_many_rooms_is_two_rooms
+    rom = RubyGBA.build("ROOMS", out: StringIO.new, err: StringIO.new) { ManyRoomsGame.declare(self) }
+    play = rom.sprite_memory.screens.find { |screen| screen.scene == :play }
+    rooms = play.picture_groups.fetch(0)
+    pair = 2 * ManyRoomsGame::ROOM_BYTES
+
+    assert_operator rooms.groups.sum(&:bytes), :>, CONSOLE_SPRITE_BYTES, "every room's pictures would not fit at once"
+    assert_equal pair, rooms.worst.bytes
+    assert_equal 2, rooms.worst.groups.length
+    assert_equal pair, rooms.bytes
+    assert_equal pair + ManyRoomsGame::EVERYWHERE_BYTES, play.used
   end
 
   private def full_scene_message(&block)
