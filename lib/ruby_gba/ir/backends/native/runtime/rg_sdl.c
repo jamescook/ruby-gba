@@ -1106,7 +1106,7 @@ static void attach_keyboard_pad(void) {
 /* What --help prints: the keys as the window starts with them, read from the window's own table so
  * this cannot say a key the window does not use, and the options a player has a use for. The rest
  * (--headless, --scripted-keys, --trace, --window-picture, --usual-settings, and --frame-times and
- * --refresh-rate, which measure the pacing and are told in .claude/rules/testing.md) are how the
+ * --refresh-rate, which measure the pacing and are told in .claude/testing/desktop.md) are how the
  * tests and the framework's own people drive the program, and are left out. Nothing is opened: no
  * window, no settings file, no folder. */
 static void print_usage(const char *program) {

@@ -1,0 +1,90 @@
+# The native and JavaScript runs — the game as C and as JavaScript
+
+`rake test` plays the suite once per lowering (`test/support/suites.rb`): the GBA run (the
+interpreter, the cartridge checked in the emulator), the native run (the game built as C by
+`Backends::Native`, checked against the interpreter on every frame), and the JavaScript run (the
+game as JavaScript by `Backends::JS`, played by node, checked the same way). A test that fails
+on any of them fails the run. It needs zig 0.17 and node 18 or later besides the emulator.
+
+**The JavaScript run is the native run's twin.** Its game is the native lowering's statements
+printed as JavaScript, its windowless program prints what the native one prints, and its player
+(`JSCheckedPlayer`, `JS::CheckedRun`) is the native checked run with that program swapped in. So
+all of this file holds for it too, with `skip_on_js` for its own skip and
+`test/ruby_gba/ir/backends/js/` for its own folder. The sound a speaker would make is compared
+with the cartridge's on the native run alone (`.claude/testing/native-sound.md`); the JavaScript
+runtime's voices are the native one's, function for function.
+
+## What `game_player` is on each run
+
+On the GBA run it IS `Reference.new`. On the native run it is a `CheckedPlayer`: the game built as
+C, driven through the same calls (`hold`, `input_each_frame`, `each_vblank`, `run`, `[]`, `vars`,
+`screen.pixel`, `screen.to_a`, `screen.stored_pixel`, `screen.camera_x`/`camera_y`, `sprites`,
+`list`, `pool`, `game_state`, `buffered`, `audio`, growing with each native slice), then the same
+buttons replayed on the interpreter, failing at the first frame where any variable, list or pool
+field, pixel, the sound log or the sprites drawn differ. Every test's own checks are backed by a
+whole-picture comparison on every frame.
+
+What it cannot answer yet raises `HeadlessRun::CannotAnswer` naming the call: either the native
+lowering has a gap to fill, or that test wants `skip_on_native "why"` at its top (which does
+nothing on the GBA run). A test that reaches for the emulator (`require_emulator!`,
+`assert_emulator_loads_rom`) skips itself, since the cartridge is the GBA run's; checks on the
+game before that have already run. Every skip says why, and the run ends with skips counted by
+reason.
+
+- **Saves.** `game_player(save: image)` hands the C the image's bytes as a .sav file, puts what
+  the run left back into the image (so one image handed to two runs is a power cycle, as for the
+  interpreter), replays on the interpreter from a copy taken first, and fails if the two end with
+  different bytes. `cut_power_after` cuts both at the same step.
+- **`each_vblank`** with a block watches the C at each frame boundary as the run goes, and an
+  input script can read the picture as well as the variables.
+- **A step budget** (`run(program, max_steps: 400)`) needs nothing changed: it stops on a frame
+  boundary, so the interpreter is asked how many frames fit and the C plays that many.
+- **Sound.** The log is the interpreter's words for what was played. The C keeps it, and plays
+  the sound, for songs (square, wave, noise and recordings; named or from a list; played once;
+  the music volume), effects over the song, beeps, `wave`, `stop_wave`, `noise`, and recordings.
+  The mixer's output is compared slice for slice (`mixed_sound`, `active_samples`,
+  `sound_owners`, `peak_voices`, `volume_of`, `level_of`, `sound_drops` answer). A test may clear
+  `audio` as it watches; the run compares every entry the C logged regardless.
+- **`assert_backends_agree` and `backend_pictures` do not skip.** They play the program as C
+  with the same buttons and compare with the interpreter on every frame; `backend_pictures`
+  hands back the C's picture in place of the console's. How the console is lined up against the
+  interpreter is the GBA lowering's alone (`ir/backends/gba/test_console_line_up.rb`).
+
+## Reading every frame is one run
+
+A helper that plays the game again for each frame it looks at costs the square of the frames,
+and the native run starts the C afresh each time. Read frames as they settle with `each_vblank`
+(the `watch` helper in `test_screen_fade.rb`, which also shows the one-frame offset).
+
+## Examples on the native run
+
+`ruby tools/native_examples.rb` lists the examples the native lowering can write as C today and
+why each other is refused. `test_native_examples.rb` fails when one that builds has no recorded
+run (`native/examples/test_<example>_picture.rb`), or when a file in `test/examples/` whose
+examples all build still plays them by `Reference.new`. A file whose tests are all of the
+cartridge has nothing for the C to play.
+
+A whole example gets files under `test/ruby_gba/ir/backends/native/examples/`:
+`test_<game>_picture.rb` plays a recorded run of buttons and compares every variable, pixel and
+the sound log with the interpreter's on every frame, and `test_<game>_sounds.rb` compares the
+speaker with the cartridge's. `test_pong_*.rb` and `test_pacman_*.rb` are the worked examples. A
+small made-up program for one feature goes in `test_native_picture.rb` or `test_native_tones.rb`
+and never requires an example.
+
+## It is the library's, so a game does the same
+
+This suite takes it from the library exactly as a game does. `require "ruby_gba/testing"`
+(`lib/ruby_gba/testing.rb`) is minitest, the library, the lowering the run is for
+(`RubyGBA::Testing.lowering`, read once from `RUBY_GBA_LOWERING`), and a module giving
+`game_player`, `skip_on_native` and `CheckedPlayer`. `CheckedPlayer` is
+`RubyGBA::IR::Backends::Native::CheckedRun` with a disagreement reported as a failed test; the
+comparisons are `Native::Differences`. The rake tasks are the library's
+(`RubyGBA::Testing::RakeTasks`): this Rakefile makes `rake test` and the `test:lowering:` tasks
+with it and adds only the machine lock, the emulator build and coverage. Each `test:lowering:`
+task is a `RubyGBA::Testing::TestTask`, which holds how a native run starts (no Ractors, several
+processes, zig asked for first). The README's "Testing a game on every lowering" is the game's
+side; `test/ruby_gba/testing/test_game_suite.rb` runs the rake of a small game suite
+(`test/fixtures/game_suite/`) that has the library as a gem and nothing from this folder.
+
+A native player needs zig and starts the game as a separate program, so it cannot run inside a
+Ractor. How the native run's processes work is in `.claude/testing/runs.md`.

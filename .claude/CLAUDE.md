@@ -120,8 +120,8 @@ RUBY_GBA_SUITE_LOCK=checkout rake test                          # in a worktree:
 
 **One whole run at a time on the machine**, across every checkout: a second waits for the first and
 says where it is. A run in a worktree that should not queue behind the main checkout's sets
-`RUBY_GBA_SUITE_LOCK=checkout`, and the two then share the cores. See "A whole run has the machine
-to itself" in `.claude/rules/testing.md`.
+`RUBY_GBA_SUITE_LOCK=checkout`, and the two then share the cores. See "One whole run on the
+machine at a time" in `.claude/testing/runs.md`.
 
 **CI runs on a self-hosted runner, not on GitHub's machines.** A whole run plays every test on
 three lowerings and wants many cores for a long time; on a hosted runner that is slow and costly

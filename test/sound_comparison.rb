@@ -258,7 +258,7 @@ module SoundComparison
   #
   # For the same reason a button reaches the two on DIFFERENT PASSES of the game, which matters
   # where the game is racing something of its own; "The console starts its game a frame or two
-  # after the desktop build" in .claude/rules/testing.md says how to hold one so it does not.
+  # after the desktop build" in .claude/testing/native-sound.md says how to hold one so it does not.
   def assert_native_sounds_like_the_console(program, frames:, buttons: {}, voices: SQUARE_VOICES)
     console = voices.to_h { |voice| [voice, console_voice(program, voice, frames: frames + MOST_FRAMES_APART, buttons: buttons)] }
     native = voices.to_h { |voice| [voice, native_voice(program, voice, frames: frames, buttons: buttons)] }
