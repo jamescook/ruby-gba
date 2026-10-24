@@ -56,10 +56,17 @@ module RubyGBA
       #   machine's temporary files. Hand one over to say how many frames are held, or where
       #   the file goes: `sound: RecordedSound.new(frames_in_memory: 600, folder: "scratch")`.
       #   Every sound reader answers for the whole run either way.
-      def initialize(rom, frames: 2, keys: nil, vars: nil, count_passes: false, save: nil, sound: RecordedSound.new)
+      # +clock:+ (a Time) gives the cartridge a clock chip reading that moment at power-on and
+      # moving on a console frame each frame, the emulator's own and never the computer's (see
+      # RubyGBAEmulator::Probe#clock_at); left out, the cartridge has none, as on most emulators.
+      # +clock_set: false+ makes it a chip whose battery ran out.
+      def initialize(rom, frames: 2, keys: nil, vars: nil, count_passes: false, save: nil, sound: RecordedSound.new,
+                     clock: nil, clock_set: true)
         refuse_sound_not_recorded_sound!(sound)
         @rom = rom
         @save = save
+        @clock = clock
+        @clock_set = clock_set
         @frames = frames
         @keys = keys
         @var_addresses = vars
@@ -952,6 +959,7 @@ module RubyGBA
         @tempfile.flush
         write_save_memory if @save
         @probe = Emulator.probe(@tempfile.path, save_dir: self.class.save_dir)
+        @probe.clock_at(@clock, set: @clock_set) if @clock
         @rendered = true
         watch_game_loop_passes! if @count_passes
         play(@frames)

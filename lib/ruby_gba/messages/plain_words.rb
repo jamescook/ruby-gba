@@ -61,7 +61,11 @@ module RubyGBA
                                 "and the sound effects",
                    __divide_routine: "dividing",
                    __divide_fix_routine: "dividing numbers that hold a fraction",
-                   __mix_routine: "mixing the sound that is playing" }.freeze
+                   __mix_routine: "mixing the sound that is playing",
+                   __clock_chip_at_power_on: "asking the cartridge's clock chip whether it is there and set",
+                   __clock_chip_each_pass: "reading the date and time off the cartridge's clock chip",
+                   __clock_chip_send: "sending the clock chip a command",
+                   __clock_chip_receive: "reading a byte back from the clock chip" }.freeze
 
       # Everything else the build made up — a record's save routines, a font's digit routine, a
       # scene's sprite routine — is said in terms of what the author declared, by the table that

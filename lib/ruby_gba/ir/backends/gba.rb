@@ -44,6 +44,7 @@ require_relative "gba/primitives"
 require_relative "gba/collision"
 require_relative "gba/timers"
 require_relative "gba/frames" # how many frames a pass of the game loop really took
+require_relative "gba/clock_chip" # the cartridge's clock chip, read once a pass
 require_relative "gba/raster"
 require_relative "gba/mixer"
 require_relative "gba/save_chips"
@@ -308,6 +309,9 @@ module RubyGBA
           @frames.emit_reset_frame_mark
           @expressions.emit_forget_presses if @uses_pressed
         end
+
+        # The cartridge's clock read again after each wait for the screen (see ClockChip).
+        def emit_read_clock_after_wait = @clock_chip.emit_call_after_wait
         def fade_steps_value(amount) = @effects.fade_steps_value(amount)
         def emit_clamp_blend_steps(most = Console::Hardware::BLD_MAX) = @effects.emit_clamp_blend_steps(most)
         def emit_blend_weights_from_acc = @effects.emit_blend_weights_from_acc
@@ -358,6 +362,8 @@ module RubyGBA
           @divide = Divide.new(emitter: @emit, memory: @memory, primitives: @primitives,
                                scales_objects: ScreenLayout.method(:scales?))
           @frames = Frames.new(emitter: @emit, primitives: @primitives)
+          @clock_chip = ClockChip.new(emitter: @emit, primitives: @primitives,
+                                      call_cold_routine: method(:emit_call_cold_routine))
           # The kind-keyed dispatch that replaces eval_value's case. Every statement in the
           # program goes through it, which also makes it the one place that can say how far
           # this pass has got — and the one place that can count what each part of the
@@ -450,7 +456,7 @@ module RubyGBA
             list_get: @lists.method(:eval_list_get), list_len: @lists.method(:eval_list_len),
             save_read: @save.method(:eval_save_read), save_sum: @save.method(:eval_save_sum),
             read_scanline: @expressions.method(:eval_read_scanline), timer_ticks: method(:eval_timer_ticks),
-            clock: @expressions.method(:eval_clock),
+            clock: @clock_chip.method(:eval_clock),
           )
           # Every statement kind's handler, registered once in one place — see {Lowering}.
           # A declaration is collected during the definitions pass, earlier in #lower, and emits
@@ -841,6 +847,7 @@ module RubyGBA
           @mixer.prepare_direct_sound(program) # embed the program's samples as ROM data
           @audio.prepare_music(program) # number its tunes, and keep the mixer voices they play on
           @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
+          @clock_chip.prepare(program) # whether anything reads the clock
           @mixer.prepare_mixer(program) # the software mixer's rate, buffers, voice slots, timer
           @audio.register_audio_blobs # every tune as one score — after the mixer's rate, which sets each note's step
           refuse_samples_without_vblank!
@@ -945,6 +952,7 @@ module RubyGBA
           emit_mixer_boot if @mixer.plays_samples? # start the sound DMA + clock; voices added by `play`
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
+          @clock_chip.emit_call_at_power_on # whether the cartridge has a clock, and its first reading
           @palette_tint.emit_changed_lists_at_power_on # before the screen is set up, which may read them
           @sprite_drawing.emit_lent_colors_at_power_on # ...and so may the groups lent to lists
           @palette_tint.emit_clear_remembered_tint if @palette_tint.tint_crosses_screens? # ...as setting it up reads this
@@ -992,6 +1000,7 @@ module RubyGBA
           @sprite_drawing.emit_shared_room_routines # giving a sprite a room for its pose, two routines a set of rooms
           @sprite_drawing.emit_lend_colors_routine # lending a group of sprite colours to the list a sprite wears
           @lists.emit_fill_routine # the one routine every list_fill calls, for the same reason
+          @clock_chip.emit_routines # the conversations with the cartridge's clock chip
           @lists.emit_copy_routine # ...and every list_copy
           emit_swap_routine # copying a scene's own routines in as it takes over
           register_quick_tables

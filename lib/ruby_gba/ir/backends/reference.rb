@@ -386,8 +386,9 @@ module RubyGBA
         end
 
         # GIVE THE CARTRIDGE A CLOCK, reading +time+ at power-on, the way #hold gives it buttons.
-        # It moves on a sixtieth of a second for every frame the screen shows, so a run of sixty
-        # frames sees a second go by — however many passes of the game loop those took. With
+        # It moves on one of the console's frames for every frame the screen shows — a little more
+        # than a sixtieth of a second (Console::Hardware::FRAME_SECONDS), so a run of sixty frames sees a
+        # second go by — however many passes of the game loop those took. With
         # +set: false+ the clock is there and was never set, which a game can ask (`clock.set?`).
         #
         # A run never told reads no clock at all (`clock.present?` is false), which is what a
@@ -3036,8 +3037,12 @@ module RubyGBA
         # The clock as it reads now: where #clock_at started it, on by every frame the screen has
         # shown. That count moves only between passes, so every reading in one pass is of the same
         # moment, and a minute cannot turn over between reading the minute and the second.
+        #
+        # A FRAME IS THE CONSOLE'S, a little more than a sixtieth of a second, since a clock keeps
+        # real seconds and the console's frames are what this counts in; an emulator's clock pinned
+        # to a moment moves on the same way, so the two read each second turn over on one frame.
         def value_of_clock(node)
-          now = @clock_started && IR::Clock.moved_on(@clock_started, Rational(@screen_frame, FRAME_RATE))
+          now = @clock_started && IR::Clock.moved_on(@clock_started, @screen_frame * Console::Hardware::FRAME_SECONDS)
           IR::Clock.reading(node.reading, now, set: @clock_set)
         end
 

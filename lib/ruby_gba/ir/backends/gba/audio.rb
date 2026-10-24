@@ -1322,6 +1322,11 @@ module RubyGBA
             # bend and everything standing on it show the same frame. (Nothing here when no
             # background bends, or when a program with no frame runs its block per line.)
             @raster.emit_fill_row_bend_tables if @raster.row_bend_tables?
+
+            # Last, the cartridge's clock, read for the pass to come (see ClockChip). A slow
+            # conversation over the cartridge's pins, so it waits behind everything above that the
+            # gap between frames is short for.
+            @drawing.emit_read_clock_after_wait
           end
 
           private

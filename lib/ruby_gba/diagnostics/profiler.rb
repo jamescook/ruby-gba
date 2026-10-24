@@ -170,7 +170,7 @@ module RubyGBA
       # a list, even an empty one, starts it the way a held game is started, so two held runs
       # compare like with like.
       def self.run(rom, frames: FRAMES, settle: SETTLE, keys: [], scene: nil, from: nil,
-                   picture: true, holding: nil, starting: [])
+                   picture: true, holding: nil, starting: [], clock: nil)
         routines = rom.built.routines
         loaded_sets = 0 # which scenes' own routines were in the quick memory; read as the run ends
         held = Array(keys)
@@ -182,6 +182,7 @@ module RubyGBA
         losses = Losses.new(sounds: rom.built.sound_drops, colors_short_at: rom.built.colors_short_at)
         profile, tearing, flicker, lost, short = in_temp_rom(rom) do |path|
           probe = Emulator.probe(path)
+          probe.clock_at(clock) if clock # a clock chip reading that moment (see Verifier#initialize)
           begin
             measured =
               if from

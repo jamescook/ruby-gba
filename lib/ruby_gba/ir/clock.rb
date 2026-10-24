@@ -20,7 +20,6 @@ module RubyGBA
       QUESTIONS = %i[present set].freeze
 
       READINGS = (TIME + QUESTIONS).freeze
-
       module_function
 
       # +reading+ of a clock at +time+ — a Time, or nil for no clock at all — that was set when

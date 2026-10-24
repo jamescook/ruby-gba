@@ -4,7 +4,8 @@ require "test_helper"
 
 # THE DATE AND TIME, READ BY THE GAME. `clock` hands back the clock a cartridge carries, and its
 # readings are numbers like any variable's. A test says what time the clock starts at, the way it
-# says which buttons are held, and the time moves on a sixtieth of a second each frame.
+# says which buttons are held, and the time moves on one of the console's frames each frame — a
+# little more than a sixtieth of a second.
 class TestClock < Minitest::Test
   # A Thursday evening.
   THURSDAY = Time.new(2026, 10, 22, 21, 7, 5)

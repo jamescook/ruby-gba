@@ -79,6 +79,25 @@ module RubyGBAEmulator
       @last_audio = []    # one frame's audio per frame of the most recent step
     end
 
+    # GIVE THE CARTRIDGE A CLOCK CHIP that reads +time+ (a Time) as the console powers on and
+    # moves on one console frame each frame, never the computer's own clock — so a run that reads
+    # the date and time reads the same on every run. The emulator gives a cartridge no clock unless
+    # told: it keeps a list of real games that have one, and a homebrew cartridge is on no list.
+    #
+    # It turns the seconds into a date in this computer's time zone, as the console's clock is in
+    # whatever zone it was set in. Say it before the first {#step}. With +set: false+ the chip
+    # starts as one whose battery ran out — its settings say so — which the emulator's own chip
+    # never is.
+    #
+    # @param time [Time]
+    # @param set [Boolean]
+    # @return [self]
+    def clock_at(time, set: true)
+      ensure_open!
+      @core.use_clock((time.to_r * 1000).to_i, !set)
+      self
+    end
+
     # Advance the emulation by +n+ frames, holding +keys+ for each.
     #
     # @param n [Integer] number of frames to run

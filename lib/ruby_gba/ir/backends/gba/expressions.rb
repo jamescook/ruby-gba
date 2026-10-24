@@ -29,13 +29,6 @@ module RubyGBA
           def eval_chance(node) = @lowering.value(Build.binop(:<, node.draw, Build.int(node.percent)))
           def eval_held_node(node) = eval_held(node.button)
           def eval_pressed_node(node) = eval_pressed(node.button)
-
-          # A READING OF THE CARTRIDGE'S CLOCK, which this lowering does not ask the clock chip
-          # for yet. So it answers what a cartridge with no chip answers — no clock, and every
-          # reading 0 (see IR::Clock) — which is what the game is written to expect from an
-          # emulator not told it has one.
-          def eval_clock(_node) = @emitter.emit_number(ACC, 0)
-
           # Read VCOUNT — the scanline being drawn right now (0..227) — into the
           # accumulator. A halfword load straight from the display's scanline register.
           def eval_read_scanline(_node = nil)

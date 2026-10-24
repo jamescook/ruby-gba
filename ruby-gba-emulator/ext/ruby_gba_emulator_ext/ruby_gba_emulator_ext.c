@@ -5,6 +5,9 @@
 #include <mgba/core/config.h>
 #include <mgba/core/serialize.h>
 #include <mgba/internal/gba/serialize.h>
+#include <mgba/internal/gba/gba.h>
+#include <mgba/internal/gba/cart/gpio.h>
+#include <mgba/core/interface.h>
 #include <mgba-util/memory.h>
 #include <ruby/thread.h>
 #include <string.h>
@@ -1115,6 +1118,41 @@ mgba_core_color_correction_p(VALUE self)
 {
     struct mgba_core *mc = get_mgba_core(self);
     return mc->color_correction ? Qtrue : Qfalse;
+}
+
+/* --------------------------------------------------------- */
+/* Core#use_clock(epoch_ms)                                  */
+/*                                                           */
+/* GIVE THE CARTRIDGE A CLOCK CHIP, pinned to a moment. mGBA */
+/* switches its clock on only for the games on its own list, */
+/* for Pokemon, or from a player's settings — nothing in a   */
+/* cartridge asks for one — so a test switches it on here.   */
+/* It reads +epoch_ms+ (milliseconds since 1970) at power-on  */
+/* and moves on one emulated frame each frame, never the     */
+/* host's clock, so a run is the same every time. mGBA turns  */
+/* the seconds into a date in the host's own time zone.       */
+/*                                                           */
+/* With +power_lost+ true the chip starts as a chip whose     */
+/* battery ran out: its settings say so, and it counts the    */
+/* hours 1 to 12 until it is told otherwise. mGBA itself      */
+/* always starts a chip as one that was set, in 24 hours.     */
+/* --------------------------------------------------------- */
+
+static VALUE
+mgba_core_use_clock(VALUE self, VALUE epoch_ms, VALUE power_lost)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    if (mc->core->platform(mc->core) != mPLATFORM_GBA) {
+        rb_raise(rb_eArgError, "only a Game Boy Advance cartridge can be given a clock");
+    }
+    struct GBA *gba = mc->core->board;
+    GBAHardwareInitRTC(&gba->memory.hw);
+    if (RTEST(power_lost)) {
+        gba->memory.hw.rtc.control = 0x80;
+    }
+    mc->core->rtc.override = RTC_FAKE_EPOCH;
+    mc->core->rtc.value = NUM2LL(epoch_ms);
+    return self;
 }
 
 /* --------------------------------------------------------- */
@@ -4062,6 +4100,7 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "state_file_identity", mgba_core_state_file_identity, 1);
     rb_define_method(cCore, "color_correction=", mgba_core_set_color_correction, 1);
     rb_define_method(cCore, "color_correction?", mgba_core_color_correction_p, 0);
+    rb_define_method(cCore, "use_clock",   mgba_core_use_clock, 2);
     rb_define_method(cCore, "frame_blending=", mgba_core_set_frame_blending, 1);
     rb_define_method(cCore, "frame_blending?", mgba_core_frame_blending_p, 0);
     rb_define_method(cCore, "rewind_init",   mgba_core_rewind_init, 1);
