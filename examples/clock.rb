@@ -15,9 +15,15 @@
 # is 0, so a game that does not ask shows 00:00:00 and looks broken. This one says which it is.
 #
 # mGBA says NO CLOCK until it is told this game has one: it switches the clock on by itself only
-# for the retail games it knows. Close the game, open Tools, Game Overrides, untick Autodetect on
-# the Game Boy Advance tab, tick Realtime clock and press Save, then load the game again. mGBA
-# keeps that for this game from then on.
+# for the retail games it knows, and its Game Overrides window cannot do it for a game of your
+# own. Its settings file can. With mGBA closed, add these two lines to the end of its config.ini
+# (~/.config/mgba/config.ini on a Mac or Linux), where HE6F is the game code `ruby-gba inspect
+# clock.gba` prints and 1 means "this cartridge has a clock":
+#
+#   [override.HE6F]
+#   hardware=1
+#
+# The clock also works in SkyEmu.
 #
 # PAINT WHEN IT CHANGES. The time moves on once a second, so the face is painted once a second
 # and left alone in between, through `keep_showing`. The screen here keeps two pictures and
