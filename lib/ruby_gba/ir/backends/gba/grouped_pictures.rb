@@ -32,8 +32,9 @@ module RubyGBA
           ENTRY_BYTES = 16
           ENTRY_SHIFT = 4 # ...so an entry's number shifted this far is where it starts
 
-          # One set's pictures, and where each goes in the set's room.
-          Laid = Data.define(:pictures, :places)
+          # One set's pictures, where each goes in the set's room, and the bytes each picture name
+          # the set's sprites show was stored as.
+          Laid = Data.define(:pictures, :places, :bytes_of)
 
           def initialize(program)
             @sets = program.walk.select { |node| node.kind == :picture_groups }
@@ -57,18 +58,22 @@ module RubyGBA
           def place_pictures(pictures)
             @sets.each do |set|
               found = {} # bytes -> [narrow, group numbers]
+              bytes_of = {}
               pictures.each_value do |sprite|
                 sprite.grouped.each do |k, pose|
                   next unless pose.set == set.name
 
+                  picture = sprite.node.poses[k]
+                  bytes_of[picture] ||= pose.bytes
                   narrow, groups = found.fetch(pose.bytes, [true, []])
-                  found[pose.bytes] = [narrow && sprite.place.narrow?, groups | set.groups_holding(sprite.node.poses[k])]
+                  found[pose.bytes] = [narrow && sprite.place.narrow?, groups | set.groups_holding(picture)]
                 end
               end
               placed = found.map do |bytes, (narrow, groups)|
                 PictureGroupPlaces::Picture.new(key: bytes, units: bytes.bytesize / 32, narrow: narrow, groups: groups)
               end
-              @laid[set.name] = Laid.new(pictures: placed, places: PictureGroupPlaces.new(placed, together: set.together))
+              @laid[set.name] = Laid.new(pictures: placed, places: PictureGroupPlaces.new(placed, together: set.together),
+                                         bytes_of: bytes_of)
             end
           end
 
@@ -87,7 +92,68 @@ module RubyGBA
             end.to_h
           end
 
+          # THE SETS UP ON +scene+ (nil: every screen), the scene's own and every screen's, as the map
+          # of sprite memory says them, for the sets whose rooms start at +bases+[name].
+          def map_entries(scene, bases)
+            sets_up_on(scene).filter_map do |set|
+              base = bases[set.name]
+              map_entry(set, base) if base
+            end
+          end
+
+          # The bytes the rooms of the sets up on +scene+ take.
+          def room_bytes_on(scene) = sets_up_on(scene).sum { |set| room_units(set) * 32 }
+
+          # A set's worst set of groups up together, for the words of a build that stops on sprite
+          # memory: the set's name, the groups, their pictures' bytes, the room the set takes, and
+          # the biggest of those pictures by name, with their bytes.
+          WorstSet = Data.define(:name, :groups, :bytes, :room_bytes, :biggest)
+
+          # THE SET UP ON +scene+ WHOSE ROOM IS BIGGEST, with its worst set (see WorstSet), or nil
+          # when no set there has a picture a sprite shows.
+          def biggest_set_on(scene)
+            set = sets_up_on(scene).select { |candidate| room_units(candidate).positive? }.max_by { |candidate| room_units(candidate) }
+            return nil unless set
+
+            places = @laid.fetch(set.name).places
+            WorstSet.new(name: set.name, groups: places.worst_set, bytes: places.worst_units * 32,
+                         room_bytes: room_units(set) * 32, biggest: biggest_pictures(set, places.worst_set))
+          end
+
           private
+
+          def sets_up_on(scene) = @sets.select { |set| set.scene.nil? || set.scene == scene }
+
+          def room_units(set) = @laid.fetch(set.name).places.units
+
+          # The three biggest pictures of +groups+ of +set+, by name with their bytes, in the order
+          # the sprites show them. Two names stored as the same bytes are one picture: the first is named.
+          def biggest_pictures(set, groups)
+            named = @laid.fetch(set.name).bytes_of.select { |picture, _| set.groups_holding(picture).intersect?(groups) }
+            named.uniq { |_, bytes| bytes }.map { |picture, bytes| [picture, bytes.bytesize] }
+                 .each_with_index.sort_by { |(_, size), at| [-size, at] }.first(3).map(&:first)
+          end
+
+          # The bytes the pictures of +groups+ come to, each picture once.
+          def bytes_of_groups(laid, groups) = laid.pictures.sum { |picture| picture.groups.intersect?(groups) ? picture.key.bytesize : 0 }
+
+          def map_entry(set, base)
+            laid = @laid.fetch(set.name)
+            memory = RubyGBA::Diagnostics::VideoMemory
+            groups = set.groups.each_with_index.filter_map do |pictures, number|
+              next unless pictures
+
+              placed = pictures.select { |picture| laid.bytes_of.key?(picture) }
+              memory::Group.new(number: number, pictures: pictures, bytes: bytes_of_groups(laid, [number]),
+                                places: placed.map { |picture| [picture, base + laid.places.offset(laid.bytes_of.fetch(picture))] })
+            end
+            memory::PictureGroups.new(
+              name: set.name, first_tile: base, tiles: laid.places.units,
+              address: SpriteDrawing::OBJ_TILE_BASE + (base * memory::TILE_BYTES), groups: groups,
+              up_together: set.together.map { |together| memory::UpTogether.new(groups: together, bytes: bytes_of_groups(laid, together)) },
+              worst: memory::UpTogether.new(groups: laid.places.worst_set, bytes: laid.places.worst_units * 32)
+            )
+          end
 
           def copy_plan(set, base)
             laid = @laid.fetch(set.name)

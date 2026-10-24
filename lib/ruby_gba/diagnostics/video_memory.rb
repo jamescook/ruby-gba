@@ -89,14 +89,18 @@ module RubyGBA
       # with the tiles it was given (see Placed). +own_from+ is the first tile of the scene's own:
       # the tiles before it hold what every screen shows and are left alone as scenes change, and
       # the tiles from it on are written again as the scene takes over.
-      Screen = Data.define(:scene, :used, :room_bytes, :least_needed, :sprites, :own_from) do
-        def initialize(sprites: [], own_from: 0, **rest) = super
+      #
+      # +picture_groups+ is each set of picture groups up in that scene, its own and the ones of
+      # every screen (see PictureGroups).
+      Screen = Data.define(:scene, :used, :room_bytes, :least_needed, :sprites, :own_from, :picture_groups) do
+        def initialize(sprites: [], own_from: 0, picture_groups: [], **rest) = super
 
         def fixed = used - room_bytes
 
-        # The bytes nobody's pictures are in: a picture stored the big way starts on an even tile,
-        # and one stored the small way before it can leave one empty.
-        def gaps = used - (distinct_runs.sum { |_, tiles| tiles } * TILE_BYTES)
+        # The bytes nobody's pictures are in, outside the sprites' runs and the rooms of the picture
+        # groups: a picture stored the big way starts on an even tile, and one stored the small way
+        # before it can leave one empty. A room of picture groups starts on an even tile too.
+        def gaps = used - ((distinct_runs.sum { |_, tiles| tiles } + picture_groups.sum(&:tiles)) * TILE_BYTES)
 
         # What sprites drawing from a run another sprite here already holds did not cost: every
         # sprite's run as if it were alone, less the runs there are.
@@ -104,15 +108,17 @@ module RubyGBA
           (sprites.sum { |entry| entry.tiles_alone * entry.count } - distinct_runs.sum { |_, tiles| tiles }) * TILE_BYTES
         end
 
-        def to_h = super.merge(sprites: sprites.map(&:to_h), gaps: gaps, saved_by_sharing: saved_by_sharing)
+        def to_h = super.merge(sprites: sprites.map(&:to_h), picture_groups: picture_groups.map(&:to_h), gaps: gaps,
+                               saved_by_sharing: saved_by_sharing)
 
-        # This scene's sprites, one a line, in the order their tiles start.
+        # This scene's sprites, one a line, in the order their tiles start, and then its groups.
         def to_s
           title = scene ? "scene :#{scene}" : "every screen"
           lines = sprites.sort_by { |entry| [entry.first_tile, entry.sprite.to_s] }.map(&:line)
           summary = "#{title}: #{used} bytes of sprite memory, #{saved_by_sharing} saved by sharing" \
                     "#{", #{gaps} in gaps" if gaps.positive?}; its own pictures from tile #{own_from}"
-          ([summary, "  first  tiles  address     held           sprite: pictures"] + lines).join("\n")
+          ([summary, "  first  tiles  address     held           sprite: pictures"] + lines +
+            picture_groups.flat_map(&:lines)).join("\n")
         end
 
         private
@@ -132,7 +138,9 @@ module RubyGBA
       # for the frame it is showing, copied in as it changes; :shared_rooms is a room for each of
       # the sprites of its scene showing these pictures, which they take turns at; :painted is a
       # picture the game paints from a list; :sent_as_shown is a pool's pictures, each copied in
-      # the first time it is shown.
+      # the first time it is shown; :by_groups is a sprite some of whose pictures are in a set of
+      # picture groups, drawn from their places in the set's room (see PictureGroups) while the run
+      # holds the rest.
       #
       # +sprite+ is the name the game wrote, nil for a sprite it named nothing (a letter of text
       # on a screen drawn from tiles), and +count+ how many sprites of that name draw from this
@@ -158,7 +166,49 @@ module RubyGBA
 
       class Placed
         HELD_WORDS = { whole: "all", one_frame: "one frame", shared_rooms: "shared rooms", painted: "painted",
-                       sent_as_shown: "sent as shown" }.freeze
+                       sent_as_shown: "sent as shown", by_groups: "by groups" }.freeze
+      end
+
+      # ONE SET OF PICTURE GROUPS IN ONE SCENE'S SPRITE MEMORY (see Builder::PictureGroups): the
+      # set's +name+, and the room its pictures are kept in, +tiles+ long from +first_tile+, at
+      # +address+ in the console's memory. Each grouped picture has one place in the room, shared
+      # with pictures whose groups are never up with its own, and is copied there as one of its
+      # groups comes up.
+      #
+      # +groups+ is each group (see Group). +up_together+ is each set of groups up_together: says
+      # can be up at once, with what their pictures come to (see UpTogether), and +worst+ is the
+      # set whose pictures come to the most, counting each group alone too: the least room the
+      # groups could take. The room is never less, and is more where the pictures could not be
+      # fitted round each other any tighter.
+      PictureGroups = Data.define(:name, :first_tile, :tiles, :address, :groups, :up_together, :worst) do
+        def bytes = tiles * TILE_BYTES
+
+        def to_h = super.merge(bytes: bytes, groups: groups.map(&:to_h), up_together: up_together.map(&:to_h),
+                               worst: worst.to_h)
+
+        def lines
+          [format("  picture_groups :%s: tiles %d to %d (%d bytes) at 0x%08X; the worst set up together is %s",
+                  name, first_tile, first_tile + tiles - 1, bytes, address, worst.summary),
+           *groups.map(&:line), *up_together.map(&:line)]
+        end
+      end
+
+      # ONE GROUP OF A SET: its +number+, its +pictures+, the +bytes+ bringing it up copies, and
+      # each picture with the first tile of its place.
+      Group = Data.define(:number, :pictures, :bytes, :places) do
+        def line
+          at = places.map { |picture, tile| "#{picture} at tile #{tile}" }.join(", ")
+          "    group #{number} (#{bytes} bytes): #{at.empty? ? 'no picture a sprite shows' : at}"
+        end
+      end
+
+      # A SET OF GROUPS UP AT ONCE, and the +bytes+ their pictures come to, each picture once.
+      UpTogether = Data.define(:groups, :bytes) do
+        # "group 3", "groups 0 and 1", "groups 0, 1, 2".
+        def self.groups_words(groups) = "#{groups.length == 1 ? 'group' : 'groups'} #{groups.join(groups.length == 2 ? ' and ' : ', ')}"
+
+        def summary = "#{UpTogether.groups_words(groups)}, #{bytes} bytes"
+        def line = "    up together: #{summary}"
       end
 
       # HOW MANY OF THE CONSOLE'S SPRITES THE GAME SPENDS, which is not the same number as

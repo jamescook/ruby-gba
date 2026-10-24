@@ -1746,7 +1746,8 @@ module RubyGBA
                                                             used: bytes, room_bytes: rooms,
                                                             least_needed: [fewest, bytes].min,
                                                             sprites: sprite_map(scene, objects, sent),
-                                                            own_from: scene ? @sprite_art.resident_tiles : 0)
+                                                            own_from: scene ? @sprite_art.resident_tiles : 0,
+                                                            picture_groups: @grouped_pictures.map_entries(scene, @sprite_art.group_bases))
             end
           end
 
@@ -1758,7 +1759,7 @@ module RubyGBA
           # pictures are copied in the first time each is shown.
           def sprite_map(scene, objects, sent)
             nodes = @picture.objects.select { |node| up_in_scene?(node, scene) }
-            runs = nodes.to_h { |node| [node.name, sprite_tile_run(objects.fetch(node.name))] }
+            runs = nodes.to_h { |node| [node.name, sprite_tile_run(objects.fetch(node.name), node)] }
             nodes.group_by { |node| [node.declared, runs.fetch(node.name)] }.map do |(name, (first, tiles)), alike|
               node = alike.first
               record = objects.fetch(node.name)
@@ -1768,7 +1769,8 @@ module RubyGBA
                 address: SpriteDrawing::OBJ_TILE_BASE + (first * RubyGBA::Diagnostics::VideoMemory::TILE_BYTES),
                 pieces: record.pieces, poses: pose_piece_tiles(node, record, first),
                 held: tiles_held(node, record, sent),
-                shares_with: nodes.select { |other| other.declared != name && runs.fetch(other.name) == [first, tiles] }
+                # A sprite with no run of its own shares nothing: its pictures come by groups.
+                shares_with: nodes.select { |other| tiles.positive? && other.declared != name && runs.fetch(other.name) == [first, tiles] }
                                   .map(&:declared).uniq
               )
             end
@@ -1778,19 +1780,37 @@ module RubyGBA
           def up_in_scene?(node, scene) = node.scene.nil? || node.scene == scene
 
           # A sprite's run of tiles: the one it was given, or, for a sprite sharing rooms with the
-          # others of its scene showing the same pictures, every one of those rooms.
-          def sprite_tile_run(record)
+          # others of its scene showing the same pictures, every one of those rooms. A sprite whose
+          # pictures all come by groups keeps no run, and is said to start where its first picture
+          # is in its set's room.
+          def sprite_tile_run(record, node)
             rooms = record.rooms
-            rooms ? [rooms.first, rooms.units * rooms.count] : [record.tile_index, record.tile_units]
+            return [rooms.first, rooms.units * rooms.count] if rooms
+            return [pose_piece_tiles(node, record, 0).flat_map(&:last).min, 0] if record.tile_units.zero? && @obj_pictures.fetch(node.name).grouped?
+
+            [record.tile_index, record.tile_units]
           end
 
           # Each of a sprite's pictures with the first tile of each of its pieces. A sprite kept to
           # one frame lays every picture out the same way in its room, so they all start alike.
+          #
+          # A sprite whose pictures come by groups has each pose's tiles written in its table of
+          # poses, since a grouped pose is drawn from its place in its set's room and not from the
+          # sprite's run (see SpriteLayout#grouped_placement).
           def pose_piece_tiles(node, record, first)
             pictures = @obj_pictures.fetch(node.name)
+            if pictures.grouped?
+              return node.poses.each_index.map do |k|
+                [node.poses[k], (0...record.pieces).map { |piece| record.pose_words[(piece * record.pose_count) + k] & OBJ_TILE_NUMBER_MASK }]
+              end
+            end
+
             starts = record.frames ? pictures.room_starts : pictures.starts
             node.poses.zip(starts).map { |pose, at| [pose, at.map { |tile| first + tile }] }
           end
+
+          # A word of a sprite's table of poses keeps the tile number in its low ten bits.
+          OBJ_TILE_NUMBER_MASK = 0x3FF
 
           # What a sprite's run holds, in the words of Diagnostics::VideoMemory::Placed.
           def tiles_held(node, record, sent)
@@ -1798,6 +1818,7 @@ module RubyGBA
             return :one_frame if record.frames
             return :painted if painted_sprite?(node)
             return :sent_as_shown if sent.include?(node.name)
+            return :by_groups if @obj_pictures.fetch(node.name).grouped?
 
             :whole
           end
@@ -1823,16 +1844,35 @@ module RubyGBA
           def sprite_art_overflow_message(nodes)
             scene = @sprite_art.fullest_scene
             sprites = @sprite_art.sprites
-            worst = nodes.select { |node| up_in_scene?(node, scene) }.max_by(3) { |node| sprites[node.name].tile_units }
+            # A sprite whose pictures all come by groups holds nothing of its own, and is not named.
+            holding = nodes.select { |node| up_in_scene?(node, scene) && sprites[node.name].tile_units.positive? }
+            worst = holding.max_by(3) { |node| sprites[node.name].tile_units }
             # Name the PICTURES rather than the sprites: an author named the pictures, and a
             # sprite's own name is the framework's.
             named = worst.map { |node| ":#{node.poses.first} (#{sprites[node.name].tile_units * 32})" }
+            biggest = named.any? ? ", and its biggest pictures are #{named.uniq.join(', ')}" : ""
             "The sprites' pictures need #{@sprite_art.bytes} bytes at once, and the console keeps them in " \
-              "#{OBJ_TILE_CAPACITY}. Only one scene's are needed at a time. #{fullest_scene_phrase(scene)}, " \
-              "and its biggest pictures are #{named.uniq.join(', ')}. When that makes room, a sprite that " \
-              "animates keeps only one frame at a time in this memory, and that was not enough. To fix " \
-              "this, use fewer pictures there, or smaller ones." \
+              "#{OBJ_TILE_CAPACITY}. Only one scene's are needed at a time. #{fullest_scene_phrase(scene)}" \
+              "#{biggest}. When that makes room, a sprite that animates keeps only one frame at a time in this " \
+              "memory, and that was not enough. To fix this, use fewer pictures there, or smaller ones." \
+              "#{picture_groups_overflow_words(scene)}" \
               "#{" Sharing already saved #{@sprite_art.saved} bytes." if @sprite_art.saved.positive?}"
+          end
+
+          # THE SET OF PICTURE GROUPS TO MAKE SMALLER, when the scene's groups are what fill it: the
+          # sentences that name the set and its worst groups up together, or nothing where taking
+          # every group's room out of the scene would still leave it too full.
+          def picture_groups_overflow_words(scene)
+            worst = @grouped_pictures.biggest_set_on(scene)
+            return "" unless worst && @grouped_pictures.room_bytes_on(scene) >= @sprite_art.bytes - OBJ_TILE_CAPACITY
+
+            pictures = worst.biggest.map { |picture, size| ":#{picture} (#{size})" }.join(", ")
+            together = RubyGBA::Diagnostics::VideoMemory::UpTogether.groups_words(worst.groups)
+            " Of that, picture_groups :#{worst.name} take #{worst.room_bytes} bytes. In it, #{together} " \
+              "#{worst.groups.length == 1 ? 'needs' : 'can be up together and need'} the most: #{worst.bytes} bytes. " \
+              "The biggest pictures there are #{pictures}. To make room for the groups, use fewer pictures in " \
+              "#{worst.groups.length == 1 ? 'that group' : 'those groups'}, or smaller ones" \
+              "#{", or take the set [#{worst.groups.join(', ')}] out of up_together" if worst.groups.length > 1}."
           end
 
           # A scene is a routine named after the state it draws, with a prefix of the

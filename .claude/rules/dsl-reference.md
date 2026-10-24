@@ -197,7 +197,7 @@ variable; an `Integer` is a literal; a `Value` (from `var`) is an expression.
 ## Measuring a finished game — `.claude/dsl/measuring.md`
 
 - `rom.profile` / `ruby-gba profile game.rb` — what the build chose and where the frames went; `keys:`, `scene:`, `from:` to reach the moment worth measuring.
-- `puts rom.sprite_memory` — every scene's sprites and the tiles of sprite memory each was given; `GBA::SpriteMemoryFull#sprite_memory` when a scene does not fit.
+- `puts rom.sprite_memory` — every scene's sprites and the tiles of sprite memory each was given, and its picture groups with their worst set up together; `GBA::SpriteMemoryFull#sprite_memory` when a scene does not fit.
 
 ## Playing a finished game with nobody at the controls — `.claude/dsl/playthroughs.md`
 
