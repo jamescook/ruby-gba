@@ -51,8 +51,9 @@ void rg_buttons_held_from_power_on(uint32_t held);
  * frame boundary, as the interpreter's does, so the two agree frame by frame.
  *
  * The window says what the computer's own clock reads instead, local time, before the game
- * starts and at every frame boundary: a clock keeps real time, so a game held or paused finds the
- * time gone by when it goes on, as a cartridge switched off finds its clock still counting. */
+ * starts and as each frame boundary hands the game its next frame: a clock keeps real time, so a
+ * game held or paused finds the time gone by when it goes on, as a cartridge switched off finds
+ * its clock still counting. */
 void rg_clock_starts_at(int64_t seconds, int64_t ticks, int32_t set);
 void rg_clock_reads(int32_t year, int32_t month, int32_t day, int32_t hour, int32_t minute, int32_t second);
 

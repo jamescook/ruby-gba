@@ -25,12 +25,7 @@ class TestClock < Minitest::Test
     b.program
   end
 
-  private def skip_where_there_is_no_clock_yet
-    skip_on_js "the browser build has no clock yet"
-  end
-
   private def readings_after(frames, start)
-    skip_where_there_is_no_clock_yet
     player = game_player.clock_at(start).run(program, frames: frames)
     TIME.to_h { |name| [name, player[name]] }
   end
@@ -72,7 +67,7 @@ class TestClock < Minitest::Test
   # keeps real time, not the game's. Twenty passes of three frames are a second.
   def test_a_late_pass_lets_its_frames_of_time_go_by
     skip_on_native "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
-    skip_where_there_is_no_clock_yet
+    skip_on_js "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
     player = game_player.clock_at(THURSDAY).frames_each_pass { 3 }.run(program, frames: 20)
 
     assert_equal 6, player[:second]
@@ -106,15 +101,11 @@ class TestClock < Minitest::Test
 
   # A clock whose battery ran out is there and was never set: the game is told that instead.
   def test_a_clock_never_set_is_there_and_reads_zeros
-    skip_where_there_is_no_clock_yet
-
     assert_equal({ present: 1, set: 0, hour: 0 },
                  answers(game_player.clock_at(Time.new(2000, 1, 1, 5), set: false).run(asking_program, frames: 2)))
   end
 
   def test_a_clock_that_was_set_says_both
-    skip_where_there_is_no_clock_yet
-
     assert_equal({ present: 1, set: 1, hour: 21 }, answers(game_player.clock_at(THURSDAY).run(asking_program, frames: 2)))
   end
 end

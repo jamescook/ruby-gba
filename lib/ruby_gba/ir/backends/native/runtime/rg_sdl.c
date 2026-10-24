@@ -1028,7 +1028,6 @@ static void sdl_wait_vblank(void) {
   rg_window_frame_played(frame_ended, game_resumed_ns ? frame_ended - game_resumed_ns : 0);
   play_frame_sound();
   rg_frame_begins();
-  read_computer_clock();
   frames_played++;
   bool shown = end_of_slot();
   if (shown) present();
@@ -1041,6 +1040,7 @@ static void sdl_wait_vblank(void) {
    * leaves it for the game's next frame and not for a second look at the pause on the way. */
   hold_while_paused();
   read_buttons();
+  read_computer_clock(); /* after any pause, so the frame it goes on with has the time now */
   game_resumed_ns = SDL_GetTicksNS();
 }
 

@@ -265,6 +265,38 @@ class TestJSPage < Minitest::Test
     refute_equal walked, stood, "the square moved on the frame after the button was read"
   end
 
+  # A game that shows what the cartridge's clock says as one lit pixel a row, each as far along its
+  # row as the reading: the minute, the hour, the day, the month, the year past 2000, and 1 on the
+  # last row while the clock is there and set.
+  private def clock_game
+    RubyGBA.game "CLOCKED" do
+      screen :bitmap
+      now = clock
+      game_loop do
+        clear_screen :black
+        [now.minute, now.hour, now.day, now.month, now.year - 2000].each_with_index do |reading, row|
+          draw_rect_at reading, row * 10, 1, 1, :white
+        end
+        (now.present? & now.set?).then { draw_rect_at 1, 50, 1, 1, :white }
+      end
+    end
+  end
+
+  # THE PAGE'S CLOCK IS THE BROWSER'S, in its local time: the game is told there is a clock, that
+  # it was set, and the date and the minute the computer says — at the start of the run or at its
+  # end, should a minute turn over between the two. (The page's first frame is the game setting up
+  # and shows nothing, so the picture read is the second's.)
+  def test_the_page_reads_the_browsers_clock
+    before = Time.now
+    picture = pictures_in(played_page(["play 2", "picture"], clock_game)).first
+    after = Time.now
+    lit = (0..5).map { |row| picture[row * 10 * 240, 240].index { |color| color != 0 } }
+    said = ->(time) { [time.min, time.hour, time.day, time.month, time.year - 2000] }
+
+    assert_equal 1, lit.last, "the clock is there and set"
+    assert_includes [said.call(before), said.call(after)], lit.first(5)
+  end
+
   # A game that goes wrong stops where it is, and the page says why under the picture.
   def test_a_game_that_goes_wrong_says_so_under_the_picture
     game = RubyGBA.game "FULL" do
