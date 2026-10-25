@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# The tests of test_aseprite.rb whose games paint their screen in more colours than a painted
-# Game Boy Color screen holds at once — a bitmap screen with a red, green, blue and white sprite
+# The tests of test_aseprite.rb whose games paint more colours into one 8×8 square of the screen
+# than a Game Boy Color's square holds — a bitmap screen with a red, green, blue and white sprite
 # over black — so they play on the Advance's runs alone.
 class TestAsepriteOnTheAdvance < Minitest::Test
   # The JSON export's picture is read by the image tool, a child process, which Ruby cannot

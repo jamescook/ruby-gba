@@ -2,8 +2,9 @@
 
 require "test_helper"
 
-# The tests of test_inside.rb whose games paint the screen in more colours than a painted Game Boy
-# Color screen holds at once, so they play on the Advance's runs alone.
+# The tests of test_inside.rb whose games paint more colours into one 8×8 square of the screen
+# than a Game Boy Color's square holds (four, black among them), so they play on the Advance's
+# runs alone.
 class TestInsideOnTheAdvance < Minitest::Test
   include EmulatorSupport
 

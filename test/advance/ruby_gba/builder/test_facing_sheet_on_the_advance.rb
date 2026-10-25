@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# The tests of test_facing_sheet.rb whose games paint their screen in more colours than a
-# painted Game Boy Color screen holds at once — a sheet of a colour per cell, drawn on a bitmap
+# The tests of test_facing_sheet.rb whose games paint more colours into one 8×8 square of the
+# screen than a Game Boy Color's square holds — a sheet of a colour per cell, drawn on a bitmap
 # over black — so they play on the Advance's runs alone.
 class TestFacingSheetOnTheAdvance < Minitest::Test
   include RubyGBA::Console::Hardware

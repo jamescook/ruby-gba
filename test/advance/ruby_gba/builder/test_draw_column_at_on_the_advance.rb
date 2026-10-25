@@ -2,9 +2,9 @@
 
 require "test_helper"
 
-# The tests of test_draw_column_at.rb whose games paint the screen in more colours than a painted
-# Game Boy Color screen holds at once — the bars alone are four, with the screen behind them
-# besides. So they play on the Advance's runs alone.
+# The tests of test_draw_column_at.rb whose games paint more colours into one 8×8 square of the
+# screen than a Game Boy Color's square holds — the bars alone are four, with the screen behind
+# them besides. So they play on the Advance's runs alone.
 class TestDrawColumnAtOnTheAdvance < Minitest::Test
   include EmulatorSupport
 

@@ -13,8 +13,9 @@ require "test_helper"
 # The word is the one the DSL already uses for "this value decides which": `showing:`, the same
 # as on a menu row and a two-colour label.
 #
-# The tests that draw the pictures paint in more colours than a painted Game Boy Color screen
-# holds, so they are in test/advance/ruby_gba/builder/test_blit_one_of_on_the_advance.rb.
+# The tests that draw the pictures can paint more colours into one 8×8 square of the screen than
+# a Game Boy Color's square holds, so they are in
+# test/advance/ruby_gba/builder/test_blit_one_of_on_the_advance.rb.
 class TestBlitOneOf < Minitest::Test
   FOUR = (["####"] * 4).join("\n")
 

@@ -3,8 +3,8 @@
 require "test_helper"
 require "differential"
 
-# The test of test_sprite_cleared_field.rb whose game paints its screen in more colours than a
-# painted Game Boy Color screen holds at once — a white field cleared to blue, a green wall and
+# The test of test_sprite_cleared_field.rb whose game paints more colours into one 8×8 square of
+# the screen than a Game Boy Color's square holds — a white field cleared to blue, a green wall and
 # a red sprite, over the black the console starts with — so it plays on the Advance's runs alone.
 class TestSpriteClearedFieldOnTheAdvance < Minitest::Test
   include Differential

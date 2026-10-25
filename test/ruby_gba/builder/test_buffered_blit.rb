@@ -15,8 +15,8 @@ require "test_helper"
 # program on both screens and demand the same pixels, rather than pinning numbers that
 # only say what today's code does.
 #
-# The tests that play the picture on the interpreter paint in more colours than a painted
-# Game Boy Color screen holds, so they are in
+# The tests that play the picture on the interpreter paint more colours into one 8×8 square of
+# the screen than a Game Boy Color's square holds, so they are in
 # test/advance/ruby_gba/builder/test_buffered_blit_on_the_advance.rb.
 class TestBufferedBlit < Minitest::Test
   include RubyGBA::IR::Build

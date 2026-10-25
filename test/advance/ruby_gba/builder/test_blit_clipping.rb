@@ -11,6 +11,10 @@ require "test_helper"
 # SAME visible pixels, so the console's clipped output has to match the oracle
 # exactly. The programs are built straight from IR::Build (no DSL sugar) so the
 # clip math is what's under test, not the surface.
+#
+# It plays on the Advance's runs alone: its bitmap is four colours side by side over a
+# fifth, more than an 8×8 square of a Game Boy Color screen holds, and the edges it
+# clips at are the Advance's 240×160.
 class TestBlitClipping < Minitest::Test
   include RubyGBA::IR::Build
 

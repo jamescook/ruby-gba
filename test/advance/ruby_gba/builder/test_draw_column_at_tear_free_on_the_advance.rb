@@ -3,9 +3,9 @@
 require "test_helper"
 require "differential"
 
-# The test of TestDrawColumnAtTearFree (in test_draw_column_at.rb) whose game paints the screen in
-# more colours than a painted Game Boy Color screen holds at once, so it plays on the Advance's
-# runs alone.
+# The test of TestDrawColumnAtTearFree (in test_draw_column_at.rb) whose game paints more colours
+# into one 8×8 square of the screen than a Game Boy Color's square holds, so it plays on the
+# Advance's runs alone.
 class TestDrawColumnAtTearFreeOnTheAdvance < Minitest::Test
   include EmulatorSupport
   include Differential

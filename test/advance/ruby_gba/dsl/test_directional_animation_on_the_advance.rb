@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# The tests of test_directional_animation.rb whose games paint their screen in more colours
-# than a painted Game Boy Color screen holds at once — a red, green, blue and white walker over
+# The tests of test_directional_animation.rb whose games paint more colours into one 8×8 square
+# of the screen than a Game Boy Color's square holds — a red, green, blue and white walker over
 # a gray bitmap — so they play on the Advance's runs alone.
 class TestDirectionalAnimationOnTheAdvance < Minitest::Test
   include RubyGBA::Console::Hardware

@@ -3,9 +3,9 @@
 require "test_helper"
 require "differential"
 
-# The tests of test/ruby_gba/builder/test_buffered_blit.rb whose games paint their screen in more
-# colours than a painted Game Boy Color screen holds — the picture here has sixteen, one per
-# pixel — so they play on the Advance's runs alone. The rest are in that file.
+# The tests of test/ruby_gba/builder/test_buffered_blit.rb whose games paint more colours into one
+# 8×8 square of the screen than a Game Boy Color's square holds — the picture here has sixteen,
+# one per pixel — so they play on the Advance's runs alone. The rest are in that file.
 #
 # Drawing a whole PICTURE on the tear-free screen. The promise is the one every other draw makes
 # here: the same picture at the same place with the same clipping, whichever screen it is drawn

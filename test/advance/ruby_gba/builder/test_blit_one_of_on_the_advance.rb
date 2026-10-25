@@ -3,8 +3,9 @@
 require "test_helper"
 require "differential"
 
-# The tests of test/ruby_gba/builder/test_blit_one_of.rb whose games paint their screen in more
-# colours than a painted Game Boy Color screen holds, so they play on the Advance's runs alone.
+# The tests of test/ruby_gba/builder/test_blit_one_of.rb whose games can paint more colours into
+# one 8×8 square of the screen than a Game Boy Color's square holds — three pictures of a colour
+# each at one place, on white — so they play on the Advance's runs alone.
 # The friendly errors stay in that file.
 #
 # Drawing one of a set of pictures, picked by a number the game works out: `blit [...], x, y,

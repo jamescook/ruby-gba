@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# The test of test_image_import.rb whose game paints its screen in more colours than a painted
-# Game Boy Color screen holds at once — a red, green, blue and white photo over black — so it
+# The test of test_image_import.rb whose game paints more colours into one 8×8 square of the
+# screen than a Game Boy Color's square holds — a red, green, blue and white photo over black — so it
 # plays on the Advance's runs alone.
 class TestImageImportOnTheAdvance < Minitest::Test
   FIXTURES = RubyGBA.root.join("test/fixtures").to_s
