@@ -47,6 +47,7 @@ require_relative "gba/primitives"
 require_relative "gba/collision"
 require_relative "gba/timers"
 require_relative "gba/frames" # how many frames a pass of the game loop really took
+require_relative "gba/clock_calendar" # ...and the calendar a time the game set is added on with
 require_relative "gba/clock_chip" # the cartridge's clock chip, read once a pass
 require_relative "gba/raster"
 require_relative "gba/mixer"
@@ -390,7 +391,7 @@ module RubyGBA
           @attribution = Attribution.new(@emit)
           @lowering = Lowering.new(progress: progress, emitted: @emit.method(:pos),
                                    attribution: @attribution)
-          @clock_chip.lower_statement = @lowering.method(:statement)
+          @clock_chip.lowering = @lowering
           @save = Save.new(emitter: @emit, primitives: @primitives, lowering: @lowering, memory: @memory,
                            call_cold: method(:emit_call_cold_routine))
           @defined_sounds = {}   # name -> musical params (from define_sound)
@@ -540,7 +541,7 @@ module RubyGBA
             timer_start: method(:emit_timer_start), timer_stop: method(:emit_timer_stop),
             on_timer: Lowering::NOTHING, play_sample: @mixer.method(:emit_play_sample),
             stop_sample: @mixer.method(:emit_stop_sample),
-            set_clock: ->(node) { @clock_chip.emit_set_clock(node, @lowering.method(:value)) },
+            set_clock: @clock_chip.method(:emit_set_clock),
           )
           @layer_stack = []      # the layers the program declared, backmost first
           @uses_pressed = false  # whether the program reads edge-detected input

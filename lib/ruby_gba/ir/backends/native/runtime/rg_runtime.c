@@ -190,7 +190,7 @@ int32_t rg_clock_reading(int32_t reading, int32_t offset_days, int32_t offset_se
 
 /* SETTING THE CLOCK (Reference#exec_set_clock): how far the time set is from the clock's own, to
  * the whole second, in days and the seconds left over, kept here until the game takes the two
- * parts into its saved numbers (rg_clock_kept_offset). The clock itself is never changed — in a
+ * parts into its saved numbers (rg_clock_kept_days and rg_clock_kept_seconds). The clock itself is never changed — in a
  * window it is the computer's — and from then on it reads as set. */
 static int32_t clock_kept_days;
 static int32_t clock_kept_seconds;
@@ -209,12 +209,10 @@ void rg_clock_set_to(int32_t year, int32_t month, int32_t day, int32_t hour, int
   clock_set = 1;
 }
 
-/* One part of what rg_clock_set_to kept, 0 for the days and 1 for the seconds — or +current+, the
- * game's own number as it was, with no clock to have set. */
-int32_t rg_clock_kept_offset(int32_t part, int32_t current) {
-  if (!clock_present) return current;
-  return part == 0 ? clock_kept_days : clock_kept_seconds;
-}
+/* The days and the seconds rg_clock_set_to kept — or +current+, the game's own number as it was,
+ * with no clock to have set. */
+int32_t rg_clock_kept_days(int32_t current) { return clock_present ? clock_kept_days : current; }
+int32_t rg_clock_kept_seconds(int32_t current) { return clock_present ? clock_kept_seconds : current; }
 
 /* The middle of Reference#advance_frame, in its order: the picture is switched on, the timers
  * tick, and then the music moves on. */

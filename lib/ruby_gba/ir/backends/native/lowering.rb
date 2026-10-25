@@ -653,24 +653,19 @@ module RubyGBA
           # A time the game set is added on, from the two saved numbers it is kept in, in a game
           # that sets one (see IR::Clock::OFFSET_DAYS).
           def value_of_clock(node)
-            offsets = if sets_clock?
-                        [variable(IR::Clock::OFFSET_DAYS), variable(IR::Clock::OFFSET_SECONDS)]
-                      else
-                        [C::Int.new(0), C::Int.new(0)]
-                      end
+            offsets = sets_clock? ? IR::Clock::OFFSETS.map { |name| variable(name) } : [C::Int.new(0), C::Int.new(0)]
             call("rg_clock_reading", C::Int.new(IR::Clock::READINGS.index(node.reading)), *offsets)
           end
 
-          def sets_clock? = @sets_clock.nil? ? (@sets_clock = @program.walk.any? { |n| n.kind == :set_clock }) : @sets_clock
+          def sets_clock? = @sets_clock.nil? ? (@sets_clock = IR::Clock.sets_clock?(@program)) : @sets_clock
 
           # SETTING THE CLOCK: the runtime works out how far the time set is from its clock's, and
           # the game keeps the two parts in its saved numbers (Reference#exec_set_clock).
           def lower_set_clock(node)
-            parts = %i[year month day hour minute second].map { |part| value(node.public_send(part)) }
+            parts = IR::Clock::SET_PARTS.map { |part| value(node.public_send(part)) }
             [eval_call("rg_clock_set_to", *parts),
-             *[IR::Clock::OFFSET_DAYS, IR::Clock::OFFSET_SECONDS].each_with_index.map do |name, part|
-               assign(name, call("rg_clock_kept_offset", C::Int.new(part), variable(name)))
-             end]
+             assign(IR::Clock::OFFSET_DAYS, call("rg_clock_kept_days", variable(IR::Clock::OFFSET_DAYS))),
+             assign(IR::Clock::OFFSET_SECONDS, call("rg_clock_kept_seconds", variable(IR::Clock::OFFSET_SECONDS)))]
           end
 
           def value_of_held(node) = call("rg_held", C::Int.new(button_number(node.button)))

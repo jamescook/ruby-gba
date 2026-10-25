@@ -336,16 +336,13 @@ module RubyGBA
       end
 
       # Set the clock to a date and time, each a value worked out as the game runs and already
-      # held to the range IR::Clock::SET_RANGES gives it. +weekday+ is worked out from the date
-      # by whoever builds this (see DSL::Clock#set_to), because a clock chip keeps the day of
-      # the week it is told rather than working it out. On a cartridge with no clock it does
-      # nothing.
+      # held to the range IR::Clock::SET_RANGES gives it: kept as how far it is from the clock's
+      # own (see IR::Clock::OFFSET_DAYS). With no clock it does nothing.
       class SetClock
         include Node
         kind :set_clock
         category :var
-        operands year: :value, month: :value, day: :value, weekday: :value,
-                 hour: :value, minute: :value, second: :value
+        operands year: :value, month: :value, day: :value, hour: :value, minute: :value, second: :value
       end
 
       class ClearScreen

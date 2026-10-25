@@ -101,6 +101,9 @@ class TestClockChip < Minitest::Test
     RubyGBA.build("SETCLOCK", out: StringIO.new, err: StringIO.new, profile: false) do
       screen :bitmap
       now = clock
+      var :hour_at_power_on, now.hour
+      before_the_loop = var :hour_before_the_loop, -1
+      before_the_loop.set! now.hour
       passes = var :passes, 0
       kept = READINGS.to_h { |name| [name, var(name, -1)] }
       game_loop do
@@ -145,7 +148,9 @@ class TestClockChip < Minitest::Test
   end
 
   # THE TIME SET IS THERE AT THE NEXT POWER-ON, from the save memory: switched off an hour, the
-  # cartridge reads the time set an hour on.
+  # cartridge reads the time set an hour on — read as it starts up, before the save has been read
+  # back, the chip's own time, as the interpreter does; and read before the game loop, once it
+  # has, the time set, though the chip has not been read again in between.
   def test_the_time_set_comes_back_after_the_power_goes_off
     built = setting_rom
     first = RubyGBA::Diagnostics::Verifier.new(built, frames: 30, vars: built.built.var_addresses, clock: THURSDAY)
@@ -155,6 +160,7 @@ class TestClockChip < Minitest::Test
                                               clock: THURSDAY + 3600 + 1, save: first.save_image)
 
     assert_equal [9, 9, 11], console_readings(back).values_at(:hour, :minute, :second)
+    assert_equal [22, 9], [back.var(:hour_at_power_on), back.var(:hour_before_the_loop)]
   end
 
   # WHAT READING THE CHIP COSTS A PASS: a command of eight bits out, seven bytes of eight back,

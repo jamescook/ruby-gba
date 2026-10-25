@@ -79,10 +79,11 @@ int32_t rg_timer_ticking(int32_t timer);
 int32_t rg_clock_reading(int32_t reading, int32_t offset_days, int32_t offset_seconds);
 
 /* Setting the clock (`clock.set_to`): works out how far the time given is from the clock's own,
- * and makes it read as set; rg_clock_kept_offset then hands the two parts of that over, 0 for the
- * days and 1 for the seconds — or +current+ back, with no clock to have set. */
+ * and makes it read as set; rg_clock_kept_days and rg_clock_kept_seconds then hand the two parts
+ * of that over — or +current+ back, with no clock to have set. */
 void rg_clock_set_to(int32_t year, int32_t month, int32_t day, int32_t hour, int32_t minute, int32_t second);
-int32_t rg_clock_kept_offset(int32_t part, int32_t current);
+int32_t rg_clock_kept_days(int32_t current);
+int32_t rg_clock_kept_seconds(int32_t current);
 
 /* One variable's name and value, for whatever the runtime does with them (the headless one
  * prints them, so a test can compare them with the interpreter's). */

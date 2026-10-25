@@ -20,10 +20,9 @@ module RubyGBA
       # numbers (see IR::Clock::OFFSET_DAYS), saved like any `save_var` the moment they change,
       # so they are there at the next power-on.
       def record_clock_set(node)
-        offsets = [IR::Clock::OFFSET_DAYS, IR::Clock::OFFSET_SECONDS]
-        offsets.each { |name| save_var(name, 0) }
+        IR::Clock::OFFSETS.each { |name| save_var(name, 0) }
         record(node)
-        offsets.each { |name| mirror_save(name) }
+        IR::Clock::OFFSETS.each { |name| mirror_save(name) }
       end
     end
   end

@@ -3156,7 +3156,7 @@ module RubyGBA
           now = clock_now
           return unless now
 
-          wanted = %i[year month day hour minute second].to_h { |part| [part, eval_value(node.public_send(part))] }
+          wanted = IR::Clock::SET_PARTS.to_h { |part| [part, eval_value(node.public_send(part))] }
           midnight = Time.utc(wanted[:year], wanted[:month], wanted[:day]) - Time.utc(now.year, now.month, now.day)
           days = (midnight / IR::Clock::SECONDS_A_DAY).round
           seconds = (wanted[:hour] * 3600) + (wanted[:minute] * 60) + wanted[:second] -
