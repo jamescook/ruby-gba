@@ -69,7 +69,7 @@ test fails when the two differ.
 - `blit` — works: on a painted screen, its colours count towards the four colours of each square that it covers.
 - `sprite` — works: a sprite is made of the console's 8×8 pieces, forty at once and ten on any one row of the screen. `scale`, `face_angle` and `turn` are refused: a Game Boy Color cannot turn or resize a sprite. Draw the turns as poses.
 - `draw_in_order` — works: the same as on the Advance.
-- `hide_sprites` — works: the console's sprite layer is off for the next frame, as on the Advance.
+- `hide_sprites` — works: the next frame places no sprite in the console's sprite table, so none shows. The frame after places each one where it is.
 - `picture_groups` — works: a group's pictures are in the Color's sprite memory while the group is up, as on the Advance. The Color holds 256 tiles of sprite pictures.
 - `pool` — works: its sprites count towards the forty.
 - `box` — works: the same as on the Advance.
@@ -161,5 +161,5 @@ test fails when the two differ.
 An answer above is what the Color does with a verb. The build for it is still growing, and
 a game that reaches one of these steps is refused, naming the step, until it is made:
 
-- the sprites: `hide_sprites`, `show_picture_group`
+- the sprites: `show_picture_group`
 - the cartridge: `clock`

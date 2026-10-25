@@ -27,7 +27,7 @@ module RubyGBA
                                                  show_map: :emit_show_map, set_tile: :emit_set_tile,
                                                  background_colors: :emit_background_colors,
                                                  scroll_rows: :emit_scroll_rows, camera: :emit_camera,
-                                                 present_objects: :emit_present_objects,
+                                                 present_objects: :emit_present_objects, hide_sprites: :emit_hide_sprites,
                                                  color_list_holds: :emit_color_list_holds,
                                                  fade: :emit_fade, tint: :emit_tint
                                                })
@@ -803,11 +803,13 @@ module RubyGBA
               front_first = items.each_with_index.sort_by { |item, at| [item_level(item, object), at] }.map(&:first).reverse
               placings = {}
               @asm.call("rt_sprites_begin")
-              front_first.each do |item|
-                next sprite_placement(item) unless item.is_a?(Build::DrawOrder)
+              unless_sprites_hidden do
+                front_first.each do |item|
+                  next sprite_placement(item) unless item.is_a?(Build::DrawOrder)
 
-                item.objects.each { |name| placings[name] ||= fresh("place_sprite") }
-                emit_ordered_run(item, placings)
+                  item.objects.each { |name| placings[name] ||= fresh("place_sprite") }
+                  emit_ordered_run(item, placings)
+                end
               end
               @asm.call("rt_sprites_end")
               return if placings.empty?
@@ -834,19 +836,49 @@ module RubyGBA
               end
 
               @asm.call("rt_sprites_begin")
-              objects.flat_map { |obj| Stacking.levels_of(@stacking.depths, obj) }.uniq.sort.reverse_each do |level|
-                objects.reverse_each do |obj|
-                  there = at_level(obj, level)
-                  next if there.nil?
-                  next sprite_placement(obj, level) if there == true
+              unless_sprites_hidden do
+                objects.flat_map { |obj| Stacking.levels_of(@stacking.depths, obj) }.uniq.sort.reverse_each do |level|
+                  objects.reverse_each do |obj|
+                    there = at_level(obj, level)
+                    next if there.nil?
+                    next sprite_placement(obj, level) if there == true
 
-                  elsewhere = fresh("sprite_elsewhere")
-                  jump_unless(there, elsewhere)
-                  sprite_placement(obj, level)
-                  @asm.label(elsewhere)
+                    elsewhere = fresh("sprite_elsewhere")
+                    jump_unless(there, elsewhere)
+                    sprite_placement(obj, level)
+                    @asm.label(elsewhere)
+                  end
                 end
               end
               @asm.call("rt_sprites_end")
+            end
+
+            # A FRAME WITHOUT SPRITES (`hide_sprites`, Reference#exec_hide_sprites). The pass that
+            # asks only notes it; the next placing of the frame's sprites places none and forgets
+            # it was asked. rt_sprites_end then moves every entry of the sprite table above the
+            # screen, so nothing of any sprite shows on that frame, and the placing after puts each
+            # one back where it is by then. The game's own numbers for each sprite are not
+            # touched, so nothing has to be put back. A game that never asks emits nothing for it.
+            def keep_sprites_hidden
+              @sprites_hidden = keep_local(:sprites_hidden) if @reachable.any? { |node| node.kind == :hide_sprites }
+            end
+
+            def emit_hide_sprites(_node)
+              statement(Build.set(@sprites_hidden, 1))
+            end
+
+            # The sprites the block places, placed unless the pass before asked for a frame without them.
+            def unless_sprites_hidden
+              return yield unless @sprites_hidden
+
+              shown = fresh("sprites_shown")
+              placed = fresh("sprites_placed")
+              jump_unless(Build.var_ref(@sprites_hidden), shown)
+              statement(Build.set(@sprites_hidden, 0))
+              @asm.jump(placed)
+              @asm.label(shown)
+              yield
+              @asm.label(placed)
             end
 
             # When a sprite is at depth +level+: always (true), never (nil), or a test of the number

@@ -137,7 +137,8 @@ module RubyGBA
                       "row of the screen. `scale`, `face_angle` and `turn` are refused: a Game Boy " \
                       "Color cannot turn or resize a sprite. Draw the turns as poses."),
         draw_in_order: works,
-        hide_sprites: works("the console's sprite layer is off for the next frame, as on the Advance."),
+        hide_sprites: works("the next frame places no sprite in the console's sprite table, so none shows. " \
+                            "The frame after places each one where it is."),
         picture_groups: works("a group's pictures are in the Color's sprite memory while the group is up, " \
                               "as on the Advance. The Color holds 256 tiles of sprite pictures."),
         pool: works("its sprites count towards the forty."),
