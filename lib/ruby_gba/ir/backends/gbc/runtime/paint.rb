@@ -79,12 +79,37 @@ module RubyGBA
             # the entry's colour. No bank holds this many tiles.
             CLEAR_TILE_ENTRY = 0xFF
 
+            # AN ENTRY OF THE LIST TO SEND is a RUN of tiles side by side along a row of the
+            # screen, sent the same way: their cells are next to each other in the frame's work
+            # memory, in video memory and in the grid, so the console's copy takes the whole run at
+            # once, and its cells are written in a short loop. A word of text is a run, where it
+            # would be a tile at a time. The entry is worked out as the pass ends (rt_paint_send),
+            # so the blank has as little to do for it as can be: two bytes, the first cell's number
+            # (its low byte, and its top bit in bit 0 of the second), how many cells less one in
+            # the five bits above that, and in the top two bits what is sent — the tiles and their
+            # cells (none), the tiles alone (SENDS_KEEPING_CELL), or the cells pointed at the clear
+            # tile (SENDS_SOLID). The clear tile rewritten is its colour and SENDS_CLEAR_TILE.
+            # LIST_END in the second byte ends the list.
+            #
+            # A run never crosses the end of a row (where the next cell is not the next one in the
+            # grid) or cell 128, where video memory's first bank ends. Each bank of work memory holds
+            # six whole rows, so those banks end at a row's end too.
+            SENDS_KEEPING_CELL = KEEPS_CELL
+            SENDS_SOLID = SOLID
+            SENDS_CLEAR_TILE = 0xC0
+            LIST_END = 0xFF
+            RUN_LENGTH_SHIFT = 1
+            RUN_LENGTH_MASK = 0x1F
+            VIDEO_BANK_CELLS = 128
+
             # The runtime's own places: the kind of screen up; the three lists — what to send in
-            # the blank, the tiles painted since the last pass, the tiles whose cells show their own
-            # picture — each a count and then two bytes an entry (a tile's number in its bank, and
-            # the bank's among BANKS, with SOLID for a cell pointed at the clear tile, or
-            # KEEPS_CELL for a tile whose cell shows it already); how far
-            # the blank has got down the first; whether the screen was cleared since the last pass,
+            # the blank (entries as above, and LIST_END after the last), the tiles painted since
+            # the last pass, the tiles whose cells show their own picture — each a count and then
+            # two bytes an entry (for the last two, a tile's number in its bank and the bank's
+            # among BANKS); where the blank has got to down the first (the place of its next
+            # entry); the last two runs put on the list to send, which a cell painted next to
+            # either is added to (RUNS, as #emit_send keeps them; NO_BANK for none yet); whether
+            # the screen was cleared since the last pass,
             # and the colour every cell not showing its own picture shows; and the area painting
             # is held to (rt_paint_area), its left, top, right and bottom.
             SCREEN_KIND = "rt paint screen kind"
@@ -92,6 +117,8 @@ module RubyGBA
             DIRTY_LIST = "rt paint dirty list"
             OWN_LIST = "rt paint own list"
             LIST_DONE = "rt paint list done"
+            RUNS = "rt paint runs"
+            NO_BANK = 0xFF
             CLEARED = "rt paint cleared"
             LAST_SOLID = "rt paint last solid"
             AREA = "rt paint area"
@@ -106,14 +133,15 @@ module RubyGBA
               memory.reserve(SCREEN_KIND, 1)
               return unless painting
 
-              # The list to send holds a cell at most once, and the clear tile.
-              memory.reserve(LIST, 2 + ((CELLS + 1) * 2))
+              # The list to send holds a cell at most once, the clear tile, and its end.
+              memory.reserve(LIST, 2 + ((CELLS + 2) * 2))
               [DIRTY_LIST, OWN_LIST].each { |list| memory.reserve(list, 2 + (CELLS * 2)) }
               memory.reserve(LIST_DONE, 2)
+              memory.reserve(RUNS, 2 * RUN_BYTES)
               memory.reserve(CLEARED, 1)
               memory.reserve(LAST_SOLID, 1)
               memory.reserve(AREA, 4)
-              memory.reserve(SCRATCH, 19)
+              memory.reserve(SCRATCH, 20)
             end
 
             def emit(asm, memory, painting:)
@@ -125,6 +153,7 @@ module RubyGBA
                                 bank_index: memory.quick(1), bits_mask: memory.quick(1), bits_stride: memory.quick(1))
               emit_start(asm, memory, quick)
               emit_tables(asm)
+              emit_tables_in_view(asm)
               emit_cell(asm, memory, quick)
               emit_area(asm, memory)
               emit_clear(asm, memory, quick)
@@ -247,11 +276,12 @@ module RubyGBA
               asm.jump_relative(:nz, "rt_paint_start_screen_row")
               asm.xor_a(:a)
               %i[generation clear clear_low clear_high].each { |name| asm.load_high(quick.public_send(name), :a) }
-              [LIST, DIRTY_LIST, OWN_LIST, LIST_DONE].each do |list|
+              [DIRTY_LIST, OWN_LIST].each do |list|
                 asm.load(:hl, memory[list])
                 asm.load([:hli], :a)
                 asm.load([:hl], :a)
               end
+              asm.call("rt_paint_list_open")
               asm.load([memory[CLEARED]], :a)
               asm.load([memory[LAST_SOLID]], :a)
               asm.load(:hl, memory[AREA])
@@ -272,8 +302,8 @@ module RubyGBA
 
             # Tables the painting reads: for each row of tiles (eight bytes each) its bank of work
             # memory, where its first tile is there, that tile's number in the bank, and the bank's
-            # number among BANKS; the masks of a span; and for each tile, by its bank's number × 128
-            # and its own in the bank, how it is sent (see #emit_upload).
+            # number among BANKS; and the masks of a span. The rest are in a bank of their own
+            # (#table_sections).
             def emit_tables(asm)
               asm.label("rt_paint_rows")
               ROWS.times do |row|
@@ -287,17 +317,71 @@ module RubyGBA
               asm.data_bytes((0..7).map { |x| 0xFF >> x })
               asm.label("rt_paint_before_masks")
               asm.data_bytes((0..8).map { |x| (~(0xFF >> x)) & 0xFF })
-              asm.label("rt_paint_cells")
-              BANKS.each_index do |index|
-                128.times do |in_bank|
-                  in_bank < CELLS_A_BANK ? asm.data_bytes(cell_entry((index * CELLS_A_BANK) + in_bank)) : asm.data_bytes([0] * 8)
-                end
-              end
             end
 
-            # How tile +cell+ is sent: its bank of work memory and where it is there, its bank of
-            # video memory (with the top two bits of its place in the grid), where it goes there,
-            # the number the grid shows it by, and the low byte of its place in the grid.
+            # THE TABLES OF HOW EACH CELL IS SENT, which are most of the painted screen's bytes, in
+            # a bank of the cartridge of their own rather than in the part always in view, where a
+            # game's own code and tables need the room. The blank and the end of the pass put the
+            # bank in view while they read them (rt_paint_tables_in_view) and the game's back after
+            # (rt_bank_back). For each cell, how it is sent (#emit_upload); how many cells a run
+            # can grow by after it and before it, along its row and within its bank of video
+            # memory; and for each length of run, the last line of the blank it may start on.
+            # None for a game that never paints.
+            def table_sections(painting:)
+              return [] unless painting
+
+              asm = SM83.new("paint tables", home: :banked)
+              asm.label("rt_paint_cells")
+              CELLS.times { |cell| asm.data_bytes(cell_entry(cell)) }
+              asm.label("rt_paint_room_after")
+              asm.data_bytes((0...CELLS).map { |cell| room_after(cell) })
+              asm.label("rt_paint_room_before")
+              asm.data_bytes((0...CELLS).map { |cell| room_before(cell) })
+              asm.label("rt_paint_run_last_lines")
+              asm.data_bytes((0..RUN_LENGTH_MASK).map { |less_one| run_last_line(less_one + 1) })
+              [asm.section]
+            end
+
+            # The bank holding the tables, in view.
+            def emit_tables_in_view(asm)
+              asm.label("rt_paint_tables_in_view")
+              asm.load_bank_of(:a, "rt_paint_cells")
+              asm.load([Console::GBCHardware::MBC_ROM_BANK_LOW], :a)
+              asm.ret
+            end
+
+            # THE LAST LINE A RUN OF +length+ TILES MAY START ON, so that it is done before the
+            # blank is. The blank is lines 144 to 153, and one started on a line has the lines after
+            # it, so a run that takes two lines starts on 151 at the latest. What a run costs is
+            # counted from #emit_upload's instructions, generously: RUN_CYCLES for the entry and
+            # the copy's set-up, TILE_CYCLES for each tile's sixteen bytes and its cell's two
+            # writes. A line is LINE_CYCLES of the processor at the double speed the game runs at.
+            RUN_CYCLES = 170
+            TILE_CYCLES = 40
+            LINE_CYCLES = 228
+            LAST_BLANK_LINE = 153
+            def run_last_line(length)
+              LAST_BLANK_LINE - ((RUN_CYCLES + (TILE_CYCLES * length)) / LINE_CYCLES.to_f).ceil
+            end
+
+            # The cells after +cell+ in its row, short of the end of video memory's first bank.
+            def room_after(cell)
+              room = COLUMNS - 1 - (cell % COLUMNS)
+              cell < VIDEO_BANK_CELLS ? [room, VIDEO_BANK_CELLS - 1 - cell].min : room
+            end
+
+            # The cells before +cell+ in its row, short of the start of video memory's second bank.
+            def room_before(cell)
+              room = cell % COLUMNS
+              cell >= VIDEO_BANK_CELLS ? [room, cell - VIDEO_BANK_CELLS].min : room
+            end
+
+            # HOW TILE +cell+ IS SENT, in the order the blank writes it (#emit_upload), so the blank
+            # only reads it along: the bank of work memory it is painted in, where it is there (high
+            # byte first, as the console's copy takes it), its bank of video memory, where it goes
+            # there; then for its cell of the grid, the cell's place, the number the grid shows the
+            # tile by, and the cell's attributes (that bank, and the palette).
+            CELL_ENTRY_BYTES = 10
             def cell_entry(cell)
               h = Console::GBCHardware
               row, column = cell.divmod(COLUMNS)
@@ -307,9 +391,9 @@ module RubyGBA
               video_bank, slot = cell < 128 ? [0, cell] : [1, cell - 128]
               to = 0x8800 + (slot * 16)
               number = (slot + 128) & 0xFF
-              grid = (row * Art::GRID_CELLS) + column
-              flags = (video_bank * h::ATTR_TILE_BANK) | ((grid >> 8) << 4)
-              [bank, from & 0xFF, from >> 8, flags, to & 0xFF, to >> 8, number, grid & 0xFF]
+              grid = GRID + (row * Art::GRID_CELLS) + column
+              [bank, from >> 8, from & 0xFF, video_bank, to >> 8, to & 0xFF,
+               grid & 0xFF, grid >> 8, number, (video_bank * h::ATTR_TILE_BANK) | PALETTE]
             end
 
             # rt_paint_cell: the tile pixel (D, E) is in, ready to paint: its bank of work memory in
@@ -735,9 +819,15 @@ module RubyGBA
             # painting. Each colour bit of the tile's row takes the ink's where the mask is set,
             # and keeps its own elsewhere. They end at rt_paint_bits_band_done with DE moved on
             # past the rows painted.
+            #
+            # And each of the four colours has its own eight, rt_paint_bits_rows_I_N for colour I:
+            # a colour's bit is set where the mask is (an OR) or cleared there (an AND with the
+            # mask turned over), which is one instruction a bit where mixing the colour's byte in
+            # under the mask, for any colour, is three. A tile's rows are most of what painting
+            # costs, and a line of text is mostly rows.
             def emit_bits_rows(asm, quick)
-              steps = (0...8).map { |n| "rt_paint_bits_rows_#{n}" }
-              steps.each_with_index do |label, n|
+              steps = (0...4).flat_map { |ink| (0...8).map { |n| [ink, n, "rt_paint_bits_rows_#{ink}_#{n}"] } }
+              steps.each do |ink, n, label|
                 asm.label(label)
                 if n.positive?
                   asm.inc(:de)
@@ -754,11 +844,15 @@ module RubyGBA
                 asm.load_high(:a, quick.bits_mask)
                 asm.and_a(:c)
                 asm.load(:c, :a) # the mask
-                [quick.ink_low, quick.ink_high].each do |ink|
-                  asm.load_high(:a, ink)
-                  asm.xor_a([:hl])
-                  asm.and_a(:c)
-                  asm.xor_a([:hl])
+                2.times do |plane|
+                  if ink[plane] == 1
+                    asm.load(:a, [:hl])
+                    asm.or_a(:c)
+                  else
+                    asm.load(:a, :c)
+                    asm.cpl
+                    asm.and_a([:hl])
+                  end
                   asm.load([:hli], :a)
                 end
                 asm.load_high(:a, quick.bits_stride)
@@ -771,8 +865,8 @@ module RubyGBA
                 asm.jump_relative(:nz, label)
                 asm.jump("rt_paint_bits_band_done")
               end
-              asm.label("rt_paint_bits_rows")
-              steps.each { |label| asm.data_words(label) }
+              asm.label("rt_paint_bits_rows") # by colour × 8 + shift
+              steps.each { |_ink, _n, label| asm.data_words(label) }
             end
 
             # rt_paint_bits(x, y, color, bits, stride, rows): a picture of one colour, a bit a
@@ -801,7 +895,8 @@ module RubyGBA
               left = at + 14
               right = at + 15
               column_mask = at + 16 # the pixels of this column of tiles within left and right
-              rows_routine = at + 17 # 16 bits: rt_paint_bits_rows_N for this column's shift
+              rows_routine = at + 17 # 16 bits: rt_paint_bits_rows_I_N for the colour and this column's shift
+              ink = at + 19 # the colour, 0 to 3
               arg = ->(i) { Calls.arg(memory, i, 6) }
               asm.label("rt_paint_bits")
               asm.load_hl_sp(2)
@@ -855,6 +950,7 @@ module RubyGBA
               asm.load([bottom], :a)
               asm.load_high(:a, arg.call(2))
               asm.and_a(3)
+              asm.load([ink], :a)
               asm.call("rt_paint_ink")
 
               asm.label("rt_paint_bits_column")
@@ -938,8 +1034,13 @@ module RubyGBA
               asm.load([from + 1], :a)
               asm.load(:a, [top])
               asm.load([row], :a)
-              # The rows of this column are painted by the routine for its shift, and with its mask.
+              # The rows of this column are painted by the routine for the colour and its shift, and
+              # with its mask.
+              asm.load(:a, [ink])
+              3.times { asm.add_a(:a) }
+              asm.load(:e, :a)
               asm.load(:a, [shift])
+              asm.add_a(:e)
               asm.add_a(:a)
               asm.load(:e, :a)
               asm.load(:d, 0)
@@ -1327,21 +1428,11 @@ module RubyGBA
             #   if it differs, or if its cell shows a single colour now.
             def emit_scan(asm, memory, quick)
               h = Console::GBCHardware
-              at = memory[SCRATCH]
-              read = at       # 16 bits: where the list being walked has got to
-              kept = at + 2   # 16 bits: how many of the own list are kept
-              left = at + 4   # 16 bits: how many of its entries are left
               asm.label("rt_paint_scan")
               asm.load(:a, [memory[SCREEN_KIND]])
               asm.cp_a(PAINTED)
               asm.ret(:nz)
-              asm.xor_a(:a)
-              asm.load(:hl, memory[LIST])
-              asm.load([:hli], :a)
-              asm.load([:hl], :a)
-              asm.load(:hl, memory[LIST_DONE])
-              asm.load([:hli], :a)
-              asm.load([:hl], :a)
+              asm.call("rt_paint_list_open")
               asm.load(:a, [memory[CLEARED]])
               asm.and_a(:a)
               asm.jump(:z, "rt_paint_scan_dirty")
@@ -1361,69 +1452,106 @@ module RubyGBA
               asm.call("rt_paint_send")
 
               # Every tile showing its own picture: kept if it was painted since the clear, pointed
-              # at the clearing colour if not.
+              # at the clearing colour if not. The list is walked with its place in HL, what is left
+              # of it in BC, and where the next one kept goes in DE, each pushed round the tile's
+              # work, so a tile costs a few instructions besides what is done with it; the ones kept
+              # are written back over the list as it is read.
               asm.label("rt_paint_scan_own")
-              asm.xor_a(:a)
-              asm.load([kept], :a)
-              asm.load([kept + 1], :a)
               asm.load(:hl, memory[OWN_LIST])
-              asm.call("rt_paint_list_begin")
-              asm.label("rt_paint_scan_own_next")
-              asm.call("rt_paint_list_entry")
-              asm.jump(:nc, "rt_paint_scan_own_done")
-              asm.call("rt_paint_state_now") # Z: painted in this generation
-              asm.jump_relative(:z, "rt_paint_scan_own_keep")
+              asm.load(:a, [:hli])
+              asm.load(:c, :a)
+              asm.load(:a, [:hli])
+              asm.load(:b, :a)
+              asm.load(:d, :h)
+              asm.load(:e, :l)
+              asm.label("rt_paint_scan_own_entry")
+              asm.load(:a, :b)
+              asm.or_a(:c)
+              asm.jump_relative(:z, "rt_paint_scan_own_done")
+              asm.dec(:bc)
+              asm.push(:bc)
+              asm.push(:de)
+              emit_list_entry(asm)
+              asm.call("rt_paint_state_now")
+              asm.jump_relative(:z, "rt_paint_scan_own_keep") # painted in this generation
               asm.call("rt_paint_point_at_clear")
+              asm.pop(:hl)
+              asm.pop(:de)
               asm.jump_relative("rt_paint_scan_own_next")
               asm.label("rt_paint_scan_own_keep")
-              asm.load(:a, [kept])
-              asm.load(:l, :a)
-              asm.load(:a, [kept + 1])
-              asm.load(:h, :a)
-              asm.push(:hl)
-              asm.inc(:hl)
-              asm.load(:a, :l)
-              asm.load([kept], :a)
-              asm.load(:a, :h)
-              asm.load([kept + 1], :a)
-              asm.pop(:hl)
-              asm.add_hl(:hl)
-              asm.push(:de)
-              asm.load(:de, memory[OWN_LIST] + 2)
-              asm.add_hl(:de)
-              asm.pop(:de)
-              asm.load(:a, :c)
-              asm.load([:hli], :a)
               asm.load(:a, :e)
-              asm.load([:hl], :a)
-              asm.jump_relative("rt_paint_scan_own_next")
-              asm.label("rt_paint_scan_own_done")
-              asm.load(:a, [kept])
-              asm.load([memory[OWN_LIST]], :a)
-              asm.load(:a, [kept + 1])
+              asm.pop(:hl)
+              asm.pop(:de)
+              asm.load(:b, :a)
+              asm.load(:a, :c)
+              asm.load([:de], :a)
+              asm.inc(:de)
+              asm.load(:a, :b)
+              asm.load([:de], :a)
+              asm.inc(:de)
+              asm.label("rt_paint_scan_own_next")
+              asm.pop(:bc)
+              asm.jump_relative("rt_paint_scan_own_entry")
+              asm.label("rt_paint_scan_own_done") # how many were kept: from the list's start to DE
+              first = memory[OWN_LIST] + 2
+              asm.load(:a, :e)
+              asm.sub_a(first & 0xFF)
+              asm.load(:l, :a)
+              asm.load(:a, :d)
+              asm.sbc_a(first >> 8)
+              asm.srl(:a)
               asm.load([memory[OWN_LIST] + 1], :a)
+              asm.load(:a, :l)
+              asm.rra
+              asm.load([memory[OWN_LIST]], :a)
 
-              # Every tile painted since the pass before.
+              # Every tile painted since the pass before, walked the same way. Most of a picture
+              # painted again is the same as it was sent and its cell shows it, which is held
+              # against the copy sent here, with nothing called.
               asm.label("rt_paint_scan_dirty")
               asm.load(:hl, memory[DIRTY_LIST])
-              asm.call("rt_paint_list_begin")
-              asm.label("rt_paint_scan_dirty_next")
-              asm.call("rt_paint_list_entry")
-              asm.jump(:nc, "rt_paint_scan_dirty_done")
+              asm.load(:a, [:hli])
+              asm.load(:c, :a)
+              asm.load(:a, [:hli])
+              asm.load(:b, :a)
+              asm.label("rt_paint_scan_dirty_entry")
+              asm.load(:a, :b)
+              asm.or_a(:c)
+              asm.jump(:z, "rt_paint_scan_dirty_done")
+              asm.dec(:bc)
+              asm.push(:bc)
+              emit_list_entry(asm)
               asm.call("rt_paint_state_now")
               asm.res(7, [:hl]) # no longer dirty, whatever comes of it
-              asm.jump_relative(:nz, "rt_paint_scan_dirty_next") # cleared since: the clear saw to it
-              asm.call("rt_paint_same_as_sent")
-              asm.jump_relative(:z, "rt_paint_scan_dirty_same")
-              asm.call("rt_paint_copy_sent")
-              asm.jump_relative("rt_paint_scan_dirty_send")
-              asm.label("rt_paint_scan_dirty_same") # as sent: it goes only if its cell shows a colour
+              asm.jump(:nz, "rt_paint_scan_dirty_next") # cleared since: the clear saw to it
+              asm.push(:de)
+              emit_tile_pair(asm)
+              # A tile is sixteen bytes from an address that is a multiple of sixteen, so only the
+              # low byte of each address moves along it.
+              16.times do
+                asm.load(:a, [:de])
+                asm.cp_a([:hl])
+                asm.jump_relative(:nz, "rt_paint_scan_dirty_changed")
+                asm.inc(:e)
+                asm.inc(:l)
+              end
+              asm.pop(:de)
+              # As sent: it goes only if its cell shows a colour.
               asm.call("rt_paint_shown_at")
               asm.load(:a, [:hl])
               asm.cp_a(OWN)
               asm.jump_relative(:z, "rt_paint_scan_dirty_next")
               asm.jump_relative("rt_paint_scan_dirty_new_cell")
-              asm.label("rt_paint_scan_dirty_send")
+              asm.label("rt_paint_scan_dirty_changed") # the tile as painted is the copy sent from now
+              asm.pop(:de)
+              asm.push(:de)
+              emit_tile_pair(asm)
+              16.times do
+                asm.load(:a, [:hli])
+                asm.load([:de], :a)
+                asm.inc(:e)
+              end
+              asm.pop(:de)
               asm.call("rt_paint_shown_at")
               asm.load(:a, [:hl])
               asm.cp_a(OWN)
@@ -1431,7 +1559,7 @@ module RubyGBA
               asm.load(:a, :e)
               asm.or_a(KEEPS_CELL)
               asm.call("rt_paint_send")
-              asm.jump("rt_paint_scan_dirty_next")
+              asm.jump_relative("rt_paint_scan_dirty_next")
               asm.label("rt_paint_scan_dirty_new_cell")
               asm.call("rt_paint_send_own")
               asm.call("rt_paint_shown_at")
@@ -1441,62 +1569,53 @@ module RubyGBA
                 asm.load(:hl, memory[OWN_LIST])
                 asm.call("rt_paint_list_add")
               end
-              asm.jump("rt_paint_scan_dirty_next")
+              asm.label("rt_paint_scan_dirty_next")
+              asm.pop(:hl)
+              asm.pop(:bc)
+              asm.jump("rt_paint_scan_dirty_entry")
+
               asm.label("rt_paint_scan_dirty_done")
               asm.xor_a(:a)
               asm.load(:hl, memory[DIRTY_LIST])
               asm.load([:hli], :a)
               asm.load([:hl], :a)
+              # LIST_END after the last entry to send.
+              asm.load(:hl, memory[LIST])
+              asm.load(:a, [:hli])
+              asm.load(:c, :a)
+              asm.load(:a, [:hli])
+              asm.load(:b, :a)
+              asm.sla(:c)
+              asm.rl(:b)
+              asm.add_hl(:bc)
+              asm.inc(:hl)
+              asm.load([:hl], LIST_END)
               asm.load(:a, 1)
               asm.load_high(h::SVBK, :a)
               asm.ret
 
-              # Walking a list: rt_paint_list_begin with HL = the list, then each rt_paint_list_entry
-              # hands back the next entry — C = the tile in its bank, E = the bank's number among
-              # BANKS, that bank in view — with carry clear once there are none left.
-              asm.label("rt_paint_list_begin")
-              asm.load(:a, [:hli])
-              asm.load([left], :a)
-              asm.load(:a, [:hli])
-              asm.load([left + 1], :a)
-              asm.load(:a, :l)
-              asm.load([read], :a)
-              asm.load(:a, :h)
-              asm.load([read + 1], :a)
+              # The list to send emptied: nothing on it but its end, and the blank at its start.
+              # A = nought after.
+              asm.label("rt_paint_list_open")
+              asm.load(:hl, memory[LIST])
+              asm.xor_a(:a)
+              3.times { asm.load([:hli], :a) }
+              asm.load([:hl], LIST_END)
+              asm.load(:a, (memory[LIST] + 2) & 0xFF)
+              asm.load([memory[LIST_DONE]], :a)
+              asm.load(:a, (memory[LIST] + 2) >> 8)
+              asm.load([memory[LIST_DONE] + 1], :a)
+              asm.load(:a, NO_BANK) # no run yet for a cell to join
+              [0, RUN_BYTES].each { |run| asm.load([memory[RUNS] + run + RUN_BANK], :a) }
+              asm.xor_a(:a)
               asm.ret
 
-              asm.label("rt_paint_list_entry")
-              asm.load(:hl, left)
-              asm.load(:a, [:hli])
-              asm.or_a([:hl])
-              asm.ret(:z) # none left: the OR leaves carry clear
-              asm.dec(:hl)
-              asm.load(:a, [:hl])
-              asm.sub_a(1)
-              asm.load([:hli], :a)
-              asm.load(:a, [:hl])
-              asm.sbc_a(0)
-              asm.load([:hl], :a)
-              asm.load(:a, [read])
-              asm.load(:l, :a)
-              asm.load(:a, [read + 1])
-              asm.load(:h, :a)
-              asm.load(:a, [:hli])
-              asm.load(:c, :a)
-              asm.load(:a, [:hli])
-              asm.and_a(3)
-              asm.load(:e, :a)
+              # Tile C of bank E's bank in view, HL = its state, and Z when it was painted in this
+              # generation.
+              asm.label("rt_paint_state_now")
+              asm.load(:a, :e)
               asm.add_a(BANKS.first)
               asm.load_high(h::SVBK, :a)
-              asm.load(:a, :l)
-              asm.load([read], :a)
-              asm.load(:a, :h)
-              asm.load([read + 1], :a)
-              asm.scf
-              asm.ret
-
-              # HL = tile C's state, and Z when it was painted in this generation.
-              asm.label("rt_paint_state_now")
               asm.load(:h, STATE_AT >> 8)
               asm.load(:l, :c)
               asm.load(:a, [:hl])
@@ -1519,14 +1638,7 @@ module RubyGBA
               # Tile C of bank E is sent as it is painted, and its cell pointed at it.
               asm.label("rt_paint_send_own")
               asm.load(:a, :e)
-              asm.label("rt_paint_send") # A = the bank, and SOLID and a colour for a single colour, or KEEPS_CELL
-              push_keeping(asm) do
-                asm.load(:d, :c)
-                asm.load(:e, :a)
-                asm.load(:hl, memory[LIST])
-                asm.call("rt_paint_list_add")
-              end
-              asm.ret
+              emit_send(asm, memory)
 
               # HL = what tile C of the bank in view shows now.
               asm.label("rt_paint_shown_at")
@@ -1535,53 +1647,247 @@ module RubyGBA
               asm.load(:l, :a)
               asm.load(:h, SHOWN_AT >> 8)
               asm.ret
+            end
 
-              # HL = tile C of the bank in view as painted, DE = as last sent.
-              asm.label("rt_paint_tile_pair")
+            # rt_paint_send: A = the bank, and SOLID and a colour for a single colour, or
+            # KEEPS_CELL; C = the tile in its bank, or CLEAR_TILE_ENTRY for the clear tile
+            # rewritten in the colour. Onto the list to send: added to either end of the last run,
+            # or of the one before it, when the cell is next to it along its row and sent the same
+            # way; a run of its own when not. Keeps BC and DE.
+            #
+            # Two runs, because two rows of text are painted a column at a time, down both rows,
+            # so a row's runs are taken in turn; either end, because a menu's cursor is painted
+            # after the words just to its right. Each run is kept (RUNS) as the scan has its
+            # tiles, a tile and its bank, so that whether a tile is next to it is a byte or two
+            # compared: the tile after its last and the tile before its first, how many more cells
+            # its row has room for after it and before it (#emit_tables's rt_paint_room_after
+            # and rt_paint_room_before), and its entry's place.
+            RUN_NEXT = 0
+            RUN_BANK = 1
+            RUN_ROOM_AFTER = 2
+            RUN_BEFORE = 3
+            RUN_ROOM_BEFORE = 4
+            RUN_ENTRY = 5
+            RUN_BYTES = 7
+            def emit_send(asm, memory)
+              last = memory[RUNS]
+              before_last = last + RUN_BYTES
+              asm.label("rt_paint_send")
+              push_keeping(asm) do
+                asm.load(:b, :a)
+                asm.and_a(3)
+                asm.load(:d, :a) # the bank
+                asm.load(:a, :c)
+                asm.cp_a(CLEAR_TILE_ENTRY)
+                asm.jump_relative(:nz, "rt_paint_send_cell")
+                asm.load(:a, :b)
+                asm.swap(:a)
+                asm.and_a(3)
+                asm.load(:d, :a)
+                asm.load(:e, SENDS_CLEAR_TILE)
+                asm.load(:hl, memory[LIST])
+                asm.call("rt_paint_list_add")
+                asm.jump("rt_paint_send_done")
+                asm.label("rt_paint_send_cell")
+                asm.load(:a, :b)
+                asm.and_a(SENDS_SOLID | SENDS_KEEPING_CELL) # the same bits as SOLID and KEEPS_CELL
+                asm.load(:b, :a) # what is sent
+                [last, before_last].each_with_index do |run, i|
+                  emit_run_grows_after(asm, run, "rt_paint_send_after_#{i}")
+                  emit_run_grows_before(asm, run, "rt_paint_send_before_#{i}")
+                end
+                emit_run_begins(asm, memory, last, before_last)
+                asm.label("rt_paint_send_done")
+              end
+              asm.ret
+            end
+
+            # Tile C of bank D carries on +run+ past its last cell, when it is the tile after that
+            # cell, there is room, and it is sent as the run is (B): the run is a cell longer.
+            def emit_run_grows_after(asm, run, label)
+              asm.load(:hl, run + RUN_NEXT)
+              asm.load(:a, [:hli])
+              asm.cp_a(:c)
+              asm.jump_relative(:nz, label)
+              asm.load(:a, [:hli])
+              asm.cp_a(:d)
+              asm.jump_relative(:nz, label)
+              asm.load(:a, [:hl])
+              asm.and_a(:a)
+              asm.jump_relative(:z, label)
+              emit_compare_entry_kind(asm, run)
+              asm.jump_relative(:nz, label)
+              asm.load(:a, [:hl])
+              asm.add_a(1 << RUN_LENGTH_SHIFT)
+              asm.load([:hl], :a)
+              asm.load(:hl, run + RUN_ROOM_AFTER)
+              asm.dec([:hl])
+              asm.load(:hl, run + RUN_NEXT)
+              asm.inc([:hl])
+              asm.jump("rt_paint_send_done")
+              asm.label(label)
+            end
+
+            # Tile C of bank D comes before +run+'s first cell, when it is the tile before that cell,
+            # there is room, and it is sent as the run is (B): the run starts a cell sooner.
+            def emit_run_grows_before(asm, run, label)
+              asm.load(:hl, run + RUN_BEFORE)
+              asm.load(:a, [:hli])
+              asm.cp_a(:c)
+              asm.jump_relative(:nz, label)
+              asm.load(:a, [:hl])
+              asm.and_a(:a)
+              asm.jump_relative(:z, label)
+              asm.load(:a, [run + RUN_BANK])
+              asm.cp_a(:d)
+              asm.jump_relative(:nz, label)
+              emit_compare_entry_kind(asm, run)
+              asm.jump_relative(:nz, label)
+              # The first cell one less — its top bit is the second byte's lowest, so the borrow
+              # carries into it — and the run a cell longer.
+              asm.dec(:hl)
+              asm.load(:a, [:hl])
+              asm.sub_a(1)
+              asm.load([:hli], :a)
+              asm.load(:a, [:hl])
+              asm.sbc_a(0)
+              asm.add_a(1 << RUN_LENGTH_SHIFT)
+              asm.load([:hl], :a)
+              asm.load(:hl, run + RUN_ROOM_BEFORE)
+              asm.dec([:hl])
+              asm.load(:hl, run + RUN_BEFORE)
+              asm.dec([:hl])
+              asm.jump("rt_paint_send_done")
+              asm.label(label)
+            end
+
+            # HL = +run+'s entry's second byte, and Z when what it sends is B.
+            def emit_compare_entry_kind(asm, run)
+              asm.load(:hl, run + RUN_ENTRY)
+              asm.load(:a, [:hli])
+              asm.load(:h, [:hl])
+              asm.load(:l, :a)
+              asm.inc(:hl)
+              asm.load(:a, [:hl])
+              asm.and_a(SENDS_SOLID | SENDS_KEEPING_CELL)
+              asm.cp_a(:b)
+            end
+
+            # Tile C of bank D is a run of its own, the last from now, and the last run before it
+            # the one before.
+            def emit_run_begins(asm, memory, last, before_last)
+              asm.push(:de)
+              asm.load(:hl, last)
+              asm.load(:de, before_last)
+              RUN_BYTES.times do
+                asm.load(:a, [:hli])
+                asm.load([:de], :a)
+                asm.inc(:de)
+              end
+              asm.pop(:de)
+              asm.load(:a, :d)
+              # HL = the cell's number: the tile's on from its bank's first cell.
               asm.load(:l, :c)
               asm.load(:h, 0)
-              4.times { asm.add_hl(:hl) }
-              asm.load(:de, SENT_AT)
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_paint_send_numbered")
+              asm.push(:de)
+              asm.load(:de, CELLS_A_BANK)
               asm.add_hl(:de)
-              asm.load(:d, :h)
-              asm.load(:e, :l)
+              asm.dec(:a)
+              asm.jump_relative(:z, "rt_paint_send_numbered_pop")
+              asm.add_hl(:de)
+              asm.label("rt_paint_send_numbered_pop")
+              asm.pop(:de)
+              asm.label("rt_paint_send_numbered")
+              asm.push(:hl)
+              # The entry, at the list's next place, and the list one longer.
+              asm.push(:de)
+              asm.load(:hl, memory[LIST])
+              asm.load(:a, [:hli])
+              asm.load(:e, :a)
+              asm.load(:a, [:hld])
+              asm.load(:d, :a)
+              asm.inc(:de)
+              asm.load(:a, :e)
+              asm.load([:hli], :a)
+              asm.load(:a, :d)
+              asm.load([:hl], :a)
+              asm.dec(:de)
+              asm.load(:h, :d)
+              asm.load(:l, :e)
+              asm.add_hl(:hl)
+              asm.load(:de, memory[LIST] + 2)
+              asm.add_hl(:de)
               asm.load(:a, :l)
-              asm.sub_a((SENT_AT - PAINTED_AT) & 0xFF)
-              asm.load(:l, :a)
+              asm.load([last + RUN_ENTRY], :a)
               asm.load(:a, :h)
-              asm.sbc_a((SENT_AT - PAINTED_AT) >> 8)
+              asm.load([last + RUN_ENTRY + 1], :a)
+              asm.pop(:de)
+              asm.pop(:hl) # the cell's number again; the entry's place is in the run
+              push_keeping(asm) do
+                asm.load(:a, [last + RUN_ENTRY])
+                asm.load(:e, :a)
+                asm.load(:a, [last + RUN_ENTRY + 1])
+                asm.load(:d, :a)
+                asm.load(:a, :l)
+                asm.load([:de], :a)
+                asm.inc(:de)
+                asm.load(:a, :h)
+                asm.or_a(:b)
+                asm.load([:de], :a)
+              end
+              # The run: the tiles either side of it, its bank, and its row's room either side.
+              asm.load(:a, :c)
+              asm.inc(:a)
+              asm.load([last + RUN_NEXT], :a)
+              asm.sub_a(2)
+              asm.load([last + RUN_BEFORE], :a)
+              asm.load(:a, :d)
+              asm.load([last + RUN_BANK], :a)
+              asm.call("rt_paint_tables_in_view")
+              asm.push(:hl)
+              asm.load(:de, "rt_paint_room_after")
+              asm.add_hl(:de)
+              asm.load(:a, [:hl])
+              asm.load([last + RUN_ROOM_AFTER], :a)
+              asm.pop(:hl)
+              asm.load(:de, "rt_paint_room_before")
+              asm.add_hl(:de)
+              asm.load(:a, [:hl])
+              asm.load([last + RUN_ROOM_BEFORE], :a)
+              asm.call("rt_bank_back")
+            end
+
+            # HL = tile C of the bank in view as painted, DE = as last sent: C × 16 on from each.
+            # The swap puts C's low four bits above its high four, which are the two bytes of C × 16.
+            def emit_tile_pair(asm)
+              asm.load(:a, :c)
+              asm.swap(:a)
+              asm.load(:b, :a)
+              asm.and_a(0xF0)
+              asm.load(:l, :a)
+              asm.load(:a, :b)
+              asm.and_a(0x0F)
+              asm.add_a(PAINTED_AT >> 8)
               asm.load(:h, :a)
-              asm.ret
+              asm.load(:a, :l)
+              asm.add_a((SENT_AT - PAINTED_AT) & 0xFF)
+              asm.load(:e, :a)
+              asm.load(:a, :h)
+              asm.adc_a((SENT_AT - PAINTED_AT) >> 8)
+              asm.load(:d, :a)
+            end
 
-              # Z when tile C is as last sent. Keeps C and E.
-              asm.label("rt_paint_same_as_sent")
-              # A tile is sixteen bytes from an address that is a multiple of sixteen, so only the low
-              # byte of each address moves along it.
-              push_keeping(asm) do
-                asm.call("rt_paint_tile_pair")
-                16.times do
-                  asm.load(:a, [:de])
-                  asm.cp_a([:hl])
-                  asm.jump_relative(:nz, "rt_paint_same_as_sent_done")
-                  asm.inc(:e)
-                  asm.inc(:l)
-                end
-                asm.xor_a(:a) # the same throughout: the zero flag set
-                asm.label("rt_paint_same_as_sent_done")
-              end
-              asm.ret
-
-              # Tile C as painted is the copy sent. Keeps C and E.
-              asm.label("rt_paint_copy_sent")
-              push_keeping(asm) do
-                asm.call("rt_paint_tile_pair")
-                16.times do
-                  asm.load(:a, [:hli])
-                  asm.load([:de], :a)
-                  asm.inc(:e)
-                end
-              end
-              asm.ret
+            # The next entry of a list being walked, HL its place: C = the tile in its bank, E = the
+            # bank's number among BANKS, and the place after it pushed.
+            def emit_list_entry(asm)
+              asm.load(:a, [:hli])
+              asm.load(:c, :a)
+              asm.load(:a, [:hli])
+              asm.push(:hl)
+              asm.and_a(3)
+              asm.load(:e, :a)
             end
 
             # The block's work with BC and DE kept round it (the flags are the block's).
@@ -1593,106 +1899,162 @@ module RubyGBA
               asm.pop(:bc)
             end
 
-            # IN THE BLANK: the list, from where it got to, for as long as the blank lasts. A tile
-            # of its own is copied by the console's own copy, and its cell pointed at it unless it
-            # is already (KEEPS_CELL); a single colour is the cell pointed at the clear tile, and
-            # CLEAR_TILE_ENTRY the clear tile rewritten. Carry set when some of it is left for the
-            # next blank. With the screen off the line never moves, and it all goes now.
+            # IN THE BLANK: the list, from where it got to, for as long as the blank lasts. A run
+            # of tiles of their own is copied by the console's own copy, all of it at once, and
+            # their cells pointed at them unless they are already (SENDS_KEEPING_CELL); a run of
+            # single colours is its cells pointed at the clear tile, and SENDS_CLEAR_TILE the
+            # clear tile rewritten. Carry set when some of it is left for the next blank.
+            #
+            # The blank is the ten lines from 144 to 153, and the sprite table and the rest of the
+            # picture go first, so what is left of it is a handful of runs: each run's tiles' entry
+            # of rt_paint_cells is read straight along (#cell_entry), and its place on the list is
+            # kept in HL the while.
+            #
+            # A run starts only if it can be done before the blank is: on a line no later than
+            # its length's last line (#run_last_line). And never while the line counter reads
+            # less than 144 with the screen on — not even nought, which it reads for nearly all of
+            # line 153, the blank's last, as well as at the top of the screen. With the screen off
+            # the counter reads nought and the whole list goes now.
             def emit_upload(asm, memory)
               h = Console::GBCHardware
+              done = memory[LIST_DONE]
               asm.label("rt_paint_upload")
-              asm.label("rt_paint_upload_next")
-              asm.load(:a, [memory[LIST_DONE]])
-              asm.load(:e, :a)
-              asm.load(:a, [memory[LIST_DONE] + 1])
-              asm.load(:d, :a)
-              asm.load(:a, [memory[LIST]])
-              asm.cp_a(:e)
-              asm.jump_relative(:nz, "rt_paint_upload_more")
-              asm.load(:a, [memory[LIST] + 1])
-              asm.cp_a(:d)
-              asm.jump_relative(:nz, "rt_paint_upload_more")
-              asm.and_a(:a) # carry clear: the list is done
-              asm.ret
-              asm.label("rt_paint_upload_more")
-              asm.load_high(:a, h::LY)
-              asm.cp_a(152)
-              asm.jump_relative(:c, "rt_paint_upload_in_time")
-              asm.scf # the blank is nearly over: the rest next time
-              asm.ret
-              asm.label("rt_paint_upload_in_time")
-              asm.load(:h, :d)
-              asm.load(:l, :e)
-              asm.inc(:hl)
-              asm.load(:a, :l)
-              asm.load([memory[LIST_DONE]], :a)
-              asm.load(:a, :h)
-              asm.load([memory[LIST_DONE] + 1], :a)
-              asm.dec(:hl)
-              asm.add_hl(:hl)
-              asm.load(:bc, memory[LIST] + 2)
-              asm.add_hl(:bc)
-              asm.load(:a, [:hli])
-              asm.load(:d, :a) # the tile in its bank
-              asm.load(:a, [:hl])
-              asm.load(:e, :a) # its bank, and SOLID and a colour, or KEEPS_CELL
-              asm.load(:a, :d)
-              asm.cp_a(CLEAR_TILE_ENTRY)
-              asm.jump(:z, "rt_paint_upload_clear_tile")
-              asm.load(:a, :e)
-              # HL = its entry of rt_paint_cells: (bank × 128 + tile) × 8.
-              asm.and_a(3)
-              asm.rrca
-              asm.load(:b, :a)
-              asm.and_a(0x80)
-              asm.or_a(:d)
+              asm.call("rt_paint_tables_in_view")
+              asm.load(:a, [done])
               asm.load(:l, :a)
-              asm.load(:a, :b)
-              asm.and_a(0x7F)
+              asm.load(:a, [done + 1])
               asm.load(:h, :a)
-              3.times { asm.add_hl(:hl) }
-              asm.load(:bc, "rt_paint_cells")
-              asm.add_hl(:bc)
-              asm.bit(7, :e)
-              asm.jump_relative(:nz, "rt_paint_upload_solid")
+              asm.label("rt_paint_upload_next")
               asm.load(:a, [:hli])
-              asm.load_high(h::SVBK, :a)
+              asm.load(:e, :a)
               asm.load(:a, [:hli])
-              asm.load_high(h::HDMA2, :a)
-              asm.load(:a, [:hli])
-              asm.load_high(h::HDMA1, :a)
-              asm.load(:a, [:hli]) # its bank of video memory, and the top of its place in the grid
+              asm.load(:d, :a) # DE = the entry
+              # The list's end is looked for first, so a blank that sends the last run says the
+              # list is done, however little of the blank is left.
+              asm.inc(:a)
+              asm.jump(:z, "rt_paint_upload_done")
+              asm.push(:hl)
+              # B = the run's length less one: nought for the clear tile, which costs about a tile.
+              asm.load(:a, :d)
+              asm.load(:b, 0)
+              asm.cp_a(SENDS_CLEAR_TILE)
+              asm.jump_relative(:nc, "rt_paint_upload_length")
+              asm.rrca
+              asm.and_a(RUN_LENGTH_MASK)
               asm.load(:b, :a)
-              asm.and_a(h::ATTR_TILE_BANK)
-              asm.rrca
-              asm.rrca
-              asm.rrca
+              asm.label("rt_paint_upload_length")
+              asm.load(:hl, "rt_paint_run_last_lines")
+              asm.load(:c, :b)
+              asm.load(:b, 0)
+              asm.add_hl(:bc)
+              asm.load(:b, :c)
+              asm.load_high(:a, h::LY)
+              asm.cp_a(h::SCREEN_HEIGHT)
+              asm.jump_relative(:c, "rt_paint_upload_not_blank")
+              asm.cp_a([:hl])
+              asm.jump_relative(:z, "rt_paint_upload_in_time")
+              asm.jump_relative(:c, "rt_paint_upload_in_time")
+              asm.jump("rt_paint_upload_late")
+              asm.label("rt_paint_upload_not_blank")
+              asm.load_high(:a, h::LCDC)
+              asm.bit(7, :a)
+              asm.jump(:nz, "rt_paint_upload_late")
+              asm.label("rt_paint_upload_in_time")
+              asm.load(:a, :d)
+              asm.cp_a(SENDS_CLEAR_TILE)
+              asm.jump(:nc, "rt_paint_upload_clear_tile")
+              # HL = the run's first tile's entry of rt_paint_cells: its number × CELL_ENTRY_BYTES on.
+              asm.load(:c, :a) # what is sent
+              asm.and_a(1)
+              asm.load(:h, :a)
+              asm.load(:l, :e)
+              asm.add_hl(:hl)
+              asm.load(:d, :h)
+              asm.load(:e, :l)
+              2.times { asm.add_hl(:hl) }
+              asm.add_hl(:de)
+              asm.load(:de, "rt_paint_cells")
+              asm.add_hl(:de)
+              asm.bit(7, :c)
+              asm.jump_relative(:nz, "rt_paint_upload_solid")
+              [h::SVBK, h::HDMA1, h::HDMA2, h::VBK, h::HDMA3, h::HDMA4].each do |register|
+                asm.load(:a, [:hli])
+                asm.load_high(register, :a)
+              end
+              asm.load(:a, :b)
+              asm.load_high(h::HDMA5, :a) # B + 1 blocks of 16, one a tile: the copy runs now
+              asm.bit(KEEPS_CELL_BIT, :c)
+              asm.jump_relative(:nz, "rt_paint_upload_sent") # their cells show them already
+              # The cells: the numbers the grid shows the tiles by into the grid's first bank, one
+              # more each cell along, and their attributes into the second.
+              asm.load(:a, [:hli])
+              asm.load(:e, :a)
+              asm.load(:a, [:hli])
+              asm.load(:d, :a)
+              asm.xor_a(:a)
               asm.load_high(h::VBK, :a)
               asm.load(:a, [:hli])
-              asm.load_high(h::HDMA4, :a)
-              asm.load(:a, [:hli])
-              asm.load_high(h::HDMA3, :a)
-              asm.xor_a(:a)
-              asm.load_high(h::HDMA5, :a) # one block of 16: the copy runs now
-              asm.bit(KEEPS_CELL_BIT, :e) # its cell shows it already
-              asm.jump_relative(:z, "rt_paint_upload_new_cell")
-              asm.load_high(h::VBK, :a) # A is nought still
+              asm.load(:c, :b)
+              asm.inc(:c)
+              asm.push(:de)
+              asm.label("rt_paint_upload_numbers")
+              asm.load([:de], :a)
               asm.inc(:a)
-              asm.load_high(h::SVBK, :a)
-              asm.jump("rt_paint_upload_next")
-              asm.label("rt_paint_upload_new_cell")
-              asm.load(:a, [:hli]) # the number the grid shows it by
+              asm.inc(:e) # a row of the grid never crosses a 256-byte page
+              asm.dec(:c)
+              asm.jump_relative(:nz, "rt_paint_upload_numbers")
+              asm.pop(:de)
+              # A cell whose tile is in video memory's second bank has the attributes the clear
+              # tile's cells have, which are all its cell ever holds (#emit_start): only a run in
+              # the first bank has attributes to write.
+              asm.load(:a, [:hl])
+              asm.cp_a(h::ATTR_TILE_BANK | PALETTE)
+              asm.jump_relative(:z, "rt_paint_upload_sent")
+              asm.label("rt_paint_upload_attributes_of") # A = the attributes, B = the run's length less one
               asm.load(:c, :a)
-              asm.load(:a, :b)
-              asm.and_a(h::ATTR_TILE_BANK)
-              asm.or_a(PALETTE)
-              asm.jump_relative("rt_paint_upload_cell")
-              # The clear tile, in the colour in E's two bits above the bank's: each of its rows two
-              # bytes, the colour's low bit in every pixel of the first and its high bit in the second.
+              asm.load(:a, 1)
+              asm.load_high(h::VBK, :a)
+              asm.load(:a, :c)
+              asm.inc(:b)
+              asm.label("rt_paint_upload_attributes")
+              asm.load([:de], :a)
+              asm.inc(:e)
+              asm.dec(:b)
+              asm.jump_relative(:nz, "rt_paint_upload_attributes")
+              asm.label("rt_paint_upload_sent")
+              asm.pop(:hl)
+              asm.jump("rt_paint_upload_next")
+              # Single colours: the cells pointed at the clear tile, which every single colour
+              # shown is.
+              asm.label("rt_paint_upload_solid")
+              asm.load(:de, 6) # past the copy's six, to the cell's place
+              asm.add_hl(:de)
+              asm.load(:a, [:hli])
+              asm.load(:e, :a)
+              asm.load(:a, [:hli])
+              asm.load(:d, :a)
+              asm.inc(:hl) # to the attributes the cell had showing its own tile
+              asm.xor_a(:a)
+              asm.load_high(h::VBK, :a)
+              asm.load(:a, CLEAR_TILE)
+              asm.load(:c, :b)
+              asm.inc(:c)
+              asm.push(:de)
+              asm.label("rt_paint_upload_solid_numbers")
+              asm.load([:de], :a)
+              asm.inc(:e)
+              asm.dec(:c)
+              asm.jump_relative(:nz, "rt_paint_upload_solid_numbers")
+              asm.pop(:de)
+              asm.load(:a, [:hl])
+              asm.cp_a(h::ATTR_TILE_BANK | PALETTE)
+              asm.jump_relative(:z, "rt_paint_upload_sent") # the clear tile's cells have them already
+              asm.load(:a, h::ATTR_TILE_BANK | PALETTE)
+              asm.jump_relative("rt_paint_upload_attributes_of")
+              # The clear tile, in the colour E: each of its rows two bytes, the colour's low bit in
+              # every pixel of the first and its high bit in the second.
               asm.label("rt_paint_upload_clear_tile")
               asm.load(:a, :e)
-              asm.swap(:a)
-              asm.and_a(3)
               asm.call("rt_paint_ink_bytes")
               asm.load(:a, 1)
               asm.load_high(h::VBK, :a)
@@ -1705,39 +2067,30 @@ module RubyGBA
               asm.load([:hli], :a)
               asm.dec(:b)
               asm.jump_relative(:nz, "rt_paint_upload_clear_row")
+              asm.pop(:hl)
+              asm.jump("rt_paint_upload_next")
+              asm.label("rt_paint_upload_done")
+              2.times { asm.dec(:hl) } # left at the end, for a blank that comes back to it
+              asm.call("rt_paint_upload_stop")
+              asm.and_a(:a) # carry clear: the list is done
+              asm.ret
+              asm.label("rt_paint_upload_late")
+              asm.pop(:hl)
+              2.times { asm.dec(:hl) } # back at the entry not sent
+              asm.call("rt_paint_upload_stop")
+              asm.scf
+              asm.ret
+              # Where it got to kept, and the banks the rest of the runtime expects put back.
+              asm.label("rt_paint_upload_stop")
+              asm.load(:a, :l)
+              asm.load([done], :a)
+              asm.load(:a, :h)
+              asm.load([done + 1], :a)
               asm.xor_a(:a)
               asm.load_high(h::VBK, :a)
               asm.inc(:a)
               asm.load_high(h::SVBK, :a)
-              asm.jump("rt_paint_upload_next")
-              asm.label("rt_paint_upload_solid")
-              3.times { asm.inc(:hl) }
-              asm.load(:a, [:hli])
-              asm.load(:b, :a)
-              3.times { asm.inc(:hl) }
-              asm.load(:c, CLEAR_TILE) # the clear tile: every single colour shown is the clear colour
-              asm.load(:a, h::ATTR_TILE_BANK | PALETTE)
-              asm.label("rt_paint_upload_cell") # A = the cell's attributes, C = its tile, B and (HL) its place
-              asm.push(:af)
-              asm.load(:a, :b)
-              asm.and_a(0x30)
-              asm.swap(:a)
-              asm.add_a(GRID >> 8)
-              asm.load(:d, :a)
-              asm.load(:e, [:hl])
-              asm.xor_a(:a)
-              asm.load_high(h::VBK, :a)
-              asm.load(:a, :c)
-              asm.load([:de], :a)
-              asm.load(:a, 1)
-              asm.load_high(h::VBK, :a)
-              asm.pop(:af)
-              asm.load([:de], :a)
-              asm.xor_a(:a)
-              asm.load_high(h::VBK, :a)
-              asm.load(:a, 1)
-              asm.load_high(h::SVBK, :a)
-              asm.jump("rt_paint_upload_next")
+              asm.jump("rt_bank_back")
             end
           end
         end

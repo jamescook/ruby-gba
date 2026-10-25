@@ -73,7 +73,7 @@ module RubyGBA
             emit_start(asm)
             emit_main(asm, main)
             emit_frame_begins(asm, frame_begins)
-            [*Boot.vector_sections, asm.section]
+            [*Boot.vector_sections, asm.section, *Paint.table_sections(painting: art.painting?)]
           end
 
           # What a game needs before its first line: its variables that do not start at nought,

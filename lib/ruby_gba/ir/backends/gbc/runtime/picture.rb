@@ -490,6 +490,11 @@ module RubyGBA
             # screen's switches; and a few more rows of a grid being put up. Carry set when a grid
             # is still being put up, so the frame waits for another blank before it counts as shown.
             #
+            # The sprite table is not copied while a painted screen is up: the sprite layer is off
+            # there (Paint#emit_screen), so nothing would show it, and the copy takes a fair part of
+            # the blank the painted screen's tiles need. The blank that puts a tiled screen back up
+            # copies it, as that screen's kind is up by then.
+            #
             # The rows' bends are copied last. The blank is the only time video memory can be
             # written, and a grid being put up takes as much of it as it can; the bends are work
             # memory, which can be written at any time, so they wait until the video memory is done
@@ -497,7 +502,9 @@ module RubyGBA
             def emit_upload(asm, memory)
               h = Console::GBCHardware
               asm.label("rt_upload")
-              asm.call(Memory::OAM_DMA)
+              asm.load(:a, [memory[Paint::SCREEN_KIND]])
+              asm.cp_a(Paint::PAINTED)
+              asm.call(:nz, Memory::OAM_DMA)
               asm.load(:a, [memory[PALETTES_CHANGED]])
               asm.and_a(:a)
               asm.call(:nz, "rt_picture_write_palettes")
