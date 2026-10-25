@@ -65,12 +65,12 @@ module RubyGBA
           # the same bytes, so a later build holding it reads them back (see IR::Remembered).
           def encode(bmp, placement, box = nil)
             IR::Remembered.fetch(:sprite_tiles, bmp, box, placement.narrow?, placement.indices) do
-              encode_tiles(bmp, placement, box)
+              encode_without_remembering(bmp, placement, box)
             end
           end
 
-          # The work of #encode, every pixel of the box read.
-          def encode_tiles(bmp, placement, box)
+          # The work of #encode, every pixel of the box read, with nothing kept for later.
+          def encode_without_remembering(bmp, placement, box)
             width = bmp.width
             height = bmp.height
             indices = placement.indices

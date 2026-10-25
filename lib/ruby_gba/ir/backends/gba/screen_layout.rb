@@ -2331,7 +2331,7 @@ module RubyGBA
           # Every non-see-through color in a sprite picture, first-seen order, deduped.
           def scan_object_colors(bmp, colors)
             seen = colors.to_h { |color| [color, true] }
-            bmp.colors_in_drawing_order.each { |color| colors << color unless seen[color] }
+            bmp.colors_drawn.each { |color| colors << color unless seen[color] }
           end
 
           # Nothing fits: even stored the big way, the sprites name more colors than the

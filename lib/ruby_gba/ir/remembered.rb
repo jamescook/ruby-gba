@@ -7,7 +7,7 @@ module RubyGBA
     # A game's test suite builds the same game many times over, a room or two at a time, and
     # nearly every one of those cartridges carries the same few hundred pictures of the hero.
     # Where each picture draws, which poses are another one turned, which colours it uses and
-    # the tiles it is stored as all come out the same every time, and reading every pixel to
+    # the bytes a backend stores it as all come out the same every time, and reading every pixel to
     # find them out was most of what a build did with its pictures. So each answer is kept
     # here, by what was asked and the picture's own contents, and a later build reads it back.
     #
@@ -31,13 +31,18 @@ module RubyGBA
       # The answer to +question+ about +key+ (a picture, or a picture and what else the
       # answer depends on): the one kept on this core, or the block's, kept for next time.
       def fetch(question, *key)
-        store = Ractor.current[:ruby_gba_remembered] ||= {}
         asked = [question, *key]
         store.fetch(asked) do
           store.clear if store.size >= ENTRIES
           store[asked] = Ractor.make_shareable(yield)
         end
       end
+
+      # How many answers this core keeps — what a build added is the work it did.
+      def size = store.size
+
+      def store = Ractor.current[:ruby_gba_remembered] ||= {}
+      private_class_method :store
     end
   end
 end
