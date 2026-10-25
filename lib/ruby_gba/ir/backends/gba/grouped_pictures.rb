@@ -7,7 +7,7 @@ module RubyGBA
         # A GAME'S SETS OF PICTURE GROUPS, as the cartridge keeps them (see Builder::PictureGroups).
         #
         # A grouped picture is not kept in sprite memory for its whole scene. It has a place of
-        # its own there (see PictureGroupPlaces), the room of each set is kept on the screen the
+        # its own there (see IR::PictureGroupPlaces), the room of each set is kept on the screen the
         # set belongs to — the scene that declared it, or every screen — and between frames, as
         # a group comes up, its pictures are copied out of the cartridge into their places. The
         # copying is a routine of its own for each set, so a profile says what it cost.
@@ -70,9 +70,9 @@ module RubyGBA
                 end
               end
               placed = found.map do |bytes, (narrow, groups)|
-                PictureGroupPlaces::Picture.new(key: bytes, units: bytes.bytesize / 32, narrow: narrow, groups: groups)
+                IR::PictureGroupPlaces::Picture.new(key: bytes, units: bytes.bytesize / 32, even_start: !narrow, groups: groups)
               end
-              @laid[set.name] = Laid.new(pictures: placed, places: PictureGroupPlaces.new(placed, together: set.together),
+              @laid[set.name] = Laid.new(pictures: placed, places: IR::PictureGroupPlaces.new(placed, together: set.together),
                                          bytes_of: bytes_of)
             end
           end

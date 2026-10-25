@@ -11,7 +11,7 @@ module RubyGBA
         # wanted and was not up, and nothing else: a room the game stays in costs a compare a slot,
         # and walking into the next costs that room's pictures. A group that stays up as another
         # comes up is never written over, since the two are up together and the places of
-        # pictures up together never overlap (see PictureGroupPlaces).
+        # pictures up together never overlap (see IR::PictureGroupPlaces).
         class PictureGroupCopying
           include Console::Hardware
           include EmitterCalls

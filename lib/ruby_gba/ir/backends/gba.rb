@@ -5,7 +5,6 @@ require_relative "gba/sprite" # what the build worked out about one sprite, for 
 require_relative "gba/pose_cutter" # how a sprite's picture is cut into the rectangles the console draws
 require_relative "gba/sprite_pictures" # one sprite's pictures, and the sets of them sprites share
 require_relative "gba/object_art" # where the sprites' pictures go in sprite memory
-require_relative "gba/picture_group_places" # ...and a scene's grouped pictures, by what can be up together
 require_relative "gba/grouped_pictures" # ...and what bringing each set's groups up takes
 require_relative "gba/sprite_layout" # ...and one attempt at fitting them all into it
 require_relative "gba/pose_sends" # ...and a pool's poses, sent the first time one is shown

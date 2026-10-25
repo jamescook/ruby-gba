@@ -7,10 +7,10 @@ require "test_helper"
 # share a place only if no two of their groups can ever be up at once. So what the scene needs
 # is what the worst set of groups up together needs, not every group's pictures at once.
 class TestPictureGroupPlaces < Minitest::Test
-  Places = RubyGBA::IR::Backends::GBA::PictureGroupPlaces
+  Places = RubyGBA::IR::PictureGroupPlaces
   Picture = Places::Picture
 
-  private def picture(key, units, groups, narrow: true) = Picture.new(key: key, units: units, narrow: narrow, groups: groups)
+  private def picture(key, units, groups, even_start: false) = Picture.new(key: key, units: units, even_start: even_start, groups: groups)
 
   def test_pictures_of_groups_never_up_together_share_a_place
     places = Places.new([picture(:pot, 4, [0]), picture(:bush, 4, [1])], together: [])
@@ -44,10 +44,10 @@ class TestPictureGroupPlaces < Minitest::Test
     assert_equal 6, places.offset(:pot)
   end
 
-  # A picture stored with 256 colours is two units to a tile, and the console reads one only
-  # from an even unit.
-  def test_a_picture_stored_with_every_colour_starts_on_an_even_unit
-    places = Places.new([picture(:pot, 3, [0]), picture(:boat, 2, [0], narrow: false)], together: [])
+  # A picture the machine reads only from an even unit (on the Advance, one stored with 256
+  # colours, two units to a tile) is placed at one.
+  def test_a_picture_read_from_an_even_unit_starts_on_one
+    places = Places.new([picture(:pot, 3, [0]), picture(:boat, 2, [0], even_start: true)], together: [])
 
     assert_equal 0, places.offset(:pot)
     assert_equal 4, places.offset(:boat)
