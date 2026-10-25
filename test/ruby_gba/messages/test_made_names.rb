@@ -23,6 +23,7 @@ class TestMadeNames < Minitest::Test
     scene_rows_hide: { state: :where },
     scene_loop_work: { scene: :playing, number: 2 },
     still_sprites: {},
+    held_sprite_table: {},
     picture_groups: { set: :rooms },
     see_through_amounts: { layer: :rays },
     pool_stacking: { pool: :guard },

@@ -104,6 +104,8 @@ module RubyGBA
                                  words: ->(parts) { "bringing in the pictures of picture_groups :#{parts[:set]}" }),
         still_sprites: Kind.new(spelling: "__still_objects", parts: {},
                                 words: ->(_) { "writing the sprites nothing moves" }),
+        held_sprite_table: Kind.new(spelling: "__held_sprite_table", parts: {},
+                                    words: ->(_) { "copying the sprites that show into the console's table" }),
         tile_run_tile: Kind.new(spelling: "__tile_run_%{run}__%{number}", parts: { run: ANY, number: "\\d+" },
                                 words: nil),
         pose_rows: Kind.new(spelling: "__pose_rows_%{number}", parts: { number: "\\d+" }, words: nil),

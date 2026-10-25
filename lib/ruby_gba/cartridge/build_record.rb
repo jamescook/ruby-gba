@@ -98,6 +98,12 @@ module RubyGBA
     # +sprite_offsets+, and where the cartridge keeps the value the variable picking the scenes
     # held when the table was last written for a change of scene — the turn whose value that is
     # is the one in the place. Empty for a game whose places are each one sprite's.
+    # +held_sprites+ is the third: a game with more rows than the console's table holds keeps
+    # them in a bigger copy, and copies the ones showing into the console's table each frame (see
+    # IR::Backends::GBA::SpriteDrawing::HeldTable), so a row of the console's is whichever of the
+    # copy's came to it. It says where the cartridge notes, a half a row, which of the copy's
+    # rows each holds, and where it counts the rows left out of a full table. nil for a game
+    # whose rows fit.
     # +colors_short_at+ is where the console counts each time a sprite drawn with a list of
     # colours that borrows a group found none free, and was drawn in another list's colours
     # (see IR::Backends::GBA::ScreenLayout::LentColors) — a hidden variable, like the dropped
@@ -108,13 +114,21 @@ module RubyGBA
                                     :roomy_memory, :timer_handlers, :voices, :sound_drops,
                                     :sprite_slots, :sprite_offsets, :streamed_sprite_pose_vars,
                                     :video_copies, :late_pages, :lists, :sprite_runs, :scene_sets,
-                                    :missed_routine_parts, :colors_short_at, :sprite_turns)
+                                    :missed_routine_parts, :colors_short_at, :sprite_turns, :held_sprites)
       def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
                      roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil,
                      sprite_slots: {}, sprite_offsets: {}, streamed_sprite_pose_vars: {},
                      video_copies: [], late_pages: [], lists: {}, sprite_runs: [], scene_sets: nil,
-                     missed_routine_parts: {}, colors_short_at: nil, sprite_turns: {}, **rest)
+                     missed_routine_parts: {}, colors_short_at: nil, sprite_turns: {}, held_sprites: nil, **rest)
         super
+      end
+
+      # Where a game keeping more rows than the console's table notes which of them each of the
+      # console's rows holds, and where it counts the rows left out (see +held_sprites+).
+      HeldSprites = Data.define(:came_from, :left_out_at) do
+        # Which of the copy's rows the console's row +slot+ holds, given +half_at+ to read the
+        # cartridge's memory with.
+        def row_in_copy(slot, half_at) = half_at.call(came_from + (slot * 2))
       end
 
       # WHERE EACH SCENE'S OWN ROUTINES RUN, for a game whose quick memory is swapped as a scene

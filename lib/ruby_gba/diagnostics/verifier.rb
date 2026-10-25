@@ -802,8 +802,12 @@ module RubyGBA
         own = (@rom.built.sprite_runs || []).reduce({}) { |found, run| found.merge(run.own_places(method(:mem8))) }
         table = palette(:sprites) # read once for the lot, not once per row
         turns = @rom.built.sprite_turns || {}
+        held = @rom.built.held_sprites
         @probe.sprites.map do |row|
-          home = own.fetch(row[:slot], row[:slot])
+          # A row of a game keeping more rows than the console's table is whichever of its own
+          # rows was copied there this frame.
+          slot = held ? held.row_in_copy(row[:slot], method(:mem16)) : row[:slot]
+          home = own.fetch(slot, slot)
           name = whose[home]
           dx, dy = moved.dig(home, pose_key(row, rooms, home)) || [0, 0]
           # A place several scenes' sprites take turns at is the sprite of the scene the table

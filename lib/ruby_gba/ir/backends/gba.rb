@@ -609,6 +609,11 @@ module RubyGBA
                                    streamed_sprite_pose_vars: streamed_sprite_pose_vars,
                                    sprite_runs: sprite_runs,
                                    sprite_turns: @screen.sprite_turns { |name| var_addresses[name] },
+                                   held_sprites: @held_sprites &&
+                                     RubyGBA::Cartridge::BuildRecord::HeldSprites.new(
+                                       came_from: @held_sprites.came_from,
+                                       left_out_at: var_addresses[SpriteDrawing::LEFT_OUT],
+                                     ),
                                    scene_sets: scene_sets_record,
                                    missed_routine_parts: missed_routine_parts,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code,
@@ -929,6 +934,10 @@ module RubyGBA
                        else
                          []
                        end
+          # More rows than the console's table holds are kept in a bigger copy of it, in the roomy
+          # memory: it is written and read once a row a frame (see SpriteDrawing::HeldTable).
+          @held_sprites = SpriteDrawing.plan_held_table(@screen.sprite_table_rows,
+                                                        alloc: method(:alloc_sprite_record!))
           # A byte a pose for each pool whose poses are sent as they are first shown, saying
           # which are in sprite memory (see PoseSends). In the roomy memory: it is read once a
           # thing, where the quick memory is worth more to the code a frame runs.
@@ -962,7 +971,7 @@ module RubyGBA
             scene_sprites: @scene_sprites || [], gated_sprites: @gated_sprites || [],
             waits_for_frames: @uses_vblank,
             draw_runs: @draw_runs, pose_sent_bytes: @pose_sent_bytes, room_tables: @room_tables,
-            late_pages: IR::LatePages.of(program),
+            late_pages: IR::LatePages.of(program), held_sprites: @held_sprites,
           )
           @drawing.layout = layout
           @buffered.layout = layout
@@ -1048,6 +1057,7 @@ module RubyGBA
           @background_drawing.emit_set_swap_routines # bringing another set of tiles in, a routine a background
           @sprite_drawing.emit_shared_room_routines # giving a sprite a room for its pose, two routines a set of rooms
           @sprite_drawing.emit_lend_colors_routine # lending a group of sprite colours to the list a sprite wears
+          @sprite_drawing.emit_held_table_routine # copying the rows that show into the console's table
           @lists.emit_fill_routine # the one routine every list_fill calls, for the same reason
           @clock_chip.emit_routines # the conversations with the cartridge's clock chip
           @lists.emit_copy_routine # ...and every list_copy

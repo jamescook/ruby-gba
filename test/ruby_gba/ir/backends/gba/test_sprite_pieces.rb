@@ -421,8 +421,8 @@ class TestSpritePieces < Minitest::Test
     assert_match(/:huge is 320x64/, err.message)
   end
 
-  # Enough big sprites to run the console out of places. The message has to name the
-  # sprites that are spending several, since nothing in the program says so.
+  # Enough big sprites to run a game out of places. The message has to name the sprites that
+  # are spending several, since nothing in the program says so.
   def test_running_out_of_places_names_the_sprites_spending_several
     art = ragged(96, 96)
     clear = CLEAR
@@ -430,12 +430,12 @@ class TestSpritePieces < Minitest::Test
     b.instance_eval do
       screen :tiled
       image :big, width: 96, height: 96, data: art, transparent: clear
-      20.times { |k| sprite :"boss#{k}", at: [k * 4, 10], facing: { right: :big } }
+      100.times { |k| sprite :"boss#{k}", at: [k % 50 * 4, 10], facing: { right: :big } }
     end
     b.finalize_program
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(b.program) }
 
-    assert_match(/has places for 128/, err.message)
+    assert_match(/keep places for 512/, err.message)
     assert_match(/:big \(\d+ each\)/, err.message)
   end
 end

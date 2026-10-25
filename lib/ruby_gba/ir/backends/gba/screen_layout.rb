@@ -450,6 +450,11 @@ module RubyGBA
           # Keyed on the name the AUTHOR wrote. The program's own names for these are handed out
           # as it is built, so they say nothing to anybody, and a sprite drawn for something the
           # author named nothing (a letter of text) is left out rather than given one.
+          # How many rows of the sprite table the build handed out, the fade windows' twins among
+          # them: more than the console's 128 is a game that keeps its rows in a bigger copy of
+          # the table (see SpriteDrawing::HeldTable). Nought for a game with no sprites.
+          def sprite_table_rows = @sprite_table_rows || 0
+
           def sprite_slots
             each_built_sprite.each_with_object({}) do |(node, sprite), places|
               next unless node.declared
@@ -1628,6 +1633,7 @@ module RubyGBA
             # this way round: a twin only holds the effect off a sprite that is BEHIND it.
             front = @placed_fade.place_fade_windows { |name| @obj_pictures.fetch(name).pieces }
             slot_of = nodes.to_h { |node| [node.name, front + @sprite_rows.rows.fetch(node.name)] }
+            @sprite_table_rows = front + @sprite_rows.count
             affine_of = affine_slots(nodes) # ...and which rotation group each turning sprite uses
             prepare_affine(nodes)
 
@@ -1921,7 +1927,9 @@ module RubyGBA
           def check_fade_windows_fit!
             spent = @sprite_rows.count
             total = spent + twin_object_count
-            return if total <= MAX_SPRITES
+            # A twin is drawn at a place it keeps for itself, so a game with any keeps its rows in
+            # the console's own table (see SpriteDrawing::HeldTable).
+            return if twin_object_count.zero? || total <= MAX_SPRITES
 
             raise LoweringError,
                   "#{@placed_fade.count} sprites are kept out of a fade, and each one needs a second " \
@@ -1935,10 +1943,11 @@ module RubyGBA
           # told which sprites are spending several, since that is the part nobody wrote.
           def check_sprite_count_fits!(nodes)
             spent = @sprite_rows.count
-            return if spent <= MAX_SPRITES
+            most = Guardrails::Checks::TooManySprites::MOST
+            return if spent <= most
 
             raise LoweringError,
-                  "This game needs #{spent} places for sprites. The console has places for #{MAX_SPRITES}." \
+                  "This game needs #{spent} places for sprites. A game can keep places for #{most} sprites." \
                   "#{busiest_scene_sentence}#{big_sprites_sentence(nodes)}"
           end
 
