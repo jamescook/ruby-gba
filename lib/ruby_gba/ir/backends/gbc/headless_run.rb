@@ -75,12 +75,15 @@ module RubyGBA
           # +time+ says and a count of nought days when the game first reads it, moved on a frame of
           # the console's each frame, as the interpreter's #clock_at does on a console whose chip is
           # of that kind; +set: false+ is a chip that stopped when its battery ran out. +days+ is a
-          # chip that has counted that many already, which the interpreter has no word for. A run
-          # never told plays a cartridge with no chip at all. Gives back self.
-          def clock_at(time, set: true, days: 0)
+          # chip that has counted that many already, and +counters+ one whose five registers hold
+          # those bytes — what a real chip can hold once its battery has run out — neither of which
+          # the interpreter has a word for. A run never told plays a cartridge with no chip at all.
+          # Gives back self.
+          def clock_at(time, set: true, days: 0, counters: nil)
             @clock_started = time
             @clock_set = set
             @clock_days = days
+            @clock_counters = counters
             self
           end
 
@@ -190,8 +193,9 @@ module RubyGBA
             h = Console::GBCHardware
             said = IR::Clock.moved_on(@clock_started, 0)
             high = (@clock_days >> 8) & h::CLOCK_DAY_NINTH_BIT
-            counters = [said.sec, said.min, said.hour, @clock_days & 0xFF, @clock_set ? high : high | h::CLOCK_HALT]
-            @core.use_counting_clock((said.to_r * 1000).to_i, counters.pack("C*"))
+            counters = @clock_counters ||
+                       [said.sec, said.min, said.hour, @clock_days & 0xFF, @clock_set ? high : high | h::CLOCK_HALT]
+            @core.use_counting_clock((said.to_r * 1000).to_i, counters.pack("C*"), !@clock_counters.nil?)
           end
 
           def refuse_power_cut!

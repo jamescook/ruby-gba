@@ -20,18 +20,21 @@ class TestGBCClock < Minitest::Test
       now = clock
       readings = DATE.to_h { |name| [name, var(name, -1)] }
       chip_days = var :chip_days, -1
+      present = var :present, -1
       game_loop do
         pressed(:a).then { now.set!(year: 2030, month: 6, day: 15, hour: 12, minute: 0, second: 0) }
         readings.each { |name, reading| reading.set! now.public_send(name) }
         chip_days.set! RubyGBA::DSL::Value.new(self, RubyGBA::IR::Build.clock(:days))
+        present.set! 0
+        now.present?.then { present.set! 1 }
       end
     end
     b.finalize_program
     b.program
   end
 
-  private def played(save, days:, press: nil)
-    run = HeadlessRun.new(save: save).clock_at(CHIP, days: days)
+  private def played(save, days: 0, press: nil, counters: nil)
+    run = HeadlessRun.new(save: save).clock_at(CHIP, days: days, counters: counters)
     run.input_each_frame { |frame| frame == press ? [:a] : [] }
     run.run(program, frames: 3)
   end
@@ -47,5 +50,17 @@ class TestGBCClock < Minitest::Test
     assert_equal 44, folded[:chip_days], "the chip itself was written back 256 days fewer"
     assert_equal set[:__clock_record_days] + 256, folded[:__clock_record_days]
     assert_equal [2031, 4, 11, 12, 0], DATE.map { |name| after[name] }, "the fold was kept in the save"
+  end
+
+  # A real chip whose battery ran out and was put back can hold a second and an hour no clock can
+  # say. It is there all the same, started again with every register written, and the game can set
+  # it; on later passes it counts from what was written, so the time set holds.
+  def test_a_chip_holding_a_time_no_clock_can_say_is_started_again_and_can_be_set
+    junk = [62, 5, 30, 0x10, 0] # 62 seconds, 30 hours, 16 days
+    run = played(RubyGBA::IR::SaveImage.new, counters: junk, press: 1)
+
+    assert_equal 1, run[:present]
+    assert_equal 0, run[:chip_days], "started again from nought days"
+    assert_equal [2030, 6, 15, 12, 0], DATE.map { |name| run[name] }
   end
 end

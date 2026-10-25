@@ -18,11 +18,14 @@ module RubyGBA
           # sets the clock. What a run reads of the chip itself is IR::Clock::COUNT: whether it is
           # there, whether it kept counting, its days and its seconds into the day.
           #
-          # AT POWER-ON the chip is read, and taken to be there when its seconds, minutes and hours
-          # are ones a clock can say: with no chip the bus reads 0xFF. A chip with its halt bit or
-          # its carry bit on stopped counting, or counted past what it holds, so a time set from it
-          # is lost; it is started again from nought days. THEN AFTER EACH WAIT FOR THE SCREEN it is
-          # read again, so every reading between two waits is of one moment, as on every backend.
+          # AT POWER-ON the chip is read, and taken to be there unless all five registers read 0xFF,
+          # which is what the bus reads with nothing on it. A chip that stopped counting (its halt
+          # bit), counted past what it holds (its carry bit), or holds a second, minute or hour no
+          # clock can say — what a real chip can hold once its battery has run out and been put
+          # back — has lost any time set from it. It is started again as Crystal starts one: all
+          # five registers written, nought days, and the time of day it held where that was one.
+          # THEN AFTER EACH WAIT FOR THE SCREEN it is read again, so every reading between two
+          # waits is of one moment, as on every backend.
           #
           # BEFORE THE COUNT FILLS, whole days move from the chip into the time the game keeps. A
           # game that sets the clock keeps how far its time is from the chip's count in days
@@ -30,7 +33,9 @@ module RubyGBA
           # 256 days fewer — and the record is 256 days more, in the save too. The time read is the
           # same, and the chip is far from its carry however long the game is played. Crystal does
           # the same at 140 days, keeping only the day of the week. It is done after a wait, never
-          # at power-on, which comes before the record is read out of the save.
+          # at power-on, which comes before the record is read out of the save; and the save is
+          # written first, so the console switched off part way loses the least it can: the chip's
+          # writes come a few microseconds after the save's last.
           #
           # Each access to the chip follows the way Pan Docs says a real one wants it: the clock and
           # memory switched on, the counters latched with 0 and then 1, a register put in view and
@@ -114,16 +119,19 @@ module RubyGBA
               count = fresh("count")
 
               @asm.call(read)
+              @asm.load(:a, :b) # every register read 0xFF: no chip, and every reading stays nought
+              @asm.inc(:a)
+              @asm.ret(:z)
+              emit_clock_reading_true(:present)
               MOST.each do |part, most|
                 @asm.load(:a, [place_of(clock_counter(part))])
                 @asm.cp_a(most)
-                @asm.ret(:nc) # no chip: every reading stays nought
+                @asm.jump(:nc, stopped)
               end
-              emit_clock_reading_one(:present)
               @asm.load(:a, [place_of(clock_counter(:day_high))])
               @asm.and_a(h::CLOCK_HALT | h::CLOCK_CARRY)
               @asm.jump(:nz, stopped)
-              emit_clock_reading_one(:counting)
+              emit_clock_reading_true(:counting)
               @asm.jump(count)
               @asm.label(stopped)
               emit_clock_restart(pause)
@@ -146,13 +154,15 @@ module RubyGBA
               @asm.label(pause) # the routine's own last return
             end
 
-            def emit_clock_reading_one(part)
+            # A reading of the chip's that is a yes, 1.
+            def emit_clock_reading_true(part)
               @asm.load(:a, 1)
               @asm.load([place_of(clock_reading(part))], :a)
             end
 
             # The clock switched on, its counters latched, and each read through the bits that are
-            # the counter's.
+            # the counter's. B is left holding every register as read ANDed together, so it is 0xFF
+            # only when all five read 0xFF.
             def emit_clock_read(pause)
               h = Console::GBCHardware
               emit_clock_on(pause)
@@ -162,9 +172,14 @@ module RubyGBA
               @asm.inc(:a)
               @asm.load([h::MBC_CLOCK_LATCH], :a)
               @asm.call(pause)
+              @asm.load(:b, 0xFF)
               COUNTERS.each do |part, (register, bits)|
                 emit_clock_select(register, pause)
                 @asm.load(:a, [h::SRAM])
+                @asm.load(:c, :a)
+                @asm.and_a(:b)
+                @asm.load(:b, :a)
+                @asm.load(:a, :c)
                 @asm.and_a(bits)
                 @asm.load([place_of(clock_counter(part))], :a)
                 @asm.call(pause)
@@ -172,29 +187,47 @@ module RubyGBA
               emit_clock_off
             end
 
-            # A STOPPED CHIP STARTED AGAIN from nought days: halted, its day count written, and let
-            # go. The time of day it counts on from is what it held.
+            # A STOPPED CHIP STARTED AGAIN: halted, every register written — a second, minute or hour
+            # no clock can say as nought, the others as they were, and nought days — and let go.
             def emit_clock_restart(pause)
               h = Console::GBCHardware
-              emit_clock_on(pause)
-              emit_clock_write(h::CLOCK_DAY_HIGH, h::CLOCK_HALT, pause)
-              emit_clock_write(h::CLOCK_DAY_LOW, 0, pause)
-              emit_clock_write(h::CLOCK_DAY_HIGH, 0, pause)
-              emit_clock_off
+              MOST.each do |part, most|
+                fine = fresh("fine")
+                @asm.load(:a, [place_of(clock_counter(part))])
+                @asm.cp_a(most)
+                @asm.jump_relative(:c, fine)
+                @asm.xor_a(:a)
+                @asm.load([place_of(clock_counter(part))], :a)
+                @asm.label(fine)
+              end
               @asm.xor_a(:a)
               @asm.load([place_of(clock_counter(:day_low))], :a)
               @asm.load([place_of(clock_counter(:day_high))], :a)
+              emit_clock_on(pause)
+              emit_clock_write(h::CLOCK_DAY_HIGH, h::CLOCK_HALT, pause)
+              MOST.each_key do |part|
+                emit_clock_select(COUNTERS.fetch(part).first, pause)
+                @asm.load(:a, [place_of(clock_counter(part))])
+                @asm.load([h::SRAM], :a)
+                @asm.call(pause)
+              end
+              emit_clock_write(h::CLOCK_DAY_LOW, 0, pause)
+              emit_clock_write(h::CLOCK_DAY_HIGH, 0, pause)
+              emit_clock_off
             end
 
             # 256 DAYS OUT OF THE CHIP AND INTO THE RECORD, once the chip has counted that many: the
-            # chip halted with its ninth bit still on, then the bit cleared, then let go — the low
-            # eight bits stay as they are — and the record and its place in the save 256 days more.
+            # record and its place in the save 256 days more, then the chip halted with its ninth
+            # bit still on, the bit cleared, and the chip let go — the low eight bits stay as they
+            # are.
             def emit_clock_fold(pause)
               h = Console::GBCHardware
               done = fresh("folded")
               @asm.load(:a, [place_of(clock_counter(:day_high))])
               @asm.bit(0, :a)
               @asm.jump(:z, done)
+              add_in_place(place_of(IR::Clock::RECORD[:days]), FOLDED_DAYS)
+              statement(@clock_record)
               emit_clock_on(pause)
               emit_clock_write(h::CLOCK_DAY_HIGH, h::CLOCK_HALT | h::CLOCK_DAY_NINTH_BIT, pause)
               emit_clock_write(h::CLOCK_DAY_HIGH, h::CLOCK_HALT, pause)
@@ -202,9 +235,6 @@ module RubyGBA
               emit_clock_off
               @asm.xor_a(:a)
               @asm.load([place_of(clock_counter(:day_high))], :a)
-              days = IR::Clock::RECORD[:days]
-              add_in_place(place_of(days), FOLDED_DAYS)
-              statement(@clock_record)
               @asm.label(done)
             end
 

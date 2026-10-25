@@ -172,6 +172,8 @@ struct counting_clock {
     struct mCore *core;
     int64_t epoch_ms;      /* the moment of the first look, in milliseconds since 1970 */
     int64_t from_frame;    /* the emulator's frame at the first look, or -1 before it */
+    int holding;           /* the registers are held as set until the game writes one */
+    uint8_t held[5];       /* ...what they are held at */
 };
 
 struct mgba_core {
@@ -1179,7 +1181,7 @@ mgba_core_use_clock(VALUE self, VALUE epoch_ms, VALUE power_lost)
 }
 
 /* --------------------------------------------------------- */
-/* Core#use_counting_clock(epoch_ms, registers)              */
+/* Core#use_counting_clock(epoch_ms, registers, hold)        */
 /*                                                           */
 /* A GAME BOY CARTRIDGE'S CLOCK CHIP, its counters set. The  */
 /* MBC3's chip holds no date: five registers count the       */
@@ -1216,8 +1218,28 @@ counting_clock_time(struct mRTCSource *source)
     return (time_t)(clock->epoch_ms / 1000 + (past_the_second * frequency + cycles * 1000) / (frequency * 1000));
 }
 
+/* A REAL CHIP KEEPS A NUMBER NO CLOCK CAN SAY — 62 seconds, 30 hours, what one can hold once its
+ * battery ran out and was put back — and counts on from it without carrying; mGBA tidies every
+ * register into range at each latch. So with +hold+ the registers are put back as they were set
+ * after each of the controller's writes, the latch among them, until the game writes the chip
+ * itself, which is seen as the registers no longer holding what was put there. */
+static void (*mbc_write_with_held_clock)(struct GB *, uint16_t, uint8_t);
+
+static void
+mbc_write_holding_clock(struct GB *gb, uint16_t address, uint8_t value)
+{
+    struct counting_clock *clock = (struct counting_clock *)gb->memory.rtc;
+    if (clock->holding && memcmp(gb->memory.rtcRegs, clock->held, sizeof(clock->held)) != 0) {
+        clock->holding = 0;
+    }
+    mbc_write_with_held_clock(gb, address, value);
+    if (clock->holding) {
+        memcpy(gb->memory.rtcRegs, clock->held, sizeof(clock->held));
+    }
+}
+
 static VALUE
-mgba_core_use_counting_clock(VALUE self, VALUE epoch_ms, VALUE registers)
+mgba_core_use_counting_clock(VALUE self, VALUE epoch_ms, VALUE registers, VALUE hold)
 {
     struct mgba_core *mc = get_mgba_core(self);
     if (mc->core->platform(mc->core) != mPLATFORM_GB) {
@@ -1242,25 +1264,19 @@ mgba_core_use_counting_clock(VALUE self, VALUE epoch_ms, VALUE registers)
     gb->memory.rtcLastLatch = (time_t)(epoch / 1000);
     gb->memory.rtcLatched = false;
     memcpy(gb->memory.rtcRegs, RSTRING_PTR(registers), 5);
-    return self;
-}
-
-/* --------------------------------------------------------- */
-/* Core#clock_registers                                      */
-/*                                                           */
-/* The five registers of a Game Boy cartridge's clock chip as */
-/* the game last latched or wrote them, a String of 5 bytes. */
-/* --------------------------------------------------------- */
-
-static VALUE
-mgba_core_clock_registers(VALUE self)
-{
-    struct mgba_core *mc = get_mgba_core(self);
-    if (mc->core->platform(mc->core) != mPLATFORM_GB) {
-        rb_raise(rb_eArgError, "only a Game Boy cartridge has a clock that counts days");
+    if (RTEST(hold)) {
+        if (gb->memory.mbcType != GB_MBC3_RTC) {
+            rb_raise(rb_eArgError, "only a cartridge whose header says MBC3 with a timer can hold its clock");
+        }
+        memcpy(clock->held, RSTRING_PTR(registers), 5);
+        clock->holding = 1;
+        if (gb->memory.mbcWrite != mbc_write_holding_clock) {
+            /* Every MBC3 cartridge's write is the one function, so one place keeps it for every core. */
+            mbc_write_with_held_clock = gb->memory.mbcWrite;
+            gb->memory.mbcWrite = mbc_write_holding_clock;
+        }
     }
-    struct GB *gb = mc->core->board;
-    return rb_str_new((const char *)gb->memory.rtcRegs, 5);
+    return self;
 }
 
 /* --------------------------------------------------------- */
@@ -4454,8 +4470,7 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "color_correction=", mgba_core_set_color_correction, 1);
     rb_define_method(cCore, "color_correction?", mgba_core_color_correction_p, 0);
     rb_define_method(cCore, "use_clock",   mgba_core_use_clock, 2);
-    rb_define_method(cCore, "use_counting_clock", mgba_core_use_counting_clock, 2);
-    rb_define_method(cCore, "clock_registers",    mgba_core_clock_registers, 0);
+    rb_define_method(cCore, "use_counting_clock", mgba_core_use_counting_clock, 3);
     rb_define_method(cCore, "remove_clock",       mgba_core_remove_clock, 0);
     rb_define_method(cCore, "frame_blending=", mgba_core_set_frame_blending, 1);
     rb_define_method(cCore, "frame_blending?", mgba_core_frame_blending_p, 0);
