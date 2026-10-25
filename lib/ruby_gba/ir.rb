@@ -10,6 +10,7 @@ require_relative "ir/node"  # what every node can do; names no kind
 require_relative "ir/nodes" # one class per kind, each declaring its own operands
 require_relative "ir/fields" # the operand tables, read off the classes
 require_relative "ir/font_table" # which font a name means to one program
+require_relative "ir/remembered" # what a build works out from a picture, kept for the next build
 require_relative "ir/assets" # what a declared image or recording is, for every backend
 require_relative "ir/saved_var" # ...and what a variable that survives power-off is
 require_relative "ir/save_layout" # ...and where save data lives in save memory

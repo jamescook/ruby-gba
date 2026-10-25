@@ -134,10 +134,18 @@ module RubyGBA
             next turned[drawn] if turned.key?(drawn)
 
             seen[drawn] = k
-            turned[pose_identity(bmp.mirrored)] ||= Mirror.new(source: k, across: true, down: false)
-            turned[pose_identity(bmp.upside_down)] ||= Mirror.new(source: k, across: false, down: true)
-            turned[pose_identity(bmp.mirrored.upside_down)] ||= Mirror.new(source: k, across: true, down: true)
+            across, down, both = turned_identities(bmp)
+            turned[across] ||= Mirror.new(source: k, across: true, down: false)
+            turned[down] ||= Mirror.new(source: k, across: false, down: true)
+            turned[both] ||= Mirror.new(source: k, across: true, down: true)
             nil
+          end
+        end
+
+        # What +bmp+ looks like mirrored, upside down, and both, as #pose_identity says it.
+        def turned_identities(bmp)
+          Remembered.fetch(:turned_identities, bmp) do
+            [bmp.mirrored, bmp.upside_down, bmp.mirrored.upside_down].map { |turned| pose_identity(turned) }
           end
         end
 
@@ -176,15 +184,20 @@ module RubyGBA
         # word — so one sparse pose could quietly make every other pose dearer to draw.
         # Measured on every example in the repo, letting the search have them changed
         # nothing at all, so the promise costs nothing to keep.
+        #
+        # Every pixel is read to find this, so it is remembered for the next build that holds
+        # the same picture (see IR::Remembered).
         def pieces_of(bmp)
-          return [pose_box(bmp)] if OBJ_SIZES.key?([bmp.width, bmp.height])
+          Remembered.fetch(:sprite_pieces, bmp) do
+            next [pose_box(bmp)] if OBJ_SIZES.key?([bmp.width, bmp.height])
 
-          left, top, right, bottom = drawn_extent(bmp)
-          return [[0, 0, *OBJ_SIZES.keys.min_by { |w, h| w * h }]] if left.nil?
+            left, top, right, bottom = drawn_extent(bmp)
+            next [[0, 0, *OBJ_SIZES.keys.min_by { |w, h| w * h }]] if left.nil?
 
-          x0 = (left / TILE) * TILE
-          y0 = (top / TILE) * TILE
-          best_grid(bmp, x0, y0, right - x0 + 1, bottom - y0 + 1)
+            x0 = (left / TILE) * TILE
+            y0 = (top / TILE) * TILE
+            best_grid(bmp, x0, y0, right - x0 + 1, bottom - y0 + 1)
+          end
         end
 
         # The cheapest cover: each of the twelve sizes tried as the cell, laid over what the

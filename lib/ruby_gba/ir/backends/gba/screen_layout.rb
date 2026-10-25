@@ -2331,15 +2331,7 @@ module RubyGBA
           # Every non-see-through color in a sprite picture, first-seen order, deduped.
           def scan_object_colors(bmp, colors)
             seen = colors.to_h { |color| [color, true] }
-            (bmp.width * bmp.height).times do |i|
-              next unless bmp.drawn_at?(i)
-
-              color = bmp.color_at(i)
-              next if seen[color]
-
-              seen[color] = true
-              colors << color
-            end
+            bmp.colors_in_drawing_order.each { |color| colors << color unless seen[color] }
           end
 
           # Nothing fits: even stored the big way, the sprites name more colors than the
@@ -2543,11 +2535,12 @@ module RubyGBA
 
             blank = tiles.bytesize / 32
             tiles << ("\0" * (place.narrow? ? 32 : 64)).b
+            # A pose's own list of pieces is the one every build of the same picture is handed
+            # (see IR::Remembered), so the padded list is a new one in its place.
             boxes.each_with_index do |list, k|
-              (pieces - list.size).times do
-                list << [0, 0, TILE_PX, TILE_PX].freeze # one tile at the corner, drawing nothing
-                starts[k] << blank
-              end
+              padding = pieces - list.size
+              boxes[k] = list + Array.new(padding) { [0, 0, TILE_PX, TILE_PX].freeze } # one tile at the corner, drawing nothing
+              padding.times { starts[k] << blank }
             end
           end
 

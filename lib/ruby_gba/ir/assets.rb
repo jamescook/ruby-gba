@@ -65,7 +65,18 @@ module RubyGBA
         # picture was given and what it uses are different lists: a table can name colors no
         # pixel is painted in, which is how one picture ships a whole game's palette.
         def colors_drawn
-          pixels.unpack("v*").uniq.reject { |value| value == transparent }.map { |value| value & 0x7FFF }
+          Remembered.fetch(:colors_drawn, self) do
+            pixels.unpack("v*").uniq.reject { |value| value == transparent }.map { |value| value & 0x7FFF }
+          end
+        end
+
+        # The same colours each once in the order the pixels first draw them, row by row from
+        # the top left — the order a table of colours built from the picture lists them in. Two
+        # values that differ only in the see-through bit are one colour here.
+        def colors_in_drawing_order
+          Remembered.fetch(:colors_in_drawing_order, self) do
+            pixels.unpack("v*").reject { |value| value == transparent }.map { |value| value & 0x7FFF }.uniq
+          end
         end
 
         # THE SAME PICTURE THE OTHER WAY ROUND — every row read right to left.
