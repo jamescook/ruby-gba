@@ -57,14 +57,10 @@ module Breakout
   # A note on the numbers: a rectangle fill has to be an even number of pixels
   # wide, so every width below is even. (Positions are free — a rect can start on
   # any column.)
-  SCREEN_W = 240
-  SCREEN_H = 160
 
   # The brick wall. Eight columns exactly span the screen; four rows of colour.
   COLS         = 8
   ROWS         = 4
-  BRICK_CELL_W = SCREEN_W / COLS   # 30px — the slot each brick sits in
-  BRICK_W      = 28                # drawn a touch narrower, leaving a 2px gap
   BRICK_H      = 10
   BRICK_ROW_H  = 14                # row pitch (10px brick + 4px gap)
   BRICK_TOP    = 18                # first row starts below the HUD
@@ -79,9 +75,7 @@ module Breakout
   # The paddle lives near the bottom and only moves sideways.
   PADDLE_W     = 36
   PADDLE_H     = 6
-  PADDLE_Y     = 150
   PADDLE_SPEED = 4
-  START_PADDLE_X = (SCREEN_W - PADDLE_W) / 2
 
   BALL_SIZE  = 4
   BALL_SPEED = 2
@@ -92,38 +86,62 @@ module Breakout
   # lives stay flush right however many digits they reserve.
   HUD_Y      = 2
   HUD_MARGIN = 8
-  HUD_SIDES  = (HUD_MARGIN...(SCREEN_W - HUD_MARGIN))
 
   # A LABEL AND ITS NUMBER READ AS ONE LINE — "SCORE 120" — so they sit either side of
   # the middle: the word pushed up against it from the left, the figures from the right
   # of it. Reword a label or change the font and the pair still meets in the middle.
   STAT_GAP    = 6
-  STAT_LABEL  = (0...(SCREEN_W / 2))
-  STAT_NUMBER = (((SCREEN_W / 2) + STAT_GAP)...SCREEN_W)
 
   # A bar between them showing how close this run is to your best. It fills as the
   # score climbs and is full when you match the record.
   BEST_BAR_X = 48
   BEST_BAR_Y = 5
-  BEST_BAR_W = 160
   BEST_BAR_H = 4
 
-  # The wall as plain build-time data: one entry per brick with its screen
-  # position, colour, points, and the name of the on/off flag that tracks whether
-  # it's still there. Generating it in Ruby up front keeps the game code below a
-  # short loop instead of 32 copy-pasted bricks.
-  BRICKS = Ractor.make_shareable(ROWS.times.flat_map do |r|
-    COLS.times.map do |c|
-      { name:   :"brick_#{r}_#{c}",
-        x:      c * BRICK_CELL_W,
-        y:      BRICK_TOP + r * BRICK_ROW_H,
-        color:  ROW_COLORS[r],
-        points: ROW_POINTS[r] }
-    end
-  end)
+  # WHERE EVERYTHING GOES, worked out from the size of the screen the game is built for — the
+  # Advance's 240×160 or the Game Boy Color's 160×144 — so one game lays itself out on either.
+  # The wall spans the screen, the paddle stands ten pixels up from the bottom with the ball
+  # served from just above it, and the HUD and the end screens' lines meet in the middle.
+  Layout = Data.define(:width, :height) do
+    def brick_cell_w = width / COLS     # the slot each brick sits in: 30px on the Advance
+    def brick_w = brick_cell_w - 2      # drawn a touch narrower, leaving a 2px gap
+    def paddle_y = height - 10
+    def start_paddle_x = (width - PADDLE_W) / 2
+    def ball_start = [(width - BALL_SIZE) / 2, paddle_y - BALL_SIZE - 2]
+    def hud_sides = (HUD_MARGIN...(width - HUD_MARGIN))
+    def stat_label = (0...(width / 2))
+    def stat_number = (((width / 2) + STAT_GAP)...width)
+    def best_bar_w = width - BEST_BAR_X - 32
 
-  GAME = RubyGBA.game("BREAKOUT", consoles: %i[gba]) do
+    # The wall as plain build-time data: one entry per brick with its screen
+    # position, colour, points, and the name of the on/off flag that tracks whether
+    # it's still there. Generating it in Ruby up front keeps the game code below a
+    # short loop instead of 32 copy-pasted bricks.
+    def bricks
+      ROWS.times.flat_map do |r|
+        COLS.times.map do |c|
+          { name:   :"brick_#{r}_#{c}",
+            x:      c * brick_cell_w,
+            y:      BRICK_TOP + r * BRICK_ROW_H,
+            color:  ROW_COLORS[r],
+            points: ROW_POINTS[r] }
+        end
+      end
+    end
+  end
+
+  # The Advance's layout, which the tests read the game's places from.
+  ADVANCE = Layout.new(width: 240, height: 160)
+  SCREEN_W = ADVANCE.width
+  BRICKS = Ractor.make_shareable(ADVANCE.bricks)
+
+  # On a Game Boy Color the screen is painted into 8×8 squares of four colours each. Every
+  # brick row keeps to its own squares but one: the orange and yellow rows meet in one row of
+  # squares, which then holds orange, yellow, the white ball and black — four.
+  GAME = RubyGBA.game("BREAKOUT", consoles: %i[gba gbc]) do
     screen :bitmap, tear_free: true # draw to a hidden page, flip when done — no tearing
+    here = Layout.new(width: screen_width, height: screen_height)
+    bricks = here.bricks
     enable_sound
 
     # --- Sound presets (channel 2 SFX) ---
@@ -133,9 +151,9 @@ module Breakout
     define_sound :lose,        frequency: 160, duty: :half,    decay: :medium
 
     # --- RAM variables (each `var` hands back a handle we compare and mutate) ---
-    paddle_x    = var :paddle_x, START_PADDLE_X
-    ball_x      = var :ball_x, 118
-    ball_y      = var :ball_y, 144
+    paddle_x    = var :paddle_x, here.start_paddle_x
+    ball_x      = var :ball_x, here.ball_start[0]
+    ball_y      = var :ball_y, here.ball_start[1]
     ball_dx     = var :ball_dx, BALL_SPEED
     ball_dy     = var :ball_dy, -BALL_SPEED  # negative = heading up toward the wall
     score       = var :score, 0
@@ -145,7 +163,7 @@ module Breakout
     # game-ending branches in update_ball). No save hardware to touch.
     high        = save_var :high_score, 0
     lives       = var :lives, START_LIVES
-    bricks_left = var :bricks_left, BRICKS.length
+    bricks_left = var :bricks_left, bricks.length
     best_bar    = var :_best_bar, 0 # how much of the record this run has matched
     state       = var :state, 0   # 0=title, 1=playing, 2=cleared, 3=game_over
     blink       = var :blink, 1   # flashes the title prompt
@@ -153,7 +171,7 @@ module Breakout
 
     # One on/off flag per brick (1 = still there). Kept in a hash keyed by the
     # brick's name so the game code can look each one up while it loops the wall.
-    alive = BRICKS.each_with_object({}) { |b, h| h[b[:name]] = var(b[:name], 1) }
+    alive = bricks.each_with_object({}) { |b, h| h[b[:name]] = var(b[:name], 1) }
 
     # --- Subroutines ---
 
@@ -162,7 +180,7 @@ module Breakout
     func :serve do
       copy! :ball_x, :paddle_x
       add! :ball_x, (PADDLE_W - BALL_SIZE) / 2 # centre it over the paddle
-      ball_y.set! PADDLE_Y - BALL_SIZE - 2
+      ball_y.set! here.paddle_y - BALL_SIZE - 2
       ball_dx.set! BALL_SPEED
       ball_dy.set!(-BALL_SPEED)                # up
     end
@@ -177,11 +195,11 @@ module Breakout
       # direction rather than just flipping it, so a ball wedged against a wall for
       # a frame can't rattle back and forth.
       (ball_x <= 0).then                 { ball_dx.abs!;        beep :wall }
-      (ball_x >= SCREEN_W - BALL_SIZE).then { ball_dx.negate_abs!; beep :wall }
+      (ball_x >= here.width - BALL_SIZE).then { ball_dx.negate_abs!; beep :wall }
       (ball_y <= 0).then                 { ball_dy.abs!;        beep :wall }
 
       ball   = box(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
-      paddle = box(paddle_x, PADDLE_Y, PADDLE_W, PADDLE_H)
+      paddle = box(paddle_x, here.paddle_y, PADDLE_W, PADDLE_H)
 
       # Paddle bounce — only while the ball is heading down into it, so it can't
       # re-trigger on the way back up. Where the ball meets the paddle sets the new
@@ -209,9 +227,9 @@ module Breakout
       # it, score it, and bounce the ball vertically. (The ball is smaller than a
       # brick, so in practice it clears one per frame.)
       (ball_y <= BRICK_BAND_BOTTOM).then do
-        BRICKS.each do |b|
+        bricks.each do |b|
           (alive[b[:name]] == 1).then do
-            ball.overlaps?(box(b[:x], b[:y], BRICK_W, BRICK_H)).then do
+            ball.overlaps?(box(b[:x], b[:y], here.brick_w, BRICK_H)).then do
               alive[b[:name]].set! 0
               score.add! b[:points]
               bricks_left.sub! 1
@@ -230,7 +248,7 @@ module Breakout
 
       # Past the bottom edge: the paddle missed. Lose a life and re-serve, or end
       # the game if that was the last one.
-      (ball_y >= SCREEN_H).then do
+      (ball_y >= here.height).then do
         lives.sub! 1
         beep :lose
         # Losing a life hits harder, and it hits three ways at once: heard, felt, and
@@ -255,11 +273,11 @@ module Breakout
     # Start a fresh game: stand every brick back up, reset the counters, centre the
     # paddle, and serve.
     func :new_game do
-      BRICKS.each { |b| set! b[:name], 1 }
+      bricks.each { |b| set! b[:name], 1 }
       set! :lives, START_LIVES
       set! :score, 0
-      set! :bricks_left, BRICKS.length
-      set! :paddle_x, START_PADDLE_X
+      set! :bricks_left, bricks.length
+      set! :paddle_x, here.start_paddle_x
       call :serve
       set! :state, 1
     end
@@ -269,8 +287,8 @@ module Breakout
     scene :title do
       clear_screen :black
       draw_text "BREAKOUT", :center, 50, :cyan
-      draw_text "BEST", :right, 70, :gray, within: STAT_LABEL
-      draw_number :high_score, :left, 70, :white, digits: 3, within: STAT_NUMBER
+      draw_text "BEST", :right, 70, :gray, within: here.stat_label
+      draw_number :high_score, :left, 70, :white, digits: 3, within: here.stat_number
       every(0.5, :seconds) do
         (blink == 1).then { blink.set! 0 }.else { blink.set! 1 }
       end
@@ -284,29 +302,29 @@ module Breakout
       # Steer the paddle and keep it on screen.
       held(:left).then  { paddle_x.sub! PADDLE_SPEED }
       held(:right).then { paddle_x.add! PADDLE_SPEED }
-      paddle_x.clamp! 0, SCREEN_W - PADDLE_W
+      paddle_x.clamp! 0, here.width - PADDLE_W
 
       call :update_ball
 
       # Repaint the whole picture. Each standing brick draws itself; broken ones
       # simply aren't drawn. Safe to do wholesale every frame because we're buffered.
-      BRICKS.each do |b|
-        (alive[b[:name]] == 1).then { dma_fill_rect b[:x], b[:y], BRICK_W, BRICK_H, b[:color] }
+      bricks.each do |b|
+        (alive[b[:name]] == 1).then { dma_fill_rect b[:x], b[:y], here.brick_w, BRICK_H, b[:color] }
       end
-      draw_rect_at :paddle_x, PADDLE_Y, PADDLE_W, PADDLE_H, :white
+      draw_rect_at :paddle_x, here.paddle_y, PADDLE_W, PADDLE_H, :white
       draw_rect_at :ball_x, :ball_y, BALL_SIZE, BALL_SIZE, :white
 
       # HUD: score (up to three digits) and lives remaining.
-      draw_number score, :left, HUD_Y, :white, digits: 3, within: HUD_SIDES
-      draw_number lives, :right, HUD_Y, :white, digits: 1, within: HUD_SIDES
+      draw_number score, :left, HUD_Y, :white, digits: 3, within: here.hud_sides
+      draw_number lives, :right, HUD_Y, :white, digits: 1, within: here.hud_sides
 
       # How close this run is to your best. The number being divided BY is the record
       # the cartridge remembered, so it is different every time you play — the game
       # works it out, the build cannot. Dividing by it before there IS a record would
       # be dividing by nothing, so the first run simply has no bar to show.
       (high > 0).then do
-        best_bar.set!(score * BEST_BAR_W / high)
-        best_bar.clamp! 0, BEST_BAR_W
+        best_bar.set!(score * here.best_bar_w / high)
+        best_bar.clamp! 0, here.best_bar_w
         draw_rect_at BEST_BAR_X, BEST_BAR_Y, best_bar, BEST_BAR_H, :green
       end
     end
@@ -314,10 +332,10 @@ module Breakout
     scene :cleared do
       clear_screen :black
       draw_text "YOU WIN!", :center, 50, :green
-      draw_text "SCORE", :right, 74, :gray, within: STAT_LABEL
-      draw_number score, :left, 74, :white, digits: 3, within: STAT_NUMBER
-      draw_text "BEST", :right, 88, :gray, within: STAT_LABEL
-      draw_number :high_score, :left, 88, :white, digits: 3, within: STAT_NUMBER
+      draw_text "SCORE", :right, 74, :gray, within: here.stat_label
+      draw_number score, :left, 74, :white, digits: 3, within: here.stat_number
+      draw_text "BEST", :right, 88, :gray, within: here.stat_label
+      draw_number :high_score, :left, 88, :white, digits: 3, within: here.stat_number
       draw_text "PRESS START", :center, 112, :gray
       pressed(:start).then { state.set! 0 }
     end
@@ -325,10 +343,10 @@ module Breakout
     scene :game_over do
       clear_screen :black
       draw_text "GAME OVER", :center, 50, :red
-      draw_text "SCORE", :right, 74, :gray, within: STAT_LABEL
-      draw_number score, :left, 74, :white, digits: 3, within: STAT_NUMBER
-      draw_text "BEST", :right, 88, :gray, within: STAT_LABEL
-      draw_number :high_score, :left, 88, :white, digits: 3, within: STAT_NUMBER
+      draw_text "SCORE", :right, 74, :gray, within: here.stat_label
+      draw_number score, :left, 74, :white, digits: 3, within: here.stat_number
+      draw_text "BEST", :right, 88, :gray, within: here.stat_label
+      draw_number :high_score, :left, 88, :white, digits: 3, within: here.stat_number
       draw_text "PRESS START", :center, 112, :gray
       pressed(:start).then { state.set! 0 }
     end

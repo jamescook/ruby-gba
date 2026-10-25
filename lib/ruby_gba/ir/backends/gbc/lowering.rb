@@ -137,11 +137,13 @@ module RubyGBA
           attr_reader :section_routines
 
           # Values this lowering makes for itself beside the IR's, each worked out into BCDE as one of
-          # the IR's is: where a label is (a table a runtime routine reads); the entry of a table of
-          # the drawing's numbers at an index, +bytes+ wide and read with its sign or not; what a
-          # runtime routine gives back for +args+; and a sum or a test of two of any of these, as a
-          # binop of the IR's is worked out.
+          # the IR's is: where a label is (a table a runtime routine reads), and where with the bank
+          # of the cartridge it is in above it (a table a runtime routine puts in view to read); the
+          # entry of a table of the drawing's numbers at an index, +bytes+ wide and read with its
+          # sign or not; what a runtime routine gives back for +args+; and a sum or a test of two of
+          # any of these, as a binop of the IR's is worked out.
           Address = Data.define(:label)
+          BankedAddress = Data.define(:label)
           Entry = Data.define(:label, :bytes, :signed, :index)
           RuntimeValue = Data.define(:routine, :args)
           Sum = Data.define(:op, :lhs, :rhs)
@@ -315,7 +317,9 @@ module RubyGBA
               asm.label(table_label(table.name))
               table_parts(table).each { |part| asm.data_bytes(part) }
             end
-            @drawing_tables.each do |label, bytes, entries|
+            @drawing_tables.each do |label, bytes, entries, banked|
+              next if banked
+
               asm.label(label)
               entries.each { |entry| asm.data_bytes(little_endian(Int32.wrap(entry), bytes)) }
             end
@@ -384,7 +388,7 @@ module RubyGBA
 
           # A section for each part of each table kept in banks.
           def banked_table_sections
-            tables_read.select { |table| banked_tables.include?(table.name) }.flat_map do |table|
+            tables = tables_read.select { |table| banked_tables.include?(table.name) }.flat_map do |table|
               table_parts(table).each_with_index.map do |bytes, part|
                 asm = SM83.new(table_part_label(table.name, part), home: :banked, holds: DATA)
                 asm.label(table_part_label(table.name, part))
@@ -392,6 +396,13 @@ module RubyGBA
                 asm.section
               end
             end
+            drawings = @drawing_tables.select(&:last).map do |label, bytes, entries, _banked|
+              asm = SM83.new(label, home: :banked, holds: DATA)
+              asm.label(label)
+              entries.each { |entry| asm.data_bytes(little_endian(Int32.wrap(entry), bytes)) }
+              asm.section
+            end
+            tables + drawings
           end
 
           # +table+'s bytes as the cartridge keeps them, in parts of Runtime::Calls::TABLE_PART_BYTES.
@@ -1212,6 +1223,7 @@ module RubyGBA
             when Symbol then load_variable(operand)
             when Node then send(VALUES.fetch(operand.kind), operand)
             when Address then load_label(operand.label)
+            when BankedAddress then load_banked_label(operand.label)
             when Entry then table_entry(operand)
             when RuntimeValue then runtime_call(operand.routine, operand.args)
             when Sum then value_of_binop(operand)
@@ -1221,6 +1233,12 @@ module RubyGBA
 
           def load_label(label)
             @asm.load(:bc, 0)
+            @asm.load(:de, label)
+          end
+
+          def load_banked_label(label)
+            @asm.load(:b, 0)
+            @asm.load_bank_of(:c, label)
             @asm.load(:de, label)
           end
 

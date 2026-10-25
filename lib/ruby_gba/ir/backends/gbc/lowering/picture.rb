@@ -380,7 +380,8 @@ module RubyGBA
                 bytes[((dy - top) * stride) + 1 + (col / 8)] |= 0x80 >> (col % 8)
               end
               runtime_call("rt_paint_bits", [moved(x, left - lined_up), moved(y, top), color,
-                                                 Address.new(drawing_table("bits", 1, bytes)), Build.int(stride), Build.int(height)])
+                                                 BankedAddress.new(drawing_table("bits", 1, bytes, banked: true)), Build.int(stride),
+                                                 Build.int(height)])
             end
 
             def moved(place, by) = by.zero? ? place : Build.binop(:+, place, Build.int(by))
@@ -1268,9 +1269,12 @@ module RubyGBA
 
             # A table of numbers one drawing step reads, kept in the data, and its label: +bytes+ an
             # entry, each kept as its low bytes (an Entry reading it says whether with its sign).
-            def drawing_table(what, bytes, entries)
+            # A +banked+ one is kept in a bank of the cartridge of its own, for a runtime routine
+            # that puts it in view as it reads it (a BankedAddress), rather than in the part always
+            # in view, where a game's code and tables need the room.
+            def drawing_table(what, bytes, entries, banked: false)
               label = "#{what} #{@drawing_tables.length + 1}"
-              @drawing_tables << [label, bytes, entries]
+              @drawing_tables << [label, bytes, entries, banked]
               label
             end
           end

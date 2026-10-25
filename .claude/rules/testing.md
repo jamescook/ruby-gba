@@ -259,7 +259,7 @@ that failure is the work still owed. The one skip is a call its run cannot answe
 (`GBC::HeadlessRun::CannotAnswer`), counted by reason at the end; `skip_on_gbc` is there for a
 test the Color cannot play for a reason no folder says, and `test/ruby_gba/ir/backends/gbc/` is its
 own folder. A game built for both consoles (`consoles: %i[gba gbc]`) is played there as a Color
-game, as `examples/pacman.rb` is; `examples/pong_gbc.rb` is a game for the Color alone, a copy of
+game, as `examples/pacman.rb` and `examples/breakout.rb` are; `examples/pong_gbc.rb` is a game for the Color alone, a copy of
 `examples/pong.rb` changed for it, since the Advance's title zooms on a screen the Color cannot turn.
 
 **The JavaScript run is the native run's twin.** Its game is the native lowering's statements

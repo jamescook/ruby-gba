@@ -948,7 +948,8 @@ module RubyGBA
             # pixel — a line of text, a digit, a pixel — with its top left at (x, y). The build
             # worked the bits out (GBC::Picture#bits_of): +rows+ rows of +stride+ bytes, the
             # leftmost pixel in the top bit, with a byte of nothing either side of each row so a
-            # tile's eight pixels can be read from any place along it. Held to the screen.
+            # tile's eight pixels can be read from any place along it, at +bits+ in the bank of the
+            # cartridge named in its third byte. Held to the screen.
             #
             # It is painted a tile at a time, down each column of tiles the picture crosses: the
             # tile is found once for the rows of it the picture covers, and each of those rows is
@@ -1027,6 +1028,10 @@ module RubyGBA
               asm.and_a(3)
               asm.load([ink], :a)
               asm.call("rt_paint_ink")
+              # The picture's bank in view, for as long as it is read, and the game's after
+              # (rt_bank_back): the build keeps them in a bank of their own.
+              asm.load_high(:a, arg.call(3) + 2)
+              asm.load([h::MBC_ROM_BANK_LOW], :a)
 
               asm.label("rt_paint_bits_column")
               # The pixels of this column of tiles from left on and before right: the from mask
@@ -1184,7 +1189,7 @@ module RubyGBA
               asm.label("rt_paint_bits_done")
               asm.load(:a, 1)
               asm.load_high(h::SVBK, :a)
-              asm.ret
+              asm.jump("rt_bank_back")
 
               emit_bits_rows(asm, quick)
 
