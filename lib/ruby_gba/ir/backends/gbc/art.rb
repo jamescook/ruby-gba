@@ -136,11 +136,13 @@ module RubyGBA
           # screen keeps, once every picture is known. A set's grouped pictures share its room as
           # their groups allow (IR::PictureGroupPlaces), counted in tiles; each set has a room of its
           # own, so a scene given the screen back finds its groups' pictures where it left them.
+          # They are kept by the name of their set.
           def group_rooms
             @group_rooms ||= begin
               first = @sprite_tiles.length
-              @grouped.values.uniq(&:name).each_with_index.map do |set, number|
-                pictures = @grouped_tiles.keys.select { |name| @grouped[name].name == set.name }
+              by_set = @grouped_tiles.keys.group_by { |name| @grouped.fetch(name).name }
+              @grouped.values.uniq(&:name).each_with_index.to_h do |set, number|
+                pictures = by_set.fetch(set.name, [])
                 placed = pictures.map do |name|
                   IR::PictureGroupPlaces::Picture.new(key: name, units: @grouped_tiles[name].length, even_start: false,
                                                       groups: set.groups_holding(name))
@@ -148,7 +150,7 @@ module RubyGBA
                 room = GroupRoom.new(set: set, number: number, first_tile: first, pictures: pictures,
                                      places: IR::PictureGroupPlaces.new(placed, together: set.together))
                 first += room.places.units
-                room
+                [set.name, room]
               end
             end
           end
@@ -157,7 +159,7 @@ module RubyGBA
           def tile_number(tile)
             return tile unless tile.is_a?(GroupedTile)
 
-            room = group_rooms.find { |each| each.set.name == @grouped.fetch(tile.picture).name }
+            room = group_rooms.fetch(@grouped.fetch(tile.picture).name)
             room.first_tile + room.places.offset(tile.picture) + tile.index
           end
 
@@ -364,7 +366,7 @@ module RubyGBA
             refuse_too_many_tiles!
             [tables_section,
              data_section("art sprite tiles", "art_sprite_tiles", @sprite_tiles.flatten, holds: SPRITE_PICTURES),
-             *group_rooms.map { |room| group_tiles_section(room) },
+             *group_rooms.each_value.map { |room| group_tiles_section(room) },
              data_section("art background tiles", "art_background_tiles", @background_tiles.flatten,
                           holds: BACKGROUND_TILES),
              *@grids.each_with_index.map do |bytes, i|
@@ -427,7 +429,7 @@ module RubyGBA
                 end
               end
             end
-            group_rooms.each { |room| emit_group_tables(asm, room) }
+            group_rooms.each_value { |room| emit_group_tables(asm, room) }
             pictures.each do |picture|
               asm.label("art_pieces_#{picture.number}")
               asm.data_bytes(picture.pieces.length)
@@ -502,16 +504,13 @@ module RubyGBA
             end
             asm.label("art_group_#{room.number}_groups")
             lists.each_with_index do |chunks, number|
-              asm.data_bytes(chunks.length)
-              asm.data_words("art_group_#{room.number}_list_#{number}")
+              Runtime::PictureGroups.emit_group(asm, chunks: chunks.length, list: "art_group_#{room.number}_list_#{number}")
             end
             lists.each_with_index do |chunks, number|
               asm.label("art_group_#{room.number}_list_#{number}")
               chunks.each do |chunk|
-                asm.data_words(chunk.label)
-                asm.data_bytes(chunk.bank)
-                asm.data_words(chunk.to)
-                asm.data_bytes(chunk.tiles.length - 1)
+                Runtime::PictureGroups.emit_chunk(asm, tiles: chunk.label, bank: chunk.bank, to: chunk.to,
+                                                       count: chunk.tiles.length)
               end
             end
           end
@@ -527,15 +526,15 @@ module RubyGBA
           end
 
           def refuse_too_many_tiles!
-            rooms = group_rooms.sum { |room| room.places.units }
+            rooms = group_rooms.each_value.sum { |room| room.places.units }
             if @sprite_tiles.length + rooms > MOST_SPRITE_TILES
               grouped = if rooms.zero? then ""
                         else
-                          " (#{@sprite_tiles.length} for the pictures in no group, and #{rooms} for the groups " \
-                            "that can be up together)"
+                          " The pictures in no group need #{@sprite_tiles.length} of them. The groups that can be " \
+                            "up together need #{rooms}."
                         end
-              raise LoweringError, "this game's sprites need #{@sprite_tiles.length + rooms} tiles of 8×8#{grouped}, " \
-                                   "and a Game Boy Color has room for #{MOST_SPRITE_TILES}. To fix this, give it fewer " \
+              raise LoweringError, "this game's sprites need #{@sprite_tiles.length + rooms} tiles of 8×8, and a Game " \
+                                   "Boy Color has room for #{MOST_SPRITE_TILES}.#{grouped} To fix this, give it fewer " \
                                    "or smaller pictures."
             end
             most = painting? ? PAINTING_BACKGROUND_TILES : MOST_BACKGROUND_TILES

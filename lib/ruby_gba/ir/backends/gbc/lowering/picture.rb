@@ -165,12 +165,12 @@ module RubyGBA
               return unless @art.groups?
 
               asm.label("game_group_slots")
-              @art.group_rooms.each do |room|
+              @art.group_rooms.each_value do |room|
                 @group_slots.fetch(room.set.name).each do |slot|
-                  asm.data_words(place_of(slot.wanted), place_of(slot.up), place_of(slot.shown))
-                  asm.data_bank_of("art_group_#{room.number}_tiles")
-                  asm.data_words("art_group_#{room.number}_groups")
-                  asm.data_bytes(room.set.groups.length)
+                  Runtime::PictureGroups.emit_slot(asm, wanted: place_of(slot.wanted), up: place_of(slot.up),
+                                                        said: place_of(slot.shown), tiles: "art_group_#{room.number}_tiles",
+                                                        groups: "art_group_#{room.number}_groups",
+                                                        count: room.set.groups.length)
                 end
               end
               asm.data_words(0)

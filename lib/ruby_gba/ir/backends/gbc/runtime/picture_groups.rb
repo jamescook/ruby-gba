@@ -24,7 +24,8 @@ module RubyGBA
           # it does for a grid being put up, with the sprite layer off, since the sprites placed
           # would be drawn from tiles only part copied.
           #
-          # The tables, by Art#emit_group_tables and Lowering::Picture#emit_group_slots:
+          # The tables, written by #emit_slot and #emit_chunk (for Lowering::Picture#emit_group_slots and
+          # Art#emit_group_tables), so their layout is said in this one place:
           # - game_group_slots: for each slot of each set, the place of the group it wants (a byte,
           #   NONE for none, FOLLOW for the one the game says), the place of the one it holds, the
           #   place of the number the game said (four bytes), the bank of its set's tiles, its set's
@@ -34,8 +35,8 @@ module RubyGBA
           # - a chunk: where its tiles are in the bank, the bank of picture memory they go to, where
           #   they go, and how many blocks of 16 bytes less one, as the console's own copy takes it.
           module PictureGroups
-            # The most tiles in a chunk, and the most chunks copied in one blank: 512 bytes, which
-            # the console's own copy does in about a quarter of the blank, as a grid's rows.
+            # The most tiles in a chunk, and the most chunks copied in one blank: 512 bytes, as many as
+            # the blank copies of a grid being put up (Picture::MAP_ROWS_PER_BLANK rows of it).
             CHUNK_TILES = 8
             CHUNKS_A_BLANK = 4
 
@@ -52,19 +53,51 @@ module RubyGBA
             # The most groups a set can have, numbered from 0 below the three numbers above.
             MOST_GROUPS = FOLLOW
 
+            # Where each thing is in a slot's entry of game_group_slots, and how big an entry of a
+            # set's table of groups is.
+            SLOT_UP = 2
+            SLOT_SAID = 4
+            SLOT_BANK = 6
+            SLOT_COUNT = 9
             SLOT_BYTES = 10
-            CHUNK_BYTES = 6
+            GROUP_BYTES = 3
 
             # The group being copied: how many chunks are left, where the next one is, and the bank
             # its tiles are in; then 0xFF while a group is still being copied in, as the blank left
             # it, for the screen's switches (Picture#emit_upload).
             JOB = "rt groups job"
             PENDING = 4
+            JOB_BYTES = PENDING + 1
 
             module_function
 
             def reserve(memory)
-              memory.reserve(JOB, 5)
+              memory.reserve(JOB, JOB_BYTES)
+            end
+
+            # A slot's entry of game_group_slots: the places of the group it wants, the one it holds
+            # and the number the game said; the label of its set's tiles, for their bank; its set's
+            # table of groups; and how many groups the set has. In that order, SLOT_UP to SLOT_COUNT saying where each is.
+            def emit_slot(asm, wanted:, up:, said:, tiles:, groups:, count:)
+              asm.data_words(wanted, up, said)
+              asm.data_bank_of(tiles)
+              asm.data_words(groups)
+              asm.data_bytes(count)
+            end
+
+            # An entry of a set's table of groups: how many chunks the group copies, and their list.
+            def emit_group(asm, chunks:, list:)
+              asm.data_bytes(chunks)
+              asm.data_words(list)
+            end
+
+            # A chunk of a group's list: the label of its tiles, the bank of picture memory and the
+            # place they go, and how many tiles, as rt_groups_upload reads them.
+            def emit_chunk(asm, tiles:, bank:, to:, count:)
+              asm.data_words(tiles)
+              asm.data_bytes(bank)
+              asm.data_words(to)
+              asm.data_bytes(count - 1)
             end
 
             def emit(asm, memory)
@@ -159,14 +192,13 @@ module RubyGBA
               asm.load(:a, [:de])
               asm.cp_a(:c)
               asm.jump_relative(:nz, "rt_groups_start_change")
-              asm.load(:de, SLOT_BYTES - 4)
+              asm.load(:de, SLOT_BYTES - SLOT_SAID) # to the next slot
               asm.add_hl(:de)
               asm.jump_relative("rt_groups_start_slot")
               asm.label("rt_groups_start_change")
               asm.load(:a, :c)
               asm.load([:de], :a)
-              asm.inc(:hl) # past the number the game said
-              asm.inc(:hl)
+              (SLOT_BANK - SLOT_SAID).times { asm.inc(:hl) } # past the number the game said
               asm.load(:a, [:hli]) # the bank of the set's tiles
               asm.load([job + 3], :a)
               asm.load(:a, [:hli]) # the set's table of groups
@@ -181,7 +213,7 @@ module RubyGBA
               asm.load(:h, :d)
               asm.load(:l, :e)
               asm.load(:b, 0)
-              3.times { asm.add_hl(:bc) }
+              GROUP_BYTES.times { asm.add_hl(:bc) }
               asm.load(:a, [:hli]) # how many chunks
               asm.load([job], :a)
               asm.load(:a, [:hli])
@@ -199,13 +231,12 @@ module RubyGBA
               asm.label("rt_groups_follow")
               asm.push(:hl)
               asm.load(:c, NONE)
-              asm.inc(:hl)
-              asm.inc(:hl)
+              (SLOT_SAID - SLOT_UP).times { asm.inc(:hl) }
               asm.load(:a, [:hli]) # the place of the number
               asm.load(:e, :a)
               asm.load(:a, [:hli])
               asm.load(:d, :a)
-              3.times { asm.inc(:hl) } # past the bank and the table, to how many groups
+              (SLOT_COUNT - SLOT_BANK).times { asm.inc(:hl) } # past the bank and the table
               asm.load(:b, [:hl])
               asm.load(:a, [:de])
               asm.load(:l, :a) # its low byte
