@@ -272,7 +272,11 @@ class TestRowBend < Minitest::Test
   # background is drawn with its own bend or with none, so the second scene's sits flat, and the
   # first comes back bent as it was. A scene's background goes up as the scene arrives, with the
   # screen on and the bend running, which a background declared outside any scene never does.
-  private def bending_scenes_program
+  # With +second_bends+ the shore bends too, by a bend of its own, on the same layer of the
+  # console the sea is shown on. The same with more bends than there are copying engines, which
+  # needs more backgrounds up at once than a Game Boy Color shows, is in
+  # test/advance/ruby_gba/dsl/test_row_bend_on_the_advance.rb.
+  private def bending_scenes_program(second_bends: false)
     b = Builder.new
     b.instance_eval do
       screen :tiled
@@ -297,7 +301,8 @@ class TestRowBend < Minitest::Test
         (passes == 3).then { state.set! 1 }
       end
       scene(:shore) do
-        background :shore, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+        shore = background :shore, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+        shore.scroll_each_row { |row| (row / 4) % 8 } if second_bends
         (passes == 6).then { state.set! 0 }
       end
       game_loop do
@@ -312,8 +317,16 @@ class TestRowBend < Minitest::Test
     b.program
   end
 
+  # Every frame of the sea (1-3), the shore (4-6) and the sea again: the first frame of each scene
+  # is the one a bend switching over gets wrong.
+  SCENE_FRAMES = (1..9).to_a.freeze
+
   def test_a_bent_scene_and_a_flat_one_agree_across_backends
-    assert_backends_agree(bending_scenes_program, frames: 9, name: "BSCN")
+    assert_backends_agree(bending_scenes_program, frames: SCENE_FRAMES, name: "BSCN")
+  end
+
+  def test_two_scenes_each_bending_their_own_background_agree_across_backends
+    assert_backends_agree(bending_scenes_program(second_bends: true), frames: SCENE_FRAMES, name: "BSC2")
   end
 
   # --- more than one layer bending ---

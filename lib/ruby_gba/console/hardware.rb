@@ -12,6 +12,21 @@ module RubyGBA
     module Hardware
 
       # ========================================================================
+      # Time
+      #
+      # The processor runs 16777216 cycles a second, and the display takes 280896 of them to
+      # draw one frame: 228 lines of 1232 cycles, 160 of them drawn and 68 the gap after. So a
+      # frame is a little more than a sixtieth of a second, and the console shows about 59.73
+      # of them a second — which anything keeping real seconds by counting frames has to know.
+      # ========================================================================
+
+      CYCLES_A_SECOND = 16_777_216
+      CYCLES_A_FRAME = 280_896
+
+      # How long a frame is, in seconds.
+      FRAME_SECONDS = Rational(CYCLES_A_FRAME, CYCLES_A_SECOND)
+
+      # ========================================================================
       # Memory Map
       #
       # The GBA CPU (ARM7TDMI) sees all hardware as memory addresses.

@@ -137,6 +137,9 @@ module RubyGBA
                       "row of the screen. `scale`, `face_angle` and `turn` are refused: a Game Boy " \
                       "Color cannot turn or resize a sprite. Draw the turns as poses."),
         draw_in_order: works,
+        hide_sprites: works("the console's sprite layer is off for the next frame, as on the Advance."),
+        picture_groups: works("a group's pictures are in the Color's sprite memory while the group is up, " \
+                              "as on the Advance. The Color holds 256 tiles of sprite pictures."),
         pool: works("its sprites count towards the forty."),
         box: works,
 
@@ -166,6 +169,8 @@ module RubyGBA
         var: works("a variable is the same 32-bit whole number as on the Advance."),
         save_var: works("kept in the cartridge's battery-backed memory."),
         save_data: works("kept in the cartridge's battery-backed memory."),
+        clock: works("read from a clock chip in the cartridge, as Game Boy Color cartridges such as " \
+                     "Pokémon Gold had."),
         saves_keep_everything: works,
         set: works, set!: works, add: works, add!: works, add_var: works, add_var!: works,
         sub: works, sub!: works, sub_var: works, sub_var!: works, copy: works, copy!: works,

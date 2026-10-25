@@ -62,10 +62,17 @@ module RubyGBA
       #   machine's temporary files. Hand one over to say how many frames are held, or where
       #   the file goes: `sound: RecordedSound.new(frames_in_memory: 600, folder: "scratch")`.
       #   Every sound reader answers for the whole run either way.
-      def initialize(rom, frames: 2, keys: nil, vars: nil, count_passes: false, save: nil, sound: RecordedSound.new)
+      # +clock:+ (a Time) gives the cartridge a clock chip reading that moment at power-on and
+      # moving on a console frame each frame, the emulator's own and never the computer's (see
+      # RubyGBAEmulator::Probe#clock_at); left out, the cartridge has none, as on most emulators.
+      # +clock_set: false+ makes it a chip whose battery ran out.
+      def initialize(rom, frames: 2, keys: nil, vars: nil, count_passes: false, save: nil, sound: RecordedSound.new,
+                     clock: nil, clock_set: true)
         refuse_sound_not_recorded_sound!(sound)
         @rom = rom
         @save = save
+        @clock = clock
+        @clock_set = clock_set
         @frames = frames
         @keys = keys
         @var_addresses = vars
@@ -809,10 +816,17 @@ module RubyGBA
         # taken back to the sprite's own place before anything is looked up by place.
         own = (@rom.built.sprite_runs || []).reduce({}) { |found, run| found.merge(run.own_places(method(:mem8))) }
         table = palette(:sprites) # read once for the lot, not once per row
+        turns = @rom.built.sprite_turns || {}
         @probe.sprites.map do |row|
           home = own.fetch(row[:slot], row[:slot])
           name = whose[home]
           dx, dy = moved.dig(home, pose_key(row, rooms, home)) || [0, 0]
+          # A place several scenes' sprites take turns at is the sprite of the scene the table
+          # was last written for.
+          if (turn = turns.fetch(home, []).find { |each_turn| var_at(each_turn.at) == each_turn.value })
+            name = turn.name
+            dx, dy = turn.offsets[turn_pose_key(row, turn)] || [0, 0]
+          end
           # Back into the ranges the console keeps these in, so a sprite half off the left edge
           # reads the way its own place reads rather than going negative.
           SpriteRow.new(**row, name: name, piece_x: row[:x], piece_y: row[:y],
@@ -857,6 +871,14 @@ module RubyGBA
         address = rooms[home] or return [row[:tile], row[:mirrored_across], row[:mirrored_down]]
 
         var_at(address)
+      end
+
+      # ...the same, for a sprite taking its turn at a place (see BuildRecord#sprite_turns),
+      # which says itself where its pose is kept when it keeps one frame at a time.
+      def turn_pose_key(row, turn)
+        return [row[:tile], row[:mirrored_across], row[:mirrored_down]] if turn.pose_var.nil?
+
+        var_at(turn.pose_var)
       end
 
       # Which places the build gave each declared sprite. A cartridge with no build record
@@ -966,6 +988,7 @@ module RubyGBA
         # The picture is the size the console draws, which the emulator knows from the cartridge.
         @width = @probe.width
         @height = @probe.height
+        @probe.clock_at(@clock, set: @clock_set) if @clock
         @rendered = true
         watch_game_loop_passes! if @count_passes
         play(@frames)

@@ -44,7 +44,9 @@ module RubyGBA
         # Finalizing the tree is also what paces it: `game_loop` runs once per frame and the
         # builder writes that wait itself, so nothing downstream has to think about it.
         @builder.finalize_program
-        @program = @builder.program
+        # Nothing changes the tree after this, so every pass that reads it can read an index
+        # rather than walking it again (see IR::Node#mark_written!).
+        @program = @builder.program.mark_written!
       end
 
       # The op-tree the block built: what a backend lowers and what the reference

@@ -14,7 +14,7 @@ class TestPacmanSounds < Minitest::Test
 
   # Up through the pellet above him and on into the wall, then left alone until the ghost arrives.
   # Held from the first frame until well after he has reached the wall, so the two play the same
-  # game though the console starts a frame or two later (see .claude/rules/testing.md).
+  # game though the console starts a frame or two later (see .claude/testing/native-sound.md).
   EAT_THEN_WAIT = Ractor.make_shareable(NativeComparison.held_for([1..50, :up]))
 
   def test_the_waka_and_the_catch

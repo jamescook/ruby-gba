@@ -71,6 +71,31 @@ module RubyGBA
       SCRATCH = (PLACES.product(JOB).map { |place, field| :"#{place}_#{field}" } +
                  %i[run_phase run_done run_at run_from run_wiped serial hold pieces]).freeze
 
+      # THE NUMBER EACH RECORD'S JOBS GO BY, by the record's name, read back off a built program:
+      # the routine that steps the running job (#save_jobs_step_running) asks whose job it is by
+      # that number before it calls the record's own step, and that question is the only place a
+      # built program says it. A measured build reads it to start a save of its own, so a game
+      # nobody plays is measured saving (see Diagnostics::SaveStarts).
+      def self.record_numbers(program)
+        stepping = Messages::MadeNames.make(:save_jobs, piece: :step_running)
+        running = program.walk.find { |node| node.kind == :func && node.name == stepping } or return {}
+        running.walk.select { |node| node.kind == :if }.each_with_object({}) do |branch, numbers|
+          number = branch.cond.kind == :binop && branch.cond.rhs.kind == :int ? branch.cond.rhs.value : next
+          step = branch.walk.find { |node| node.kind == :call } or next
+          kind, parts = Messages::MadeNames.read(step.target)
+          numbers[parts[:record].to_sym] = number if kind == :save_record && parts[:piece].to_sym == :step
+        end
+      end
+
+      # A SAVE OF COPY 0 OF THE RECORD NUMBERED +number+, RUNNING: each variable of the queue's
+      # running job by name, with what it holds the pass after the game asks for that save with
+      # nothing else in hand (see #save_jobs_queue). Writing these starts the save from outside the
+      # game; it writes whatever that record's first buffer holds.
+      def self.save_started(number)
+        running = { rec: number, copy: 0, kind: SAVE, slot: 0, src: 0, phase: STARTING }
+        running.transform_keys { |field| Messages::MadeNames.make(:save_jobs, piece: :"run_#{field}") }
+      end
+
       # Made with the first record: the variables the jobs are kept in. +records+ is the
       # records by name, which the queue walks once they are laid out.
       def initialize(port, records:)
@@ -195,7 +220,9 @@ module RubyGBA
         record(Build.call(jobs_name(:step_running)))
       end
 
-      # One piece of the running job, whichever record it belongs to.
+      # One piece of the running job, whichever record it belongs to. The test written here, the
+      # running job's record against a number and then a call to that record's step, is what
+      # .record_numbers reads back: change its shape and change that too.
       def save_jobs_step_running
         @records.each_value do |layout|
           sd_when(sd_eq(job_var(:run_rec), sd_int(layout.number))) { record(Build.call(layout.routine(:step))) }

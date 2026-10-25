@@ -131,6 +131,23 @@ class TestQuickMemoryPlan < Minitest::Test
     assert_includes plan.resident, :__frame
   end
 
+  # ...AND A SAVE THE GAME DID NOT INSIST ON COMES AFTER IT. The file screen is measured with a
+  # save running (Diagnostics::SaveStarts), and a save is written in a few passes and then stops,
+  # so what a frame of that screen spends on it is its cost spread over every frame measured. Here
+  # it is still more than the routine answering the display spends on that screen, and taken first
+  # it fits, but that routine runs on every frame of every screen: where the two do not fit
+  # together, the save is the one left out.
+  def test_a_save_measured_on_one_screen_comes_after_what_every_frame_runs
+    claims = [claim(:save_step, 600, scene_work: { _scene_files: 400 }),
+              claim(:__interrupt, 600, every_frame: true, scene_work: { _scene_files: 300, _scene_play: 300 }),
+              claim(:play_work, 500, scene: :_scene_play, scene_work: { _scene_play: 400 }),
+              claim(:files_work, 500, scene: :_scene_files, scene_work: { _scene_files: 400 })]
+    plan = Plan.choose(claims, room: 1200, dispatch: FILES_AND_PLAY)
+
+    assert_includes plan.resident, :__interrupt
+    refute_includes plan.resident, :save_step
+  end
+
   # A GAME WHOSE ROUTINES ALL FIT SWAPS NOTHING.
   def test_a_game_whose_routines_all_fit_keeps_one_set
     plan = Plan.choose([claim(:title_work, 400, scene: :_scene_title), claim(:play_work, 400, scene: :_scene_play)],

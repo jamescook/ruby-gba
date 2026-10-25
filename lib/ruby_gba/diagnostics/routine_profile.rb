@@ -102,7 +102,7 @@ module RubyGBA
       # ...and from the whole of what it answers: the counts, and the busiest scene's reading.
       def self.from_survey(survey, game: nil)
         new(work: survey.work, game: game, measured_at: Time.now.utc.iso8601, busiest: busiest_in(survey.scenes),
-            scenes: survey.scenes.filter_map { |scene, reading| [scene, Profiler.work_in(reading)] if scene }.to_h,
+            scenes: survey.placement_readings.filter_map { |scene, reading| [scene, Profiler.work_in(reading)] if scene }.to_h,
             touches: Profiler.sum_touches_across_scenes(survey.scenes.values),
             scene_touches: survey.scenes.filter_map { |scene, reading| [scene, Profiler.touches_in(reading)] if scene }.to_h)
       end

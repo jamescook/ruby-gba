@@ -123,11 +123,10 @@ module RubyGBA
       #
       # `fast:` says where the record's save routines should be kept, the word `func` takes:
       # `fast: true` insists on the console's quick memory, `fast: false` keeps them in the
-      # cartridge, and left out the framework decides. It is worth saying `true` in a game
-      # that counts its frames, because a build that measures its game cannot decide this
-      # one well: the run it measures has nobody at the controls and never saves, so the
-      # routines that save look like routines that never run, and the pass that takes the
-      # saving press runs them from the cartridge.
+      # cartridge, and left out the framework decides. A build that measures its game measures
+      # each screen that saves with a save running (Diagnostics::SaveStarts), so it weighs the
+      # routines by what a save costs there, behind what every screen runs every frame; `true`
+      # puts them ahead of all of that, the routine that plays the music included.
       def save_data(name, copies: 1, when_busy: :wait, fast: nil, &block)
         saves.declare(name, copies: copies, when_busy: when_busy, fast: fast, &block)
       end

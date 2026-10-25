@@ -92,6 +92,12 @@ module RubyGBA
     # puts it. Each says where the cartridge keeps the order — a byte per sprite, back to front —
     # and each sprite's own place and how many places it takes, so a place read off the console
     # can be taken back to the sprite in it. Empty for a game that orders nothing.
+    # +sprite_turns+ is the other place +sprite_slots+ stops being the whole answer: sprites of
+    # scenes never up together take turns at the same places (see IR::SpriteRows), so a place
+    # can be any of several sprites. Keyed by the place, each turn says whose it is and its
+    # +sprite_offsets+, and where the cartridge keeps the value the variable picking the scenes
+    # held when the table was last written for a change of scene — the turn whose value that is
+    # is the one in the place. Empty for a game whose places are each one sprite's.
     # +colors_short_at+ is where the console counts each time a sprite drawn with a list of
     # colours that borrows a group found none free, and was drawn in another list's colours
     # (see IR::Backends::GBA::ScreenLayout::LentColors) — a hidden variable, like the dropped
@@ -102,12 +108,12 @@ module RubyGBA
                                     :roomy_memory, :timer_handlers, :voices, :sound_drops,
                                     :sprite_slots, :sprite_offsets, :streamed_sprite_pose_vars,
                                     :video_copies, :late_pages, :lists, :sprite_runs, :scene_sets,
-                                    :missed_routine_parts, :colors_short_at)
+                                    :missed_routine_parts, :colors_short_at, :sprite_turns)
       def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
                      roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil,
                      sprite_slots: {}, sprite_offsets: {}, streamed_sprite_pose_vars: {},
                      video_copies: [], late_pages: [], lists: {}, sprite_runs: [], scene_sets: nil,
-                     missed_routine_parts: {}, colors_short_at: nil, **rest)
+                     missed_routine_parts: {}, colors_short_at: nil, sprite_turns: {}, **rest)
         super
       end
 
@@ -129,6 +135,13 @@ module RubyGBA
         scene_sets.routines.select { |number, _| loaded[number] == 1 }.values.reduce(routines) { |all, set| all.merge(set) }
       end
 
+
+      # One sprite's turn at a place (see +sprite_turns+): +at+ is the address of the value the
+      # scenes' variable held when the table was last written for a change of scene, and the
+      # sprite is in the place while that holds +value+. +pose_var+ is where a sprite keeping
+      # one frame at a time says which pose it is showing (see +streamed_sprite_pose_vars+), or
+      # nil.
+      SpriteTurn = Data.define(:at, :value, :name, :offsets, :pose_var)
 
       # One run of the sprite table drawn in an order the game works out: +order+ is the address
       # of its order, and +homes+ is each of its sprites' own first place and how many places it

@@ -257,11 +257,31 @@ module RubyGBA
       # ships — a level map, a wall texture, a sine table — where there is nothing to find
       # and a great many numbers to find it among.
       def walk(&block)
+        return written_nodes.each(&block) if @written
         return enum_for(:walk) unless block
 
-        yield self
-        @children.each { |child| child.walk(&block) }
-        node_fields.each { |name| walk_attr(public_send(name), &block) }
+        walk_tree_afresh(&block)
+      end
+
+      # THE PROGRAM IS WRITTEN: from here on nothing adds a statement to it or takes one away.
+      # Called on the top of the tree once the game's block has run and the builder has
+      # finished with it, and never before — the builder rearranges statements to the very end.
+      #
+      # It is what lets every pass after it stop walking. Checking a program and lowering it
+      # asks hundreds of questions of the whole tree — which songs are played, which routines
+      # there are, what each scene shows — and each question used to walk every node again. A
+      # written tree is walked once, and every later walk reads that.
+      #
+      # Each node's list of statements is frozen too, so a statement added or taken away after
+      # this fails where it is done rather than leaving every answer above quietly out of
+      # date. That guard covers statements only. A node's operands can still be written, and
+      # a node put into an operand after this is not in the stored walk — nothing in the
+      # build does that to a written program (what has to change one changes a #copy), and
+      # anything that starts to must not mark the program written first.
+      def mark_written!
+        written_nodes.each { |node| node.children.freeze }
+        @written = true
+        self
       end
 
       # Give this statement and everything under it a call site they do not have — the line
@@ -435,6 +455,17 @@ module RubyGBA
         else value
         end
       end
+
+      # The walk itself, node by node down the tree, never reading the list a written tree
+      # keeps — which is how that list is gathered in the first place.
+      def walk_tree_afresh(&block)
+        yield self
+        @children.each { |child| child.walk(&block) }
+        node_fields.each { |name| walk_attr(public_send(name), &block) }
+      end
+
+      # Every node of a written tree, in walk order, gathered the one time.
+      def written_nodes = @written_nodes ||= [].tap { |all| walk_tree_afresh { |node| all << node } }.freeze
 
       # Recurse #walk into an operand that may itself be a node, or an array of
       # them (e.g. a case node's clause list).

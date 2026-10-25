@@ -189,7 +189,7 @@ module RubyGBA
         # (RubyGBA.warn_of_slow_scenes). The second is measured too, with each scene run again
         # with its lists and pools held full (RubyGBA.warn_of_collections_that_fill).
         def build_checks(placement)
-          [Checks::FrameFromCartridge.new(placement)]
+          [Checks::FrameFromCartridge.new(placement), Checks::InterruptFromCartridge.new(placement)]
         end
 
         # Stop running a registered check — what unloading a pack does with the
@@ -279,6 +279,7 @@ require_relative "guardrails/frame_reach"
 require_relative "guardrails/tiled_display" # shared by the two tiled-screen checks below
 require_relative "guardrails/empty_tiled_screen"
 require_relative "guardrails/bitmap_draw_on_tiled"
+require_relative "guardrails/hide_sprites_on_bitmap"
 require_relative "guardrails/call_inside_area"
 require_relative "guardrails/screen_inside_scene"
 require_relative "guardrails/painted_picture_with_other_poses"
@@ -308,6 +309,7 @@ require_relative "guardrails/list_in_loop"
 require_relative "guardrails/list_filled_by_loop"
 require_relative "guardrails/iwram_budget"
 require_relative "guardrails/frame_from_cartridge"
+require_relative "guardrails/interrupt_from_cartridge"
 require_relative "guardrails/layer_holds_nothing"
 require_relative "guardrails/layer_invisible"
 require_relative "guardrails/layer_solid_while_fading"
@@ -322,6 +324,7 @@ require_relative "guardrails/light_cannot_share"
 require_relative "guardrails/held_fade_cannot_share"
 require_relative "guardrails/routine_never_called"
 require_relative "guardrails/color_answers"
+require_relative "guardrails/clock_never_asked"
 require_relative "guardrails/web_portability" # not always on: the web build runs it, and a game may register it
 
 module RubyGBA
@@ -334,6 +337,7 @@ module RubyGBA
       BUILTIN_CHECKS = Ractor.make_shareable([
         Checks::EmptyTiledScreen.new,
         Checks::BitmapDrawOnTiled.new,
+        Checks::HideSpritesOnBitmap.new,
         Checks::CallInsideArea.new,
         Checks::FadeNeverLifted.new,
         Checks::TintNeverLifted.new,
@@ -367,6 +371,7 @@ module RubyGBA
         Checks::PaintedPictureWithOtherPoses.new,
         Checks::RoutineNeverCalled.new,
         Checks::ColorAnswers.new,
+        Checks::ClockNeverAsked.new,
       ])
     end
   end

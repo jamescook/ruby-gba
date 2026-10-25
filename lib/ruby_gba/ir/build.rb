@@ -461,6 +461,11 @@ module RubyGBA
         Nodes.build(:timer_ticks, name: name)
       end
 
+      # One reading of the date and time (one of IR::Clock::READINGS) — a value.
+      def clock(reading)
+        Nodes.build(:clock, reading: reading)
+      end
+
       def call(name)
         Nodes.build(:call, target: name)
       end
@@ -485,6 +490,10 @@ module RubyGBA
 
       def halt
         Nodes.build(:halt)
+      end
+
+      def hide_sprites
+        Nodes.build(:hide_sprites)
       end
 
       # A raw escape hatch: pre-assembled target bytes a native backend appends
@@ -656,6 +665,16 @@ module RubyGBA
       # (see Nodes::ColorList): +colors+ at the start, and +recolors+ the other sets.
       def color_list(name, colors:, recolors: [])
         Nodes.build(:color_list, name: name, colors: colors, recolors: recolors)
+      end
+
+      # A scene's sprite pictures in groups, and one slot of them holding a group from now on.
+      # See Nodes::PictureGroups and Nodes::ShowPictureGroup.
+      def picture_groups(name, groups:, together: [], scene: nil)
+        Nodes.build(:picture_groups, name: name, groups: groups, together: together, scene: scene)
+      end
+
+      def show_picture_group(name, slot:, which:)
+        Nodes.build(:show_picture_group, name: name, slot: slot, which: to_value_node(which))
       end
 
       # The named list of colours holds the set numbered +which+ from now on, and everything

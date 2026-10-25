@@ -25,8 +25,10 @@ require_relative "dsl/direction"
 require_relative "dsl/grid"
 require_relative "dsl/sprite"
 require_relative "dsl/recolors" # the other colours a sprite or a pool can be drawn with
+require_relative "dsl/picture_groups" # a scene's sprite pictures in groups, some of them up at a time
 require_relative "dsl/hardware_sprite"
 require_relative "dsl/timer"
+require_relative "dsl/clock" # the date and time, as the cartridge's clock keeps them
 require_relative "dsl/pass_job" # a step an effect takes once a pass, started and stopped by the game
 require_relative "dsl/spotlight" # the game's light, and the darkness outside it
 require_relative "dsl/sample"

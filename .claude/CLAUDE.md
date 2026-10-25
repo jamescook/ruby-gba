@@ -121,7 +121,27 @@ rake test:lowering:native                                       # the native low
 rake test:lowering:js                                           # the JavaScript lowering's run alone (takes TEST= too)
 rake test:lowering:gbc                                          # the Game Boy Color lowering's run alone (takes TEST= too)
 rake test:playthroughs                                          # one module's tests: every file in test/ruby_gba/playthroughs/
+RUBY_GBA_SUITE_LOCK=checkout rake test                          # in a worktree: go ahead beside another checkout's run
 ```
+
+**One whole run at a time on the machine**, across every checkout: a second waits for the first and
+says where it is. A run in a worktree that should not queue behind the main checkout's sets
+`RUBY_GBA_SUITE_LOCK=checkout`, and the two then share the cores. See "One whole run on the
+machine at a time" in `.claude/testing/runs.md`.
+
+**CI runs on a self-hosted runner, not on GitHub's machines.** A whole run plays every test on
+three lowerings and wants many cores for a long time; on a hosted runner that is slow and costly
+enough to be pointless, while a developer's own machine already has the tools and the emulator
+built. So `.github/workflows/ci.yml` runs on a maintainer's machine, picked by a label of its own in
+`runs-on`, with the tool versions named in its `defaults.run.shell`. It is manual only (Run
+workflow, or `gh workflow run ci.yml`) and skipped unless the repository owner started it, because
+the repository is public and a self-hosted runner executes whatever a workflow says on that
+machine. Never give it a push, pull_request or schedule trigger. A fork that wants CI registers a
+runner of its own and changes the label, the owner check and the shell's tool paths to match. A CI
+run takes the same machine-wide lock as a local `rake test`, so the two wait for each other.
+The runner is a service and never reads a login shell's settings, so anything the machine's own
+builds lean on from there (`MGBA_DIR`, for a libmgba built by hand) goes in the `.env` file in the
+runner's folder, which it reads when it starts: restart the runner after changing it.
 
 **Which run a change needs:** a change inside one lowering — the ARM the GBA lowering emits,
 the C the native lowering writes, the JavaScript runtime, the SM83 the Game Boy Color lowering
@@ -131,6 +151,14 @@ lowering's and the Game Boy Color lowering's too (see `Backends::JS`, `Backends:
 change to them wants all three of those runs. A change to anything both read — the DSL, the IR, the interpreter (the
 answer key both are checked against, so never a narrow change), the build checks — wants
 `rake test`.
+
+**What every example's cartridge costs is checked too.** `rake emitted:check` builds each example
+and fails if its code or data is bigger than `tools/emitted_baseline.json` says, and CI runs it
+after the tests. Anything that changes what a cartridge holds runs it before committing: a change
+to the DSL, the IR or the GBA lowering, a new table, an edited example. Growth that was meant is
+accepted with `rake emitted:record`, and that file goes in the same commit, so the diff shows what
+the change cost. Re-record after a shrink as well, or a later regression back up to the old number
+passes unseen.
 
 **Every test plays on every lowering**, with nothing written to say so: a test makes its player
 with `game_player` (the interpreter on the GBA run, the game as C on the native one, the game as

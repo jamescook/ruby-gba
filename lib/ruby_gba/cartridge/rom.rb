@@ -57,6 +57,10 @@ module RubyGBA
       def column_stretches = @built&.column_stretches
       def compression = @built&.compression
       def build_options = @built&.build_options
+      # Every scene's sprites and where their pictures went in sprite memory (see
+      # Diagnostics::VideoMemory::Area; `puts` prints it), or nil for a game with none there: no
+      # sprites, or a screen not drawn from tiles, whose sprites are painted into the picture.
+      def sprite_memory = @built&.video_memory&.sprites
 
       # Package finished machine code into a cartridge: write the header, drop the
       # code in after it, and finalize (entry branch, checksum, power-of-two

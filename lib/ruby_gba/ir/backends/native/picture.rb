@@ -651,11 +651,28 @@ module RubyGBA
 
           # Reference#exec_present_objects: every sprite the frame draws is taken off the picture,
           # then each one that is shown is put where it is now.
+          #
+          # A frame the game asked to draw without sprites takes them all off and puts none back,
+          # and forgets it was asked (Reference#exec_hide_sprites).
           def lower_present_objects(node)
             drawn = node.names.map { |name| presented_object(name) }
+            placements = placements_in_draw_order(node)
+            if hides_sprites?
+              placements = [C::If.new(condition: sprites_hidden, body: [C::Assign.new(sprites_hidden, C::Int.new(0))],
+                                      otherwise: placements)]
+            end
             [eval_call("rg_objects_begin"), *drawn.map { |obj| sprite_removal(obj) },
-             *placements_in_draw_order(node), eval_call("rg_objects_end")]
+             *placements, eval_call("rg_objects_end")]
           end
+
+          # Reference#exec_hide_sprites: noted, for the frame drawn after this pass.
+          def lower_hide_sprites(_node) = [C::Assign.new(sprites_hidden, C::Int.new(1))]
+
+          def hides_sprites? = (@hides_sprites ||= [@program.walk.any? { |node| node.kind == :hide_sprites }]).first
+
+          def sprites_hidden = @names.own("sprites_hidden")
+
+          def sprites_hidden_globals = hides_sprites? ? [C::Global.new(name: sprites_hidden)] : []
 
           def presented_object(name)
             @objects.fetch(name) { raise LoweringError, "present of undeclared object #{name.inspect}" }

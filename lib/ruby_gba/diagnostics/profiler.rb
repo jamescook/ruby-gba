@@ -170,7 +170,7 @@ module RubyGBA
       # a list, even an empty one, starts it the way a held game is started, so two held runs
       # compare like with like.
       def self.run(rom, frames: FRAMES, settle: SETTLE, keys: [], scene: nil, from: nil,
-                   picture: true, holding: nil)
+                   picture: true, holding: nil, starting: [], clock: nil)
         routines = rom.built.routines
         loaded_sets = 0 # which scenes' own routines were in the quick memory; read as the run ends
         held = Array(keys)
@@ -182,12 +182,13 @@ module RubyGBA
         losses = Losses.new(sounds: rom.built.sound_drops, colors_short_at: rom.built.colors_short_at)
         profile, tearing, flicker, lost, short = in_temp_rom(rom) do |path|
           probe = Emulator.probe(path)
+          probe.clock_at(clock) if clock # a clock chip reading that moment (see Verifier#initialize)
           begin
             measured =
               if from
                 profile_from_saved_state(probe, from, path, frames, held, losses)
               elsif holding
-                profile_holding_words(probe, holding, frames, held, losses)
+                profile_holding_words(probe, holding, frames, held, losses, starting)
               else
                 profile_from_boot(probe, frames, settle, held, losses)
               end
@@ -483,12 +484,15 @@ module RubyGBA
       #
       # +writes+ are whole words, [address, value], and the scene is one of them. The others
       # hold a collection full the same way (see FullCollections): a list the game pops from is
-      # back at its capacity on the next frame.
-      def self.profile_holding_words(probe, writes, frames, held, losses = nil)
+      # back at its capacity on the next frame. +starting+ are words written once, as the
+      # measured frames begin, rather than held: a save set running (see SaveStarts), which goes
+      # on by itself from there.
+      def self.profile_holding_words(probe, writes, frames, held, losses = nil, starting = [])
         probe.step(BOOT_FRAMES, keys: held)
         writes.each { |address, value| probe.write32(address, value) }
         probe.step(SETTLE, keys: held)
         clear_losses(probe, losses) # the scene starts here; what it lost before it does not count
+        starting.each { |address, value| probe.write32(address, value) }
 
         frames.times.map do
           writes.each { |address, value| probe.write32(address, value) }
@@ -555,16 +559,23 @@ module RubyGBA
         dispatch = Analyzer.scenes(rom.built.source_program)
         address = dispatch && rom.built.var_addresses[dispatch[:selector]]
         scenes = address ? dispatch[:scenes].to_h { |name, value| [name, [[address, value]]] } : { nil => [] }
+        saving = {}
         measured = scenes.each_with_index.to_h do |(name, writes), at|
           progress.report_count(at + 1, scenes.size, name ? "scene #{name.inspect}" : "the game")
-          [name, run(rom, frames: frames, keys: keys, picture: false, holding: writes.empty? ? nil : writes)]
+          holding = writes.empty? ? nil : writes
+          # ...and once more with a save running, for a scene that saves (see SaveStarts).
+          starting = name ? SaveStarts.words(rom.built, name) : []
+          unless starting.empty?
+            saving[name] = run(rom, frames: frames, keys: keys, picture: false, holding: holding, starting: starting)
+          end
+          [name, run(rom, frames: frames, keys: keys, picture: false, holding: holding)]
         end
         collections = FullCollections.of(rom.built)
         growths = scenes.filter_map do |name, writes|
           growth_in(rom, name, writes, measured[name], collections, frames: frames, keys: keys)
         end
-        Survey.new(work: sum_work_across_scenes(measured.values), scenes: measured, growths: growths,
-                   late_hand_overs: HandOvers.late(rom, keys: keys))
+        Survey.new(work: sum_work_across_scenes(measured.merge(saving).values), scenes: measured, saving: saving,
+                   growths: growths, late_hand_overs: HandOvers.late(rom, keys: keys))
       end
 
       # WHAT A WHOLE GAME MEASURED, scene by scene. +work+ is what the placement is decided
@@ -574,10 +585,19 @@ module RubyGBA
       # game stands and would not with its collections full (see #growth_in), and
       # +late_hand_overs+ the scenes that run late on the frame the game hands over to them
       # (see HandOvers).
-      Survey = Data.define(:work, :scenes, :growths, :late_hand_overs) do
-        def initialize(work:, scenes:, growths: [], late_hand_overs: [])
+      #
+      # +saving+ is a scene that saves measured again with a save running (see SaveStarts), by the
+      # scene's name. It is what the placement weighs that scene by — +work+ is added up from it
+      # in place of the scene's plain reading — and never what the build warns from: a save is a
+      # few passes now and then, and a scene that keeps up between them is not a slow scene.
+      Survey = Data.define(:work, :scenes, :saving, :growths, :late_hand_overs) do
+        def initialize(work:, scenes:, saving: {}, growths: [], late_hand_overs: [])
           super
         end
+
+        # Each scene's reading as the placement weighs it: the one with a save running, where
+        # the scene saves.
+        def placement_readings = scenes.merge(saving)
 
         # The scenes that did not keep up, slowest first. A game is only ever in one scene at a
         # time, so one slow scene is a slow game whatever the others do.

@@ -6,6 +6,7 @@
 #include "rg_runtime.h"
 #include "rg_driver.h"
 #include "rg_mix.h"
+#include "rg_pacing.h"
 #include "rg_screen.h"
 #include "rg_sound.h"
 
@@ -98,16 +99,110 @@ static void timers_frame(void) {
   }
 }
 
+/* --- the cartridge's clock (Reference#value_of_clock) --- */
+
+/* The readings in IR::Clock::READINGS's order, which is the number the game asks by. Nothing ties
+ * the two together but the native run of test_clock.rb, which reads every one of them. */
+enum { CLOCK_HOUR, CLOCK_MINUTE, CLOCK_SECOND, CLOCK_YEAR, CLOCK_MONTH, CLOCK_DAY, CLOCK_WEEKDAY, CLOCK_PRESENT, CLOCK_SET };
+
+#define SECONDS_A_DAY 86400
+
+static int32_t clock_present;
+static int32_t clock_set;
+static int32_t clock_counts_frames; /* moved on a frame at each boundary, rather than told the time */
+static int64_t clock_seconds;       /* the time now, as seconds from the start of 1970... */
+static int64_t clock_ticks;         /* ...and the console's ticks into the next second */
+
+void rg_clock_starts_at(int64_t seconds, int64_t ticks, int32_t set) {
+  clock_present = 1;
+  clock_set = set != 0;
+  clock_counts_frames = 1;
+  clock_seconds = seconds;
+  clock_ticks = ticks;
+}
+
+/* Division that rounds down rather than towards nothing, so a moment before 1970 lands on the
+ * day it is in. */
+static int64_t floor_div(int64_t a, int64_t b) { return a / b - (a % b != 0 && (a < 0) != (b < 0)); }
+
+/* The days from the start of 1970 to a date, and back. A calendar of plain arithmetic rather than
+ * the C library's, which would bring the computer's time zone into it: every fourth year a leap
+ * year, but not every hundredth, but every four hundredth. The year is counted from March, so
+ * the leap day falls at the end of it, and the counting goes in whole 400-year cycles, which
+ * always hold the same number of days. */
+static int64_t days_from_date(int64_t year, int64_t month, int64_t day) {
+  year -= month <= 2;
+  int64_t era = floor_div(year, 400);
+  int64_t year_of_era = year - era * 400;
+  int64_t day_of_year = (153 * (month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1;
+  int64_t day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+  return era * 146097 + day_of_era - 719468;
+}
+
+static void date_from_days(int64_t days, int64_t *year, int32_t *month, int32_t *day) {
+  days += 719468;
+  int64_t era = floor_div(days, 146097);
+  int64_t day_of_era = days - era * 146097;
+  int64_t year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
+  int64_t day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+  int64_t from_march = (5 * day_of_year + 2) / 153;
+  *day = (int32_t)(day_of_year - (153 * from_march + 2) / 5 + 1);
+  *month = (int32_t)(from_march < 10 ? from_march + 3 : from_march - 9);
+  *year = year_of_era + era * 400 + (*month <= 2);
+}
+
+void rg_clock_reads(int32_t year, int32_t month, int32_t day, int32_t hour, int32_t minute, int32_t second) {
+  clock_present = 1;
+  clock_set = 1;
+  clock_counts_frames = 0;
+  clock_seconds = days_from_date(year, month, day) * SECONDS_A_DAY + hour * 3600 + minute * 60 + second;
+  clock_ticks = 0;
+}
+
+/* A frame of the console's later: 280,896 of its ticks, a little more than a sixtieth of a
+ * second. */
+static void clock_frame(void) {
+  if (!clock_counts_frames) return;
+  clock_ticks += RG_CONSOLE_TICKS_A_FRAME;
+  clock_seconds += clock_ticks / RG_CONSOLE_TICKS_A_SECOND;
+  clock_ticks %= RG_CONSOLE_TICKS_A_SECOND;
+}
+
+int32_t rg_clock_reading(int32_t reading) {
+  if (!clock_present) return 0;
+  if (reading == CLOCK_PRESENT) return 1;
+  if (!clock_set) return 0;
+  if (reading == CLOCK_SET) return 1;
+
+  int64_t days = floor_div(clock_seconds, SECONDS_A_DAY);
+  int64_t into_day = clock_seconds - days * SECONDS_A_DAY;
+  int64_t year;
+  int32_t month, day;
+  date_from_days(days, &year, &month, &day);
+  switch (reading) {
+  case CLOCK_HOUR: return (int32_t)(into_day / 3600);
+  case CLOCK_MINUTE: return (int32_t)(into_day / 60 % 60);
+  case CLOCK_SECOND: return (int32_t)(into_day % 60);
+  case CLOCK_YEAR: return (int32_t)year;
+  case CLOCK_MONTH: return month;
+  case CLOCK_DAY: return day;
+  case CLOCK_WEEKDAY: return (int32_t)(days + 4 - floor_div(days + 4, 7) * 7); /* 1 January 1970 was a Thursday */
+  default: rg_fault("the clock has no reading numbered %d", (int)reading);
+  }
+}
+
 /* The middle of Reference#advance_frame, in its order: the picture is switched on, the timers
  * tick, and then the music moves on. */
 void rg_frame_begins(void) {
   rg_screen_frame_started();
   timers_frame();
   /* The interpreter's order (Reference#advance_frame): the mix, then the tune, then every
-   * sounding note's shape. */
+   * sounding note's shape, and then the frame is counted, which moves a clock started at a
+   * test's moment. */
   rg_mix_frame();
   rg_music_frame();
   rg_mix_step_shapes();
+  clock_frame();
 }
 
 /* A driver's halt and fault never come back; abort() is only there to say so to the compiler. */

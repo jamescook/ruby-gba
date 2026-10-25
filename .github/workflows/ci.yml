@@ -1,7 +1,18 @@
 name: CI
 
-# Manual only for now — no auto-build on push or PR.
-# Run from the Actions tab ("Run workflow") or: gh workflow run ci.yml
+# Runs on the owner's own Mac, never on GitHub's machines: a whole run plays every test on three
+# lowerings and wants many cores for a quarter of an hour, which a hosted runner makes slow and
+# dear. Manual only. Run from the Actions tab ("Run workflow") or: gh workflow run ci.yml
+#
+# Gated to jamescook: this repository is public, and a self-hosted runner executes whatever the
+# workflow says directly on that machine. So nothing starts a run but somebody pressing the button
+# (no push, pull_request or schedule trigger), and the job is skipped unless jamescook started it
+# AND, on a re-run, jamescook pressed re-run: `actor` alone stays the first run's starter, so a
+# re-run by somebody else would pass a check of it.
+#
+# This file is the only gate, and anybody who can push can change it on a branch of their own
+# and dispatch that branch. Today jamescook is the repository's only collaborator; give somebody
+# write access and this machine is theirs to run code on.
 on:
   workflow_dispatch:
 
@@ -9,59 +20,49 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    # The machine keeps its tools in mise. The versions are named here because the checkout's
+    # own mise.toml is not in the repository. Everything below is already installed on the
+    # machine, the C compiler and libmgba (Homebrew) included, so nothing is downloaded per run.
+    shell: /opt/homebrew/bin/mise exec ruby@4.0.7 zig@0.17.0 node@24.6.0 -- bash --noprofile --norc -eo pipefail {0}
+
 jobs:
   test:
-    name: test (ruby ${{ matrix.ruby }})
-    runs-on: ubuntu-24.04        # stable, pre-cached Ruby
-    strategy:
-      fail-fast: false
-      matrix:
-        ruby: ['4.0']
+    # mac-studio is a label only the Mac Studio's runner carries, so the job never lands on
+    # another of jamescook's machines registered here later.
+    runs-on: [self-hosted, macOS, mac-studio]
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'jamescook/ruby-gba' &&
+      github.actor == 'jamescook' &&
+      github.triggering_actor == 'jamescook'
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v6
 
-      # Build dependencies: a compiler + libmgba to build gemba-core's C extension
-      # (the headless libmgba probe the emulator-backed tests run on), and
-      # ImageMagick for ruby-gba's PNG import. gemba-core is headless — no SDL2, Tk,
-      # or X11 — so no display server or audio daemon is needed.
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential make pkg-config zlib1g-dev \
-            libmgba-dev imagemagick
+      # No committed Gemfile.lock, so a fresh resolve; the gems are already on the machine.
+      - name: Bundle install
+        run: bundle install
 
-      # No committed Gemfile.lock → fresh resolve. ruby-gba's deps are pure Ruby
-      # (rake, minitest), so bundle install compiles nothing.
-      - name: Set up Ruby (+ bundle install)
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: ${{ matrix.ruby }}
-          bundler-cache: true
+      # The emulator gem's own suite, kept out of `rake test`. It goes first because it builds
+      # the emulator and takes seconds: an emulator that cannot load fails here, rather than
+      # failing every cartridge test of the whole suite one at a time.
+      - name: Test the emulator itself
+        run: bundle exec rake test:emulator 2>&1 | tee emulator-test.log
+        env:
+          CI: '1'
 
-      # `rake test` builds gemba-core's C extension first (it's required), then runs
-      # the suite headless against it.
+      # Every test on every lowering, one after the other. A whole run takes the machine to
+      # itself, so this waits while a run in another checkout on the same Mac finishes.
       - name: Run tests
-        run: |
-          set -o pipefail
-          bundle exec rake test 2>&1 | tee test-output.log
+        run: bundle exec rake test 2>&1 | tee test-output.log
         env:
           CI: '1'
 
-      # gemba-core also has its OWN suite (its C ext + probe, tested in isolation),
-      # kept out of the main `rake test` glob — run it separately.
-      - name: Test gemba-core itself (headless libmgba probe)
-        run: bundle exec rake test:mgba 2>&1 | tee gemba-core-test.log
-        env:
-          CI: '1'
-
-      # Build every example and compare what it emits against the recorded baseline
-      # in tools/emitted_baseline.json. Catches code that grows a little at a time —
-      # invisible in any one commit, obvious against a recorded number. Deliberate
-      # growth is accepted by running `rake emitted:record` and committing the diff.
-      # Its own step rather than part of `rake test`, so the inner-loop suite stays
-      # quick and this gets its own log.
+      # Build every example and compare what it emits against tools/emitted_baseline.json.
+      # Deliberate growth is accepted with `rake emitted:record` and a commit of the diff.
       - name: Check emitted code against the baseline
         run: bundle exec rake emitted:check 2>&1 | tee emitted-check.log
         env:
@@ -71,9 +72,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-log-ruby${{ matrix.ruby }}
+          name: test-logs
           path: |
             test-output.log
-            gemba-core-test.log
+            emulator-test.log
             emitted-check.log
           retention-days: 7

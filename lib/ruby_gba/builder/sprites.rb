@@ -170,6 +170,25 @@ module RubyGBA
         declare_software_sprite(handle, shown)
       end
 
+      # Keep every sprite off the screen for one frame: the next frame drawn after this pass
+      # shows none, and the frame after that shows every one where it would have been. Nothing
+      # about any sprite or pool changes, so nothing has to be put back. Call it on each pass to
+      # keep them off for longer.
+      #
+      # It is for the one frame where some sprites are not where they will be yet — the first
+      # frame after a room loads behind a fade, or a map screen opening — so that none shows
+      # half moved. On a tiled screen the text is sprites too, and it goes with them.
+      #
+      #   room_loaded.then { hide_sprites }
+      #
+      # The console draws its sprites as a layer of its own, and this switches that layer off
+      # between frames and on again a frame later. A bitmap screen has no such layer, since it
+      # paints its sprites into the picture, so there it is a friendly error.
+      def hide_sprites
+        record(Build.hide_sprites)
+        nil
+      end
+
       # Make a hardware sprite able to turn (see HardwareSprite#face_angle / #turn):
       # allocate its rotation-angle variable, boot it to 0 (upright), and swap the
       # object's angle operand from its default constant 0 to that variable, so the

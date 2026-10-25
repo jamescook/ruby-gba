@@ -68,6 +68,10 @@ module RubyGBA
           # that touches what the scene put up (see PaletteTint#emit_recolored_banks).
           attr_reader :scene_entry
 
+          # What brings the sets of picture groups up, made once this has made the notes above
+          # (see PictureGroupCopying); a scene taking over puts its own sets down.
+          attr_writer :picture_group_copying
+
           # Say no scene's scenery or sprite pictures are up (see SceneEntry#emit_clear_used_markers).
           def emit_clear_used_scene_markers = @scene_entry.emit_clear_markers_at_power_on
 
@@ -83,7 +87,7 @@ module RubyGBA
           # copied out, so a thing the layout decides has one home.
           Layout = Data.define(:screen, :bitmaps, :palette, :indexed_bitmaps, :blob_codecs, :blob_raw_bytes,
                                 :modes, :fading, :tiled, :has_objects, :scene_blend, :movement,
-                                :scene_sprites, :waits_for_frames, :draw_runs, :pose_sent_bytes,
+                                :scene_sprites, :gated_sprites, :waits_for_frames, :draw_runs, :pose_sent_bytes,
                                 :room_tables, :late_pages) do
             # The backgrounds that turn AND sit on the tiled screen — the ones that decide
             # which way the console arranges that screen's layers. A background that turns
@@ -534,6 +538,7 @@ module RubyGBA
                 @uploads.emit_dma_blob(tiles.blob, VRAM_START + tiles.offset, tiles.units) if tiles
                 arrival.scenery.each { |node| @background_drawing.emit_background_hardware(node) }
                 arrival.painted_tiles.each { |run| @background_drawing.emit_copy_tiles(Build.copy_tiles(run.name)) }
+                @raster.emit_bends_on_arrival(name)
               end
               # The maps just sent are the first ones declared, so what says which map is
               # showing goes back to the first as well (see IR::SceneHandover).
@@ -624,7 +629,7 @@ module RubyGBA
 
             value = tiled_dispcnt(wanted.on, turning: wanted.turning)
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
-            write_reg16(REG_DISPCNT, value)
+            @sprite_drawing.emit_screen_layers(value) # leaves the sprites off on a frame hide_sprites asked for
           end
 
           # Send a scene's sprite pictures when it takes over. Scenes share the room above
@@ -654,7 +659,8 @@ module RubyGBA
             arrival = @layout.screen.handover.arrival(name)
             painted = arrival.painted_pictures
             pools = @layout.screen.pools_sending_poses_in(name)
-            if art.empty? && rooms.empty? && colors.nil? && painted.empty? && pools.empty?
+            owns_groups = @picture_group_copying.sets_of?(name)
+            if art.empty? && rooms.empty? && colors.nil? && painted.empty? && pools.empty? && !owns_groups
               # A scene with no sprite art of its own normally leaves the last scene's marked as
               # loaded, which is right: nothing overwrote it. A painted picture is the exception,
               # since its list can change while its scene is away and it goes up from the list
@@ -670,6 +676,8 @@ module RubyGBA
               art.each { |blob, at, units| @uploads.emit_dma_blob(blob, SpriteDrawing::OBJ_TILE_BASE + (at * 32), units * 16) }
               @sprite_drawing.emit_reset_resident_frames(rooms)
               pools.each { |pool| @sprite_drawing.emit_forget_poses_sent(pool) }
+              @picture_group_copying.emit_forget_sets_of(name) # the groups it wants copied in before its sprites
+
               # A picture the game paints goes up from its list as it is now: the scene before
               # used the same memory (see IR::SceneHandover).
               painted.each { |run| @background_drawing.emit_copy_tiles(Build.copy_tiles(run.name)) }
@@ -1480,10 +1488,16 @@ module RubyGBA
           # The fan-out fallback: ten guarded draw_texts, exactly one of which matches
           # the value and draws. Built as a sub-tree and emitted through the shared
           # statement paths, so it honors the current screen mode via draw_text.
+          #
+          # Each guard is hung from the digit it stands for, though it is never one of its
+          # children: a draw_text finds its font by climbing to the top of its tree, and a
+          # piece standing on its own would find only the fonts that ship, never the game's.
           def emit_draw_digit_unrolled(node)
             10.times do |k|
-              @lowering.statement(Build.if_(Build.binop(:==, node.value, Build.int(k)),
-                                       Build.draw_text(k.to_s, node.x, node.y, node.color, font: node.font)))
+              guard = Build.if_(Build.binop(:==, node.value, Build.int(k)),
+                                Build.draw_text(k.to_s, node.x, node.y, node.color, font: node.font))
+              guard.parent = node
+              @lowering.statement(guard)
             end
           end
 

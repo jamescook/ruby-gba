@@ -104,3 +104,12 @@ module RubyGBA
 end
 
 require_relative "testing/skips_by_reason" if RubyGBA::Testing.checked?
+
+# On a CI machine, whose log shows a line only once it ends, a line every hundred tests.
+require_relative "testing/progress_lines"
+if ENV["CI"]
+  module Minitest
+    def self.plugin_progress_lines_init(options) = reporter << RubyGBA::Testing::ProgressLines.for_run(options)
+  end
+  Minitest.extensions << "progress_lines"
+end

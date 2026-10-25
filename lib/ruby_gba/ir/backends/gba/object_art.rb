@@ -40,7 +40,7 @@ module RubyGBA
           # plus the biggest single scene's, since no two scenes' pictures are wanted at
           # the same time.
           def bytes = [@units, @peak].max * 32
-          attr_reader :saved
+          attr_reader :saved, :resident_units
 
           # The always-there art is finished: remember where it ended and what it holds,
           # so every scene starts from the same place and can still share it.

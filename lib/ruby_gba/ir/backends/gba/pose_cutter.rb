@@ -60,7 +60,17 @@ module RubyGBA
           # console's own words: 4bpp, low nibble first. A 4bpp OBJ tile is 32 bytes and an
           # 8bpp one 64, but OBJ tile NUMBERS count in 32s either way — which is why a wide
           # sprite has to start on an even one, see ScreenLayout#prepare_objects.)
+          #
+          # The same picture stored from the same box with the same colour numbers comes out
+          # the same bytes, so a later build holding it reads them back (see IR::Remembered).
           def encode(bmp, placement, box = nil)
+            IR::Remembered.fetch(:sprite_tiles, bmp, box, placement.narrow?, placement.indices) do
+              encode_without_remembering(bmp, placement, box)
+            end
+          end
+
+          # The work of #encode, every pixel of the box read, with nothing kept for later.
+          def encode_without_remembering(bmp, placement, box)
             width = bmp.width
             height = bmp.height
             indices = placement.indices

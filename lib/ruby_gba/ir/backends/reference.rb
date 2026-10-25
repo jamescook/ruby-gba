@@ -173,6 +173,8 @@ module RubyGBA
           @screen_frame = 0        # frames the screen has shown, which a pass may span several of
           @input_script = nil      # optional ->(frame) { buttons } to drive input over time
           @frames_script = nil     # optional ->(pass) { frames } to say a pass ran late
+          @clock_started = nil     # the moment the cartridge's clock read at power-on, or nil for no clock
+          @clock_set = true        # ...and whether it was ever set (see #clock_at)
           @frame = 0               # passes of the game loop finished (see @screen_frame for frames shown)
           @screen_mode = nil       # the mode a `screen` op selected, if any
           @buffered = false        # whether that mode opted into double buffering
@@ -192,6 +194,7 @@ module RubyGBA
           @scene = nil             # the scene that last took over (see #take_over)
           @obj_prev = {}           # object name -> [x, y] it was last drawn at (to erase before redrawing)
           @drawn = []              # ...and what this frame put on screen: which picture, where, whose
+          @sprites_hidden = false  # is the next frame drawn without its sprites? (see #exec_hide_sprites)
           @repaints = false        # must the whole view be rebuilt every frame? (decided in collect_definitions)
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
           @bg_maps = {}            # ...and this run's own copy of its cells, once any of them has changed
@@ -201,6 +204,8 @@ module RubyGBA
           @bg_affine = {}          # background name -> the Turn it is being drawn under this frame
           @bg_colors = {}          # ...and which of the lists of colours it was given is drawing it
           @color_lists = {}        # a list of colours that can hold other colours -> its declaration
+          @picture_groups = {}     # sprite pictures in groups -> the declaration (see #refuse_pictures_not_up!)
+          @groups_up = {}          # ...and the group each of its slots holds, PictureGroups::NONE for none
           @held_colors = {}        # ...and which of its other sets it holds now
           @obj_layer = []          # sprites to composite over a scrolling scene, in draw order (later = in front)
           @fade_placed = nil       # [layer, toward, amount] while a fade sits under a layer rather than over everything
@@ -403,6 +408,21 @@ module RubyGBA
           self
         end
 
+        # GIVE THE CARTRIDGE A CLOCK, reading +time+ at power-on, the way #hold gives it buttons.
+        # It moves on one of the console's frames for every frame the screen shows — a little more
+        # than a sixtieth of a second (Console::Hardware::FRAME_SECONDS), so a run of sixty frames sees a
+        # second go by — however many passes of the game loop those took. With
+        # +set: false+ the clock is there and was never set, which a game can ask (`clock.set?`).
+        #
+        # A run never told reads no clock at all (`clock.present?` is false), which is what a
+        # cartridge without the chip reads — so nothing a test checks ever depends on the time it
+        # happens to be when the test runs. Returns self.
+        def clock_at(time, set: true)
+          @clock_started = time
+          @clock_set = set
+          self
+        end
+
         private
 
         # CAN WHAT IS SEEN THROUGH A LAYER CHANGE WHILE NOTHING MOVES? Then the picture is one
@@ -518,6 +538,9 @@ module RubyGBA
               @backing[n.name] = { width: n.width, height: n.height, pixels: nil }
             when :color_list
               @color_lists[n.name] = n
+            when :picture_groups
+              @picture_groups[n.name] = n
+              @groups_up[n.name] = Array.new(n.slots, Nodes::PictureGroups::NONE)
             when :object
               # Register the object, so present_objects can find its picture and the
               # variables holding where it is and whether it's shown.
@@ -647,6 +670,7 @@ module RubyGBA
           case: :exec_case,
           halt: :exec_halt,
           wait_vblank: :exec_wait_vblank,
+          hide_sprites: :exec_hide_sprites,
           screen: :exec_screen,
           clear_screen: :exec_clear_screen,
           pixel: :exec_pixel,
@@ -661,6 +685,7 @@ module RubyGBA
           affine_background: :exec_affine_background,
           background_colors: :exec_background_colors,
           color_list_holds: :exec_color_list_holds,
+          show_picture_group: :exec_show_picture_group,
           scroll_rows: :exec_scroll_rows,
           shade_outside: :exec_shade_outside,
           show_light_now: :exec_show_light_now,
@@ -1310,6 +1335,11 @@ module RubyGBA
             paint_owed_repaint
             take_down_scenery
           end
+          # Its picture groups are left as the scene left them, since they say what its sprites
+          # can show and its sprites are left as they were too: a scene given the screen back
+          # draws them again before it can say anything, and a scene that loads first not until
+          # the pass after. The console copies those groups in again before the sprites are
+          # drawn (see GBA::PictureGroupCopying#emit_forget_sets_of).
           arrival.map_choices.each { |var| @vars[var] = 0 }
           (arrival.painted_tiles + arrival.painted_pictures).each { |run| copy_run_tiles(run) }
           arrival.scenery.each { |bg| put_up_background(bg) }
@@ -2309,7 +2339,9 @@ module RubyGBA
         # screen this frame and recomposite the whole view (scrolled scene, then these
         # objects on top). See #request_repaint.
         def exec_present_objects(node)
-          @drawn = objects_on_screen(names_in_draw_order(node))
+          @drawn = @sprites_hidden ? [] : objects_on_screen(names_in_draw_order(node))
+          @sprites_hidden = false
+          refuse_pictures_not_up!(@drawn)
           # Kept whichever way the picture is made, with each sprite's depth and colours as they
           # are now: a scene taking over later in this pass builds the picture again from it
           # (see #redraw_sprites_over_arrived_scenery).
@@ -2330,6 +2362,16 @@ module RubyGBA
             draw_object(on[:object], on[:picture], on[:x], on[:y])
             @obj_prev[on[:object].name] = [on[:x], on[:y]]
           end
+        end
+
+        # NO SPRITE ON THE NEXT FRAME. The sprites are drawn as the next pass begins, from the
+        # pass that just ran, and that drawing draws none and forgets this was asked: every
+        # sprite is where it was, so the drawing after puts each one back where it would have
+        # been. On the console the sprite layer is switched off for that frame, which hides the
+        # same things — and so a sprite showing a grouped picture whose group is not up is no
+        # mistake on that frame, since nothing draws it.
+        def exec_hide_sprites(_node)
+          @sprites_hidden = true
         end
 
         # The frame's objects in the order they are drawn: as listed, except that each run the
@@ -2405,6 +2447,73 @@ module RubyGBA
         # here: everything drawn with the list reads it as it is next drawn.
         def exec_color_list_holds(node)
           @held_colors[node.name] = eval_value(node.which)
+        end
+
+        # One slot of a set of picture groups holds the group numbered +which+ from now on.
+        # Nothing is drawn here: the groups up are only asked about as the sprites are drawn.
+        def exec_show_picture_group(node)
+          @groups_up.fetch(node.name)[node.slot] = eval_value(node.which)
+        end
+
+        # GROUPED PICTURES ARE UP ONLY WHILE ONE OF THEIR GROUPS IS. This backend has every
+        # picture in reach whatever is up, so it would draw a sprite showing a picture whose
+        # group is not up exactly as the game meant — and the console, which keeps only the
+        # groups up in its sprite memory, would draw it from tiles holding some other room's
+        # pictures. Stopped here, in plain words, it is a failed test on every build rather than
+        # garbage on one of them. So is two groups up at once that up_together never said can be,
+        # since the console may have put their pictures in the same place.
+        #
+        # A sprite answers to the groups of its own scene and to the groups every screen has, and
+        # only once its scene has taken over: until then its scene's pictures are not the ones up
+        # on the console either, groups or none.
+        def refuse_pictures_not_up!(drawn)
+          return if @picture_groups.empty?
+
+          @picture_groups.each_value { |groups| refuse_groups_not_together!(groups) if up_in_this_scene?(groups.scene) }
+          drawn.each do |on|
+            scene = on[:object].scene
+            next unless up_in_this_scene?(scene)
+
+            @picture_groups.each_value do |groups|
+              next unless groups.scene.nil? || groups.scene == scene
+
+              holding = groups.groups_holding(on[:picture])
+              next if holding.empty? || holding.intersect?(up_numbers(groups))
+
+              raise ProgramError, picture_not_up_message(on, groups, holding)
+            end
+          end
+        end
+
+        # Is what belongs to +scene+ (nil: every screen) up now?
+        def up_in_this_scene?(scene) = scene.nil? || scene == @scene
+
+        # The numbers of the groups of +groups+ up now: the slots' that name a group.
+        def up_numbers(groups) = @groups_up.fetch(groups.name).select { |number| groups.names_group?(number) }.uniq
+
+        def refuse_groups_not_together!(groups)
+          up = up_numbers(groups)
+          raise ProgramError, groups_not_together_message(groups, up) unless groups.together?(up)
+        end
+
+        def groups_not_together_message(groups, up)
+          "The groups #{up.join(' and ')} of :#{groups.name} are up together, and up_together: does not say " \
+            "they can be. So on the console their pictures can be in the same place in sprite memory. To fix " \
+            "this, add #{up.inspect} to up_together: of :#{groups.name}."
+        end
+
+        def picture_not_up_message(on, groups, holding)
+          sprite = on[:object].declared || on[:object].name
+          up = up_numbers(groups)
+          state = case up.length
+                  when 0 then "No group of :#{groups.name} is up"
+                  when 1 then "Only group #{up.first} of :#{groups.name} is up"
+                  else "Only the groups #{up.join(' and ')} of :#{groups.name} are up"
+                  end
+          which = holding.length == 1 ? "group #{holding.first}" : "groups #{holding.join(' or ')}"
+          "The sprite :#{sprite} shows :#{on[:picture]}, which is in #{which} of :#{groups.name}. #{state}. So on " \
+            "the console :#{sprite} will show other pictures. To fix this, show #{which} of :#{groups.name} before " \
+            ":#{sprite} shows :#{on[:picture]}."
         end
 
         # Does this object turn or resize? It does unless BOTH its angle and its size are
@@ -2939,6 +3048,7 @@ module RubyGBA
           save_read: :value_of_save_read,
           save_sum: :value_of_save_sum,
           timer_ticks: :value_of_timer_ticks,
+          clock: :value_of_clock,
         }.freeze
 
         def eval_value(operand)
@@ -3036,6 +3146,18 @@ module RubyGBA
 
         def value_of_timer_ticks(node)
           timer_ticks(node.name)
+        end
+
+        # The clock as it reads now: where #clock_at started it, on by every frame the screen has
+        # shown. That count moves only between passes, so every reading in one pass is of the same
+        # moment, and a minute cannot turn over between reading the minute and the second.
+        #
+        # A FRAME IS THE CONSOLE'S, a little more than a sixtieth of a second, since a clock keeps
+        # real seconds and the console's frames are what this counts in; an emulator's clock pinned
+        # to a moment moves on the same way, so the two read each second turn over on one frame.
+        def value_of_clock(node)
+          now = @clock_started && IR::Clock.moved_on(@clock_started, @screen_frame * Console::Hardware::FRAME_SECONDS)
+          IR::Clock.reading(node.reading, now, set: @clock_set)
         end
 
         # One byte (0..255) of a named embedded blob, read straight from the

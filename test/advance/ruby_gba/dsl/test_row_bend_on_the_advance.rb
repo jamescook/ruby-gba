@@ -137,4 +137,54 @@ class TestRowBendOnTheAdvance < Minitest::Test
     assert BendForm.fed_by_dma?(three_bends_program)
     assert_backends_agree(three_bends_program, frames: 4, name: "TRIB")
   end
+
+  # --- bends in scenes, fed by the interrupt ---
+
+  # TestRowBend's two scenes each bending a background of their own, the sea and the shore, with
+  # two backgrounds up in every scene bending as well: four bends, which is more than there are
+  # copying engines, so the per-line interrupt feeds them all.
+  private def interrupt_bending_scenes_program
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image(:bar, "." => :transparent, "#" => :red) { (["##......"] * 8).join("\n") }
+      tiles :stripes, "#" => :bar
+      %i[cloud mist].each_with_index do |name, i|
+        sky = background name, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+        sky.scroll_each_row { |row| (row + (i * 3)) % 5 }
+      end
+      state = var :state, 0
+      passes = var :passes, 0
+      scene(:sea) do
+        sea = background :sea, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+        sea.scroll_each_row { |row| row % 8 }
+        (passes == 3).then { state.set! 1 }
+      end
+      scene(:shore) do
+        shore = background :shore, tiles: :stripes, map: Array.new(20) { "#" * 30 }
+        shore.scroll_each_row { |row| (row / 4) % 8 }
+        (passes == 6).then { state.set! 0 }
+      end
+      game_loop do
+        passes.add! 1
+        case_var(:state) do
+          when_val 0, :sea
+          when_val 1, :shore
+        end
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  # Every frame of the sea (1-3), the shore (4-6) and the sea again. The console is run two frames
+  # longer, as for the interrupt-fed ripple above: four tables to clear and an interrupt to arm is
+  # boot, not behavior.
+  def test_scenes_bending_on_the_interrupt_agree_across_backends
+    program = interrupt_bending_scenes_program
+    refute BendForm.fed_by_dma?(program), "four bends is one more than there are engines"
+    (1..9).each do |f|
+      assert_backends_agree(program, frames: f, console_frames: f + 2, name: "BSI#{f}")
+    end
+  end
 end

@@ -33,6 +33,71 @@ class TestIRGuardrailTooManySprites < Minitest::Test
 
   private def refusal(program) = validator.run(program, autofix: false).errors.first&.message
 
+  # A game of three screens the variable :where picks between, each declaring its own
+  # sprites, with +shared+ declared outside every scene.
+  # +wall+ puts one more sprite every scene shows in a layer between the title's and play's,
+  # so it is drawn in front of the title's sprites and behind play's.
+  private def scenes(title:, play:, shared: 0, wall: false)
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      layers :back, :middle, :front
+      image(:dot, "#" => :white) { "########\n" * 8 }
+      image(:post, "#" => :red) { "########\n" * 8 }
+      shared.times { |i| sprite :dot, at: [i % 30 * 8, 150] }
+      layer(:middle) { sprite :post, at: [0, 140] } if wall
+      var :where, 0
+      scene(:title) { layer(:back) { title.times { |i| sprite :dot, at: [i % 30 * 8, i / 30 * 8] } } }
+      scene(:play) { layer(:front) { play.times { |i| sprite :dot, at: [i % 30 * 8, i / 30 * 8] } } }
+      scene(:over) {}
+      game_loop do
+        case_var(:where) do
+          when_val 0, :title
+          when_val 1, :play
+          when_val 2, :over
+        end
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  # Two scenes are never up together, so their sprites take turns at the same places: what
+  # has to fit is the busiest scene with the sprites every scene shows, not the whole game.
+  def test_sprites_of_scenes_never_up_together_share_places
+    assert_nil refusal(scenes(title: 100, play: 100, shared: 20))
+  end
+
+  def test_the_busiest_scene_over_the_places_is_refused_by_name
+    message = refusal(scenes(title: 20, play: 120, shared: 10))
+
+    assert_match(/:play scene has 130 sprites/, message, "it names the busiest scene and counts what it shows")
+    assert_match(/128/, message, "...and says how many the console has")
+    assert_match(/130 are sprites the game declared/, message, "...and spends the busiest scene's, not the game's")
+  end
+
+  # A sprite every scene shows keeps its place on every screen, and the console draws a lower
+  # place in front. Drawn in front of the title's sprites and behind play's, it needs the
+  # title's places on one side of it and play's on the other.
+  def test_a_sprite_drawn_between_two_scenes_sprites_keeps_them_apart
+    message = refusal(scenes(title: 70, play: 70, wall: true))
+
+    assert_match(/141 places/, message, "it says how many the game needs")
+    assert_match(/Each scene fits/, message, "...that no one scene is the trouble")
+    assert_match(/:post keeps the same places in every scene, and it is drawn in front of the sprites of one scene and behind/, message,
+                 "...which sprite keeps the scenes apart, and why")
+    assert_match(/put :post in a layer behind the sprites of every scene/, message, "...and how to fix it")
+    refute_match(/use fewer sprites/, message, "fewer sprites is not the fix")
+    assert_nil refusal(scenes(title: 70, play: 70, shared: 1)), "the same sprite drawn behind both lets them share"
+  end
+
+  def test_the_lowering_refuses_a_busiest_scene_in_the_same_words
+    program = scenes(title: 20, play: 120, shared: 10)
+    error = assert_raises(GBA::LoweringError) { GBA.new.lower(program) }
+
+    assert_equal refusal(program), error.message
+  end
+
   def test_more_sprites_than_the_console_has_places_for_is_refused
     message = refusal(game)
 

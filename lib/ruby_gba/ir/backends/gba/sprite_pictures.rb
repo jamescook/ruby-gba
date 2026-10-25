@@ -16,11 +16,17 @@ module RubyGBA
         # begin inside that; +repeats+ is the bytes those repeated pieces did not cost. +place+
         # is the colour storage the sprite draws from, and +animates+ whether the game picks
         # among more than one pose while it runs.
+        #
+        # +grouped+ is each pose whose picture is in a set of picture groups, by its number (see
+        # GroupedPose): such a pose is not in +stored+, since it is copied into sprite memory as
+        # one of its groups comes up rather than kept there for the whole scene, and its
+        # +starts+ count from the start of its own pictures.
         SpritePictures = Data.define(:node, :place, :boxes, :mirrors, :encoded, :stored, :starts,
-                                     :repeats, :width, :height, :animates) do
+                                     :repeats, :width, :height, :animates, :grouped) do
           def name = node.name
           def scene = node.scene
           def animates? = animates
+          def grouped? = grouped.any?
           def pieces = boxes.first.size
           def stored_bytes = stored.bytesize
 
@@ -78,6 +84,12 @@ module RubyGBA
             end.join.b
           end
         end
+
+        # ONE POSE OF A SPRITE WHOSE PICTURE IS IN A SET OF PICTURE GROUPS: the name of the set,
+        # the pose's pieces as the bytes copied in when one of its groups comes up, and how many of
+        # its pieces are its own. The rest are the blank pieces a short pose is filled out with,
+        # which draw the blank tile kept with the sprite's other pictures.
+        GroupedPose = Data.define(:set, :bytes, :pieces)
 
         # A SET OF PICTURES AND EVERY SPRITE SHOWING IT. Two sprites showing the same pictures
         # store them once (see ObjectArt) — every slot of a pool does — so the set, not the

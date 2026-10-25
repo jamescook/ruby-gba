@@ -166,9 +166,12 @@ module RubyGBA
           # +scenes+ is each scene's own set, by the scene's name, for a game whose room was split
           # between the whole game and its scenes (see {SceneQuickMemory}); empty otherwise, when
           # +funcs+ is everything kept.
+          # +insisted+ is the routines the author marked `fast: true`, which went in before
+          # anything the build chose — what to name when one of those left out something the
+          # build would have kept first.
           Report = Data.define(:funcs, :code_bytes, :used_bytes, :free_bytes, :total_bytes,
-                               :sizes, :passed_over, :chosen_from, :scenes) do
-            def initialize(chosen_from: :shape, scenes: {}, **rest) = super
+                               :sizes, :passed_over, :chosen_from, :scenes, :insisted) do
+            def initialize(chosen_from: :shape, scenes: {}, insisted: [], **rest) = super
           end
 
           # A routine the chooser skipped, and by how much. +measured+ is what the routine was
@@ -190,13 +193,14 @@ module RubyGBA
                        sizes: @routine_sizes || {},
                        passed_over: @passed_over || [],
                        chosen_from: @routine_profile ? :measurement : :shape,
-                       scenes: scene_sets_by_name)
+                       scenes: scene_sets_by_name,
+                       insisted: (@insisted || []).to_a)
           end
 
           # Decide what moves. Runs before anything is emitted, and answers a set of func
           # names — empty when there is nothing worth moving or the author turned it off.
           def choose_fast_funcs(program)
-            insisted = funcs_marked(program, true)
+            insisted = @insisted = funcs_marked(program, true)
             return insisted if insisted.empty? && !@fast_code
 
             probe, chosen = measure_and_choose(program, insisted)
@@ -276,7 +280,8 @@ module RubyGBA
             @progress.step(measuring_phase_name)
             probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress, stack_room: @stack_room)
             probe.lower(program, fast_funcs: Set.new, variables_first: variables_first, lists_to_roomy: @lists_to_roomy,
-                                 scene_blocks: @scene_blocks)
+                                 scene_blocks: @scene_blocks, screen: @planned_screen)
+            @planned_screen ||= probe.screen_layout
             probe
           end
 
@@ -450,6 +455,7 @@ module RubyGBA
               @emitting_hot = false
               @emitting_region = nil
               place_label(HOT_END)
+              @emit.keep_jumps_inside(HOT_START, HOT_END)
             end
             emit_scene_sets
           end
@@ -553,9 +559,10 @@ module RubyGBA
 
           # Call a routine that never itself moves to the quick memory — always in the
           # cartridge, whichever call reaches it: the digit routines (see
-          # Drawing#emit_digit_routines), a flash chip's byte routines (see SaveChip) and the
+          # Drawing#emit_digit_routines), a flash chip's byte routines (see SaveChip), the
           # routine that brings a background another set of tiles (see
-          # BackgroundDrawing#emit_set_swap_routines).
+          # BackgroundDrawing#emit_set_swap_routines) and the frame of a sound effect that has
+          # something to do (see Audio#emit_sound_effect_step_routine).
           # Plain when the call is cold too, and the same address-and-jump-through
           # #emit_call_func's own crossing call uses when the call is running from inside
           # the moved block, since a label back in the cartridge is too far from the quick
@@ -1035,8 +1042,16 @@ module RubyGBA
             # The first loop only, matching the one #register_frame_routine actually emits.
             when FRAME_ROUTINE then [program.walk.find { |node| node.kind == :loop }].compact
             when IRQ_ROUTINE   then TopOfQuickMemory.interrupt_bodies(program)
-            else program.walk.select { |node| node.kind == :func && node.name == name }
+            else routines_by_name(program).fetch(name, [])
             end
+          end
+
+          # Every routine the program writes, by name, found in one walk of the tree rather than
+          # one walk for each name asked about: a big game asks about hundreds of them.
+          def routines_by_name(program)
+            @routines_by_name = nil unless @routines_by_name_of.equal?(program)
+            @routines_by_name_of = program
+            @routines_by_name ||= program.walk.select { |node| node.kind == :func }.group_by(&:name)
           end
 
           # What a frame spends in each routine, dearest first. The cost model already

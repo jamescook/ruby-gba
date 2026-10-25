@@ -230,6 +230,31 @@ class TestFontAuthoring < Minitest::Test
     assert v.black?(40, 40), "the plus's empty corner"
   end
 
+  # A live number in a game's own font whose figures are not all one width: the console's
+  # shared digit routine needs them to be, so each digit is drawn as one of ten pieces of text,
+  # and those must still find the game's font. Each digit here is one row that lights its own
+  # column, and the last column always, so the font is nine wide — but its "1" is a column
+  # shorter.
+  def test_a_live_number_in_a_ragged_font_of_the_games_own_renders_on_hardware
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      font :ruler, glyphs: (0..9).to_h { |k|
+        width = k == 1 ? 8 : 9
+        [k.to_s, [Array.new(width) { |x| x == k || x == width - 1 ? 1 : 0 }]]
+      }
+      count = var :count, 7
+      draw_number count, 40, 40, :red, digits: 1, font: :ruler
+      halt
+    end
+    builder.finalize_program
+    rom = ROM.assemble(GBA.new.lower(builder.program), title: "FONTWIDE", maker: "01")
+    v = assert_emulator_loads_rom(rom, frames: 2)
+    assert v.red?(47, 40), "the seven's own column"
+    assert v.black?(43, 40), "and not another digit's"
+  end
+
   def test_a_custom_font_renders_on_hardware
     builder = Builder.new
     builder.instance_eval do

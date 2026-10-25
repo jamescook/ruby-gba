@@ -64,9 +64,12 @@ module RubyGBA
                                                set_tile: :lower_set_tile, show_map: :lower_show_map,
                                                background_colors: :lower_background_colors,
                                                color_list_holds: :lower_color_list_holds,
+                                               # every picture is in reach whatever is up: nothing to do
+                                               show_picture_group: :lower_nothing,
                                                copy_tiles: :lower_copy_tiles,
                                                copy_owed_tiles: :lower_copy_owed_tiles,
                                                present_objects: :lower_present_objects,
+                                               hide_sprites: :lower_hide_sprites,
                                                fade: :lower_fade, tint: :lower_tint,
                                                pixelate: :lower_pixelate,
                                                see_through: :lower_see_through,
@@ -93,6 +96,7 @@ module RubyGBA
                                            chance: :value_of_chance, table_get: :value_of_table_get,
                                            data_byte: :value_of_data_byte, list_get: :value_of_list_get,
                                            list_len: :value_of_list_len, timer_ticks: :value_of_timer_ticks,
+                                           clock: :value_of_clock,
                                            # the picture (Picture)
                                            pixels_overlap: :value_of_pixels_overlap,
                                            # save memory (Saving)
@@ -182,7 +186,7 @@ module RubyGBA
              *variable_names.map { |name| C::Global.new(name: variable(name)) },
              *list_storage,
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),
-             *held_colors_globals,
+             *held_colors_globals, *sprites_hidden_globals,
              *constant_arrays, *picture_data, *@drawing_arrays, title_array, *sound_tables,
              save_memory_table,
              *@called.map { |name| C::Prototype.new(name: routine(name)) },
@@ -557,6 +561,12 @@ module RubyGBA
             C::Int.new(bits)
           end
           def value_of_shift_right(node) = call("rg_shr", value(node.operand), C::Int.new(node.bits))
+
+          # A READING OF THE CARTRIDGE'S CLOCK, asked of the runtime by its place in
+          # IR::Clock::READINGS. Where the time comes from is the runtime's driver's to say: the
+          # computer's clock in a window, the test's moment with none (rg_driver.h).
+          def value_of_clock(node) = call("rg_clock_reading", C::Int.new(IR::Clock::READINGS.index(node.reading)))
+
           def value_of_held(node) = call("rg_held", C::Int.new(button_number(node.button)))
           def value_of_pressed(node) = call("rg_pressed", C::Int.new(button_number(node.button)))
 

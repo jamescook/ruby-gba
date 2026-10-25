@@ -318,7 +318,14 @@ module ConformanceFixture
       B.color_list(:fixture_slot, colors: [0x0000, 0x03E0], recolors: [[0x0000, 0x001F]]),
       B.color_list_holds(:fixture_slot, which: B.var_ref(:y)),
 
+      # The sprite's picture in a group of two that can be up together: the first is up, from a
+      # number the program works out, and the second slot names no group at all.
+      B.picture_groups(:fixture_rooms, groups: [[:obj8], nil, [:obj8]], together: [[0, 2]]),
+      B.show_picture_group(:fixture_rooms, slot: 0, which: B.binop(:-, B.var_ref(:x), B.var_ref(:x))),
+      B.show_picture_group(:fixture_rooms, slot: 1, which: B.int(1)),
+
       B.present_objects([:hero_obj]),   # draw the declared objects for this frame
+      B.hide_sprites,                   # ...and none on the next frame drawn, asked after this one's
       B.save_region(:under, :x, :y),    # remember the pixels under a moving object
       B.restore_region(:under, :x, :y), # then paint them back
 
@@ -395,6 +402,10 @@ module ConformanceFixture
       B.on_timer(:beat, B.add(:beat_hits, 1)), # a handler that runs on each overflow
       B.set(:acc, B.timer_ticks(:beat)),       # read the count into a scratch var
       B.timer_stop(:beat),
+
+      # --- the cartridge's clock: whether there is one, and the hour (0 with none) ---
+      B.set(:acc, B.clock(:present)),
+      B.set(:acc, B.clock(:hour)),
 
       # --- terminate: a loop that syncs once then halts (covers loop + halt) ---
       B.loop_(B.wait_vblank, B.halt),

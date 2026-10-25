@@ -77,6 +77,7 @@ module RubyGBA
         fade: :whole_screen,
         tint: :whole_screen,
         pixelate: :whole_screen,
+        hide_sprites: :whole_screen,
 
         # nothing a layer has an opinion about: the display mode, a background's window,
         # and the painting the framework itself does to put a software sprite on screen
@@ -98,6 +99,9 @@ module RubyGBA
         # ...or a list of colours holding other colours, which reaches every sprite drawn
         # with it, at whatever depth each one is.
         color_list_holds: :free,
+        # ...or a group of sprite pictures put up, which reaches every sprite showing one of
+        # them, at whatever depth each one is.
+        show_picture_group: :free,
         affine_background: :free,
         scroll_rows: :free,
         # ...and a light, which darkens the finished picture wherever its circle is not,

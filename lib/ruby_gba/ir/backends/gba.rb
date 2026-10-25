@@ -5,6 +5,8 @@ require_relative "gba/sprite" # what the build worked out about one sprite, for 
 require_relative "gba/pose_cutter" # how a sprite's picture is cut into the rectangles the console draws
 require_relative "gba/sprite_pictures" # one sprite's pictures, and the sets of them sprites share
 require_relative "gba/object_art" # where the sprites' pictures go in sprite memory
+require_relative "gba/picture_group_places" # ...and a scene's grouped pictures, by what can be up together
+require_relative "gba/grouped_pictures" # ...and what bringing each set's groups up takes
 require_relative "gba/sprite_layout" # ...and one attempt at fitting them all into it
 require_relative "gba/pose_sends" # ...and a pool's poses, sent the first time one is shown
 require_relative "gba/placed_fade" # a fade that sits at a place in the stack, and the twins holding it off
@@ -26,6 +28,7 @@ require_relative "gba/blob_upload" # copying data out of the cartridge into vide
 require_relative "gba/screen_effects" # the camera, fades and tints: the whole picture, not what is in it
 require_relative "gba/sprite_repeats" # which sprites are one sprite written out several times
 require_relative "gba/sprite_drawing" # writing the rows of the console's sprite table
+require_relative "gba/picture_group_copying" # ...and bringing a set of picture groups' groups up between frames
 require_relative "gba/map_streaming" # a map bigger than the grid, brought into view a strip at a time
 require_relative "gba/background_drawing" # putting background layers up, and changing them as the game runs
 require_relative "gba/framebuffer"
@@ -44,6 +47,7 @@ require_relative "gba/primitives"
 require_relative "gba/collision"
 require_relative "gba/timers"
 require_relative "gba/frames" # how many frames a pass of the game loop really took
+require_relative "gba/clock_chip" # the cartridge's clock chip, read once a pass
 require_relative "gba/raster"
 require_relative "gba/mixer"
 require_relative "gba/save_chips"
@@ -121,6 +125,18 @@ module RubyGBA
         # one refusal the build can still answer, by giving each scene a share of its own (see
         # SceneQuickMemory), before it lets the author see it.
         class QuickMemoryFull < LoweringError; end
+
+        # The sprites' pictures do not fit the console's sprite memory. It carries the map of
+        # where every scene's sprites were put on the last try (Diagnostics::VideoMemory::Area),
+        # so the scene that does not fit can be read, and not only one that does.
+        class SpriteMemoryFull < LoweringError
+          attr_reader :sprite_memory
+
+          def initialize(message, sprite_memory:)
+            super(message)
+            @sprite_memory = sprite_memory
+          end
+        end
 
         # Friendly screen-mode names → the display-control register value. Only
         # the direct-color bitmap mode is lowered here; other modes are their own
@@ -282,6 +298,10 @@ module RubyGBA
         # copy, read off the measuring pass, is Placement#routines_placed_with_frame.
         def map_view_routines = @map_view_routines || []
 
+        # Where every background and sprite went, once #lower has planned it. The measuring pass
+        # hands its plan back to the build it measured for (see Placement#measure_routines).
+        def screen_layout = @screen
+
         # The emitted machine code / the label table / where each embedded blob landed
         # — read straight from @emit, which is where they actually live (see {Emit}).
         def code = @emit.code
@@ -308,6 +328,9 @@ module RubyGBA
           @frames.emit_reset_frame_mark
           @expressions.emit_forget_presses if @uses_pressed
         end
+
+        # The cartridge's clock read again after each wait for the screen (see ClockChip).
+        def emit_read_clock_after_wait = @clock_chip.emit_call_after_wait
         def fade_steps_value(amount) = @effects.fade_steps_value(amount)
         def emit_clamp_blend_steps(most = Console::Hardware::BLD_MAX) = @effects.emit_clamp_blend_steps(most)
         def emit_blend_weights_from_acc = @effects.emit_blend_weights_from_acc
@@ -358,6 +381,8 @@ module RubyGBA
           @divide = Divide.new(emitter: @emit, memory: @memory, primitives: @primitives,
                                scales_objects: ScreenLayout.method(:scales?))
           @frames = Frames.new(emitter: @emit, primitives: @primitives)
+          @clock_chip = ClockChip.new(emitter: @emit, primitives: @primitives,
+                                      call_cold_routine: method(:emit_call_cold_routine))
           # The kind-keyed dispatch that replaces eval_value's case. Every statement in the
           # program goes through it, which also makes it the one place that can say how far
           # this pass has got — and the one place that can count what each part of the
@@ -436,6 +461,10 @@ module RubyGBA
                                  uploads: @uploads, sprite_drawing: @sprite_drawing,
                                  background_drawing: @background_drawing, backing_info: method(:backing_info),
                                  call_cold_routine: method(:emit_call_cold_routine), frames: @frames)
+          @picture_group_copying = PictureGroupCopying.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
+                                                           scene_entry: @drawing.scene_entry)
+          @sprite_drawing.picture_group_copying = @picture_group_copying
+          @drawing.picture_group_copying = @picture_group_copying
           # Every value kind's handler, registered once in one place — see {Lowering}.
           @lowering.values(
             int: @expressions.method(:eval_int), var_ref: @expressions.method(:eval_var_ref),
@@ -450,6 +479,7 @@ module RubyGBA
             list_get: @lists.method(:eval_list_get), list_len: @lists.method(:eval_list_len),
             save_read: @save.method(:eval_save_read), save_sum: @save.method(:eval_save_sum),
             read_scanline: @expressions.method(:eval_read_scanline), timer_ticks: method(:eval_timer_ticks),
+            clock: @clock_chip.method(:eval_clock),
           )
           # Every statement kind's handler, registered once in one place — see {Lowering}.
           # A declaration is collected during the definitions pass, earlier in #lower, and emits
@@ -496,7 +526,9 @@ module RubyGBA
             copy_owed_tiles: @background_drawing.method(:emit_copy_owed_tiles),
             background_colors: @background_drawing.method(:emit_background_colors),
             color_list_holds: @sprite_drawing.method(:emit_color_list_holds),
+            show_picture_group: @picture_group_copying.method(:emit_show_picture_group),
             present_objects: @sprite_drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
+            hide_sprites: @sprite_drawing.method(:emit_hide_sprites),
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
             beep: @audio.method(:emit_beep),
             noise: @audio.method(:emit_noise), wave: @audio.method(:emit_wave),
@@ -573,6 +605,7 @@ module RubyGBA
                                    sprite_offsets: @screen.sprite_offsets,
                                    streamed_sprite_pose_vars: streamed_sprite_pose_vars,
                                    sprite_runs: sprite_runs,
+                                   sprite_turns: @screen.sprite_turns { |name| var_addresses[name] },
                                    scene_sets: scene_sets_record,
                                    missed_routine_parts: missed_routine_parts,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code,
@@ -806,7 +839,9 @@ module RubyGBA
         # well: collections the plan gave the quick memory's room away from (see
         # {Placement}#choose_fast_funcs). +scene_blocks+ is too: whether the game loop's blocks
         # for one scene are made that scene's routines (see SceneQuickMemory#prepare_scene_loop_work).
-        def lower(program, fast_funcs: nil, variables_first: [], lists_to_roomy: Set.new, scene_blocks: false)
+        # +screen+ is the screen's layout when another pass already planned it for this program.
+        def lower(program, fast_funcs: nil, variables_first: [], lists_to_roomy: Set.new, scene_blocks: false, screen: nil)
+          @planned_screen = screen
           # What is held back at the top of the quick memory, settled before anything has a place
           # there: the stack, and the divide routines this program needs.
           @top = TopOfQuickMemory.for(program, stack_room: @stack_room, divides: needs_divide_routine?(program),
@@ -839,6 +874,7 @@ module RubyGBA
           @mixer.prepare_direct_sound(program) # embed the program's samples as ROM data
           @audio.prepare_music(program) # number its tunes, and keep the mixer voices they play on
           @uses_vblank = program.walk.any? { |node| node.kind == :wait_vblank }
+          @clock_chip.prepare(program) # whether anything reads the clock
           @mixer.prepare_mixer(program) # the software mixer's rate, buffers, voice slots, timer
           @audio.register_audio_blobs # every tune as one score — after the mixer's rate, which sets each note's step
           refuse_samples_without_vblank!
@@ -851,12 +887,18 @@ module RubyGBA
           # so it counts here alongside :tiled.
           @tiled = Modes.draws_with_tiles?(program)
           # Where every background and sprite goes, and the cartridge data that says so.
-          @screen = ScreenLayout.plan(program, bitmaps: @bitmaps, modes: @modes)
+          #
+          # PLANNED ONCE A BUILD. The plan is worked out from the program's pictures and screens
+          # alone, so it comes out the same however many times the routines are measured and
+          # whichever of them go to the quick memory. It is also most of the build's work on
+          # pictures, so the measuring passes and the build itself all read the first one's.
+          @screen = @planned_screen ||= ScreenLayout.plan(program, bitmaps: @bitmaps, modes: @modes)
           @emit.data_blobs.merge!(@screen.blobs)
           @blob_codecs.merge!(@screen.codecs)
           @layer_blend.screen = @screen # built here, not at construction — see LayerBlend's class comment
           @raster.register_row_bends(program) # which layers bend row by row (armed at boot, run per line)
-          @raster.prepare_row_bends(program, layers: @screen.hardware_layers)
+          @raster.prepare_row_bends(program, layers: @screen.hardware_layers, scene_entry: scene_entry,
+                                             scene_scenery: @screen.picture.scenery.select { |bg| @screen.handover.on_arrival?(bg) })
           @has_objects = program.walk.any? { |node| node.kind == :object }
           @layer_blend.prepare_layer_blend(program) # ...and which layer, if any, you can see through
           @layer_blend.amount_routines.each_key do |name|
@@ -870,6 +912,12 @@ module RubyGBA
           @fading = IR::Fading.resolve(program)
           @layer_blend.note_display_fades(@fading, @scene_blend)
           prepare_still_objects(program) if @has_objects
+          # Each set of picture groups brings its groups up with a routine of its own, so a profile
+          # can say what that cost (see PictureGroupCopying).
+          @picture_group_copying.plans = @screen.picture_group_plans
+          @screen.picture_group_plans.each_value do |plan|
+            @functions.define_generated_func(plan.routine) { @picture_group_copying.emit_routine(plan) }
+          end
           # The runs of the sprite table drawn in an order the program works out, each given a
           # copy in work memory (see SpriteDrawing::DrawRun).
           @draw_runs = if @has_objects
@@ -908,7 +956,7 @@ module RubyGBA
             blob_codecs: @blob_codecs, blob_raw_bytes: @blob_raw_bytes,
             modes: @modes, fading: @fading, tiled: @tiled, has_objects: @has_objects,
             scene_blend: @scene_blend || {}, movement: @movement || IR::Movement::EVERYTHING_MOVES,
-            scene_sprites: @scene_sprites || [],
+            scene_sprites: @scene_sprites || [], gated_sprites: @gated_sprites || [],
             waits_for_frames: @uses_vblank,
             draw_runs: @draw_runs, pose_sent_bytes: @pose_sent_bytes, room_tables: @room_tables,
             late_pages: IR::LatePages.of(program),
@@ -917,6 +965,7 @@ module RubyGBA
           @buffered.layout = layout
           @effects.layout = layout
           @sprite_drawing.layout = layout
+          @sprite_drawing.hides_sprites = program.walk.any? { |node| node.kind == :hide_sprites }
           @background_drawing.layout = layout
           # Fast ROM + prefetch, first, unless it's all raw or the caller asked to keep
           # the console's cautious power-on timing.
@@ -930,6 +979,8 @@ module RubyGBA
           emit_copy_divide_routines_to_iwram # a no-op when neither routine was reserved
           @framebuffer.emit_clear_remembered_column_step # no stretched column has worked out a step yet
           @drawing.emit_late_pages_at_power_on # what the game's own screen does with a late page
+          @picture_group_copying.emit_clear_groups_at_power_on # no picture group wanted or up yet
+          @sprite_drawing.emit_sprites_shown_at_power_on # no frame without sprites asked for yet
           emit_copy_hot_code_to_iwram unless @fast_funcs.empty?
           emit_call_power_on_swap # the scenes' own routines that fit side by side, the ones the game loop runs first
           # THE MIXER IS BROUGHT UP BEFORE THE INTERRUPTS ARE ARMED, and the order is load-bearing
@@ -943,6 +994,7 @@ module RubyGBA
           emit_mixer_boot if @mixer.plays_samples? # start the sound DMA + clock; voices added by `play`
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
+          @clock_chip.emit_call_at_power_on # whether the cartridge has a clock, and its first reading
           @palette_tint.emit_changed_lists_at_power_on # before the screen is set up, which may read them
           @sprite_drawing.emit_lent_colors_at_power_on # ...and so may the groups lent to lists
           @palette_tint.emit_clear_remembered_tint if @palette_tint.tint_crosses_screens? # ...as setting it up reads this
@@ -978,6 +1030,9 @@ module RubyGBA
           # The interrupt dispatcher itself, reached only via the vector. When it was worth
           # keeping in the quick memory it has already been emitted inside the moved block.
           while_emitting_interrupt { emit_irq_handler } if uses_irq? && !irq_runs_fast?
+          # What the interrupt's effects player hands an effect with something to do this frame,
+          # always in the cartridge (see Audio#emit_sound_effect_step_routine).
+          @audio.emit_sound_effect_step_routine if uses_irq? && @audio.plays_sound_effects?
           # After every body that can draw a number: a hot func's body is only ever lowered
           # inside emit_hot_functions, and a timer's tick inside the interrupt dispatcher, so a
           # digit routine one of them alone reaches would still be unregistered any earlier.
@@ -987,6 +1042,7 @@ module RubyGBA
           @sprite_drawing.emit_shared_room_routines # giving a sprite a room for its pose, two routines a set of rooms
           @sprite_drawing.emit_lend_colors_routine # lending a group of sprite colours to the list a sprite wears
           @lists.emit_fill_routine # the one routine every list_fill calls, for the same reason
+          @clock_chip.emit_routines # the conversations with the cartridge's clock chip
           @lists.emit_copy_routine # ...and every list_copy
           emit_swap_routine # copying a scene's own routines in as it takes over
           register_quick_tables
@@ -1305,7 +1361,9 @@ module RubyGBA
           emit(ASM.return) # BX LR back to the BIOS dispatcher
           # The routines the music player calls to find its notes a voice, past the return and
           # inside this routine's span — so they move with it if it is copied to the quick
-          # memory, and a call to them is always near enough.
+          # memory, and a call to them from in here is always near enough. The effects' step,
+          # in the cartridge, calls them too, and its calls say where they are going (see
+          # Audio#calling_interrupt_routines_from_cartridge).
           @mixer.emit_music_voice_routines if @mixer.music_takes_voices?
           @audio.emit_sound_effects_routine if @audio.plays_sound_effects?
           # ...and, in a game that asks for a tune `this_frame: true`, the player's big steps as
@@ -1653,7 +1711,7 @@ module RubyGBA
         def prepare_still_objects(program)
           @movement = IR::Movement.still_objects(program).except(@screen.written_every_frame)
           still = @movement.still
-          @functions.define_generated_func(SpriteDrawing::STILL_ROUTINE) { @sprite_drawing.emit_write_sprite_rows(still) } if still.any?
+          @functions.define_generated_func(SpriteDrawing::STILL_ROUTINE) { @sprite_drawing.emit_write_still_sprite_rows(still) } if still.any?
           prepare_scene_sprites(program, still)
         end
 
@@ -1669,13 +1727,25 @@ module RubyGBA
         # They are still written in the gap after the picture, where every sprite is written, so
         # nothing about which frame's numbers a sprite is drawn from changes (see
         # SpriteDrawing#emit_scene_sprites).
+        #
+        # Every sprite a scene puts up, still or moving, is kept too: when the variable picking
+        # the scenes changes, their rows are hidden before anything is written, since the rows
+        # of scenes never up together are the same rows (see SpriteDrawing#emit_hide_scene_rows_on_change).
         def prepare_scene_sprites(program, still)
-          @scene_sprites = IR::Movement.objects_shown_by_scene(program).filter_map do |things|
-            moving = things.names.select { |name| @screen.objects.key?(name) } - still
+          @gated_sprites = IR::Movement.objects_shown_by_scene(program).filter_map do |things|
+            drawn = things.names.select { |name| @screen.objects.key?(name) }
+            things.with(names: drawn) if drawn.any?
+          end
+          @scene_sprites = @gated_sprites.filter_map do |things|
+            moving = things.names - still
             things.with(names: moving) if moving.any?
           end
           @scene_sprites.each do |group|
             @functions.define_generated_func(SpriteDrawing.sprites_routine(group.scene)) { @sprite_drawing.emit_write_sprite_rows(group.names) }
+          end
+          @gated_sprites.group_by(&:state).each do |state, groups|
+            names = groups.flat_map(&:names)
+            @functions.define_generated_func(SpriteDrawing.hide_rows_routine(state)) { @sprite_drawing.emit_hide_sprite_rows(names) }
           end
         end
 

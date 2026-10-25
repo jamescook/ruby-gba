@@ -435,7 +435,7 @@ class TestSpritePieces < Minitest::Test
     b.finalize_program
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(b.program) }
 
-    assert_match(/draws 128 at most/, err.message)
+    assert_match(/has places for 128/, err.message)
     assert_match(/:big \(\d+ each\)/, err.message)
   end
 end

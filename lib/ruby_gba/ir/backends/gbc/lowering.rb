@@ -71,7 +71,10 @@ module RubyGBA
           # EVERY KIND THIS LOWERING CANNOT MAKE YET, by what it is part of. A kind leaves the list the
           # day the Color does it; test_gbc_kind_coverage.rb holds the list and the tables above to
           # every kind there is.
-          NOT_LOWERED_YET = Ractor.make_shareable({})
+          NOT_LOWERED_YET = Ractor.make_shareable({
+                                                    "the sprites" => %i[hide_sprites show_picture_group],
+                                                    "the cartridge" => %i[clock]
+                                                  })
 
           # The kinds the Color's hardware cannot do at all, refused in the words its answers have
           # (#refuse_color_answer_errors!): a layer seen through another, a light, a mosaic, a turned

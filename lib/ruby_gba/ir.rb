@@ -4,12 +4,14 @@ require_relative "ir/int32"
 require_relative "ir/program_error" # a game that goes wrong, as every backend says it
 require_relative "ir/faults" # ...and the sentence it is said in
 require_relative "ir/buttons"
+require_relative "ir/clock" # what a game reads of the date and time, on every backend
 require_relative "ir/screen"
 require_relative "ir/frames" # how many frames a pass of the game loop took
 require_relative "ir/node"  # what every node can do; names no kind
 require_relative "ir/nodes" # one class per kind, each declaring its own operands
 require_relative "ir/fields" # the operand tables, read off the classes
 require_relative "ir/font_table" # which font a name means to one program
+require_relative "ir/remembered" # what a build works out from a picture, kept for the next build
 require_relative "ir/assets" # what a declared image or recording is, for every backend
 require_relative "ir/saved_var" # ...and what a variable that survives power-off is
 require_relative "ir/save_layout" # ...and where save data lives in save memory
@@ -24,6 +26,7 @@ require_relative "ir/stacking" # the one rule turning declared layers into a dra
 require_relative "ir/scene_handover" # what a scene does to the screen as it takes over
 require_relative "ir/late_pages" # ...and when a page finished too late is shown
 require_relative "ir/movement" # ...and which of the things it stacks move, so the rest need not be redrawn
+require_relative "ir/sprite_rows" # ...and which sprites of scenes never up together share a row of the table
 require_relative "ir/see_through" # the layers a program can be seen through, and their mix
 require_relative "ir/fading" # ...and the one rule saying which part of the display a fade uses
 require_relative "ir/light_scenes" # ...and which scenes a light is off in, to let one of those have it

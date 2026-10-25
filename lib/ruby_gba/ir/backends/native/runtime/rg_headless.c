@@ -27,7 +27,11 @@
  * compares every frame pixel by pixel. Without it a frame is a few lines rather than a hundred
  * and fifty thousand characters, which is what lets a long run be driven a frame at a time.
  *
- * The options are --every-picture, and the six below.
+ * The options are --every-picture, and the seven below.
+ *
+ * With --clock-at SECONDS TICKS SET the cartridge has a clock, which reads SECONDS from the start
+ * of 1970 and TICKS of the console's 2^24 a second more at power-on, and was set when SET is 1
+ * (rg_clock_starts_at). Without it the cartridge has no clock.
  *
  * With --held-from-power-on MASK the buttons in MASK (bits as on standard input) are down before
  * the game's first statement, as a button held through the whole run is in the interpreter; the
@@ -306,6 +310,10 @@ int rg_headless_main(int argc, char **argv) {
       rg_save_cut_power_after(strtol(argv[++i], NULL, 10));
     } else if (strcmp(argv[i], "--held-from-power-on") == 0 && i + 1 < argc) {
       rg_buttons_held_from_power_on((uint32_t)strtoul(argv[++i], NULL, 10));
+    } else if (strcmp(argv[i], "--clock-at") == 0 && i + 3 < argc) {
+      int64_t seconds = strtoll(argv[++i], NULL, 10);
+      int64_t ticks = strtoll(argv[++i], NULL, 10);
+      rg_clock_starts_at(seconds, ticks, (int32_t)strtol(argv[++i], NULL, 10));
     }
   }
   rg_active_driver = &headless;

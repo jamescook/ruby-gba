@@ -72,6 +72,14 @@ module RubyGBA
             self
           end
 
+          # The same clock on both sides, started at the same moment.
+          def clock_at(time, set: true)
+            @native.clock_at(time, set: set)
+            @clock_started = time
+            @clock_set = set
+            self
+          end
+
           # The native run does the watching, so the block reads the game as C at each frame
           # boundary. This is what comes back, and not the native run: the run a test goes on to
           # make from here has to be the checked one.
@@ -148,8 +156,11 @@ module RubyGBA
           end
 
           # The interpreter starting from +save+, with the buttons held for the whole run down
-          # from power-on, as the game as C has them.
-          def interpreter_from(save) = Reference.new(save: save).hold(*@held)
+          # from power-on and the clock started where it was, as the game as C has them.
+          def interpreter_from(save)
+            interpreter = Reference.new(save: save).hold(*@held)
+            @clock_started ? interpreter.clock_at(@clock_started, set: @clock_set) : interpreter
+          end
 
           def buttons_for(frame) = @script ? Array(@script.call(frame)) : @held
 

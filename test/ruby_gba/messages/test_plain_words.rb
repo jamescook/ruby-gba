@@ -66,7 +66,8 @@ class TestPlainWords < Minitest::Test
     assert_equal [Placement::FRAME_ROUTINE, Placement::SETUP_ROUTINE, Placement::IRQ_ROUTINE,
                   RubyGBA::IR::Backends::GBA::Divide::ROUTINE,
                   RubyGBA::IR::Backends::GBA::Divide::FIX_ROUTINE,
-                  RubyGBA::IR::Backends::GBA::Mixer::ROUTINE],
+                  RubyGBA::IR::Backends::GBA::Mixer::ROUTINE,
+                  *RubyGBA::IR::Backends::GBA::ClockChip::ROUTINES],
                  PlainWords::ROUTINES.keys
   end
 
