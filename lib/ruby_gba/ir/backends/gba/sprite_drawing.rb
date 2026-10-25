@@ -294,6 +294,26 @@ module RubyGBA
             place_label(done)
           end
 
+          # A SCREEN'S WHOLE SET OF LAYERS, written to the display. Where a game's screens use
+          # layers of their own, the screen in play writes all of them every pass, the sprite
+          # layer among them — and that write lands after the gap that switched the sprite layer
+          # off for a frame, so on its own it would put the sprites straight back. So in a game
+          # that says `hide_sprites`, the sprite layer is left out of the write on the frame it is
+          # off for. A game that never says it writes the value as it is.
+          def emit_screen_layers(value)
+            return write_reg16(REG_DISPCNT, value) unless hides_sprites? && value.anybits?(OBJ_ENABLE)
+
+            write = gensym
+            emit_number(ACC, value)
+            load_var(TMP, SPRITES_HIDDEN)
+            emit(ASM.cmp_imm(TMP, SPRITES_OFF))
+            emit_branch(:bcond, write, cond: :ne)
+            emit(ASM.bic_imm(ACC, ACC, OBJ_ENABLE))
+            place_label(write)
+            emit_number(TMP, REG_DISPCNT)
+            emit(ASM.store_halfword(ACC, TMP))
+          end
+
           # A RUN OF THE TABLE DRAWN IN AN ORDER THE GAME WORKS OUT (see Builder#draw_in_order).
           #
           # The console decides which of two sprites is in front by where their rows sit in its

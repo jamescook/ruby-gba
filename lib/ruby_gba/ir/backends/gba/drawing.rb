@@ -629,7 +629,7 @@ module RubyGBA
 
             value = tiled_dispcnt(wanted.on, turning: wanted.turning)
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
-            write_reg16(REG_DISPCNT, value)
+            @sprite_drawing.emit_screen_layers(value) # leaves the sprites off on a frame hide_sprites asked for
           end
 
           # Send a scene's sprite pictures when it takes over. Scenes share the room above
