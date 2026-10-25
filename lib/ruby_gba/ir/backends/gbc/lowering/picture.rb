@@ -859,7 +859,13 @@ module RubyGBA
             # screen, so nothing of any sprite shows on that frame, and the placing after puts each
             # one back where it is by then. The game's own numbers for each sprite are not
             # touched, so nothing has to be put back. A game that never asks emits nothing for it.
-            def keep_sprites_hidden
+            #
+            # In a game whose sprites borrow the eight lists, the empty pass counts as a pass, so on
+            # the one after every list looks free and a sprite may borrow one another still holds.
+            # That costs nothing in the picture: the one it was taken from borrows another in turn,
+            # and each borrowing copies its colours in, so every sprite is drawn in its own. Only a
+            # pass wearing more than eight lists at once misses one, as it would without the gap.
+            def keep_sprites_hidden_flag
               @sprites_hidden = keep_local(:sprites_hidden) if @reachable.any? { |node| node.kind == :hide_sprites }
             end
 

@@ -32,6 +32,34 @@ class TestHideSprites < Minitest::Test
     end
   end
 
+  # The same, asked on the pass that leaves a bare title for play over scenery: the frame where a
+  # room comes up is the one a game hides its sprites for.
+  CALLED_ON_ARRIVAL = 3
+  ARRIVAL = proc do
+    screen :tiled
+    image :hero, "#" => :red do
+      Array.new(8) { "#" * 8 }.join("\n")
+    end
+    image(:sea_art, "#" => :blue) { Array.new(8) { "#" * 8 }.join("\n") }
+    tiles :sea, "#" => :sea_art
+    scene(:title) {}
+    scene(:play) { background :field, tiles: :sea, map: Array.new(20) { "#" * 30 } }
+    passes = var :passes, 0
+    var :state, 0
+    sprite :hero, at: TestHideSprites::HERO
+    game_loop do
+      passes.add! 1
+      (passes == TestHideSprites::CALLED_ON_ARRIVAL).then do
+        set! :state, 1
+        hide_sprites
+      end
+      case_var(:state) do
+        when_val 0, :title
+        when_val 1, :play
+      end
+    end
+  end
+
   private def program(source)
     b = Builder.new
     b.instance_eval(&source)
@@ -75,5 +103,17 @@ class TestHideSprites < Minitest::Test
   # every pixel of every frame around the call is the interpreter's.
   def test_the_console_hides_the_same_frame
     assert_backends_agree(program(GAME), frames: 2..(CALLED_ON + 4), name: "HIDE")
+  end
+
+  def test_sprites_hide_for_the_frame_a_scene_comes_up
+    player = game_player
+    seen = {}
+    player.each_vblank { seen[player[:passes]] = player.screen.pixel(HERO[0] + 1, HERO[1] + 1) }
+    player.run(program(ARRIVAL), frames: CALLED_ON_ARRIVAL + 4)
+
+    red = Color.resolve(:red)
+    assert_equal red, seen.fetch(CALLED_ON_ARRIVAL), "the hero shows on the title"
+    refute_equal red, seen.fetch(CALLED_ON_ARRIVAL + 1), "the hero is off on the frame play comes up"
+    assert_equal red, seen.fetch(CALLED_ON_ARRIVAL + 2), "the hero is back over the scenery"
   end
 end

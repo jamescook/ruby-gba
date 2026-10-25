@@ -218,7 +218,7 @@ module RubyGBA
             @scene = keep_local(:scene, start: -1) unless @scenes.empty?
             keep_timer_numbers
             keep_held_colors
-            keep_sprites_hidden
+            keep_sprites_hidden_flag
             keep_patches
             keep_tile_runs
             keep_drawn_palettes
