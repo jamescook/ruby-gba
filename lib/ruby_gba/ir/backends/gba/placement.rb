@@ -280,7 +280,8 @@ module RubyGBA
             @progress.step(measuring_phase_name)
             probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress, stack_room: @stack_room)
             probe.lower(program, fast_funcs: Set.new, variables_first: variables_first, lists_to_roomy: @lists_to_roomy,
-                                 scene_blocks: @scene_blocks)
+                                 scene_blocks: @scene_blocks, screen: @planned_screen)
+            @planned_screen ||= probe.screen_layout
             probe
           end
 
@@ -1041,8 +1042,16 @@ module RubyGBA
             # The first loop only, matching the one #register_frame_routine actually emits.
             when FRAME_ROUTINE then [program.walk.find { |node| node.kind == :loop }].compact
             when IRQ_ROUTINE   then TopOfQuickMemory.interrupt_bodies(program)
-            else program.walk.select { |node| node.kind == :func && node.name == name }
+            else routines_by_name(program).fetch(name, [])
             end
+          end
+
+          # Every routine the program writes, by name, found in one walk of the tree rather than
+          # one walk for each name asked about: a big game asks about hundreds of them.
+          def routines_by_name(program)
+            @routines_by_name = nil unless @routines_by_name_of.equal?(program)
+            @routines_by_name_of = program
+            @routines_by_name ||= program.walk.select { |node| node.kind == :func }.group_by(&:name)
           end
 
           # What a frame spends in each routine, dearest first. The cost model already

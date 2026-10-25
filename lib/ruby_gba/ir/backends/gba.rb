@@ -298,6 +298,10 @@ module RubyGBA
         # copy, read off the measuring pass, is Placement#routines_placed_with_frame.
         def map_view_routines = @map_view_routines || []
 
+        # Where every background and sprite went, once #lower has planned it. The measuring pass
+        # hands its plan back to the build it measured for (see Placement#measure_routines).
+        def screen_layout = @screen
+
         # The emitted machine code / the label table / where each embedded blob landed
         # — read straight from @emit, which is where they actually live (see {Emit}).
         def code = @emit.code
@@ -835,7 +839,9 @@ module RubyGBA
         # well: collections the plan gave the quick memory's room away from (see
         # {Placement}#choose_fast_funcs). +scene_blocks+ is too: whether the game loop's blocks
         # for one scene are made that scene's routines (see SceneQuickMemory#prepare_scene_loop_work).
-        def lower(program, fast_funcs: nil, variables_first: [], lists_to_roomy: Set.new, scene_blocks: false)
+        # +screen+ is the screen's layout when another pass already planned it for this program.
+        def lower(program, fast_funcs: nil, variables_first: [], lists_to_roomy: Set.new, scene_blocks: false, screen: nil)
+          @planned_screen = screen
           # What is held back at the top of the quick memory, settled before anything has a place
           # there: the stack, and the divide routines this program needs.
           @top = TopOfQuickMemory.for(program, stack_room: @stack_room, divides: needs_divide_routine?(program),
@@ -881,7 +887,12 @@ module RubyGBA
           # so it counts here alongside :tiled.
           @tiled = Modes.draws_with_tiles?(program)
           # Where every background and sprite goes, and the cartridge data that says so.
-          @screen = ScreenLayout.plan(program, bitmaps: @bitmaps, modes: @modes)
+          #
+          # PLANNED ONCE A BUILD. The plan is worked out from the program's pictures and screens
+          # alone, so it comes out the same however many times the routines are measured and
+          # whichever of them go to the quick memory. It is also most of the build's work on
+          # pictures, so the measuring passes and the build itself all read the first one's.
+          @screen = @planned_screen ||= ScreenLayout.plan(program, bitmaps: @bitmaps, modes: @modes)
           @emit.data_blobs.merge!(@screen.blobs)
           @blob_codecs.merge!(@screen.codecs)
           @layer_blend.screen = @screen # built here, not at construction — see LayerBlend's class comment
