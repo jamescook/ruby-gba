@@ -92,6 +92,27 @@ module RubyGBA
       MBC_RAM_BANK = 0x4000 # which 8K of the cartridge's memory is in view at 0xA000
       MBC_RAM_ON = 0x0A
 
+      # --- the clock chip beside an MBC3 (Pan Docs, "MBC3") ---
+      #
+      # The MBC3 is the controller the console's own games with a clock carried. 0x0A at
+      # MBC_RAM_ENABLE switches its clock on for the processor along with the memory, and one of
+      # these five numbers at MBC_RAM_BANK puts that register of the clock in view at 0xA000 in
+      # place of a bank of memory: the seconds, minutes and hours, and the day count's low eight
+      # bits and the high register, which holds its ninth bit, the halt bit that stops the clock
+      # counting, and the carry bit the clock sets when the count passes 511 days. The clock counts
+      # on all the time; 0 and then 1 at MBC_CLOCK_LATCH copies all five into what the processor
+      # reads, so they are read at one moment. A real chip wants a few microseconds between two
+      # accesses to it, and its counters written only while it is halted.
+      MBC_CLOCK_LATCH = 0x6000
+      CLOCK_SECONDS = 0x08
+      CLOCK_MINUTES = 0x09
+      CLOCK_HOURS = 0x0A
+      CLOCK_DAY_LOW = 0x0B
+      CLOCK_DAY_HIGH = 0x0C
+      CLOCK_DAY_NINTH_BIT = 0x01
+      CLOCK_HALT = 0x40
+      CLOCK_CARRY = 0x80
+
       # --- buttons ---
       P1 = 0xFF00 # write 0x20 to read the directions, 0x10 to read the four buttons; 0 means held
 

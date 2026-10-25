@@ -61,19 +61,18 @@ module RubyGBA
                                            save_read: :value_of_save_read, save_sum: :value_of_save_sum,
                                            timer_ticks: :value_of_timer_ticks, chance: :value_of_chance,
                                            data_byte: :value_of_data_byte
-                                         }.merge(Picture::VALUES))
+                                         }.merge(Picture::VALUES).merge(Clock::VALUES))
 
           include Picture
           include PaintReach
           include Sound
           include TileRuns
+          include Clock
 
           # EVERY KIND THIS LOWERING CANNOT MAKE YET, by what it is part of. A kind leaves the list the
           # day the Color does it; test_gbc_kind_coverage.rb holds the list and the tables above to
           # every kind there is.
-          NOT_LOWERED_YET = Ractor.make_shareable({
-                                                    "the cartridge" => %i[clock]
-                                                  })
+          NOT_LOWERED_YET = Ractor.make_shareable({})
 
           # The kinds the Color's hardware cannot do at all, refused in the words its answers have
           # (#refuse_color_answer_errors!): a layer seen through another, a light, a mosaic, a turned
@@ -196,6 +195,7 @@ module RubyGBA
             @section_routines = {} # each routine's section, by its label -> what it is to the author
             prepare_picture
             prepare_sound
+            prepare_clock
           end
 
           # The game's code, as sections for the Linker: its data, every routine a run can reach, and
@@ -224,15 +224,16 @@ module RubyGBA
             keep_drawn_palettes
             keep_big_map_places
             keep_column_numbers
+            keep_clock_readings
             routines = @called.flat_map do |name|
               routines_fitting(self.class.routine_label(name), @funcs.fetch(name).children, routine: routine_said(name))
             end
             timers = timer_sections
-            main = routines_fitting(MAIN, @program.children, routine: "the game loop")
+            main = routines_fitting(MAIN, [*clock_at_power_on, *@program.children], routine: "the game loop")
             # The routines the drawing asked for as the rest was made, and then the data last of
             # all, since the routines are what find the tables in it.
             columns = column_sections
-            [data_section, *banked_table_sections, *routines, *timers, *main, *columns]
+            [data_section, *banked_table_sections, *routines, *timers, *main, *clock_sections, *columns]
           end
 
           private
@@ -784,6 +785,7 @@ module RubyGBA
           # (Runtime::Frame::FRAMES_TAKEN, STEP_TAKEN).
           def emit_wait_vblank(_node)
             @asm.call("rt_wait_vblank")
+            emit_clock_each_pass
             @asm.load(:a, [@memory[Runtime::Frame::FRAMES_TAKEN]])
             @asm.load(:c, :a)
             @asm.load(:hl, place_of(Frames::COUNT))

@@ -50,9 +50,12 @@ module RubyGBA
 
           # +fixed_from+ is the first address in bank 0 that sections without an address of their own
           # may use: past the cartridge's header, which the cartridge writes once everything is placed.
-          def initialize(sections, fixed_from: 0)
+          # +clock+ is a cartridge with a clock chip, which has fewer banks (MOST_CLOCK_BANKS).
+          def initialize(sections, fixed_from: 0, clock: false)
             @sections = sections
             @fixed_from = fixed_from
+            @clock = clock
+            @most_banks = clock ? MOST_CLOCK_BANKS : MOST_BANKS
           end
 
           def link
@@ -103,7 +106,7 @@ module RubyGBA
                      else
                        (1..).find { |b| start_in.call(b) + size <= BANK_SIZE }
                      end
-              refuse_too_many_banks!(banked) if bank >= MOST_BANKS
+              refuse_too_many_banks!(banked) if bank >= @most_banks
               used = start_in.call(bank)
               raise Error, "section #{section.name} does not fit in bank #{bank} beside what is there" if used + size > BANK_SIZE
 
@@ -118,6 +121,10 @@ module RubyGBA
           # eight bits of the bank number, so bank 256 would come up as bank 0. A game that needs
           # more is refused here rather than built with jumps that land in the wrong bank.
           MOST_BANKS = 256
+
+          # A CARTRIDGE WITH A CLOCK CHIP has the memory bank controller the console's own games with
+          # a clock carried, an MBC3, which takes seven bits of the bank number: 128 banks, 2M.
+          MOST_CLOCK_BANKS = 128
 
           DOES_NOT_FIT = "This game does not fit in a Game Boy Color cartridge."
 
@@ -148,10 +155,11 @@ module RubyGBA
 
           # More of the game than every bank of the cartridge holds together.
           def refuse_too_many_banks!(banked)
-            raise Error, "the framework's own code needs more than #{MOST_BANKS} banks" if banked.none?(&:holds)
+            raise Error, "the framework's own code needs more than #{@most_banks} banks" if banked.none?(&:holds)
 
-            raise TooBig, "#{DOES_NOT_FIT} A cartridge holds #{MOST_BANKS} banks of #{BANK_SIZE} bytes. Of " \
-                          "what goes in them, #{taken_words(banked)}. To fix this, #{biggest(banked).fix}."
+            raise TooBig, "#{DOES_NOT_FIT} A cartridge#{' with a clock chip' if @clock} holds #{@most_banks} banks " \
+                          "of #{BANK_SIZE} bytes. Of what goes in them, #{taken_words(banked)}. To fix this, " \
+                          "#{biggest(banked).fix}."
           end
 
           # Bytes taken by each of the game's parts among +sections+, the biggest first.

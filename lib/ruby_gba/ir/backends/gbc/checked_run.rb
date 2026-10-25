@@ -56,6 +56,15 @@ module RubyGBA
             self
           end
 
+          # The same clock on both sides, started at the same moment: the Color's chip, which keeps
+          # no date, whichever console the program was built for.
+          def clock_at(time, set: true)
+            @cartridge.clock_at(time, set: set)
+            @clock_started = time
+            @clock_set = set
+            self
+          end
+
           def run(program, max_steps: nil, frames: nil)
             if max_steps
               raise HeadlessRun::CannotAnswer, "a Game Boy Color cartridge keeps no step budget, so it cannot run " \
@@ -110,6 +119,7 @@ module RubyGBA
           # moves on by the same frames on both.
           def play_on_interpreter(program, frames, width, height, save)
             interpreter = Reference.new(save: save).hold(*@held)
+            interpreter.clock_at(@clock_started, set: @clock_set, keeps_date: false) if @clock_started
             moments = []
             interpreter.frames_each_pass { |pass| @cartridge.frames_took(pass) }
             interpreter.input_each_frame { |frame| @played.fetch(frame, []) }

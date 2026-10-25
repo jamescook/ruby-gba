@@ -29,6 +29,11 @@ module RubyGBA
       # date into the Advance's chip: its save keeps how far the time the player set is from the
       # chip's count. Pokemon Crystal does the same on the Color, whose chip counts days and keeps
       # no date at all.
+      #
+      # A CHIP THAT KEEPS NO DATE (Console::Description#clock_keeps_date) counts its days from
+      # whenever it started, not from 2000-01-01, and has no date or time to give a game that never
+      # set one: every TIME reading of it is 0, and so is set?, until the game sets the clock. A
+      # test's chip of that kind starts counting on the day it names, at the time of day it names.
       COUNT = %i[days seconds counting].freeze
 
       READINGS = (TIME + QUESTIONS + COUNT).freeze
@@ -40,6 +45,11 @@ module RubyGBA
       SHOWN = (TIME + [:set]).to_h { |reading| [reading, :"__clock_shown_#{reading}"] }.freeze
       ROUTINES = %i[__clock_readings __clock_at_power_on].freeze
 
+      # ...and what it keeps in its save: how far the time set is from the chip's count, in days
+      # and in seconds, and whether it set one — a fact a lowering reads too, since a chip that can
+      # count only so many days has whole days moved out of it into this record before it fills.
+      RECORD = %i[days seconds set].to_h { |part| [part, :"__clock_record_#{part}"] }.freeze
+
       # The first day the count starts from, and the seconds in a day.
       EPOCH = Time.utc(2000, 1, 1).freeze
       DAY = 86_400
@@ -47,17 +57,18 @@ module RubyGBA
       module_function
 
       # +reading+ of a clock at +time+ — a Time, or nil for no clock at all — that was set when
-      # +set+ is true.
+      # +set+ is true. A clock that keeps no date (+dated+ false) counts its days from the date
+      # it +started+ at.
       #
       # The time is read as the date and the hour it SAYS, with no time zone: a clock holds the
       # local time it was set to and moves one second a second, through a change to summer time
       # and out of one. So a Time a test gives is taken at its word, and moving it on never makes
       # an hour appear or vanish.
-      def reading(reading, time, set:)
+      def reading(reading, time, set:, started: time, dated: true)
         return 0 unless time
         return 1 if reading == :present
-        return counted(reading, time, set) if COUNT.include?(reading)
-        return 0 unless set
+        return counted(reading, time, set, dated ? EPOCH : started) if COUNT.include?(reading)
+        return 0 unless set && dated
 
         case reading
         when :set then 1
@@ -74,10 +85,11 @@ module RubyGBA
         Time.utc(time.year, time.month, time.day, time.hour, time.min, time.sec + time.subsec) + seconds
       end
 
-      # The chip's count at +time+: its days, its seconds, or whether it counted on (+set+).
-      def counted(reading, time, set)
+      # The chip's count at +time+: its days since the date of +from+, its seconds, or whether it
+      # counted on (+set+).
+      def counted(reading, time, set, from)
         case reading
-        when :days then (Time.utc(time.year, time.month, time.day) - EPOCH).div(DAY)
+        when :days then (Time.utc(time.year, time.month, time.day) - Time.utc(from.year, from.month, from.day)).div(DAY)
         when :seconds then (time.hour * 3600) + (time.min * 60) + time.sec
         else set ? 1 : 0
         end

@@ -25,6 +25,7 @@ require_relative "gbc/lowering/picture"
 require_relative "gbc/lowering/paint_reach"
 require_relative "gbc/lowering/sound"
 require_relative "gbc/lowering/tile_runs"
+require_relative "gbc/lowering/clock"
 require_relative "gbc/lowering"
 require_relative "gbc/sound_log"
 require_relative "gbc/headless_run"
@@ -117,7 +118,8 @@ module RubyGBA
                                              music: lowering.music, runs: runs, drawn_palettes: lowering.drawn_palettes,
                                              big_maps: lowering.big_map_places)
           data = [*lowering.art.sections, *(lowering.music.any? ? [lowering.music.section] : [])]
-          linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END).link
+          linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END,
+                                                     clock: lowering.clock?).link
           routines = lowering.section_routines.map do |label, routine|
             placed = linked.sections.fetch(label)
             GameRoutine.new(bank: placed.bank, addresses: placed.address...(placed.address + placed.section.size), routine: routine)
@@ -128,7 +130,7 @@ module RubyGBA
                              music_follows_level: !lowering.music_level.nil?,
                              sound_effects: lowering.music.effects.map(&:name))
           save_bytes = SaveLayout.named_by?(program) ? Runtime::Saving::SIZE : 0
-          Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: save_bytes, built: built)
+          Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: save_bytes, clock: lowering.clock?, built: built)
         end
 
         # Where the runtime keeps how the run stands (Runtime::Frame's names and the rest).

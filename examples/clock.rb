@@ -25,6 +25,10 @@
 #
 # The clock also works in SkyEmu.
 #
+# FOR THE ADVANCE ALONE. A Game Boy Color cartridge's clock counts days and keeps no date, so a
+# game there shows the time only once it sets the clock (`clock.set!`), from a screen of its own
+# that asks the player; this one never asks, and on a Color would only ever say it was not set.
+#
 # PAINT WHEN IT CHANGES. The time moves on once a second, so the face is painted once a second
 # and left alone in between, through `keep_showing`. The screen here keeps two pictures and
 # shows them in turn, so that nobody ever sees one half drawn; `keep_showing` is what paints a

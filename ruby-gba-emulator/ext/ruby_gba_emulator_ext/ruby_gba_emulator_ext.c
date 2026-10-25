@@ -164,6 +164,16 @@ color_correct_pixel(uint32_t argb)
 
 struct display_recorder;
 
+/* A GAME BOY CARTRIDGE'S CLOCK CHIP, counted from the game's first look at it — see
+ * Core#use_counting_clock. mGBA asks its clock for the seconds since 1970 each time the game
+ * latches the chip, and counts on the chip by the seconds between two latches. */
+struct counting_clock {
+    struct mRTCSource d;
+    struct mCore *core;
+    int64_t epoch_ms;      /* the moment of the first look, in milliseconds since 1970 */
+    int64_t from_frame;    /* the emulator's frame at the first look, or -1 before it */
+};
+
 struct mgba_core {
     struct mCore *core;
     color_t *video_buffer;
@@ -238,6 +248,7 @@ struct mgba_core {
         size_t count;
         size_t room;
     } feed_log;
+    struct counting_clock counting_clock;
 };
 
 /* WHICH CARTRIDGE IS RUNNING RIGHT NOW, so the callbacks mGBA fires part-way through a
@@ -1164,6 +1175,131 @@ mgba_core_use_clock(VALUE self, VALUE epoch_ms, VALUE power_lost)
     }
     mc->core->rtc.override = RTC_FAKE_EPOCH;
     mc->core->rtc.value = NUM2LL(epoch_ms);
+    return self;
+}
+
+/* --------------------------------------------------------- */
+/* Core#use_counting_clock(epoch_ms, registers)              */
+/*                                                           */
+/* A GAME BOY CARTRIDGE'S CLOCK CHIP, its counters set. The  */
+/* MBC3's chip holds no date: five registers count the       */
+/* seconds, minutes, hours and days (the low eight bits, then */
+/* the ninth beside a halt bit and a carry bit), and mGBA     */
+/* gives one to every cartridge whose header says MBC3 with a */
+/* timer. +registers+ is those five bytes, in that order.     */
+/*                                                           */
+/* THE CHIP READS THEM AT THE GAME'S FIRST LOOK AT IT, which */
+/* is where a test's clock starts — a cartridge takes frames */
+/* of its own to start up before it reads the time, and the  */
+/* interpreter it is checked against takes none — and counts */
+/* on one emulated frame each frame from there, the seconds   */
+/* worked out from the frames exactly, never the host's       */
+/* clock. +epoch_ms+ (milliseconds since 1970) is where its   */
+/* seconds start: mGBA counts only the seconds between two    */
+/* latches, so no time zone comes into it.                    */
+/* --------------------------------------------------------- */
+
+static time_t
+counting_clock_time(struct mRTCSource *source)
+{
+    struct counting_clock *clock = (struct counting_clock *)source;
+    struct mCore *core = clock->core;
+    int64_t frame = core->frameCounter(core);
+    if (clock->from_frame < 0) {
+        clock->from_frame = frame;
+    }
+    int64_t frequency = core->frequency(core);
+    int64_t cycles = (frame - clock->from_frame) * (int64_t)core->frameCycles(core);
+    /* The milliseconds past the second and the frames' cycles over one denominator, so nothing
+     * is rounded until the whole seconds are taken. */
+    int64_t past_the_second = clock->epoch_ms % 1000;
+    return (time_t)(clock->epoch_ms / 1000 + (past_the_second * frequency + cycles * 1000) / (frequency * 1000));
+}
+
+static VALUE
+mgba_core_use_counting_clock(VALUE self, VALUE epoch_ms, VALUE registers)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    if (mc->core->platform(mc->core) != mPLATFORM_GB) {
+        rb_raise(rb_eArgError, "only a Game Boy cartridge has a clock that counts days");
+    }
+    StringValue(registers);
+    if (RSTRING_LEN(registers) != 5) {
+        rb_raise(rb_eArgError, "a counting clock has 5 registers, not %ld", RSTRING_LEN(registers));
+    }
+    int64_t epoch = NUM2LL(epoch_ms);
+    if (epoch < 0) {
+        rb_raise(rb_eArgError, "a counting clock starts after 1970");
+    }
+    struct GB *gb = mc->core->board;
+    struct counting_clock *clock = &mc->counting_clock;
+    memset(clock, 0, sizeof(*clock));
+    clock->d.unixTime = counting_clock_time;
+    clock->core = mc->core;
+    clock->epoch_ms = epoch;
+    clock->from_frame = -1;
+    gb->memory.rtc = &clock->d;
+    gb->memory.rtcLastLatch = (time_t)(epoch / 1000);
+    gb->memory.rtcLatched = false;
+    memcpy(gb->memory.rtcRegs, RSTRING_PTR(registers), 5);
+    return self;
+}
+
+/* --------------------------------------------------------- */
+/* Core#clock_registers                                      */
+/*                                                           */
+/* The five registers of a Game Boy cartridge's clock chip as */
+/* the game last latched or wrote them, a String of 5 bytes. */
+/* --------------------------------------------------------- */
+
+static VALUE
+mgba_core_clock_registers(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    if (mc->core->platform(mc->core) != mPLATFORM_GB) {
+        rb_raise(rb_eArgError, "only a Game Boy cartridge has a clock that counts days");
+    }
+    struct GB *gb = mc->core->board;
+    return rb_str_new((const char *)gb->memory.rtcRegs, 5);
+}
+
+/* --------------------------------------------------------- */
+/* Core#remove_clock                                         */
+/*                                                           */
+/* A GAME BOY CARTRIDGE WITH NO CLOCK CHIP, though its header */
+/* says it has one — as a flash cartridge without one plays  */
+/* it. mGBA always gives such a cartridge a chip, so the     */
+/* controller's own writes are passed on as before, and then  */
+/* every register of the chip reads 0xFF, as a bus with       */
+/* nothing on it does.                                        */
+/* --------------------------------------------------------- */
+
+static void (*mbc_write_with_clock)(struct GB *, uint16_t, uint8_t);
+
+static void
+mbc_write_without_clock(struct GB *gb, uint16_t address, uint8_t value)
+{
+    mbc_write_with_clock(gb, address, value);
+    memset(gb->memory.rtcRegs, 0xFF, sizeof(gb->memory.rtcRegs));
+}
+
+static VALUE
+mgba_core_remove_clock(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    if (mc->core->platform(mc->core) != mPLATFORM_GB) {
+        rb_raise(rb_eArgError, "only a Game Boy cartridge has a clock that counts days");
+    }
+    struct GB *gb = mc->core->board;
+    if (gb->memory.mbcType != GB_MBC3_RTC) {
+        rb_raise(rb_eArgError, "only a cartridge whose header says MBC3 with a timer has a clock to remove");
+    }
+    if (gb->memory.mbcWrite != mbc_write_without_clock) {
+        /* Every MBC3 cartridge's write is the one function, so one place keeps it for every core. */
+        mbc_write_with_clock = gb->memory.mbcWrite;
+        gb->memory.mbcWrite = mbc_write_without_clock;
+    }
+    memset(gb->memory.rtcRegs, 0xFF, sizeof(gb->memory.rtcRegs));
     return self;
 }
 
@@ -4318,6 +4454,9 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "color_correction=", mgba_core_set_color_correction, 1);
     rb_define_method(cCore, "color_correction?", mgba_core_color_correction_p, 0);
     rb_define_method(cCore, "use_clock",   mgba_core_use_clock, 2);
+    rb_define_method(cCore, "use_counting_clock", mgba_core_use_counting_clock, 2);
+    rb_define_method(cCore, "clock_registers",    mgba_core_clock_registers, 0);
+    rb_define_method(cCore, "remove_clock",       mgba_core_remove_clock, 0);
     rb_define_method(cCore, "frame_blending=", mgba_core_set_frame_blending, 1);
     rb_define_method(cCore, "frame_blending?", mgba_core_frame_blending_p, 0);
     rb_define_method(cCore, "rewind_init",   mgba_core_rewind_init, 1);

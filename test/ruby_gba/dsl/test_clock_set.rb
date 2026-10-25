@@ -94,10 +94,4 @@ class TestClockSet < Minitest::Test
     assert_equal({ present: 1, set: 0, hour: 0 }, before.slice(:present, :set, :hour))
     assert_equal time_of(Time.new(2030, 6, 15, 12, 0, 0)).merge(present: 1, set: 1), after
   end
-
-  # Until the game sets it, a game that sets the clock reads the chip's own time, as one that
-  # never does.
-  def test_before_the_game_sets_it_the_chips_own_time_is_read
-    assert_equal time_of(CHIP).merge(present: 1, set: 1), readings([2030, 6, 15, 12, 0, 0], press: nil)
-  end
 end

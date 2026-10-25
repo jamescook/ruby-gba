@@ -63,4 +63,15 @@ class TestGBCLinker < Minitest::Test
     assert_match(/the game's pictures take #{256 * 10_000} bytes/, error.message)
     assert_match(/To fix this, use fewer pictures\./, error.message)
   end
+
+  # A cartridge with a clock chip has an MBC3, which switches 128 banks: the game that fits in 128
+  # is built, and the one a bank past them is refused, saying why it has fewer.
+  def test_a_cartridge_with_a_clock_has_half_the_banks
+    pictures = ->(count) { Array.new(count) { |i| section("pictures #{i}", 10_000, home: :banked, holds: PICTURES) } }
+    linked = Linker.new(pictures.call(Linker::MOST_CLOCK_BANKS - 1), clock: true).link
+    error = assert_raises(Linker::TooBig) { Linker.new(pictures.call(Linker::MOST_CLOCK_BANKS), clock: true).link }
+
+    assert_equal Linker::MOST_CLOCK_BANKS, linked.banks.length
+    assert_match(/A cartridge with a clock chip holds 128 banks/, error.message)
+  end
 end

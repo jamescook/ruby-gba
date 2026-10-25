@@ -87,7 +87,7 @@ test fails when the two differ.
 - `var` — works: a variable is the same 32-bit whole number as on the Advance.
 - `save_var` — works: kept in the cartridge's battery-backed memory.
 - `save_data` — works: kept in the cartridge's battery-backed memory.
-- `clock` — works: read from a clock chip in the cartridge, as Game Boy Color cartridges such as Pokémon Gold had.
+- `clock` — works: read from a clock chip in the cartridge, as Pokémon Gold, Silver and Crystal had. This chip counts days and keeps no date. So `clock.set?` is false and every reading is 0 until the game sets the clock with `clock.set!`, from a screen of its own that asks the player. After that, the time moves on with the chip, and the save keeps it.
 - `saves_keep_everything` — works: the same as on the Advance.
 - `set` — works: the same as on the Advance.
 - `set!` — works: the same as on the Advance.
@@ -158,7 +158,6 @@ test fails when the two differ.
 
 ## Not made yet
 
-An answer above is what the Color does with a verb. The build for it is still growing, and
-a game that reaches one of these steps is refused, naming the step, until it is made:
-
-- the cartridge: `clock`
+The build for the Color makes every kind of step that the answers above do not refuse. Some
+uses of a step are not made yet, such as a background of tiles smaller than 8×8.
+A game that reaches one is refused with words that name it.

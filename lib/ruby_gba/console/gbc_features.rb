@@ -171,8 +171,11 @@ module RubyGBA
         var: works("a variable is the same 32-bit whole number as on the Advance."),
         save_var: works("kept in the cartridge's battery-backed memory."),
         save_data: works("kept in the cartridge's battery-backed memory."),
-        clock: works("read from a clock chip in the cartridge, as Game Boy Color cartridges such as " \
-                     "Pokémon Gold had."),
+        clock: works("read from a clock chip in the cartridge, as Pokémon Gold, Silver and Crystal had. " \
+                     "This chip counts days and keeps no date. So `clock.set?` is false and every " \
+                     "reading is 0 until the game sets the clock with `clock.set!`, from a screen " \
+                     "of its own that asks the player. After that, the time moves on with the chip, " \
+                     "and the save keeps it."),
         saves_keep_everything: works,
         set: works, set!: works, add: works, add!: works, add_var: works, add_var!: works,
         sub: works, sub!: works, sub_var: works, sub_var!: works, copy: works, copy!: works,

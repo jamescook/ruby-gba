@@ -165,10 +165,23 @@ module RubyGBA
             yield core
           ensure
             core.destroy
-            save.replace_with_sav(File.binread(sav), from: "The cartridge's save memory") if save && File.size?(sav)
+            save.replace_with_sav(save_memory_in(rom, File.binread(sav)), from: "The cartridge's save memory") if save && File.size?(sav)
           end
         end
       end
+
+      # A GAME BOY CARTRIDGE WITH A CLOCK CHIP has the emulator write the chip's counters, and the
+      # moment it last read them, after the save memory in its file: 48 bytes, the layout other Game
+      # Boy emulators write too. What the game saved is the memory before them, in whole banks.
+      CLOCK_IN_SAVE_FILE = 48
+
+      def save_memory_in(rom, file)
+        return file unless rom.respond_to?(:clock?) && rom.clock?
+        return file unless file.bytesize % Console::GBCHardware::SRAM_BANK_SIZE == CLOCK_IN_SAVE_FILE
+
+        file.byteslice(0, file.bytesize - CLOCK_IN_SAVE_FILE)
+      end
+      private_class_method :save_memory_in
 
       # Open a high-level probe on a ROM file path — the API that runs frames, reads
       # memory, and measures how many of a frame's scanlines the CPU burns. The analyzer

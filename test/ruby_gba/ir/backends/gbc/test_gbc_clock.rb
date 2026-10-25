@@ -1,0 +1,51 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+# THE COLOR'S CLOCK CHIP COUNTS 511 DAYS, then sets a carry bit and starts again from nought. A game
+# that sets the clock keeps how far its time is from the chip's count in its save, so once the chip
+# has counted 256 days the cartridge moves them out of the chip and into that record — the chip
+# written back by the protocol a real one wants — and the time the game reads does not move.
+# Nothing the interpreter has can say a chip counted 300 days, so this is the cartridge alone.
+class TestGBCClock < Minitest::Test
+  HeadlessRun = RubyGBA::IR::Backends::GBC::HeadlessRun
+  CHIP = Time.new(2026, 10, 22, 21, 7, 5)
+  DATE = %i[year month day hour minute].freeze
+
+  # A game that sets the clock to noon on the 15th of June 2030 on a pass that A is pressed on,
+  # and keeps the date it reads and the chip's own count of days.
+  private def program
+    b = Builder.new
+    b.instance_eval do
+      now = clock
+      readings = DATE.to_h { |name| [name, var(name, -1)] }
+      chip_days = var :chip_days, -1
+      game_loop do
+        pressed(:a).then { now.set!(year: 2030, month: 6, day: 15, hour: 12, minute: 0, second: 0) }
+        readings.each { |name, reading| reading.set! now.public_send(name) }
+        chip_days.set! RubyGBA::DSL::Value.new(self, RubyGBA::IR::Build.clock(:days))
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  private def played(save, days:, press: nil)
+    run = HeadlessRun.new(save: save).clock_at(CHIP, days: days)
+    run.input_each_frame { |frame| frame == press ? [:a] : [] }
+    run.run(program, frames: 3)
+  end
+
+  def test_a_chip_past_256_days_is_folded_into_the_time_the_game_keeps
+    save = RubyGBA::IR::SaveImage.new
+    set = played(save, days: 0, press: 1)
+    folded = played(save, days: 300)
+    after = played(save, days: 44)
+
+    assert_equal [2030, 6, 15, 12, 0], DATE.map { |name| set[name] }
+    assert_equal [2031, 4, 11, 12, 0], DATE.map { |name| folded[name] }, "300 days on, read through the fold"
+    assert_equal 44, folded[:chip_days], "the chip itself was written back 256 days fewer"
+    assert_equal set[:__clock_record_days] + 256, folded[:__clock_record_days]
+    assert_equal [2031, 4, 11, 12, 0], DATE.map { |name| after[name] }, "the fold was kept in the save"
+  end
+end

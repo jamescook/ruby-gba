@@ -15,8 +15,12 @@ module RubyGBA
     # it keeps, and two checksums: one over the header, which the start-up program also checks,
     # and one over the whole cartridge, which nothing checks but a flash cart's software.
     #
-    # The cartridge always has an MBC5. With +save_bytes+ it also has battery-backed memory, the
-    # kind a save is kept in: 8K, or 32K in four banks. Without, it has none.
+    # The cartridge has an MBC5, or with +clock+ an MBC3 and the clock chip beside it, as the
+    # console's own games with a clock had (Pokemon Gold, Silver and Crystal): the two switch banks
+    # the same way as far as this runtime drives them, the MBC3 over fewer of them
+    # (GBC::Linker::MOST_CLOCK_BANKS). With +save_bytes+ it also has battery-backed memory, the kind
+    # a save is kept in: 8K, or 32K in four banks. Without, it has none, and a clock still has a
+    # battery of its own.
     #
     # Reference: https://gbdev.io/pandocs/The_Cartridge_Header.html
     class GBCROM
@@ -30,8 +34,15 @@ module RubyGBA
       # The RAM size byte, by the memory a save needs.
       RAM_SIZE_CODES = { 0 => 0x00, 0x2000 => 0x02, 0x8000 => 0x03 }.freeze
 
-      # The cartridge type byte: an MBC5 alone, or with battery-backed memory.
+      # The cartridge type byte, by whether it has a clock chip and whether it has battery-backed
+      # memory: an MBC5 alone or with that memory, or an MBC3 with its clock (a "timer") and the
+      # battery that keeps it, with that memory or without.
       MBC5 = 0x19
+      MBC3_TIMER_BATTERY = 0x0F
+      MBC3_TIMER_RAM_BATTERY = 0x10
+      CARTRIDGE_TYPES = Ractor.make_shareable({ [false, false] => MBC5, [false, true] => MBC5_RAM_BATTERY,
+                                                [true, false] => MBC3_TIMER_BATTERY,
+                                                [true, true] => MBC3_TIMER_RAM_BATTERY })
 
       attr_reader :bytes
 
@@ -40,17 +51,20 @@ module RubyGBA
       attr_reader :built
 
       # +banks+ is the linked cartridge, bank 0 first, each 16K.
-      def initialize(banks, title:, save_bytes: 0, built: nil)
+      def initialize(banks, title:, save_bytes: 0, clock: false, built: nil)
         @built = built
         unless RAM_SIZE_CODES.key?(save_bytes)
           raise ArgumentError, "a Game Boy Color cartridge here keeps 0, 8K or 32K of save memory, not #{save_bytes} bytes"
         end
 
         @bytes = padded(banks.join.b)
-        write_header(title, save_bytes)
+        write_header(title, save_bytes, clock)
       end
 
       def size = @bytes.bytesize
+
+      # Whether its header says it carries a clock chip.
+      def clock? = [MBC3_TIMER_BATTERY, MBC3_TIMER_RAM_BATTERY].include?(@bytes.getbyte(CARTRIDGE_TYPE_AT))
 
       # WHAT EVERY GAME BOY CARTRIDGE'S HEADER SAYS, the Color's too, whoever made it — asked of a
       # cartridge file too (Diagnostics::CartridgeFile), which has nothing but its bytes.
@@ -111,14 +125,14 @@ module RubyGBA
         bytes + ("\xFF".b * (size - bytes.bytesize))
       end
 
-      def write_header(title, save_bytes)
+      def write_header(title, save_bytes, clock)
         @bytes[LOGO_AT, LOGO.size] = LOGO.pack("C*")
         @bytes[TITLE_AT, CGB_FLAG_AT - TITLE_AT] = "\0".b * (CGB_FLAG_AT - TITLE_AT)
         @bytes[TITLE_AT, TITLE_LENGTH] = title_field_for(title)
         @bytes.setbyte(CGB_FLAG_AT, CGB_ONLY)
         @bytes[NEW_LICENSEE_AT, 2] = "00"
         @bytes.setbyte(SGB_FLAG_AT, 0)
-        @bytes.setbyte(CARTRIDGE_TYPE_AT, save_bytes.zero? ? MBC5 : MBC5_RAM_BATTERY)
+        @bytes.setbyte(CARTRIDGE_TYPE_AT, CARTRIDGE_TYPES.fetch([clock, !save_bytes.zero?]))
         @bytes.setbyte(ROM_SIZE_AT, Math.log2(@bytes.bytesize / SMALLEST).to_i)
         @bytes.setbyte(RAM_SIZE_AT, RAM_SIZE_CODES.fetch(save_bytes))
         @bytes.setbyte(DESTINATION_AT, 0x01)

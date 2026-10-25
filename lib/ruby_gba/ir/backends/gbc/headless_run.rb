@@ -71,6 +71,19 @@ module RubyGBA
             self
           end
 
+          # Give the cartridge's clock chip, which counts days and keeps no date, the time of day
+          # +time+ says and a count of nought days when the game first reads it, moved on a frame of
+          # the console's each frame, as the interpreter's #clock_at does on a console whose chip is
+          # of that kind; +set: false+ is a chip that stopped when its battery ran out. +days+ is a
+          # chip that has counted that many already, which the interpreter has no word for. A run
+          # never told plays a cartridge with no chip at all. Gives back self.
+          def clock_at(time, set: true, days: 0)
+            @clock_started = time
+            @clock_set = set
+            @clock_days = days
+            self
+          end
+
           # The picture the run ended on, or the one at the frame boundary an input script or a
           # watching block is asked at.
           def screen = @screen
@@ -157,12 +170,28 @@ module RubyGBA
             refuse_power_cut! if saves
             Diagnostics::Emulator.with_cartridge(@rom, file_name: "game.gbc", save: (@save if saves)) do |core|
               @core = core
+              start_clock if @rom.clock?
               @core.set_keys(IR::Buttons.mask(@held))
               @core.record_arrivals(@sound_log.addresses) if @sound_log.any?
               play_passes(frames)
             ensure
               @core = nil
             end
+          end
+
+          # The emulator gives every cartridge whose header says it has a clock chip one that reads
+          # the computer's clock, so a run never told a time has the chip taken away, and one told
+          # has its chip's counters set: the seconds, minutes and hours +time+ says, its days, and
+          # the halt bit for a chip that stopped (Lowering::Clock). The moment is the date and the
+          # hour the Time says, as the interpreter takes it.
+          def start_clock
+            return @core.remove_clock unless @clock_started
+
+            h = Console::GBCHardware
+            said = IR::Clock.moved_on(@clock_started, 0)
+            high = (@clock_days >> 8) & h::CLOCK_DAY_NINTH_BIT
+            counters = [said.sec, said.min, said.hour, @clock_days & 0xFF, @clock_set ? high : high | h::CLOCK_HALT]
+            @core.use_counting_clock((said.to_r * 1000).to_i, counters.pack("C*"))
           end
 
           def refuse_power_cut!

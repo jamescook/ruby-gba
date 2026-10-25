@@ -14,7 +14,7 @@ module RubyGBA
     # on — so every reading in one pass is still of one moment. Until the game sets it, the chip's
     # own readings are what it reads, as in a game that never does.
     module Clocks
-      RECORD = %i[days seconds set].to_h { |part| [part, :"__clock_record_#{part}"] }.freeze
+      RECORD = IR::Clock::RECORD
       SHOWN = IR::Clock::SHOWN
       WORK = %i[days seconds year month era doe yoe doy mp].to_h { |part| [part, :"__clock_work_#{part}"] }.freeze
 

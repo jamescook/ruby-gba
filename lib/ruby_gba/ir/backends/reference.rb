@@ -175,6 +175,7 @@ module RubyGBA
           @frames_script = nil     # optional ->(pass) { frames } to say a pass ran late
           @clock_started = nil     # the moment the cartridge's clock read at power-on, or nil for no clock
           @clock_set = true        # ...and whether it was ever set (see #clock_at)
+          @clock_keeps_date = nil  # ...and whether it keeps the date, when not the console's chip
           @frame = 0               # passes of the game loop finished (see @screen_frame for frames shown)
           @screen_mode = nil       # the mode a `screen` op selected, if any
           @buffered = false        # whether that mode opted into double buffering
@@ -416,10 +417,17 @@ module RubyGBA
         #
         # A run never told reads no clock at all (`clock.present?` is false), which is what a
         # cartridge without the chip reads — so nothing a test checks ever depends on the time it
-        # happens to be when the test runs. Returns self.
-        def clock_at(time, set: true)
+        # happens to be when the test runs.
+        #
+        # The chip is the one the program's console carries: on a console whose chip keeps no date
+        # (Console::Description#clock_keeps_date) it counts days from the day +time+ names, and the
+        # game reads no date until it sets one. +keeps_date+ says which kind of chip it is instead,
+        # for a run checked against a cartridge for another console than the one the program was
+        # built for. Returns self.
+        def clock_at(time, set: true, keeps_date: nil)
           @clock_started = time
           @clock_set = set
+          @clock_keeps_date = keeps_date
           self
         end
 
@@ -3157,7 +3165,8 @@ module RubyGBA
         # to a moment moves on the same way, so the two read each second turn over on one frame.
         def value_of_clock(node)
           now = @clock_started && IR::Clock.moved_on(@clock_started, @screen_frame * Console::Hardware::FRAME_SECONDS)
-          IR::Clock.reading(node.reading, now, set: @clock_set)
+          dated = @clock_keeps_date.nil? ? @console.nil? || @console.clock_keeps_date : @clock_keeps_date
+          IR::Clock.reading(node.reading, now, set: @clock_set, started: @clock_started, dated: dated)
         end
 
         # One byte (0..255) of a named embedded blob, read straight from the

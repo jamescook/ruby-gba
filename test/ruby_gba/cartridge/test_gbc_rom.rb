@@ -37,6 +37,20 @@ class TestGBCROM < Minitest::Test
     assert_equal 0x03, rom.bytes.getbyte(H::RAM_SIZE_AT)
   end
 
+  # A cartridge with a clock is built as the Color's own games with one were: an MBC3 with the
+  # clock (a "timer") and a battery, 0x0F, or 0x10 with battery-backed memory beside them, which is
+  # what an emulator or a flash cartridge gives the chip by.
+  def test_a_cartridge_with_a_clock_has_an_mbc3_with_a_timer_and_a_battery
+    plain = GBCROM.new(banks(2), title: "X", clock: true)
+    saving = GBCROM.new(banks(2), title: "X", save_bytes: 0x8000, clock: true)
+
+    assert_equal [0x0F, 0x00], [plain.bytes.getbyte(H::CARTRIDGE_TYPE_AT), plain.bytes.getbyte(H::RAM_SIZE_AT)]
+    assert_equal [0x10, 0x03], [saving.bytes.getbyte(H::CARTRIDGE_TYPE_AT), saving.bytes.getbyte(H::RAM_SIZE_AT)]
+    assert plain.clock?
+    refute GBCROM.new(banks(2), title: "X").clock?
+    assert saving.valid_header?
+  end
+
   def test_the_size_is_a_power_of_two_banks_and_the_header_says_it
     rom = GBCROM.new(banks(5), title: "X")
 
