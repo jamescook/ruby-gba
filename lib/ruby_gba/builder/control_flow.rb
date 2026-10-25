@@ -286,6 +286,29 @@ module RubyGBA
         name
       end
 
+      # HOW MANY FRAMES THE SCREEN HAS SHOWN SINCE THE POWER CAME ON, as a number the game can
+      # read and not change. It keeps real time the way `once_a_frame` does — a pass that took
+      # two frames adds two — and, unlike anything the game loop counts, it counts the frames
+      # spent setting up before the first pass.
+      #
+      # That is what a screen held for an exact number of frames needs. Setting up takes
+      # longer on some power-ons than others (save memory never written is laid out from
+      # scratch the first time), and longer in one build of a game than another, so a hold
+      # counted in passes from the first one ends on a different frame each time. Held until
+      # this reaches a number, it ends on that frame every time:
+      #
+      #   game_loop do
+      #     (frames_since_power_on >= 49).then { show_title }
+      #   end
+      #
+      # A game with no game loop shows no frames, so it reads nought.
+      #
+      # @return [DSL::Value]
+      def frames_since_power_on
+        ensure_var(IR::Frames::COUNT)
+        DSL::Value.new(self, Build.var_ref(IR::Frames::COUNT))
+      end
+
       # A STEP TAKEN ONCE A PASS, from when the game starts it until it stops (see DSL::PassJob).
       # The block is the step, and is handed the job, so a step can stop its own job when it
       # arrives. `each_pass :name` with no block gives back the job made under that name, so the

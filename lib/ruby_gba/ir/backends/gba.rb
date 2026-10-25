@@ -966,6 +966,9 @@ module RubyGBA
           @effects.layout = layout
           @sprite_drawing.layout = layout
           @sprite_drawing.hides_sprites = program.walk.any? { |node| node.kind == :hide_sprites }
+          counts_from_power_on = @uses_vblank && program.walk.any? do |node|
+            node.kind == :var_ref && node.name == IR::Frames::COUNT
+          end
           @background_drawing.layout = layout
           # Fast ROM + prefetch, first, unless it's all raw or the caller asked to keep
           # the console's cautious power-on timing.
@@ -992,6 +995,7 @@ module RubyGBA
           # is where the sound buffers are silenced, so how long it takes depends on the sample
           # rate, and the machine hung above one rate and ran below it with nothing else changed.
           emit_mixer_boot if @mixer.plays_samples? # start the sound DMA + clock; voices added by `play`
+          @frames.emit_clear_frame_count if counts_from_power_on # ...before the interrupt that counts
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
           @clock_chip.emit_call_at_power_on # whether the cartridge has a clock, and its first reading

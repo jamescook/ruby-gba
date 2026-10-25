@@ -85,6 +85,7 @@ Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`,
 
 - `game_loop do … end` — once a frame. `repeat(n) { |i| … }`; `every(n)`, `after(n)`; `once_a_frame`.
 - `each_pass(:name) { |job| … }` → `PassJob`; `timer :name, per_second:` → `Timer`.
+- `frames_since_power_on` → a `Value`, real frames shown since power-on, setting up included.
 - Low-level `if_eq` `if_ne` `if_gt` `if_lt` `if_ge` `if_le` (`if_gte`, `if_lte`).
 
 ## The date and time — `.claude/dsl/clock.md`

@@ -49,6 +49,16 @@ module RubyGBA
             @primitives.store_var(ACC, COUNT)
           end
 
+          # THE COUNT STARTS AT NOUGHT, for a game that reads it as frames since power-on — put
+          # before the screen's interrupt is armed, so that every frame from then on is in it.
+          # This console's memory is not cleared at power-on, so without this the count starts
+          # wherever the memory happened to be. A game that never reads it needs nothing: the
+          # marks below only ever look at differences.
+          def emit_clear_frame_count
+            @emitter.emit_number(ACC, 0)
+            @primitives.store_var(ACC, COUNT)
+          end
+
           # START COUNTING FROM HERE, which is where the game loop begins. The frames that went by
           # before it were spent setting up — writing video memory, painting the first picture
           # — and they are not frames the game missed. Counted as missed, the first pass ran
