@@ -78,8 +78,9 @@ module RubyGBA
 
             module_function
 
-            def reserve(memory, lends: false)
+            def reserve(memory, lends: false, groups: false)
               memory.reserve(LENT, LENT_BYTES) if lends
+              PictureGroups.reserve(memory) if groups
               memory.reserve(SHADOW_PALETTES, 128)
               memory.reserve(PALETTES_CHANGED, 1)
               memory.reserve(SCROLL, 2)
@@ -104,12 +105,13 @@ module RubyGBA
             # +lends+ says the sprites' lists borrow the console's eight as the game runs (Art#lends?),
             # which needs +drawn_palettes+. +palettes_in_use+ are the numbers of the palettes the game
             # can show, backgrounds' 0 to 7 and sprites' 8 to 15 (Art#palettes_in_use): a fade
-            # moves those alone.
+            # moves those alone. +groups+ says it has pictures grouped by room (Runtime::PictureGroups).
             def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false,
-                     palettes_in_use:)
+                     palettes_in_use:, groups: false)
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
                                       drawn_palettes: drawn_palettes)
-              emit_upload(asm, memory)
+              emit_upload(asm, memory, groups: groups)
+              PictureGroups.emit(asm, memory) if groups
               emit_tile_runs(asm, runs)
               emit_sprites(asm, memory, lends: lends)
               emit_lend_colors(asm, memory, drawn_palettes) if lends
@@ -499,8 +501,13 @@ module RubyGBA
             # written, and a grid being put up takes as much of it as it can; the bends are work
             # memory, which can be written at any time, so they wait until the video memory is done
             # with: a grid row written once the blank is over is lost, as the display is reading.
-            def emit_upload(asm, memory)
+            #
+            # In a game with pictures grouped by room (+groups+), the groups the sprites placed need
+            # are copied in too (Runtime::PictureGroups), before the screen's switches, which keep the
+            # sprite layer off while one is still being copied in.
+            def emit_upload(asm, memory, groups: false)
               h = Console::GBCHardware
+              pending = memory[PictureGroups::JOB] + PictureGroups::PENDING if groups
               asm.label("rt_upload")
               asm.load(:a, [memory[Paint::SCREEN_KIND]])
               asm.cp_a(Paint::PAINTED)
@@ -514,12 +521,24 @@ module RubyGBA
               asm.load(:a, [:hl])
               asm.load_high(h::SCY, :a)
               asm.call("rt_bends_first_row")
+              if groups
+                asm.call("rt_groups_upload")
+                asm.sbc_a(:a) # 0xFF while a group is still being copied in, nought once all are
+                asm.load([pending], :a)
+              end
               asm.load_high(:a, h::LCDC) # the screen's switches, left on if it is on
               asm.and_a(h::LCDC_ON)
               asm.load(:b, :a)
               asm.load(:a, [memory[LCDC_WANTED]])
               asm.and_a(~h::LCDC_ON & 0xFF)
               asm.or_a(:b)
+              if groups
+                asm.load(:c, :a)
+                asm.load(:a, [pending])
+                asm.cpl
+                asm.or_a(~h::LCDC_SPRITES_ON & 0xFF)
+                asm.and_a(:c)
+              end
               asm.load_high(h::LCDC, :a)
               asm.call("rt_tile_runs_upload")
               # The cells a big map's view brought in (Runtime::BigMaps).
@@ -531,6 +550,11 @@ module RubyGBA
               asm.call("rt_paint_upload")
               asm.call("rt_bends_copy")
               asm.jump_relative(:c, "rt_upload_more")
+              if groups
+                asm.load(:a, [pending])
+                asm.add_a(:a) # carry from 0xFF
+                asm.jump_relative(:c, "rt_upload_more")
+              end
               asm.pop(:af)
               asm.ret
               asm.label("rt_upload_more")

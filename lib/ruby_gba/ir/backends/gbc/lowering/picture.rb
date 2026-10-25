@@ -28,6 +28,7 @@ module RubyGBA
                                                  background_colors: :emit_background_colors,
                                                  scroll_rows: :emit_scroll_rows, camera: :emit_camera,
                                                  present_objects: :emit_present_objects, hide_sprites: :emit_hide_sprites,
+                                                 show_picture_group: :emit_show_picture_group,
                                                  color_list_holds: :emit_color_list_holds,
                                                  fade: :emit_fade, tint: :emit_tint
                                                })
@@ -60,7 +61,9 @@ module RubyGBA
               @color_lists = by_name(@program.walk, :color_list)
               @pictures = by_name(@program.walk, :data, :bitmap)
               @square_colors = square_colors
-              @art = Art.new(square_colors: @square_colors&.refusal ? nil : @square_colors, lends: @lends_sprite_colors)
+              @picture_sets = by_name(@program.walk, :picture_groups)
+              @art = Art.new(square_colors: @square_colors&.refusal ? nil : @square_colors, lends: @lends_sprite_colors,
+                             grouped: grouped_pictures)
               @grids = {} # a background declaration -> its grid's number
               @backgrounds = by_name(@program.walk, :background)
               @drawn_sprites = SpriteNames.new(@program) # the numbers a run says its sprites by
@@ -76,6 +79,102 @@ module RubyGBA
             end
 
             def by_name(nodes, *kinds) = nodes.select { |node| kinds.include?(node.kind) }.to_h { |node| [node.name, node] }
+
+            # --- pictures grouped by room ---
+
+            # WHICH PICTURES ARE COPIED IN AS A ROOM COMES UP (Runtime::PictureGroups), each with
+            # the set of groups that copies it in. A picture is grouped when a set holds it in a group
+            # and every sprite showing it answers to that set — the set of its own scene, or one of
+            # every screen — as the interpreter asks (Reference#refuse_pictures_not_up!). One a sprite
+            # of another scene shows, or one the game paints, is in sprite memory the whole time.
+            def grouped_pictures
+              return {} if @picture_sets.empty?
+
+              refuse_too_many_groups!
+              scenes = Hash.new { |all, picture| all[picture] = [] }
+              @objects.each_value { |obj| Array(obj.poses).each { |picture| scenes[picture] << obj.scene } }
+              scenes.filter_map do |picture, shown_in|
+                next if picture_painting(picture)
+
+                set = @picture_sets.each_value.find do |each|
+                  each.groups_holding(picture).any? && shown_in.all? { |scene| each.scene.nil? || each.scene == scene }
+                end
+                [picture, set] if set
+              end.to_h
+            end
+
+            # A slot's group is kept in a byte, with three numbers left over (Runtime::PictureGroups).
+            def refuse_too_many_groups!
+              most = Runtime::PictureGroups::MOST_GROUPS
+              set = @picture_sets.each_value.find { |each| each.groups.length > most }
+              return unless set
+
+              raise LoweringError, "the picture groups #{set.name.inspect} number their groups up to " \
+                                   "#{set.groups.length - 1}, and #{build_name} numbers them up to #{most - 1}. To fix " \
+                                   "this, use fewer groups."
+            end
+
+            # Each set's slots, three numbers of the lowering's own each: the group the game said is
+            # up (Reference @groups_up), the one the sprites placed last need — a byte, NONE for none
+            # — and the one in sprite memory now, which the blank keeps (Runtime::PictureGroups).
+            GroupSlot = Data.define(:shown, :wanted, :up)
+
+            def keep_group_numbers
+              @group_slots = @picture_sets.transform_values do |set|
+                Array.new(set.slots) do
+                  GroupSlot.new(shown: keep_local(:groups_shown, start: Nodes::PictureGroups::NONE),
+                                wanted: keep_local(:groups_wanted, start: Runtime::PictureGroups::NONE),
+                                up: keep_local(:groups_up, start: Runtime::PictureGroups::NOTHING_YET))
+                end
+              end
+            end
+
+            # Reference#exec_show_picture_group. Nothing is copied here: the sprites placed next note
+            # the groups they need (#emit_groups_wanted), and the blank after copies them in.
+            def emit_show_picture_group(node)
+              statement(Build.set(@group_slots.fetch(node.name).fetch(node.slot).shown, node.which))
+            end
+
+            # The groups up now, as the sprites about to be placed need them: each slot's, or NONE
+            # for a number naming no group — or, for a set of a scene not up yet, FOLLOW, the group
+            # the game says by the blank.
+            def emit_groups_wanted
+              @group_slots.each do |name, slots|
+                set = @picture_sets.fetch(name)
+                slots.each do |slot|
+                  done = fresh("groups_wanted")
+                  if set.scene && @scene
+                    up = fresh("groups_scene_up")
+                    jump_unless(Build.binop(:!=, Build.var_ref(@scene), Build.int(@scenes.fetch(set.scene))), up)
+                    statement(Build.set(slot.wanted, Build.int(Runtime::PictureGroups::FOLLOW)))
+                    @asm.jump(done)
+                    @asm.label(up)
+                  end
+                  shown = Build.var_ref(slot.shown)
+                  statement(Build.set(slot.wanted, Build.int(Runtime::PictureGroups::NONE)))
+                  named = Build.binop(:and, Build.binop(:>=, shown, Build.int(0)), Build.binop(:<, shown, Build.int(set.groups.length)))
+                  jump_unless(named, done)
+                  statement(Build.set(slot.wanted, shown))
+                  @asm.label(done)
+                end
+              end
+            end
+
+            # The table of slots the blank walks (Runtime::PictureGroups), for a game with groups.
+            def emit_group_slots(asm)
+              return unless @art.groups?
+
+              asm.label("game_group_slots")
+              @art.group_rooms.each do |room|
+                @group_slots.fetch(room.set.name).each do |slot|
+                  asm.data_words(place_of(slot.wanted), place_of(slot.up), place_of(slot.shown))
+                  asm.data_bank_of("art_group_#{room.number}_tiles")
+                  asm.data_words("art_group_#{room.number}_groups")
+                  asm.data_bytes(room.set.groups.length)
+                end
+              end
+              asm.data_words(0)
+            end
 
             def build_name = "the Game Boy Color build"
 
@@ -802,6 +901,7 @@ module RubyGBA
               items = present_items(node).map { |item| item.is_a?(Build::DrawOrder) ? item : object.call(item) }
               front_first = items.each_with_index.sort_by { |item, at| [item_level(item, object), at] }.map(&:first).reverse
               placings = {}
+              emit_groups_wanted
               @asm.call("rt_sprites_begin")
               unless_sprites_hidden do
                 front_first.each do |item|
@@ -835,6 +935,7 @@ module RubyGBA
                                      "sprite to another layer, which #{build_name} cannot make yet."
               end
 
+              emit_groups_wanted
               @asm.call("rt_sprites_begin")
               unless_sprites_hidden do
                 objects.flat_map { |obj| Stacking.levels_of(@stacking.depths, obj) }.uniq.sort.reverse_each do |level|

@@ -6,6 +6,7 @@ require_relative "runtime/calls"
 require_relative "runtime/frame"
 require_relative "runtime/lists"
 require_relative "runtime/picture"
+require_relative "runtime/picture_groups"
 require_relative "runtime/paint"
 require_relative "runtime/sound"
 require_relative "runtime/music"
@@ -34,7 +35,7 @@ module RubyGBA
           # effects (GBC::Music#effects).
           def reserve(memory, art:, effects: [])
             Frame.reserve(memory)
-            Picture.reserve(memory, lends: art.lends?)
+            Picture.reserve(memory, lends: art.lends?, groups: art.groups?)
             BigMaps.reserve(memory)
             Paint.reserve(memory, painting: art.painting?)
             Music.reserve(memory, effects: effects)
@@ -63,7 +64,7 @@ module RubyGBA
             Lists.emit(asm, memory)
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length,
                                       runs: runs, drawn_palettes: drawn_palettes, lends: art.lends?,
-                                      palettes_in_use: art.palettes_in_use)
+                                      palettes_in_use: art.palettes_in_use, groups: art.groups?)
             BigMaps.emit(asm, memory, buffer: big_maps&.first, staged: big_maps&.last)
             Paint.emit(asm, memory, painting: art.painting?, map_count: art.square_maps.length)
             Sound.emit(asm)

@@ -72,7 +72,6 @@ module RubyGBA
           # day the Color does it; test_gbc_kind_coverage.rb holds the list and the tables above to
           # every kind there is.
           NOT_LOWERED_YET = Ractor.make_shareable({
-                                                    "the sprites" => %i[show_picture_group],
                                                     "the cartridge" => %i[clock]
                                                   })
 
@@ -218,6 +217,7 @@ module RubyGBA
             @scene = keep_local(:scene, start: -1) unless @scenes.empty?
             keep_timer_numbers
             keep_held_colors
+            keep_group_numbers
             keep_sprites_hidden_flag
             keep_patches
             keep_tile_runs
@@ -323,6 +323,7 @@ module RubyGBA
               table_parts(table).each { |part| asm.data_bytes(part) }
             end
             @drawing_tables.reject(&:banked).each { |table| emit_drawing_table(asm, table) }
+            emit_group_slots(asm)
             @routine_tables.each do |targets, label|
               asm.label(label)
               targets.each do |name|

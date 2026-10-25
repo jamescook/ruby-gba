@@ -78,12 +78,24 @@ module RubyGBA
 
           attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids
 
+          # A tile of a picture grouped by room: the +index+th of the picture's own, whose number is
+          # known once every picture is (#group_rooms).
+          GroupedTile = Data.define(:picture, :index)
+
+          # A set of picture groups' room in sprite memory: its first tile, where each of its
+          # pictures goes in it (IR::PictureGroupPlaces), and the pictures, in the order their tiles
+          # are kept in the cartridge.
+          GroupRoom = Data.define(:set, :number, :first_tile, :places, :pictures)
+
           # +square_colors+ are the colour lists of a painted screen's squares (GBC::SquareColors), nil for
           # a game that paints no screen. +lends+ says the sprites' lists borrow the console's eight
-          # as the game runs (TooManySpriteLists).
-          def initialize(square_colors: nil, lends: false)
+          # as the game runs (TooManySpriteLists). +grouped+ is the set of picture groups each grouped
+          # picture is copied in by, by the picture's name (Lowering::Picture#grouped_pictures).
+          def initialize(square_colors: nil, lends: false, grouped: {})
             @square_colors = square_colors
             @lends = lends
+            @grouped = grouped
+            @grouped_tiles = {} # a grouped picture's name -> its own tiles, 16 bytes each
             @sprite_tiles = []        # 16 bytes each
             @sprite_tile_numbers = {} # bytes -> [number, flips]
             @sprite_pictures = {}     # picture name -> SpritePicture
@@ -116,6 +128,38 @@ module RubyGBA
           # Do the sprites' lists borrow the console's eight as the game runs? Then a sprite
           # palette's number counts into every list the game has (art_lent_palettes), not the eight.
           def lends? = @lends
+
+          # Has the game pictures grouped by room, copied in as a room comes up (Runtime::PictureGroups)?
+          def groups? = !@grouped.empty?
+
+          # EVERY SET OF PICTURE GROUPS' ROOM IN SPRITE MEMORY, one after another past the tiles every
+          # screen keeps, once every picture is known. A set's grouped pictures share its room as
+          # their groups allow (IR::PictureGroupPlaces), counted in tiles; each set has a room of its
+          # own, so a scene given the screen back finds its groups' pictures where it left them.
+          def group_rooms
+            @group_rooms ||= begin
+              first = @sprite_tiles.length
+              @grouped.values.uniq(&:name).each_with_index.map do |set, number|
+                pictures = @grouped_tiles.keys.select { |name| @grouped[name].name == set.name }
+                placed = pictures.map do |name|
+                  IR::PictureGroupPlaces::Picture.new(key: name, units: @grouped_tiles[name].length, even_start: false,
+                                                      groups: set.groups_holding(name))
+                end
+                room = GroupRoom.new(set: set, number: number, first_tile: first, pictures: pictures,
+                                     places: IR::PictureGroupPlaces.new(placed, together: set.together))
+                first += room.places.units
+                room
+              end
+            end
+          end
+
+          # The number of a sprite's tile in sprite memory, a grouped picture's in its set's room.
+          def tile_number(tile)
+            return tile unless tile.is_a?(GroupedTile)
+
+            room = group_rooms.find { |each| each.set.name == @grouped.fetch(tile.picture).name }
+            room.first_tile + room.places.offset(tile.picture) + tile.index
+          end
 
           # The palettes the game can show, by the console's numbers: the backgrounds' from 0 — the
           # first always, since its first colour is the backdrop — the painted screen's, and the
@@ -159,7 +203,7 @@ module RubyGBA
                   end
                   next if piece.all?(&:zero?) # a piece with nothing in it is not drawn at all
 
-                  tile, flips = sprite_tile(piece)
+                  tile, flips = @grouped.key?(name) ? grouped_tile(name, piece) : sprite_tile(piece)
                   pieces << Piece.new(dx: x0, dy: y0, tile: tile, flips: flips)
                 end
               end
@@ -320,6 +364,7 @@ module RubyGBA
             refuse_too_many_tiles!
             [tables_section,
              data_section("art sprite tiles", "art_sprite_tiles", @sprite_tiles.flatten, holds: SPRITE_PICTURES),
+             *group_rooms.map { |room| group_tiles_section(room) },
              data_section("art background tiles", "art_background_tiles", @background_tiles.flatten,
                           holds: BACKGROUND_TILES),
              *@grids.each_with_index.map do |bytes, i|
@@ -382,12 +427,14 @@ module RubyGBA
                 end
               end
             end
+            group_rooms.each { |room| emit_group_tables(asm, room) }
             pictures.each do |picture|
               asm.label("art_pieces_#{picture.number}")
               asm.data_bytes(picture.pieces.length)
               picture.pieces.each do |piece|
-                bank = piece.tile / 128
-                asm.data_bytes(piece.dx, piece.dy, piece.tile % 128,
+                tile = tile_number(piece.tile)
+                bank = tile / 128
+                asm.data_bytes(piece.dx, piece.dy, tile % 128,
                                piece.flips | (bank.zero? ? 0 : Console::GBCHardware::OBJ_TILE_BANK))
               end
               asm.label("art_mask_#{picture.number}")
@@ -406,6 +453,69 @@ module RubyGBA
             asm.section
           end
 
+          # A run of a grouped picture's tiles as the copy into sprite memory takes it
+          # (Runtime::PictureGroups): its label in its set's copy of the tiles, the tiles, and the
+          # bank of picture memory and the place they go. At most CHUNK_TILES, and never across
+          # from one bank of picture memory to the other.
+          GroupChunk = Data.define(:label, :tiles, :bank, :to)
+
+          # Each picture of +room+ in its chunks, by the picture's name.
+          def group_chunks(room)
+            @group_chunks ||= {}
+            @group_chunks[room.number] ||= room.pictures.each_with_index.to_h do |name, p|
+              tiles = @grouped_tiles.fetch(name)
+              first = room.first_tile + room.places.offset(name)
+              chunks = []
+              at = 0
+              while at < tiles.length
+                tile = first + at
+                count = [Runtime::PictureGroups::CHUNK_TILES, tiles.length - at, 128 - (tile % 128)].min
+                chunks << GroupChunk.new(label: "art_group_#{room.number}_#{p}_#{chunks.length}", tiles: tiles[at, count],
+                                         bank: tile / 128, to: Console::GBCHardware::VRAM + ((tile % 128) * 16))
+                at += count
+              end
+              [name, chunks]
+            end
+          end
+
+          # A set's grouped pictures' tiles, picture after picture, a label at each chunk, where the
+          # console's own copy reads them from.
+          def group_tiles_section(room)
+            asm = SM83.new("art group tiles #{room.set.name}", home: :aligned16, holds: SPRITE_PICTURES)
+            asm.label("art_group_#{room.number}_tiles")
+            group_chunks(room).each_value do |chunks|
+              chunks.each do |chunk|
+                asm.label(chunk.label)
+                asm.data_bytes(chunk.tiles.flatten)
+              end
+            end
+            asm.data_bytes(0) if room.pictures.empty? # a label has to be somewhere
+            asm.section
+          end
+
+          # A set's table of groups (Runtime::PictureGroups): for each group, how many chunks it
+          # copies and where their list is; then each list, a chunk to an entry.
+          def emit_group_tables(asm, room)
+            lists = room.set.groups.each_index.map do |number|
+              room.pictures.select { |name| room.set.groups_holding(name).include?(number) }
+                  .flat_map { |name| group_chunks(room).fetch(name) }
+            end
+            asm.label("art_group_#{room.number}_groups")
+            lists.each_with_index do |chunks, number|
+              asm.data_bytes(chunks.length)
+              asm.data_words("art_group_#{room.number}_list_#{number}")
+            end
+            lists.each_with_index do |chunks, number|
+              asm.label("art_group_#{room.number}_list_#{number}")
+              chunks.each do |chunk|
+                asm.data_words(chunk.label)
+                asm.data_bytes(chunk.bank)
+                asm.data_words(chunk.to)
+                asm.data_bytes(chunk.tiles.length - 1)
+              end
+            end
+          end
+
           # A copy the console's own copying (Runtime::Picture) reads 16 bytes at a time, from an
           # address that is a multiple of 16 — which a bank's first byte is.
           def data_section(name, label, bytes, holds:)
@@ -417,9 +527,16 @@ module RubyGBA
           end
 
           def refuse_too_many_tiles!
-            if @sprite_tiles.length > MOST_SPRITE_TILES
-              raise LoweringError, "this game's sprites need #{@sprite_tiles.length} tiles of 8×8, and a Game Boy " \
-                                   "Color has room for #{MOST_SPRITE_TILES}. To fix this, give it fewer or smaller pictures."
+            rooms = group_rooms.sum { |room| room.places.units }
+            if @sprite_tiles.length + rooms > MOST_SPRITE_TILES
+              grouped = if rooms.zero? then ""
+                        else
+                          " (#{@sprite_tiles.length} for the pictures in no group, and #{rooms} for the groups " \
+                            "that can be up together)"
+                        end
+              raise LoweringError, "this game's sprites need #{@sprite_tiles.length + rooms} tiles of 8×8#{grouped}, " \
+                                   "and a Game Boy Color has room for #{MOST_SPRITE_TILES}. To fix this, give it fewer " \
+                                   "or smaller pictures."
             end
             most = painting? ? PAINTING_BACKGROUND_TILES : MOST_BACKGROUND_TILES
             return unless @background_tiles.length > most
@@ -469,16 +586,33 @@ module RubyGBA
           # A sprite tile: one already kept, drawn as it is or mirrored, or a new one. The Color
           # mirrors a sprite's tile as it draws it, so a picture and its mirror image share tiles.
           def sprite_tile(places)
-            h = Console::GBCHardware
-            turned = { 0 => places, h::OBJ_X_FLIP => mirrored(places), h::OBJ_Y_FLIP => upside_down(places),
-                       h::OBJ_X_FLIP | h::OBJ_Y_FLIP => upside_down(mirrored(places)) }
-            turned.each do |flips, version|
+            turnings(places).each do |flips, version|
               number = @sprite_tile_numbers[encode(version)]
               return [number, flips] if number
             end
             bytes = encode(places)
             @sprite_tile_numbers[bytes] = (@sprite_tiles << bytes).length - 1
             [@sprite_tile_numbers[bytes], 0]
+          end
+
+          # A tile of the grouped picture +name+: one of the picture's own already kept, drawn as it
+          # is or turned, or a new one. It shares no tile with another picture, since the two need
+          # not be up at the same time.
+          def grouped_tile(name, places)
+            own = (@grouped_tiles[name] ||= [])
+            turnings(places).each do |flips, version|
+              index = own.index(encode(version))
+              return [GroupedTile.new(picture: name, index: index), flips] if index
+            end
+            [GroupedTile.new(picture: name, index: (own << encode(places)).length - 1), 0]
+          end
+
+          # The tile's places drawn as they are, mirrored, upside down and both, by the flips that
+          # draw the tile that way.
+          def turnings(places)
+            h = Console::GBCHardware
+            { 0 => places, h::OBJ_X_FLIP => mirrored(places), h::OBJ_Y_FLIP => upside_down(places),
+              h::OBJ_X_FLIP | h::OBJ_Y_FLIP => upside_down(mirrored(places)) }
           end
 
           def mirrored(places) = places.each_slice(8).flat_map(&:reverse)

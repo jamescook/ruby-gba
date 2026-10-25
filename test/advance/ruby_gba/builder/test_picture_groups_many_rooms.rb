@@ -8,7 +8,9 @@ require "many_rooms_game"
 # walking across a grid of rooms, the next room's things sliding in while the screen slides, and
 # the last room's going once the slide has ended. Every room's pictures would not fit in sprite
 # memory at once, and the game builds and draws each room's things right on the frame they come
-# up, on every lowering (see ManyRoomsGame).
+# up, on every lowering of the Advance's game (see ManyRoomsGame). Its pictures have fifteen
+# colours, and two of its rooms need more tiles than a Game Boy Color holds, so it is the Advance's
+# alone; test/ruby_gba/ir/backends/gbc/test_gbc_picture_groups.rb walks rooms sized for the Color.
 class TestPictureGroupsManyRooms < Minitest::Test
   include Differential
 
