@@ -132,6 +132,23 @@ class TestIRNode < Minitest::Test
     assert_equal %i[case int int], n.walk.map(&:kind)
   end
 
+  # A written program is walked once, and the walk after reads that: the same nodes in the
+  # same order as walking the tree.
+  def test_a_written_program_walks_in_the_same_order_as_before
+    walked = program(set(:x, binop(:+, var_ref(:y), int(1))), Case.new(clauses: [int(2)]))
+    expected = walked.walk.map(&:kind)
+    walked.mark_written!
+    assert_equal expected, walked.walk.map(&:kind)
+    assert_equal expected, [].tap { |seen| walked.walk { |node| seen << node.kind } }
+  end
+
+  # Nothing may add a statement to a written program, since every later walk would miss it.
+  def test_a_written_program_refuses_a_new_statement
+    written = program(set(:x, 1)).mark_written!
+    assert_raises(FrozenError) { written << set(:y, 2) }
+    assert_raises(FrozenError) { written.children.first.children << set(:z, 3) }
+  end
+
   # An Array that says how many times something asked it to hand its elements over. The tally
   # is kept in an object of its own because the node freezes the list it is given, and a
   # frozen list cannot even count.
