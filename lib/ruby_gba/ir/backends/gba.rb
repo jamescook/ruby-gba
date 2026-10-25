@@ -381,7 +381,8 @@ module RubyGBA
                                scales_objects: ScreenLayout.method(:scales?))
           @frames = Frames.new(emitter: @emit, primitives: @primitives)
           @clock_chip = ClockChip.new(emitter: @emit, primitives: @primitives,
-                                      call_cold_routine: method(:emit_call_cold_routine))
+                                      call_cold_routine: method(:emit_call_cold_routine),
+                                      value: ->(node) { @lowering.value(node) })
           # The kind-keyed dispatch that replaces eval_value's case. Every statement in the
           # program goes through it, which also makes it the one place that can say how far
           # this pass has got — and the one place that can count what each part of the

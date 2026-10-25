@@ -18,8 +18,9 @@ module RubyGBA
         # week, hour, minute and second, each a byte holding two decimal digits.
         #
         # AT POWER-ON the chip is asked whether it is there at all and whether its time was ever
-        # set; a cartridge with no chip, or one whose battery ran out, is never asked again, and
-        # every reading stays 0, which is IR::Clock's promise. THEN AFTER EACH WAIT FOR THE SCREEN
+        # set; a cartridge with no chip is never asked again, and every reading stays 0, which is
+        # IR::Clock's promise, as every date and time does on a chip whose battery ran out, which
+        # is read all the same for its count. THEN AFTER EACH WAIT FOR THE SCREEN
         # the date and time are read into a copy the game reads, so every reading between two waits
         # is of one moment, as on every backend, and a game reading the time twenty times a pass
         # talks to the chip once.
@@ -84,20 +85,44 @@ module RubyGBA
           LR = 14
           PC = 15
 
-          def initialize(emitter:, primitives:, call_cold_routine:)
+          # +value+ works out an IR value into ACC, for the readings made from the copy by sums.
+          def initialize(emitter:, primitives:, call_cold_routine:, value:)
             @emitter = emitter
             @primitives = primitives
             @call_cold_routine = call_cold_routine
+            @value = value
             @used = false
           end
 
           # Does this program read the clock at all? Nothing here is emitted for one that does not.
-          def prepare(program) = @used = program.walk.any? { |node| node.kind == :clock }
+          # And does it read the chip's count (IR::Clock::COUNT), as a game that sets the clock does?
+          def prepare(program)
+            clock = program.walk.select { |node| node.kind == :clock }
+            @used = clock.any?
+            @counts = clock.any? { |node| IR::Clock::COUNT.include?(node.reading) }
+          end
 
           def used? = @used
 
-          # A reading, from the copy the last wait left.
-          def eval_clock(node) = @primitives.load_var(ACC, self.class.var(node.reading))
+          # A READING, from the copy the last wait left.
+          #
+          # THE CHIP'S COUNT (IR::Clock::COUNT), which a game that sets the clock keeps its time from:
+          # a copy of its own, read whether or not the chip was ever set, since a chip whose battery
+          # ran out counts on from 2000-01-01 (#emit_after_wait_body). Its days and seconds are made
+          # from that copy by IR::Clock's calendar, and whether it counted on since the console was
+          # last on is whether it was set, since a chip whose battery ran out says it was not.
+          def eval_clock(node)
+            count = ->(reading) { Build.var_ref(self.class.var(:"count_#{reading}")) }
+            case node.reading
+            when :days then @value.call(IR::Clock.days_from_civil(-> { count.call(:year) }, -> { count.call(:month) },
+                                                                  -> { count.call(:day) }))
+            when :seconds
+              @value.call(Build.binop(:+, Build.binop(:+, Build.binop(:*, count.call(:hour), Build.int(3600)),
+                                                      Build.binop(:*, count.call(:minute), Build.int(60))), count.call(:second)))
+            when :counting then @primitives.load_var(ACC, self.class.var(:set))
+            else @primitives.load_var(ACC, self.class.var(node.reading))
+            end
+          end
 
           # At power-on: is there a chip, was it ever set, and the reading before the first wait.
           def emit_call_at_power_on
@@ -136,7 +161,7 @@ module RubyGBA
           # Every reading 0 to begin with — the console's memory is not nought at power-on — then
           # the settings read, the chip told to count in 24 hours, and the settings read again.
           def emit_at_power_on_body
-            IR::Clock::READINGS.each do |reading|
+            (IR::Clock::TIME + IR::Clock::QUESTIONS).each do |reading|
               @emitter.emit(ASM.load_immediate(ACC, 0))
               @primitives.store_var(ACC, self.class.var(reading))
             end
@@ -192,11 +217,12 @@ module RubyGBA
             @emitter.place_label(done)
           end
 
-          # A READING: nothing at all unless the chip is there and set, and then the date and time,
-          # each byte's two digits made one number as it comes.
+          # A READING: nothing at all unless the chip is there, and then the date and time it says,
+          # each byte's two digits made one number as it comes — read whether or not it was set,
+          # since a game that sets the clock keeps its time from the chip's count (#eval_clock).
           def emit_after_wait_body
             skip = @emitter.gensym
-            @primitives.load_var(ACC, self.class.var(:set))
+            @primitives.load_var(ACC, self.class.var(@counts ? :present : :set))
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, skip, cond: :eq)
             @emitter.emit_number(BASE, PINS)
@@ -209,11 +235,26 @@ module RubyGBA
                 @emitter.emit_number(TMP, CENTURY)
                 @emitter.emit(ASM.add_reg(ACC, ACC, TMP))
               end
-              @primitives.store_var(ACC, self.class.var(reading))
+              @primitives.store_var(ACC, self.class.var(@counts ? :"count_#{reading}" : reading))
             end
             emit_end_conversation
             emit_pins_readable(0)
+            emit_count_shown_when_set if @counts
             @emitter.place_label(skip)
+          end
+
+          # In a game that keeps its time from the chip's count, the count is copied into what the
+          # game's readings read only when the chip was set: else they stay 0.
+          def emit_count_shown_when_set
+            unset = @emitter.gensym
+            @primitives.load_var(ACC, self.class.var(:set))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, unset, cond: :eq)
+            ANSWER.each do |reading, _|
+              @primitives.load_var(ACC, self.class.var(:"count_#{reading}"))
+              @primitives.store_var(ACC, self.class.var(reading))
+            end
+            @emitter.place_label(unset)
           end
 
           # ACC holds two decimal digits, one in each half of its low byte; it is left holding

@@ -102,8 +102,14 @@ static void timers_frame(void) {
 /* --- the cartridge's clock (Reference#value_of_clock) --- */
 
 /* The readings in IR::Clock::READINGS's order, which is the number the game asks by. Nothing ties
- * the two together but the native run of test_clock.rb, which reads every one of them. */
-enum { CLOCK_HOUR, CLOCK_MINUTE, CLOCK_SECOND, CLOCK_YEAR, CLOCK_MONTH, CLOCK_DAY, CLOCK_WEEKDAY, CLOCK_PRESENT, CLOCK_SET };
+ * the two together but the native runs of test_clock.rb and test_clock_set.rb, which read every one of
+ * them. The last three are the clock's count, which a game that sets the clock keeps its time from:
+ * days since 2000-01-01, seconds into the day, and whether it counted on (IR::Clock::COUNT). */
+enum { CLOCK_HOUR, CLOCK_MINUTE, CLOCK_SECOND, CLOCK_YEAR, CLOCK_MONTH, CLOCK_DAY, CLOCK_WEEKDAY, CLOCK_PRESENT, CLOCK_SET,
+       CLOCK_DAYS, CLOCK_SECONDS, CLOCK_COUNTING };
+
+/* From 1 January 1970, where the clock's seconds count from, to 1 January 2000. */
+#define DAYS_TO_2000 10957
 
 #define SECONDS_A_DAY 86400
 
@@ -171,11 +177,14 @@ static void clock_frame(void) {
 int32_t rg_clock_reading(int32_t reading) {
   if (!clock_present) return 0;
   if (reading == CLOCK_PRESENT) return 1;
+  int64_t days = floor_div(clock_seconds, SECONDS_A_DAY);
+  int64_t into_day = clock_seconds - days * SECONDS_A_DAY;
+  if (reading == CLOCK_DAYS) return (int32_t)(days - DAYS_TO_2000);
+  if (reading == CLOCK_SECONDS) return (int32_t)into_day;
+  if (reading == CLOCK_COUNTING) return clock_set ? 1 : 0;
   if (!clock_set) return 0;
   if (reading == CLOCK_SET) return 1;
 
-  int64_t days = floor_div(clock_seconds, SECONDS_A_DAY);
-  int64_t into_day = clock_seconds - days * SECONDS_A_DAY;
   int64_t year;
   int32_t month, day;
   date_from_days(days, &year, &month, &day);

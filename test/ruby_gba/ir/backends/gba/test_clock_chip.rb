@@ -15,7 +15,7 @@ require "stringio"
 class TestClockChip < Minitest::Test
   include EmulatorSupport
 
-  READINGS = RubyGBA::IR::Clock::READINGS
+  READINGS = (RubyGBA::IR::Clock::TIME + RubyGBA::IR::Clock::QUESTIONS).freeze
   THURSDAY = Time.new(2026, 10, 22, 21, 7, 5)
 
   def setup
@@ -90,6 +90,42 @@ class TestClockChip < Minitest::Test
                  "#{console.map { |r| r.values_at(:minute, :second) }.uniq.inspect} against " \
                  "#{interpreted.map { |r| r.values_at(:minute, :second) }.uniq.inspect}"
     assert_equal 2027, interpreted.last[:year], "the run reaches the new year"
+  end
+
+  # A GAME THAT SETS THE CLOCK, on its third pass: the cartridge keeps the time set from the chip's
+  # count, as Pokemon Emerald does, and never writes the chip. On a chip that was set and on one
+  # whose battery ran out, it reads what the interpreter reads.
+  private def setting_rom
+    RubyGBA.build("CLOCKSET", out: StringIO.new, err: StringIO.new, profile: false) do
+      screen :bitmap
+      now = clock
+      passes = var :passes, 0
+      kept = READINGS.to_h { |name| [name, var(name, -1)] }
+      game_loop do
+        passes.add! 1
+        (passes == 3).then { now.set!(year: 2030, month: 6, day: 15, hour: 12, minute: 30, second: 0) }
+        kept.each do |name, reading|
+          case name
+          when :present then reading.set! 0; now.present?.then { reading.set! 1 }
+          when :set then reading.set! 0; now.set?.then { reading.set! 1 }
+          else reading.set! now.public_send(name)
+          end
+        end
+      end
+    end
+  end
+
+  def test_a_game_that_sets_the_clock_reads_on_the_cartridge_what_the_interpreter_reads
+    built = setting_rom
+    [true, false].each do |chip_set|
+      player = Reference.new.clock_at(THURSDAY, set: chip_set)
+      player.run(built.built.source_program, frames: 10)
+      v = RubyGBA::Diagnostics::Verifier.new(built, vars: built.built.var_addresses, frames: 10, clock: THURSDAY,
+                                                    clock_set: chip_set)
+
+      assert_equal READINGS.to_h { |name| [name, player[name]] }, console_readings(v), "the chip set: #{chip_set}"
+      assert_equal 2030, v.var(:year), "the time set is read (chip set: #{chip_set})"
+    end
   end
 
   # WHAT READING THE CHIP COSTS A PASS: a command of eight bits out, seven bytes of eight back,

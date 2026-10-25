@@ -48,6 +48,23 @@ module RubyGBA
       # ask the player to set it rather than show a date that is not today.
       def set? = Condition.new(@builder, IR::Build.clock(:set))
 
+      # SET THE CLOCK to the date and time a game worked out — from a screen of its own that asked
+      # the player, however it likes; the framework draws nothing for it. Each is a number or a
+      # Value. Every reading after the next wait for the screen is that time, moving on a second a
+      # second, and so is every reading after the console is turned off and on again.
+      #
+      # As the console's own games did it, nothing is written into the clock chip: the game's save
+      # keeps how far the time set is from the chip's count, so a game that sets the clock has
+      # save memory. A day past the end of its month runs into the next, and so does a month past
+      # 12 into the next year, as a calendar counts. set? holds from then on, while the chip goes
+      # on counting; a chip whose battery runs out loses the time set with its own.
+      #
+      #   now.set!(year: 2026, month: picked_month, day: picked_day, hour: 9, minute: 0, second: 0)
+      def set!(year:, month:, day:, hour:, minute:, second:)
+        parts = { year: year, month: month, day: day, hour: hour, minute: minute, second: second }
+        @builder.set_clock(parts.transform_values { |part| Value.node_for(part) })
+      end
+
       private
 
       def reading(name) = Value.new(@builder, IR::Build.clock(name))

@@ -18,11 +18,11 @@ module RubyGBA
           PLAIN_NAME = "the time read without asking for a clock"
 
           def detect(program)
-            readings = program.walk.select { |node| node.kind == :clock }
-            time = readings.find { |node| Clock::TIME.include?(node.reading) }
-            return [] unless time && readings.none? { |node| Clock::QUESTIONS.include?(node.reading) }
+            readings = game_readings(program)
+            time = readings.find { |reading, _| Clock::TIME.include?(reading) }
+            return [] unless time && readings.none? { |reading, _| Clock::QUESTIONS.include?(reading) }
 
-            [Finding.new(check: NAME, severity: :warning, message: MESSAGE, node: statement_with_line(time))]
+            [Finding.new(check: NAME, severity: :warning, message: MESSAGE, node: statement_with_line(time.last))]
           end
 
           MESSAGE = "This game reads the time from `clock`, but it does not ask `clock.present?` or " \
@@ -33,6 +33,24 @@ module RubyGBA
                     "tell the player."
 
           private
+
+          # Each reading the game itself makes, as [reading, node]: of the chip, or — in a game that
+          # sets the clock — of the number the framework keeps for it (Clock::SHOWN). The framework's
+          # own routines read everything, and are left out.
+          def game_readings(program)
+            shown = Clock::SHOWN.invert
+            own = {}.compare_by_identity
+            program.walk.each do |node|
+              node.walk { |inside| own[inside] = true } if node.kind == :func && Clock::ROUTINES.include?(node.name)
+            end
+            program.walk.filter_map do |node|
+              next if own.key?(node)
+
+              if node.kind == :clock then [node.reading, node]
+              elsif node.kind == :var_ref && shown.key?(node.name) then [shown.fetch(node.name), node]
+              end
+            end
+          end
 
           # The statement the reading is part of, which is the node the builder gave a line.
           def statement_with_line(node)

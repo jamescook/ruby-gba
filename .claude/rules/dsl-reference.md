@@ -90,7 +90,7 @@ Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`,
 
 ## The date and time — `.claude/dsl/clock.md`
 
-- `clock` → `Clock` (`hour` … `weekday`); ask `present?` and `set?` first.
+- `clock` → `Clock` (`hour` … `weekday`); ask `present?` and `set?` first; `set!` sets it, kept in the save.
 
 ## Scenes & funcs — `.claude/dsl/scenes.md`
 
