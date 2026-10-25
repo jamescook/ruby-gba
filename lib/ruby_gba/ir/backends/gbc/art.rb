@@ -59,9 +59,9 @@ module RubyGBA
           # not drawn) and the mask of the pixels it draws.
           SpritePicture = Data.define(:name, :number, :width, :height, :pieces, :places, :mask)
 
-          # A game with a painted screen gives it the background's last palette and the tiles past
-          # the first 128 (Runtime::Paint), so its tiled screens have the rest.
-          PAINTING_PALETTES = PALETTES - 1
+          # A game with a painted screen gives it the background's last palettes, as many as its
+          # squares need (GBC::SquareColors), the last first, and the tiles past the first 128
+          # (Runtime::Paint), so its tiled screens have the rest.
           PAINTING_BACKGROUND_TILES = 128
 
           # MORE SPRITE LISTS THAN THE COLOR HOLDS. A game whose sprites between them wear more
@@ -76,13 +76,13 @@ module RubyGBA
           # the eight holds in a byte, one up so that nought is none.
           MOST_LENT = 254
 
-          attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids, :paint_colors
+          attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids
 
-          # +paint_colors+ are the colours a game paints a screen in, black first (nil for a game
-          # that paints no screen). +lends+ says the sprites' lists borrow the console's eight as
-          # the game runs (TooManySpriteLists).
-          def initialize(paint_colors: nil, lends: false)
-            @paint_colors = paint_colors
+          # +squares+ are the colour lists of a painted screen's squares (GBC::SquareColors), nil for
+          # a game that paints no screen. +lends+ says the sprites' lists borrow the console's eight
+          # as the game runs (TooManySpriteLists).
+          def initialize(squares: nil, lends: false)
+            @squares = squares
             @lends = lends
             @sprite_tiles = []        # 16 bytes each
             @sprite_tile_numbers = {} # bytes -> [number, flips]
@@ -99,7 +99,17 @@ module RubyGBA
             grid(Array.new(GRID_CELLS) { Array.new(GRID_CELLS) }) # grid 0: nothing up
           end
 
-          def painting? = !@paint_colors.nil?
+          def painting? = !@squares.nil?
+
+          # The console's numbers of the painted screen's palettes, the last of the eight first.
+          def painted_palettes = painting? ? (0...@squares.palettes.length).map { |i| PALETTES - 1 - i } : []
+
+          # The maps of the painted screen (GBC::SquareColors#maps): for each, the console's number of
+          # the palette each of its 360 squares names.
+          def square_maps = @squares.maps.map { |map| map.map { |i| PALETTES - 1 - i } }
+
+          # The map scene +name+ shows, by its number among #square_maps (nil for outside every scene).
+          def square_map_of(name) = @squares.map_of(name)
 
           # Do the sprites' lists borrow the console's eight as the game runs? Then a sprite
           # palette's number counts into every list the game has (art_lent_palettes), not the eight.
@@ -110,15 +120,13 @@ module RubyGBA
           # sprites' from 8, all eight of those when they are lent.
           def palettes_in_use
             backgrounds = (0...[@background_palettes.length, 1].max).to_a
-            backgrounds << PAINTING_PALETTES if painting?
-            sprites = (0...(lends? ? PALETTES : @sprite_palettes.length)).map { |n| PALETTES + n }
+            backgrounds.concat(painted_palettes)
+            sprites =(0...(lends? ? PALETTES : @sprite_palettes.length)).map { |n| PALETTES + n }
             (backgrounds + sprites).uniq
           end
 
-          # The place a painted colour is kept at in the painted screen's palette.
-          def paint_place(color)
-            @paint_colors.index(color & 0x7FFF) or raise LoweringError, "the colour #{color} is not among the painted ones"
-          end
+          # The place a painted colour is kept at in every one of the painted screen's palettes.
+          def paint_place(color) = @squares.place(color)
 
           # --- sprites ---
 
@@ -331,7 +339,7 @@ module RubyGBA
             asm = SM83.new("art tables", home: :fixed, holds: PICTURE_TABLES)
             asm.label("art_palettes")
             backgrounds = @background_palettes.dup
-            backgrounds[PAINTING_PALETTES] = padded(@paint_colors) if painting?
+            painted_palettes.zip(painting? ? @squares.palettes : []).each { |number, colors| backgrounds[number] = colors }
             # A game that lends its sprites' lists starts with nothing in the eight.
             [backgrounds, lends? ? [] : @sprite_palettes].each do |palettes|
               PALETTES.times do |i|
@@ -486,7 +494,7 @@ module RubyGBA
 
             sprites = palettes.equal?(@sprite_palettes)
             most = if sprites then lends? ? MOST_LENT : PALETTES
-                   elsif painting? then PAINTING_PALETTES
+                   elsif painting? then PALETTES - painted_palettes.length
                    else PALETTES
                    end
             if palettes.length == most

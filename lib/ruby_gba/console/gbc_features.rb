@@ -45,9 +45,13 @@ module RubyGBA
       ANSWERS = Ractor.make_shareable({
         # --- building, the screen and settings ---
         screen: works("`screen :tiled` and `screen :bitmap` work. A painted (bitmap) screen is " \
-                      "painted into tiles behind the scenes, and holds four colours at once: a game " \
-                      "that paints with more is refused, naming them. `tear_free: true` keeps one " \
-                      "picture, since a Game Boy Color always shows a painted picture whole. " \
+                      "made of tiles internally. Each 8×8 square of the screen holds four colours. " \
+                      "The screen holds eight sets of four colours. The build gives each square one " \
+                      "set for each scene. If a game paints a colour at a place that it calculates " \
+                      "as it runs, that colour can be in every square. If a game can paint a fifth " \
+                      "colour into a square, the build refuses it and names the square. " \
+                      "`tear_free: true` keeps one picture, because a Game Boy Color always shows " \
+                      "a painted picture whole. " \
                       "`screen :rotozoom` is refused: " \
                       "a Game Boy Color cannot turn or resize a background."),
         setting: works,
@@ -125,7 +129,7 @@ module RubyGBA
                              "for sprites. A set with more is refused, naming the set."),
         mirror: works,
         upside_down: works,
-        blit: works("on a painted screen, its colours counting towards the screen's four."),
+        blit: works("on a painted screen, its colours count towards the four colours of each square that it covers."),
         sprite: works("a sprite is made of the console's 8×8 pieces, forty at once and ten on any one " \
                       "row of the screen. `scale`, `face_angle` and `turn` are refused: a Game Boy " \
                       "Color cannot turn or resize a sprite. Draw the turns as poses."),

@@ -16,7 +16,7 @@ four colours. Every verb has one of two answers there, decided once in
 This file is `Console::GBCFeatures.reference` written out (`ruby tools/gbc_answers.rb`), and a
 test fails when the two differ.
 
-- `screen` — works: `screen :tiled` and `screen :bitmap` work. A painted (bitmap) screen is painted into tiles behind the scenes, and holds four colours at once: a game that paints with more is refused, naming them. `tear_free: true` keeps one picture, since a Game Boy Color always shows a painted picture whole. `screen :rotozoom` is refused: a Game Boy Color cannot turn or resize a background.
+- `screen` — works: `screen :tiled` and `screen :bitmap` work. A painted (bitmap) screen is made of tiles internally. Each 8×8 square of the screen holds four colours. The screen holds eight sets of four colours. The build gives each square one set for each scene. If a game paints a colour at a place that it calculates as it runs, that colour can be in every square. If a game can paint a fifth colour into a square, the build refuses it and names the square. `tear_free: true` keeps one picture, because a Game Boy Color always shows a painted picture whole. `screen :rotozoom` is refused: a Game Boy Color cannot turn or resize a background.
 - `setting` — works: the same as on the Advance.
 - `screen_width` — works: 160 on a Game Boy Color.
 - `screen_height` — works: 144 on a Game Boy Color.
@@ -66,7 +66,7 @@ test fails when the two differ.
 - `colors_in_use` — works: a set can name eight lists or fewer, because the console holds eight lists for sprites. A set with more is refused, naming the set.
 - `mirror` — works: the same as on the Advance.
 - `upside_down` — works: the same as on the Advance.
-- `blit` — works: on a painted screen, its colours counting towards the screen's four.
+- `blit` — works: on a painted screen, its colours count towards the four colours of each square that it covers.
 - `sprite` — works: a sprite is made of the console's 8×8 pieces, forty at once and ten on any one row of the screen. `scale`, `face_angle` and `turn` are refused: a Game Boy Color cannot turn or resize a sprite. Draw the turns as poses.
 - `draw_in_order` — works: the same as on the Advance.
 - `pool` — works: its sprites count towards the forty.

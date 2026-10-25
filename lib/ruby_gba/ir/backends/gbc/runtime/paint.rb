@@ -11,9 +11,10 @@ module RubyGBA
           # game paints into (`screen :bitmap`). A Game Boy Color has no such thing: everything it
           # shows is tiles. So a painted screen here is 360 tiles, 20 across and 18 down, each the
           # background's own and each shown once, so that together they are the screen: a pixel of
-          # the picture is a pixel of one of them. A tile's pixels are two bits, so the picture
-          # holds four colours at once — the background's eighth palette, which the build fills with
-          # the colours the game paints in (GBC::Art), black first.
+          # the picture is a pixel of one of them. A tile's pixels are two bits, so each 8×8 square
+          # of the picture holds four colours — the palette its cell of the grid names, one of the
+          # background's last, which the build picks for every square and fills with the colours
+          # that can be painted there (GBC::SquareColors), black first.
           #
           # The game paints into a copy of the 360 tiles in work memory (the FRAME, in work memory's
           # banks 2 to 4, 120 tiles to a bank), and the copy goes into the console between passes.
@@ -65,7 +66,12 @@ module RubyGBA
             SOLID_AT = 0x9680
             CLEAR_TILE = SOLID_TILE + 1
             CLEAR_AT = SOLID_AT + 16
+            # The cells past the screen's edges are drawn from the background's last palette, the
+            # painted screen's first (Art#painted_palettes), which like all of them holds black at
+            # place 0. A cell of the screen is drawn from its square's (GBC::SquareColors).
             PALETTE = 7
+            # The bit of a cell's attributes saying its tile is in video memory's second bank.
+            TILE_BANK_BIT = Console::GBCHardware::ATTR_TILE_BANK.bit_length - 1
 
             # In the bank byte of an entry of the list to send: a cell pointed at the clear tile —
             # or, for the clear tile itself (CLEAR_TILE_ENTRY), the tile rewritten in the colour in
@@ -111,8 +117,12 @@ module RubyGBA
             # either is added to (RUNS, as #emit_send keeps them; NO_BANK for none yet); whether
             # the screen was cleared since the last pass,
             # and the colour every cell not showing its own picture shows; and the area painting
-            # is held to (rt_paint_area), its left, top, right and bottom.
+            # is held to (rt_paint_area), its left, top, right and bottom. For a game whose scenes
+            # draw their squares from different palettes (GBC::SquareColors#maps), where the map of
+            # the scene up now is (rt_paint_map), and the attributes of the run being sent.
             SCREEN_KIND = "rt paint screen kind"
+            MAP = "rt paint map"
+            RUN_ATTRIBUTES = "rt paint run attributes"
             LIST = "rt paint list"
             DIRTY_LIST = "rt paint dirty list"
             OWN_LIST = "rt paint own list"
@@ -142,9 +152,13 @@ module RubyGBA
               memory.reserve(LAST_SOLID, 1)
               memory.reserve(AREA, 4)
               memory.reserve(SCRATCH, 20)
+              memory.reserve(MAP, 2)
+              memory.reserve(RUN_ATTRIBUTES, 1)
             end
 
-            def emit(asm, memory, painting:)
+            # +maps+ is how many maps of the screen's squares the game's scenes show between them
+            # (GBC::SquareColors#maps).
+            def emit(asm, memory, painting:, maps: 1)
               emit_screen(asm, memory, painting: painting)
               return emit_nothing_painted(asm) unless painting
 
@@ -161,7 +175,8 @@ module RubyGBA
               emit_bits(asm, memory, quick)
               emit_patches(asm, memory, quick)
               emit_scan(asm, memory, quick)
-              emit_upload(asm, memory)
+              emit_map(asm, memory, maps)
+              emit_upload(asm, memory, maps)
             end
 
             # What the painting keeps in the processor's quick memory: the generation, the clearing
@@ -274,6 +289,40 @@ module RubyGBA
               asm.add_hl(:de)
               asm.dec(:c)
               asm.jump_relative(:nz, "rt_paint_start_screen_row")
+              # ...in their squares' palettes, which they keep, whichever tile they show.
+              asm.call("rt_paint_tables_in_view")
+              asm.load(:a, 1)
+              asm.load_high(h::VBK, :a)
+              asm.load(:hl, "rt_paint_cells")
+              asm.load(:de, ATTRIBUTES_AT)
+              asm.add_hl(:de)
+              asm.load(:d, :h)
+              asm.load(:e, :l)
+              asm.load(:hl, GRID)
+              asm.load(:c, ROWS)
+              asm.label("rt_paint_start_square_row")
+              asm.load(:b, COLUMNS)
+              asm.label("rt_paint_start_square")
+              asm.load(:a, [:de])
+              asm.or_a(h::ATTR_TILE_BANK)
+              asm.load([:hli], :a)
+              asm.load(:a, :e)
+              asm.add_a(CELL_ENTRY_BYTES)
+              asm.load(:e, :a)
+              asm.jump_relative(:nc, "rt_paint_start_square_carried")
+              asm.inc(:d)
+              asm.label("rt_paint_start_square_carried")
+              asm.dec(:b)
+              asm.jump_relative(:nz, "rt_paint_start_square")
+              asm.push(:de)
+              asm.load(:de, Art::GRID_CELLS - COLUMNS)
+              asm.add_hl(:de)
+              asm.pop(:de)
+              asm.dec(:c)
+              asm.jump_relative(:nz, "rt_paint_start_square_row")
+              asm.xor_a(:a)
+              asm.load_high(h::VBK, :a)
+              asm.call("rt_bank_back")
               asm.xor_a(:a)
               %i[generation clear clear_low clear_high].each { |name| asm.load_high(quick.public_send(name), :a) }
               [DIRTY_LIST, OWN_LIST].each do |list|
@@ -281,6 +330,9 @@ module RubyGBA
                 asm.load([:hli], :a)
                 asm.load([:hl], :a)
               end
+              asm.push(:af)
+              asm.call("rt_paint_map_first")
+              asm.pop(:af)
               asm.call("rt_paint_list_open")
               asm.load([memory[CLEARED]], :a)
               asm.load([memory[LAST_SOLID]], :a)
@@ -327,18 +379,31 @@ module RubyGBA
             # can grow by after it and before it, along its row and within its bank of video
             # memory; and for each length of run, the last line of the blank it may start on.
             # None for a game that never paints.
-            def table_sections(painting:)
-              return [] unless painting
+            #
+            # +maps+ are the maps of the screen's squares the game's scenes show (GBC::SquareColors,
+            # Art#square_maps), each the palette every cell's square is drawn from by the console's
+            # number, or nil for a game that never paints. A run is all one palette in every map, so
+            # its attributes are written as one; a game of more than one map has each map's
+            # attributes for every cell besides (rt_paint_map_N), which the blank writes a run's
+            # cells from.
+            def table_sections(maps:)
+              return [] unless maps
 
               asm = SM83.new("paint tables", home: :banked)
               asm.label("rt_paint_cells")
-              CELLS.times { |cell| asm.data_bytes(cell_entry(cell)) }
+              CELLS.times { |cell| asm.data_bytes(cell_entry(cell, maps.first)) }
               asm.label("rt_paint_room_after")
-              asm.data_bytes((0...CELLS).map { |cell| room_after(cell) })
+              asm.data_bytes((0...CELLS).map { |cell| maps.map { |squares| room_after(cell, squares) }.min })
               asm.label("rt_paint_room_before")
-              asm.data_bytes((0...CELLS).map { |cell| room_before(cell) })
+              asm.data_bytes((0...CELLS).map { |cell| maps.map { |squares| room_before(cell, squares) }.min })
               asm.label("rt_paint_run_last_lines")
-              asm.data_bytes((0..RUN_LENGTH_MASK).map { |less_one| run_last_line(less_one + 1) })
+              asm.data_bytes((0..RUN_LENGTH_MASK).map { |less_one| run_last_line(less_one + 1, maps: maps.length) })
+              if maps.length > 1
+                maps.each_with_index do |squares, i|
+                  asm.label("rt_paint_map_#{i}")
+                  asm.data_bytes((0...CELLS).map { |cell| cell_entry(cell, squares).last })
+                end
+              end
               [asm.section]
             end
 
@@ -356,33 +421,43 @@ module RubyGBA
             # counted from #emit_upload's instructions, generously: RUN_CYCLES for the entry and
             # the copy's set-up, TILE_CYCLES for each tile's sixteen bytes and its cell's two
             # writes. A line is LINE_CYCLES of the processor at the double speed the game runs at.
+            # A game of more than one map looks its run's attributes up and writes them for every
+            # run, MAP_RUN_CYCLES more a run and MAP_TILE_CYCLES more a tile.
             RUN_CYCLES = 170
             TILE_CYCLES = 40
+            MAP_RUN_CYCLES = 60
+            MAP_TILE_CYCLES = 8
             LINE_CYCLES = 228
             LAST_BLANK_LINE = 153
-            def run_last_line(length)
-              LAST_BLANK_LINE - ((RUN_CYCLES + (TILE_CYCLES * length)) / LINE_CYCLES.to_f).ceil
+            def run_last_line(length, maps: 1)
+              run, tile = maps > 1 ? [RUN_CYCLES + MAP_RUN_CYCLES, TILE_CYCLES + MAP_TILE_CYCLES] : [RUN_CYCLES, TILE_CYCLES]
+              LAST_BLANK_LINE - ((run + (tile * length)) / LINE_CYCLES.to_f).ceil
             end
 
-            # The cells after +cell+ in its row, short of the end of video memory's first bank.
-            def room_after(cell)
+            # The cells after +cell+ in its row, short of the end of video memory's first bank and of
+            # a cell drawn from another palette.
+            def room_after(cell, squares)
               room = COLUMNS - 1 - (cell % COLUMNS)
-              cell < VIDEO_BANK_CELLS ? [room, VIDEO_BANK_CELLS - 1 - cell].min : room
+              room = [room, VIDEO_BANK_CELLS - 1 - cell].min if cell < VIDEO_BANK_CELLS
+              (1..room).find { |on| squares.fetch(cell + on) != squares.fetch(cell) }&.pred || room
             end
 
-            # The cells before +cell+ in its row, short of the start of video memory's second bank.
-            def room_before(cell)
+            # The cells before +cell+ in its row, short of the start of video memory's second bank
+            # and of a cell drawn from another palette.
+            def room_before(cell, squares)
               room = cell % COLUMNS
-              cell >= VIDEO_BANK_CELLS ? [room, cell - VIDEO_BANK_CELLS].min : room
+              room = [room, cell - VIDEO_BANK_CELLS].min if cell >= VIDEO_BANK_CELLS
+              (1..room).find { |back| squares.fetch(cell - back) != squares.fetch(cell) }&.pred || room
             end
 
             # HOW TILE +cell+ IS SENT, in the order the blank writes it (#emit_upload), so the blank
             # only reads it along: the bank of work memory it is painted in, where it is there (high
             # byte first, as the console's copy takes it), its bank of video memory, where it goes
             # there; then for its cell of the grid, the cell's place, the number the grid shows the
-            # tile by, and the cell's attributes (that bank, and the palette).
+            # tile by, and the cell's attributes (that bank, and its square's palette).
             CELL_ENTRY_BYTES = 10
-            def cell_entry(cell)
+            ATTRIBUTES_AT = 9
+            def cell_entry(cell, squares)
               h = Console::GBCHardware
               row, column = cell.divmod(COLUMNS)
               bank = BANKS.fetch(row / ROWS_A_BANK)
@@ -393,7 +468,7 @@ module RubyGBA
               number = (slot + 128) & 0xFF
               grid = GRID + (row * Art::GRID_CELLS) + column
               [bank, from >> 8, from & 0xFF, video_bank, to >> 8, to & 0xFF,
-               grid & 0xFF, grid >> 8, number, (video_bank * h::ATTR_TILE_BANK) | PALETTE]
+               grid & 0xFF, grid >> 8, number, (video_bank * h::ATTR_TILE_BANK) | squares.fetch(cell)]
             end
 
             # rt_paint_cell: the tile pixel (D, E) is in, ready to paint: its bank of work memory in
@@ -1915,7 +1990,83 @@ module RubyGBA
             # less than 144 with the screen on — not even nought, which it reads for nearly all of
             # line 153, the blank's last, as well as at the top of the screen. With the screen off
             # the counter reads nought and the whole list goes now.
-            def emit_upload(asm, memory)
+            # rt_paint_map(n): the scene arriving shows map +n+ of the screen's squares (Art#square_maps)
+            # from now: each run the blank sends writes its cells' attributes from it.
+            #
+            # A cell whose palette is another in this map is marked STALE, as showing neither its
+            # own tile nor a colour, so the next time its tile is painted it is sent with its cell,
+            # in this map's palette, even when the tile is painted exactly as it was: a colour keeps
+            # its place in every palette, so the same tile in another scene can be other colours. A
+            # cell not painted again keeps the palette it has, which shows its tile as it was
+            # painted, and the colour the screen is cleared to, which every palette holds.
+            #
+            # rt_paint_map_first is the first map, the one shown before any scene. Nothing for a
+            # game of one map, whose cells keep the palettes they are given at power-on.
+            STALE = 0xFE
+            def emit_map(asm, memory, maps)
+              h = Console::GBCHardware
+              asm.label("rt_paint_map")
+              if maps > 1
+                asm.load_hl_sp(2)
+                asm.load(:a, [:hl])
+                asm.call("rt_paint_map_place") # DE = the map's attributes
+                asm.load(:a, [memory[MAP]])
+                asm.load(:l, :a)
+                asm.load(:a, [memory[MAP] + 1])
+                asm.load(:h, :a) # HL = the map up before's
+                asm.load(:a, :e)
+                asm.load([memory[MAP]], :a)
+                asm.load(:a, :d)
+                asm.load([memory[MAP] + 1], :a)
+                asm.call("rt_paint_tables_in_view")
+                BANKS.each do |bank|
+                  asm.load(:a, bank)
+                  asm.load_high(h::SVBK, :a)
+                  asm.load(:bc, SHOWN_AT)
+                  asm.label("rt_paint_map_cell_#{bank}")
+                  asm.load(:a, [:de])
+                  asm.cp_a([:hl])
+                  asm.jump_relative(:z, "rt_paint_map_same_#{bank}")
+                  asm.load(:a, STALE)
+                  asm.load([:bc], :a)
+                  asm.label("rt_paint_map_same_#{bank}")
+                  asm.inc(:hl)
+                  asm.inc(:de)
+                  asm.inc(:c)
+                  asm.load(:a, :c)
+                  asm.cp_a((SHOWN_AT + CELLS_A_BANK) & 0xFF)
+                  asm.jump_relative(:nz, "rt_paint_map_cell_#{bank}")
+                end
+                asm.load(:a, 1)
+                asm.load_high(h::SVBK, :a)
+                asm.jump("rt_bank_back")
+              end
+              asm.label("rt_paint_map_first")
+              return asm.ret if maps <= 1
+
+              asm.xor_a(:a)
+              asm.call("rt_paint_map_place")
+              asm.load(:a, :e)
+              asm.load([memory[MAP]], :a)
+              asm.load(:a, :d)
+              asm.load([memory[MAP] + 1], :a)
+              asm.ret
+              # DE = where map A's attributes are.
+              asm.label("rt_paint_map_place")
+              asm.add_a(:a)
+              asm.load(:e, :a)
+              asm.load(:d, 0)
+              asm.load(:hl, "rt_paint_map_places")
+              asm.add_hl(:de)
+              asm.load(:a, [:hli])
+              asm.load(:e, :a)
+              asm.load(:d, [:hl])
+              asm.ret
+              asm.label("rt_paint_map_places")
+              maps.times { |i| asm.data_words("rt_paint_map_#{i}") }
+            end
+
+            def emit_upload(asm, memory, maps)
               h = Console::GBCHardware
               done = memory[LIST_DONE]
               asm.label("rt_paint_upload")
@@ -1963,6 +2114,21 @@ module RubyGBA
               asm.load(:a, :d)
               asm.cp_a(SENDS_CLEAR_TILE)
               asm.jump(:nc, "rt_paint_upload_clear_tile")
+              if maps > 1
+                # The attributes of the run's cells in the map up now: its first cell's.
+                asm.load(:c, :a)
+                asm.and_a(1)
+                asm.load(:h, :a)
+                asm.load(:a, [memory[MAP]])
+                asm.add_a(:e)
+                asm.load(:l, :a)
+                asm.load(:a, [memory[MAP] + 1])
+                asm.adc_a(:h)
+                asm.load(:h, :a)
+                asm.load(:a, [:hl])
+                asm.load([memory[RUN_ATTRIBUTES]], :a)
+                asm.load(:a, :c)
+              end
               # HL = the run's first tile's entry of rt_paint_cells: its number × CELL_ENTRY_BYTES on.
               asm.load(:c, :a) # what is sent
               asm.and_a(1)
@@ -1984,7 +2150,9 @@ module RubyGBA
               asm.load(:a, :b)
               asm.load_high(h::HDMA5, :a) # B + 1 blocks of 16, one a tile: the copy runs now
               asm.bit(KEEPS_CELL_BIT, :c)
-              asm.jump_relative(:nz, "rt_paint_upload_sent") # their cells show them already
+              # Their cells show them already — in the palette of the map up then, which a game of
+              # more than one map writes again.
+              asm.jump_relative(:nz, maps > 1 ? "rt_paint_upload_kept" : "rt_paint_upload_sent")
               # The cells: the numbers the grid shows the tiles by into the grid's first bank, one
               # more each cell along, and their attributes into the second.
               asm.load(:a, [:hli])
@@ -2004,12 +2172,18 @@ module RubyGBA
               asm.dec(:c)
               asm.jump_relative(:nz, "rt_paint_upload_numbers")
               asm.pop(:de)
-              # A cell whose tile is in video memory's second bank has the attributes the clear
-              # tile's cells have, which are all its cell ever holds (#emit_start): only a run in
-              # the first bank has attributes to write.
-              asm.load(:a, [:hl])
-              asm.cp_a(h::ATTR_TILE_BANK | PALETTE)
-              asm.jump_relative(:z, "rt_paint_upload_sent")
+              if maps > 1
+                # Every run's cells take their attributes from the map up now.
+                asm.label("rt_paint_upload_map_attributes")
+                asm.load(:a, [memory[RUN_ATTRIBUTES]])
+              else
+                # A cell whose tile is in video memory's second bank has the attributes the clear
+                # tile's cells have, its bank and its square's palette, which are all its cell ever
+                # holds (#emit_start): only a run in the first bank has attributes to write.
+                asm.load(:a, [:hl])
+                asm.bit(TILE_BANK_BIT, :a)
+                asm.jump_relative(:nz, "rt_paint_upload_sent")
+              end
               asm.label("rt_paint_upload_attributes_of") # A = the attributes, B = the run's length less one
               asm.load(:c, :a)
               asm.load(:a, 1)
@@ -2024,6 +2198,14 @@ module RubyGBA
               asm.label("rt_paint_upload_sent")
               asm.pop(:hl)
               asm.jump("rt_paint_upload_next")
+              if maps > 1
+                asm.label("rt_paint_upload_kept") # DE = the first cell's place in the grid
+                asm.load(:a, [:hli])
+                asm.load(:e, :a)
+                asm.load(:a, [:hl])
+                asm.load(:d, :a)
+                asm.jump_relative("rt_paint_upload_map_attributes")
+              end
               # Single colours: the cells pointed at the clear tile, which every single colour
               # shown is.
               asm.label("rt_paint_upload_solid")
@@ -2046,10 +2228,14 @@ module RubyGBA
               asm.dec(:c)
               asm.jump_relative(:nz, "rt_paint_upload_solid_numbers")
               asm.pop(:de)
-              asm.load(:a, [:hl])
-              asm.cp_a(h::ATTR_TILE_BANK | PALETTE)
-              asm.jump_relative(:z, "rt_paint_upload_sent") # the clear tile's cells have them already
-              asm.load(:a, h::ATTR_TILE_BANK | PALETTE)
+              if maps > 1
+                asm.load(:a, [memory[RUN_ATTRIBUTES]])
+              else
+                asm.load(:a, [:hl])
+                asm.bit(TILE_BANK_BIT, :a)
+                asm.jump_relative(:nz, "rt_paint_upload_sent") # the clear tile's cells have them already
+              end
+              asm.or_a(h::ATTR_TILE_BANK)
               asm.jump_relative("rt_paint_upload_attributes_of")
               # The clear tile, in the colour E: each of its rows two bytes, the colour's low bit in
               # every pixel of the first and its high bit in the second.
