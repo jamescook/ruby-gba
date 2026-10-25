@@ -48,8 +48,11 @@ module RubyGBA
                       "made of tiles internally. Each 8×8 square of the screen holds four colours. " \
                       "The screen holds eight sets of four colours. The build gives each square one " \
                       "set for each scene. If a game paints a colour at a place that it calculates " \
-                      "as it runs, that colour can be in every square. If a game can paint a fifth " \
-                      "colour into a square, the build refuses it and names the square. " \
+                      "as it runs, that colour can be in every square. If a scene does not clear the " \
+                      "screen, its squares also keep the colours of the scene before it. The build " \
+                      "refuses a game that can paint a fifth colour into a square, and names the " \
+                      "square. It also refuses a game that needs more than eight sets, or whose " \
+                      "colours cannot each keep one place in every set. " \
                       "`tear_free: true` keeps one picture, because a Game Boy Color always shows " \
                       "a painted picture whole. " \
                       "`screen :rotozoom` is refused: " \

@@ -64,6 +64,7 @@ module RubyGBA
                                          }.merge(Picture::VALUES))
 
           include Picture
+          include PaintReach
           include Sound
           include TileRuns
 
@@ -317,12 +318,7 @@ module RubyGBA
               asm.label(table_label(table.name))
               table_parts(table).each { |part| asm.data_bytes(part) }
             end
-            @drawing_tables.each do |label, bytes, entries, banked|
-              next if banked
-
-              asm.label(label)
-              entries.each { |entry| asm.data_bytes(little_endian(Int32.wrap(entry), bytes)) }
-            end
+            @drawing_tables.reject(&:banked).each { |table| emit_drawing_table(asm, table) }
             @routine_tables.each do |targets, label|
               asm.label(label)
               targets.each do |name|
@@ -396,13 +392,18 @@ module RubyGBA
                 asm.section
               end
             end
-            drawings = @drawing_tables.select(&:last).map do |label, bytes, entries, _banked|
-              asm = SM83.new(label, home: :banked, holds: DATA)
-              asm.label(label)
-              entries.each { |entry| asm.data_bytes(little_endian(Int32.wrap(entry), bytes)) }
+            drawings = @drawing_tables.select(&:banked).map do |table|
+              asm = SM83.new(table.label, home: :banked, holds: DATA)
+              emit_drawing_table(asm, table)
               asm.section
             end
             tables + drawings
+          end
+
+          # A table of the drawing's numbers (Picture#drawing_table), each entry its low bytes.
+          def emit_drawing_table(asm, table)
+            asm.label(table.label)
+            table.entries.each { |entry| asm.data_bytes(little_endian(Int32.wrap(entry), table.bytes)) }
           end
 
           # +table+'s bytes as the cartridge keeps them, in parts of Runtime::Calls::TABLE_PART_BYTES.

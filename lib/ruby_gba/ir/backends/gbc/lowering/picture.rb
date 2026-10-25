@@ -34,17 +34,11 @@ module RubyGBA
 
             VALUES = Ractor.make_shareable({ pixels_overlap: :value_of_pixels_overlap })
 
-            # THE KINDS THAT PAINT, and the colour (or colours) each says.
-            PAINTING = Ractor.make_shareable({ clear_screen: %i[color], fill_rect: %i[color], dma_fill_rect: %i[color],
-                                               draw_rect_at: %i[color], pixel: %i[color], draw_text: %i[color picked],
-                                               draw_digit: %i[color] })
-
-            # THE KINDS THAT PUT A PICTURE DOWN, and the field naming the picture (or pictures): each
-            # paints in every colour its picture draws.
-            PUTTING_DOWN = Ractor.make_shareable({ blit: :name, blit_pose: :poses, draw_column_at: :name })
-
             # What a column of a picture is handed over in (#emit_draw_column_at), the height first.
             COLUMN = %i[height slice x top width].freeze
+
+            # One table of the drawing's numbers, as #drawing_table keeps it for the data.
+            DrawingTable = Data.define(:label, :bytes, :entries, :banked)
 
             # The art the program's pictures were made into, for the cartridge to keep.
             attr_reader :art
@@ -65,14 +59,14 @@ module RubyGBA
               @objects = by_name(@program.walk, :object)
               @color_lists = by_name(@program.walk, :color_list)
               @pictures = by_name(@program.walk, :data, :bitmap)
-              @squares = square_colors
-              @art = Art.new(squares: @squares&.refusal ? nil : @squares, lends: @lends_sprite_colors)
+              @square_colors = square_colors
+              @art = Art.new(square_colors: @square_colors&.refusal ? nil : @square_colors, lends: @lends_sprite_colors)
               @grids = {} # a background declaration -> its grid's number
               @backgrounds = by_name(@program.walk, :background)
               @drawn_sprites = SpriteNames.new(@program) # the numbers a run says its sprites by
               @patches = by_name(@program.walk, :backing_buffer) # what sprites on a painted screen cover
               @column_routines = {} # a picture drawn a column at a time -> its routine's label
-              @drawing_tables = [] # [label, bytes an entry, the entries] for the data
+              @drawing_tables = [] # DrawingTable each, for the data
             end
 
             # Each colour list's own number, saying which of its sets it holds now (Reference
@@ -86,125 +80,6 @@ module RubyGBA
             def build_name = "the Game Boy Color build"
 
             # --- refusals ---
-
-            # The colour list each square of a painted screen names (GBC::SquareColors), from what
-            # every drawing of the program can paint and where; nil for a program that paints nothing.
-            def square_colors
-              painting = @program.walk.select do |node|
-                PAINTING.key?(node.kind) || PUTTING_DOWN.key?(node.kind) || (node.kind == :background && painted_screen_for?(node))
-              end
-              return nil if painting.empty?
-
-              held = {}.compare_by_identity # a drawing inside an area -> the area's box
-              @program.walk.select { |node| node.kind == :inside }.each do |area|
-                box = [area.x, area.y, area.x + area.w, area.y + area.h]
-                area.walk { |node| held[node] = box unless node.equal?(area) }
-              end
-              painted = {}.compare_by_identity # a drawing statement -> what it paints
-              painting.each { |node| painted[node] = drawings_of(node, held[node]) }
-              outside = statements_reached([@program, *@tick_handlers.values, *@program.walk.select { |node| node.kind == :scroll_rows }],
-                                           past: @scenes.keys)
-              layouts = { nil => outside }
-              @scenes.each_key { |scene| layouts[scene] = outside + statements_reached([@funcs.fetch(scene)], past: []) }
-              cleared = painting.select { |node| node.kind == :clear_screen && !held[node] }
-              SquareColors.new(layouts.transform_values { |nodes| nodes.flat_map { |node| painted.fetch(node, []) } },
-                               everywhere: cleared.map { |node| Graphics::Color.resolve(node.color) },
-                               most_palettes: Art::PALETTES)
-            end
-
-            # The statements a run can reach from +roots+ and every routine they call, however deep,
-            # except the routines named in +past+.
-            def statements_reached(roots, past:)
-              statements = Reach.statements_from(*roots)
-              reached = []
-              waiting = Reach.routines_named(statements)
-              until waiting.empty?
-                name = waiting.shift
-                next if reached.include?(name) || past.include?(name) || !@funcs.key?(name)
-
-                reached << name
-                more = Reach.statements_under(@funcs.fetch(name))
-                statements.concat(more)
-                waiting.concat(Reach.routines_named(more))
-              end
-              statements
-            end
-
-            # What +node+ paints, as drawings, held to the box of +area+ when it is inside one.
-            def drawings_of(node, area)
-              reach_of(node).map do |colors, box|
-                box = [[box[0], area[0]].max, [box[1], area[1]].max, [box[2], area[2]].min, [box[3], area[3]].min] if area
-                SquareColors::Drawing.new(colors: colors.map { |color| Graphics::Color.resolve(color) }, box: box)
-              end
-            end
-
-            # What +node+ can paint, as [colours, box] pairs: the box of the screen it can reach, left,
-            # top, right and bottom. An edge worked out as the game runs can be anywhere, so the box
-            # reaches the screen's edge on that side.
-            def reach_of(node)
-              case node.kind
-              when :clear_screen then [[[node.color], Runtime::Paint::WHOLE_SCREEN]]
-              when :fill_rect, :dma_fill_rect, :draw_rect_at then [[[node.color], reach_box(node.x, node.y, node.w, node.h)]]
-              when :pixel then [[[node.color], reach_box(node.x, node.y, 1, 1)]]
-              when :draw_text then text_reach([node.color, node.picked].compact, node.x, node.y, node.fonts.get(node.font), node.text)
-              when :draw_digit
-                (0..9).flat_map { |d| text_reach([node.color], node.x, node.y, node.fonts.get(node.font), d.to_s) }
-              when :blit then [picture_reach(node.name, node.x, node.y)]
-              when :blit_pose then node.poses.map { |name| picture_reach(name, node.x, node.y) }
-              when :draw_column_at
-                [[picture_named(node.name).colors_drawn, reach_box(node.x, node.top, node.width || 1, node.height)]]
-              when :background then background_reach(node)
-              end
-            end
-
-            def reach_box(x, y, width, height)
-              left, right = reach_span(x, width, Console::GBCHardware::SCREEN_WIDTH)
-              top, bottom = reach_span(y, height, Console::GBCHardware::SCREEN_HEIGHT)
-              [left, top, right, bottom]
-            end
-
-            # From +start+ to past +length+ along an edge +limit+ long, as far as is known.
-            def reach_span(start, length, limit)
-              from = folded(start)
-              return [0, limit] unless from
-
-              long = folded(length)
-              long ? [from, from + long] : [from, limit]
-            end
-
-            def text_reach(colors, x, y, font, text)
-              points = font.enum_for(:each_pixel, text).to_a
-              return [] if points.empty?
-
-              xs = points.map(&:first)
-              ys = points.map(&:last)
-              left, right = reach_span(moved(x, xs.min), xs.max - xs.min + 1, Console::GBCHardware::SCREEN_WIDTH)
-              top, bottom = reach_span(moved(y, ys.min), ys.max - ys.min + 1, Console::GBCHardware::SCREEN_HEIGHT)
-              [[colors, [left, top, right, bottom]]]
-            end
-
-            def picture_reach(name, x, y)
-              image = picture_named(name)
-              [image.colors_drawn, reach_box(x, y, image.width, image.height)]
-            end
-
-            # A background painted into the picture paints each cell's tile where the cell is.
-            def background_reach(bg)
-              return [] unless painted_screen_for?(bg)
-
-              bg.map.each_with_index.flat_map do |row, r|
-                Array(row).each_with_index.filter_map do |tile, c|
-                  next if tile.nil? || tile.negative?
-
-                  image = Assets::Image.of(@pictures.fetch(bg.tiles.fetch(tile)))
-                  colors = (image.width * image.height).times.reject { |at| image.tile_see_through_at?(at) }
-                                                       .map { |at| image.color_at(at) }.uniq
-                  x = c * bg.tile_w
-                  y = r * bg.tile_h
-                  [colors, [x, y, x + bg.tile_w, y + bg.tile_h]] unless colors.empty?
-                end
-              end
-            end
 
             # THE SETS GIVEN TO `colors_in_use` HAVE TO FIT IN THE EIGHT. The lists a set names are
             # shown together, so each takes turns in a list of its own (IR::Nodes::ColorList
@@ -226,13 +101,6 @@ module RubyGBA
                                      "#{@color_lists.fetch(shared.first).busiest_set}. To fix this, give that " \
                                      "set #{Art::PALETTES} lists or fewer."
               end
-            end
-
-            # Each 8×8 square of a painted Color screen holds four colours, and the screen eight lists
-            # of them (GBC::SquareColors), so a program whose painting does not fit is refused, naming
-            # the square or the colours.
-            def refuse_unfit_paint_squares!
-              raise LoweringError, @squares.refusal if @squares&.refusal
             end
 
             # --- the screen ---
@@ -272,7 +140,7 @@ module RubyGBA
             # nothing (Reference#take_over).
             def emit_scene_arrival(scene)
               # The map of the painted screen's squares this scene shows (GBC::SquareColors).
-              runtime_call("rt_paint_map", [Build.int(@art.square_map_of(scene))]) if @art.painting? && @art.square_maps.length > 1
+              runtime_call("rt_paint_map", [Build.int(@art.square_map_of(scene))]) if @art.square_maps.length > 1
               arrival = @handover.arrival(scene)
               screen = arrival_screen(arrival)
               emit_screen_change(screen)
@@ -310,7 +178,7 @@ module RubyGBA
             # with an area of its own can be called from inside another's. A program that paints
             # nothing has no area to hold.
             def emit_inside(node)
-              return node.children.each { |child| statement(child) } unless @squares
+              return node.children.each { |child| statement(child) } unless @square_colors
 
               outer = keep_local(:area)
               edges = [node.x, node.y, node.x + node.w, node.y + node.h]
@@ -1274,7 +1142,7 @@ module RubyGBA
             # in view, where a game's code and tables need the room.
             def drawing_table(what, bytes, entries, banked: false)
               label = "#{what} #{@drawing_tables.length + 1}"
-              @drawing_tables << [label, bytes, entries, banked]
+              @drawing_tables << DrawingTable.new(label: label, bytes: bytes, entries: entries, banked: banked)
               label
             end
           end

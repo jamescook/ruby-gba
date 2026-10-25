@@ -78,11 +78,11 @@ module RubyGBA
 
           attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids
 
-          # +squares+ are the colour lists of a painted screen's squares (GBC::SquareColors), nil for
+          # +square_colors+ are the colour lists of a painted screen's squares (GBC::SquareColors), nil for
           # a game that paints no screen. +lends+ says the sprites' lists borrow the console's eight
           # as the game runs (TooManySpriteLists).
-          def initialize(squares: nil, lends: false)
-            @squares = squares
+          def initialize(square_colors: nil, lends: false)
+            @square_colors = square_colors
             @lends = lends
             @sprite_tiles = []        # 16 bytes each
             @sprite_tile_numbers = {} # bytes -> [number, flips]
@@ -99,17 +99,19 @@ module RubyGBA
             grid(Array.new(GRID_CELLS) { Array.new(GRID_CELLS) }) # grid 0: nothing up
           end
 
-          def painting? = !@squares.nil?
+          def painting? = !@square_colors.nil?
 
-          # The console's numbers of the painted screen's palettes, the last of the eight first.
-          def painted_palettes = painting? ? (0...@squares.palettes.length).map { |i| PALETTES - 1 - i } : []
+          # The painted screen's palettes, four colours each, and the console's numbers for them, the
+          # last of the eight first. None for a game that paints no screen.
+          def paint_palettes = painting? ? @square_colors.palettes : []
+          def painted_palettes = (0...paint_palettes.length).map { |i| PALETTES - 1 - i }
 
           # The maps of the painted screen (GBC::SquareColors#maps): for each, the console's number of
-          # the palette each of its 360 squares names.
-          def square_maps = @squares.maps.map { |map| map.map { |i| PALETTES - 1 - i } }
+          # the palette each of its 360 squares names. None for a game that paints no screen.
+          def square_maps = painting? ? @square_colors.maps.map { |map| map.map { |i| PALETTES - 1 - i } } : []
 
           # The map scene +name+ shows, by its number among #square_maps (nil for outside every scene).
-          def square_map_of(name) = @squares.map_of(name)
+          def square_map_of(name) = @square_colors.map_of(name)
 
           # Do the sprites' lists borrow the console's eight as the game runs? Then a sprite
           # palette's number counts into every list the game has (art_lent_palettes), not the eight.
@@ -126,7 +128,7 @@ module RubyGBA
           end
 
           # The place a painted colour is kept at in every one of the painted screen's palettes.
-          def paint_place(color) = @squares.place(color)
+          def paint_place(color) = @square_colors.place(color)
 
           # --- sprites ---
 
@@ -339,7 +341,7 @@ module RubyGBA
             asm = SM83.new("art tables", home: :fixed, holds: PICTURE_TABLES)
             asm.label("art_palettes")
             backgrounds = @background_palettes.dup
-            painted_palettes.zip(painting? ? @squares.palettes : []).each { |number, colors| backgrounds[number] = colors }
+            painted_palettes.zip(paint_palettes).each { |number, colors| backgrounds[number] = colors }
             # A game that lends its sprites' lists starts with nothing in the eight.
             [backgrounds, lends? ? [] : @sprite_palettes].each do |palettes|
               PALETTES.times do |i|

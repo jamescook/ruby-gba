@@ -65,7 +65,7 @@ module RubyGBA
                                       runs: runs, drawn_palettes: drawn_palettes, lends: art.lends?,
                                       palettes_in_use: art.palettes_in_use)
             BigMaps.emit(asm, memory, buffer: big_maps&.first, staged: big_maps&.last)
-            Paint.emit(asm, memory, painting: art.painting?, maps: art.painting? ? art.square_maps.length : 0)
+            Paint.emit(asm, memory, painting: art.painting?, map_count: art.square_maps.length)
             Sound.emit(asm)
             Music.emit(asm, memory, level: music_level, songs: songs, effects: music&.effects || [],
                                     by_rank: music&.effects_by_rank || [])
@@ -73,7 +73,7 @@ module RubyGBA
             emit_start(asm)
             emit_main(asm, main)
             emit_frame_begins(asm, frame_begins)
-            [*Boot.vector_sections, asm.section, *Paint.table_sections(maps: art.painting? ? art.square_maps : nil)]
+            [*Boot.vector_sections, asm.section, *Paint.table_sections(maps: art.square_maps)]
           end
 
           # What a game needs before its first line: its variables that do not start at nought,

@@ -119,7 +119,7 @@ module Breakout
     # short loop instead of 32 copy-pasted bricks.
     def bricks
       ROWS.times.flat_map do |r|
-        COLS.times.map do |c|
+        Array.new(COLS) do |c|
           { name:   :"brick_#{r}_#{c}",
             x:      c * brick_cell_w,
             y:      BRICK_TOP + r * BRICK_ROW_H,
@@ -140,8 +140,8 @@ module Breakout
   # squares, which then holds orange, yellow, the white ball and black — four.
   GAME = RubyGBA.game("BREAKOUT", consoles: %i[gba gbc]) do
     screen :bitmap, tear_free: true # draw to a hidden page, flip when done — no tearing
-    here = Layout.new(width: screen_width, height: screen_height)
-    bricks = here.bricks
+    layout = Layout.new(width: screen_width, height: screen_height)
+    bricks = layout.bricks
     enable_sound
 
     # --- Sound presets (channel 2 SFX) ---
@@ -151,9 +151,9 @@ module Breakout
     define_sound :lose,        frequency: 160, duty: :half,    decay: :medium
 
     # --- RAM variables (each `var` hands back a handle we compare and mutate) ---
-    paddle_x    = var :paddle_x, here.start_paddle_x
-    ball_x      = var :ball_x, here.ball_start[0]
-    ball_y      = var :ball_y, here.ball_start[1]
+    paddle_x    = var :paddle_x, layout.start_paddle_x
+    ball_x      = var :ball_x, layout.ball_start[0]
+    ball_y      = var :ball_y, layout.ball_start[1]
     ball_dx     = var :ball_dx, BALL_SPEED
     ball_dy     = var :ball_dy, -BALL_SPEED  # negative = heading up toward the wall
     score       = var :score, 0
@@ -180,7 +180,7 @@ module Breakout
     func :serve do
       copy! :ball_x, :paddle_x
       add! :ball_x, (PADDLE_W - BALL_SIZE) / 2 # centre it over the paddle
-      ball_y.set! here.paddle_y - BALL_SIZE - 2
+      ball_y.set! layout.paddle_y - BALL_SIZE - 2
       ball_dx.set! BALL_SPEED
       ball_dy.set!(-BALL_SPEED)                # up
     end
@@ -195,11 +195,11 @@ module Breakout
       # direction rather than just flipping it, so a ball wedged against a wall for
       # a frame can't rattle back and forth.
       (ball_x <= 0).then                 { ball_dx.abs!;        beep :wall }
-      (ball_x >= here.width - BALL_SIZE).then { ball_dx.negate_abs!; beep :wall }
+      (ball_x >= layout.width - BALL_SIZE).then { ball_dx.negate_abs!; beep :wall }
       (ball_y <= 0).then                 { ball_dy.abs!;        beep :wall }
 
       ball   = box(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
-      paddle = box(paddle_x, here.paddle_y, PADDLE_W, PADDLE_H)
+      paddle = box(paddle_x, layout.paddle_y, PADDLE_W, PADDLE_H)
 
       # Paddle bounce — only while the ball is heading down into it, so it can't
       # re-trigger on the way back up. Where the ball meets the paddle sets the new
@@ -229,7 +229,7 @@ module Breakout
       (ball_y <= BRICK_BAND_BOTTOM).then do
         bricks.each do |b|
           (alive[b[:name]] == 1).then do
-            ball.overlaps?(box(b[:x], b[:y], here.brick_w, BRICK_H)).then do
+            ball.overlaps?(box(b[:x], b[:y], layout.brick_w, BRICK_H)).then do
               alive[b[:name]].set! 0
               score.add! b[:points]
               bricks_left.sub! 1
@@ -248,7 +248,7 @@ module Breakout
 
       # Past the bottom edge: the paddle missed. Lose a life and re-serve, or end
       # the game if that was the last one.
-      (ball_y >= here.height).then do
+      (ball_y >= layout.height).then do
         lives.sub! 1
         beep :lose
         # Losing a life hits harder, and it hits three ways at once: heard, felt, and
@@ -277,7 +277,7 @@ module Breakout
       set! :lives, START_LIVES
       set! :score, 0
       set! :bricks_left, bricks.length
-      set! :paddle_x, here.start_paddle_x
+      set! :paddle_x, layout.start_paddle_x
       call :serve
       set! :state, 1
     end
@@ -287,8 +287,8 @@ module Breakout
     scene :title do
       clear_screen :black
       draw_text "BREAKOUT", :center, 50, :cyan
-      draw_text "BEST", :right, 70, :gray, within: here.stat_label
-      draw_number :high_score, :left, 70, :white, digits: 3, within: here.stat_number
+      draw_text "BEST", :right, 70, :gray, within: layout.stat_label
+      draw_number :high_score, :left, 70, :white, digits: 3, within: layout.stat_number
       every(0.5, :seconds) do
         (blink == 1).then { blink.set! 0 }.else { blink.set! 1 }
       end
@@ -302,29 +302,29 @@ module Breakout
       # Steer the paddle and keep it on screen.
       held(:left).then  { paddle_x.sub! PADDLE_SPEED }
       held(:right).then { paddle_x.add! PADDLE_SPEED }
-      paddle_x.clamp! 0, here.width - PADDLE_W
+      paddle_x.clamp! 0, layout.width - PADDLE_W
 
       call :update_ball
 
       # Repaint the whole picture. Each standing brick draws itself; broken ones
       # simply aren't drawn. Safe to do wholesale every frame because we're buffered.
       bricks.each do |b|
-        (alive[b[:name]] == 1).then { dma_fill_rect b[:x], b[:y], here.brick_w, BRICK_H, b[:color] }
+        (alive[b[:name]] == 1).then { dma_fill_rect b[:x], b[:y], layout.brick_w, BRICK_H, b[:color] }
       end
-      draw_rect_at :paddle_x, here.paddle_y, PADDLE_W, PADDLE_H, :white
+      draw_rect_at :paddle_x, layout.paddle_y, PADDLE_W, PADDLE_H, :white
       draw_rect_at :ball_x, :ball_y, BALL_SIZE, BALL_SIZE, :white
 
       # HUD: score (up to three digits) and lives remaining.
-      draw_number score, :left, HUD_Y, :white, digits: 3, within: here.hud_sides
-      draw_number lives, :right, HUD_Y, :white, digits: 1, within: here.hud_sides
+      draw_number score, :left, HUD_Y, :white, digits: 3, within: layout.hud_sides
+      draw_number lives, :right, HUD_Y, :white, digits: 1, within: layout.hud_sides
 
       # How close this run is to your best. The number being divided BY is the record
       # the cartridge remembered, so it is different every time you play — the game
       # works it out, the build cannot. Dividing by it before there IS a record would
       # be dividing by nothing, so the first run simply has no bar to show.
       (high > 0).then do
-        best_bar.set!(score * here.best_bar_w / high)
-        best_bar.clamp! 0, here.best_bar_w
+        best_bar.set!(score * layout.best_bar_w / high)
+        best_bar.clamp! 0, layout.best_bar_w
         draw_rect_at BEST_BAR_X, BEST_BAR_Y, best_bar, BEST_BAR_H, :green
       end
     end
@@ -332,10 +332,10 @@ module Breakout
     scene :cleared do
       clear_screen :black
       draw_text "YOU WIN!", :center, 50, :green
-      draw_text "SCORE", :right, 74, :gray, within: here.stat_label
-      draw_number score, :left, 74, :white, digits: 3, within: here.stat_number
-      draw_text "BEST", :right, 88, :gray, within: here.stat_label
-      draw_number :high_score, :left, 88, :white, digits: 3, within: here.stat_number
+      draw_text "SCORE", :right, 74, :gray, within: layout.stat_label
+      draw_number score, :left, 74, :white, digits: 3, within: layout.stat_number
+      draw_text "BEST", :right, 88, :gray, within: layout.stat_label
+      draw_number :high_score, :left, 88, :white, digits: 3, within: layout.stat_number
       draw_text "PRESS START", :center, 112, :gray
       pressed(:start).then { state.set! 0 }
     end
@@ -343,10 +343,10 @@ module Breakout
     scene :game_over do
       clear_screen :black
       draw_text "GAME OVER", :center, 50, :red
-      draw_text "SCORE", :right, 74, :gray, within: here.stat_label
-      draw_number score, :left, 74, :white, digits: 3, within: here.stat_number
-      draw_text "BEST", :right, 88, :gray, within: here.stat_label
-      draw_number :high_score, :left, 88, :white, digits: 3, within: here.stat_number
+      draw_text "SCORE", :right, 74, :gray, within: layout.stat_label
+      draw_number score, :left, 74, :white, digits: 3, within: layout.stat_number
+      draw_text "BEST", :right, 88, :gray, within: layout.stat_label
+      draw_number :high_score, :left, 88, :white, digits: 3, within: layout.stat_number
       draw_text "PRESS START", :center, 112, :gray
       pressed(:start).then { state.set! 0 }
     end
