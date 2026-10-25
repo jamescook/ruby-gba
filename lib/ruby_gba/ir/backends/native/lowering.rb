@@ -61,7 +61,7 @@ module RubyGBA
                                                call_one_of: :lower_call_one_of, case: :lower_case,
                                                halt: :lower_halt, wait_vblank: :lower_wait_vblank,
                                                timer_start: :lower_timer_start, timer_stop: :lower_timer_stop,
-                                               on_timer: :lower_nothing,
+                                               on_timer: :lower_nothing, set_clock: :lower_set_clock,
                                                list_new: :lower_list_new, list_push: :lower_list_push,
                                                list_drop: :lower_list_drop, list_set: :lower_list_set,
                                                list_fill: :lower_list_fill, list_copy: :lower_list_copy,
@@ -649,7 +649,29 @@ module RubyGBA
           # A READING OF THE CARTRIDGE'S CLOCK, asked of the runtime by its place in
           # IR::Clock::READINGS. Where the time comes from is the runtime's driver's to say: the
           # computer's clock in a window, the test's moment with none (rg_driver.h).
-          def value_of_clock(node) = call("rg_clock_reading", C::Int.new(IR::Clock::READINGS.index(node.reading)))
+          #
+          # A time the game set is added on, from the two saved numbers it is kept in, in a game
+          # that sets one (see IR::Clock::OFFSET_DAYS).
+          def value_of_clock(node)
+            offsets = if sets_clock?
+                        [variable(IR::Clock::OFFSET_DAYS), variable(IR::Clock::OFFSET_SECONDS)]
+                      else
+                        [C::Int.new(0), C::Int.new(0)]
+                      end
+            call("rg_clock_reading", C::Int.new(IR::Clock::READINGS.index(node.reading)), *offsets)
+          end
+
+          def sets_clock? = @sets_clock.nil? ? (@sets_clock = @program.walk.any? { |n| n.kind == :set_clock }) : @sets_clock
+
+          # SETTING THE CLOCK: the runtime works out how far the time set is from its clock's, and
+          # the game keeps the two parts in its saved numbers (Reference#exec_set_clock).
+          def lower_set_clock(node)
+            parts = %i[year month day hour minute second].map { |part| value(node.public_send(part)) }
+            [eval_call("rg_clock_set_to", *parts),
+             *[IR::Clock::OFFSET_DAYS, IR::Clock::OFFSET_SECONDS].each_with_index.map do |name, part|
+               assign(name, call("rg_clock_kept_offset", C::Int.new(part), variable(name)))
+             end]
+          end
 
           def value_of_held(node) = call("rg_held", C::Int.new(button_number(node.button)))
           def value_of_pressed(node) = call("rg_pressed", C::Int.new(button_number(node.button)))

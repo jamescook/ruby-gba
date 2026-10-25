@@ -164,14 +164,15 @@ static void clock_frame(void) {
   clock_ticks %= RG_CONSOLE_TICKS_A_SECOND;
 }
 
-int32_t rg_clock_reading(int32_t reading) {
+int32_t rg_clock_reading(int32_t reading, int32_t offset_days, int32_t offset_seconds) {
   if (!clock_present) return 0;
   if (reading == CLOCK_PRESENT) return 1;
   if (!clock_set) return 0;
   if (reading == CLOCK_SET) return 1;
 
-  int64_t days = floor_div(clock_seconds, SECONDS_A_DAY);
-  int64_t into_day = clock_seconds - days * SECONDS_A_DAY;
+  int64_t now = clock_seconds + (int64_t)offset_days * SECONDS_A_DAY + offset_seconds;
+  int64_t days = floor_div(now, SECONDS_A_DAY);
+  int64_t into_day = now - days * SECONDS_A_DAY;
   int64_t year;
   int32_t month, day;
   date_from_days(days, &year, &month, &day);
@@ -185,6 +186,34 @@ int32_t rg_clock_reading(int32_t reading) {
   case CLOCK_WEEKDAY: return (int32_t)(days + 4 - floor_div(days + 4, 7) * 7); /* 1 January 1970 was a Thursday */
   default: rg_fault("the clock has no reading numbered %d", (int)reading);
   }
+}
+
+/* SETTING THE CLOCK (Reference#exec_set_clock): how far the time set is from the clock's own, to
+ * the whole second, in days and the seconds left over, kept here until the game takes the two
+ * parts into its saved numbers (rg_clock_kept_offset). The clock itself is never changed — in a
+ * window it is the computer's — and from then on it reads as set. */
+static int32_t clock_kept_days;
+static int32_t clock_kept_seconds;
+
+void rg_clock_set_to(int32_t year, int32_t month, int32_t day, int32_t hour, int32_t minute, int32_t second) {
+  if (!clock_present) return;
+  int64_t today = floor_div(clock_seconds, SECONDS_A_DAY);
+  int64_t days = days_from_date(year, month, day) - today;
+  int64_t seconds = hour * 3600 + minute * 60 + second - (clock_seconds - today * SECONDS_A_DAY);
+  if (seconds < 0) {
+    seconds += SECONDS_A_DAY;
+    days -= 1;
+  }
+  clock_kept_days = (int32_t)days;
+  clock_kept_seconds = (int32_t)seconds;
+  clock_set = 1;
+}
+
+/* One part of what rg_clock_set_to kept, 0 for the days and 1 for the seconds — or +current+, the
+ * game's own number as it was, with no clock to have set. */
+int32_t rg_clock_kept_offset(int32_t part, int32_t current) {
+  if (!clock_present) return current;
+  return part == 0 ? clock_kept_days : clock_kept_seconds;
 }
 
 /* The middle of Reference#advance_frame, in its order: the picture is switched on, the timers

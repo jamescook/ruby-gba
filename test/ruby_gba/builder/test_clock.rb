@@ -108,4 +108,95 @@ class TestClock < Minitest::Test
   def test_a_clock_that_was_set_says_both
     assert_equal({ present: 1, set: 1, hour: 21 }, answers(game_player.clock_at(THURSDAY).run(asking_program, frames: 2)))
   end
+
+  # --- setting it ----------------------------------------------------------------
+
+  # A Saturday morning five years on.
+  SATURDAY = { year: 2031, month: 5, day: 17, hour: 8, minute: 9, second: 10 }.freeze
+
+  # A game that sets the clock to +to+ on its third pass, and otherwise keeps each reading in a
+  # variable of the same name, and 1 in :set while the clock says it was set.
+  private def setting_program(to = SATURDAY)
+    b = Builder.new
+    b.instance_eval do
+      now = clock
+      passes = var :passes, 0
+      set = var :set, 0
+      readings = TIME.to_h { |name| [name, var(name, -1)] }
+      game_loop do
+        (passes == 2).then { now.set_to(**to) }
+        readings.each { |name, reading| reading.set! now.public_send(name) }
+        set.set! 0
+        now.set?.then { set.set! 1 }
+        passes.add! 1
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  private def readings_of(player) = TIME.to_h { |name| [name, player[name]] }
+
+  # The pass that sets it reads the time set, and the day of the week it falls on is worked out.
+  def test_a_game_sets_the_clock_and_reads_the_time_it_set
+    player = game_player.clock_at(THURSDAY).run(setting_program, frames: 3)
+
+    assert_equal SATURDAY.merge(weekday: 6), readings_of(player)
+  end
+
+  # ...and from there it keeps time, the part of a second the clock was into carrying on as it
+  # was: the clock started on a whole second, so it turns over sixty frames from the start, as
+  # it would have with nothing set.
+  def test_a_clock_set_moves_on_from_the_time_set
+    assert_equal 10, game_player.clock_at(THURSDAY).run(setting_program, frames: 59)[:second]
+    assert_equal 11, game_player.clock_at(THURSDAY).run(setting_program, frames: 60)[:second]
+  end
+
+  # A clock whose battery ran out reads zeros until the game sets it, and is set from then on.
+  def test_setting_a_clock_never_set_makes_it_set
+    before = game_player.clock_at(Time.new(2000, 1, 1, 5), set: false).run(setting_program, frames: 2)
+    after = game_player.clock_at(Time.new(2000, 1, 1, 5), set: false).run(setting_program, frames: 3)
+
+    assert_equal [0, 0], [before[:set], before[:year]]
+    assert_equal [1, 2031], [after[:set], after[:year]]
+  end
+
+  # On a cartridge with no clock, setting it does nothing: it reads zeros still.
+  def test_setting_a_missing_clock_does_nothing
+    player = game_player.run(setting_program, frames: 4)
+
+    assert_equal [0, 0, 0], [player[:set], player[:year], player[:hour]]
+  end
+
+  # A day past the end of its month is the last day of it, and a year past what a clock can hold
+  # is the last one it can: 30 February 2150 is 28 February 2099, a Saturday.
+  def test_a_date_that_cannot_be_kept_is_held_to_one_that_can
+    player = game_player.clock_at(THURSDAY).run(setting_program(SATURDAY.merge(year: 2150, month: 2, day: 30)), frames: 3)
+
+    assert_equal [2099, 2, 28, 6], readings_of(player).values_at(:year, :month, :day, :weekday)
+  end
+
+  # THE TIME SET IS THERE THE NEXT TIME THE GAME IS SWITCHED ON: switched off for an hour, it
+  # reads the time it set an hour on, plus the frames each run played.
+  def test_the_time_set_comes_back_after_the_power_goes_off
+    store = SaveImage.new(kilobytes: 32)
+    game_player(save: store).clock_at(THURSDAY).run(setting_program, frames: 30)
+    back = game_player(save: store).clock_at(THURSDAY + 3600 + 1).run(asking_and_reading_program, frames: 1)
+
+    assert_equal [9, 9, 11], readings_of(back).values_at(:hour, :minute, :second)
+  end
+
+  # A game that only reads the clock, after one that set it, so nothing sets it again.
+  private def asking_and_reading_program
+    b = Builder.new
+    b.instance_eval do
+      now = clock
+      readings = TIME.to_h { |name| [name, var(name, -1)] }
+      game_loop { readings.each { |name, reading| reading.set! now.public_send(name) } }
+      # The same saved numbers as the game that set it, declared by setting it where it never runs.
+      func(:never_called) { now.set_to(**SATURDAY) }
+    end
+    b.finalize_program
+    b.program
+  end
 end

@@ -406,6 +406,11 @@ module ConformanceFixture
       # --- the cartridge's clock: whether there is one, and the hour (0 with none) ---
       B.set(:acc, B.clock(:present)),
       B.set(:acc, B.clock(:hour)),
+      # ...and set (nothing happens with no clock, so the saved numbers it would keep stay 0)
+      B.set(:__clock_offset_days, B.int(0)),
+      B.set(:__clock_offset_seconds, B.int(0)),
+      B.set_clock(year: B.int(2031), month: B.int(5), day: B.int(17), weekday: B.int(6),
+                  hour: B.int(8), minute: B.int(9), second: B.int(10)),
 
       # --- terminate: a loop that syncs once then halts (covers loop + halt) ---
       B.loop_(B.wait_vblank, B.halt),

@@ -314,10 +314,16 @@ module RubyGBA
       # The bus shows a 128K flash chip a bank at a time, so the chip is read from the file the
       # emulator keeps it in, which holds all of it. A cartridge with no save chip has nothing
       # in that file, and nil is what it hands back.
+      #
+      # A cartridge given a clock keeps that clock's own state in the same file, after the save
+      # chip: mGBA writes sixteen bytes there (the chip's time and settings, and when it wrote
+      # them), which are the clock's and not the save chip's, so they are left out.
       def save_image
         bytes = save_bytes
+        bytes = bytes.byteslice(0, bytes.bytesize - CLOCK_IN_SAVE_FILE) if bytes && @clock && bytes.bytesize % 1024 == CLOCK_IN_SAVE_FILE
         bytes && IR::SaveImage.from_sav(bytes, from: "The bytes of this cartridge's save memory")
       end
+      CLOCK_IN_SAVE_FILE = 16
 
       # The save chip as it is now, as the bytes of the file the emulator keeps it in, or nil
       # for a cartridge with no save chip. This is every chip there is, whatever its size;

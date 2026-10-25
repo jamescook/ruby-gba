@@ -48,7 +48,51 @@ module RubyGBA
       # ask the player to set it rather than show a date that is not today.
       def set? = Condition.new(@builder, IR::Build.clock(:set))
 
+      # SET THE CLOCK to a date and time, each a number or a {Value} the game works out — the
+      # player's choice on a screen that asks, say. The readings are that moment at once, and
+      # move on from it; `set?` is true from then on, and stays true the next time the game is
+      # switched on. On a cartridge with no clock it does nothing, and every reading stays 0.
+      #
+      #   now.set_to(year: 2026, month: 10, day: year_day, hour: 9, minute: 30)
+      #
+      # Each is held to what a clock can keep: the year to 2000-2099, the day to the days its
+      # month has. The day of the week is worked out from the date.
+      def set_to(year:, month:, day:, hour:, minute:, second: 0)
+        held = IR::Clock::SET_RANGES.to_h do |field, range|
+          given = { year: year, month: month, day: day, hour: hour, minute: minute, second: second }.fetch(field)
+          [field, number(given).clamp(range.min, range.max)]
+        end
+        held[:day] = held[:day].clamp(1, days_in_month(held[:year], held[:month]))
+        @builder.record_clock_set(IR::Build.set_clock(**held.transform_values(&:node),
+                                                      weekday: weekday_of(held).node))
+        nil
+      end
+
       private
+
+      def number(given) = given.is_a?(Value) ? given : Value.new(@builder, Value.node_for(given))
+
+      # As a number, 1 when the two are equal and 0 when not.
+      def equal(a, b) = Value.new(@builder, IR::Build.binop(:==, a.node, Value.node_for(b)))
+
+      # How many days +month+ of +year+ has. The months alternate thirty-one and thirty from
+      # January, starting again at August, which is what the bit test says; February takes two
+      # off that, or one in a leap year. Every fourth year between 2000 and 2099 is one.
+      def days_in_month(year, month)
+        feb = equal(month, 2)
+        leap = equal(year % 4, 0)
+        ((month + (month >> 3)) & 1) + 30 - (feb * (leap * -1 + 2))
+      end
+
+      # THE DAY OF THE WEEK of a date, 0 for Sunday: Zeller's way of counting, which starts each
+      # year in March so that February's odd length comes last, where it moves nothing after it.
+      # January and February are then the thirteenth and fourteenth months of the year before.
+      def weekday_of(held)
+        early = (held[:month] * -1 + 14) / 12 # 1 for January and February, 0 after
+        year = held[:year] - early
+        month = held[:month] + (early * 12) - 2 # 1 for March ... 12 for February
+        (held[:day] + year + (year / 4) - (year / 100) + (year / 400) + ((month * 31) / 12)) % 7
+      end
 
       def reading(name) = Value.new(@builder, IR::Build.clock(name))
     end

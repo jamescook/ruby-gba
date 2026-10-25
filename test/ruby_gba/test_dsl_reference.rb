@@ -63,6 +63,7 @@ class TestDslReference < Minitest::Test
   # can find them. The reference documents `recolor`; nobody writes these.
   # record_light_shape, light_circle and show_light_now are the hooks behind `shape`, `circle`
   # and `show_now` on the light, documented on `spotlight`. game_pack_checks is what a build asks of `uses`, documented there.
+  # record_clock_set is the hook behind `set_to` on the clock, documented on `clock`.
   SKIP = %i[variables var_address debug_halted? make_object_rotatable make_object_scalable
             remember_sprite_recolors remember_background_draws_with
             record_row_bend make_background_affine screen_pages keep_showing_pictures
@@ -72,7 +73,7 @@ class TestDslReference < Minitest::Test
             make_object_layer_choosable refuse_unknown_layers! write_picked_choice
             lists_drawn_from list_drawn_from declared_colors name_of_colors pool_refill_nodes
             request_tile_copy canvas_font canvas_font_tables image_size image_pixels write_picked_pose
-            record_light_shape light_circle show_light_now game_pack_checks].freeze
+            record_light_shape light_circle show_light_now game_pack_checks record_clock_set].freeze
 
   # …plus the verbs the loaded effect packs contribute. A pack's verb is an ordinary
   # DSL verb at the call site, so it has to be looked up in the same place.

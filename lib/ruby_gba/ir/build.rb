@@ -465,6 +465,12 @@ module RubyGBA
         Nodes.build(:clock, reading: reading)
       end
 
+      # Set the clock to the date and time given, each a value node (see Nodes::SetClock).
+      def set_clock(year:, month:, day:, weekday:, hour:, minute:, second:)
+        Nodes.build(:set_clock, year: year, month: month, day: day, weekday: weekday,
+                                hour: hour, minute: minute, second: second)
+      end
+
       def call(name)
         Nodes.build(:call, target: name)
       end

@@ -14,6 +14,17 @@ module RubyGBA
       #
       # @return [DSL::Clock]
       def clock = DSL::Clock.new(self)
+
+      # The hook behind `clock.set_to` (see DSL::Clock#set_to), which hands it the statement
+      # that sets the clock. How far the time set is from the clock's own is kept in two saved
+      # numbers (see IR::Clock::OFFSET_DAYS), saved like any `save_var` the moment they change,
+      # so they are there at the next power-on.
+      def record_clock_set(node)
+        offsets = [IR::Clock::OFFSET_DAYS, IR::Clock::OFFSET_SECONDS]
+        offsets.each { |name| save_var(name, 0) }
+        record(node)
+        offsets.each { |name| mirror_save(name) }
+      end
     end
   end
 end

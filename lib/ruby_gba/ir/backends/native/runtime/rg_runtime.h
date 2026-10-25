@@ -74,8 +74,15 @@ int32_t rg_timer_ticking(int32_t timer);
  * the hour, minute, second, year, month, day and day of the week (0 for Sunday), then whether
  * there is a clock and whether it was set, 1 or 0. Every reading is 0 when either of those two is.
  * Where the time comes from is the driver's to say (rg_driver.h); a run it says nothing about has
- * no clock. */
-int32_t rg_clock_reading(int32_t reading);
+ * no clock. A time the game set is added on: how far it is from the clock's own, in whole days
+ * and the seconds left over (IR::Clock::OFFSET_DAYS), 0 and 0 in a game that never sets one. */
+int32_t rg_clock_reading(int32_t reading, int32_t offset_days, int32_t offset_seconds);
+
+/* Setting the clock (`clock.set_to`): works out how far the time given is from the clock's own,
+ * and makes it read as set; rg_clock_kept_offset then hands the two parts of that over, 0 for the
+ * days and 1 for the seconds — or +current+ back, with no clock to have set. */
+void rg_clock_set_to(int32_t year, int32_t month, int32_t day, int32_t hour, int32_t minute, int32_t second);
+int32_t rg_clock_kept_offset(int32_t part, int32_t current);
 
 /* One variable's name and value, for whatever the runtime does with them (the headless one
  * prints them, so a test can compare them with the interpreter's). */

@@ -390,6 +390,7 @@ module RubyGBA
           @attribution = Attribution.new(@emit)
           @lowering = Lowering.new(progress: progress, emitted: @emit.method(:pos),
                                    attribution: @attribution)
+          @clock_chip.lower_statement = @lowering.method(:statement)
           @save = Save.new(emitter: @emit, primitives: @primitives, lowering: @lowering, memory: @memory,
                            call_cold: method(:emit_call_cold_routine))
           @defined_sounds = {}   # name -> musical params (from define_sound)
@@ -539,6 +540,7 @@ module RubyGBA
             timer_start: method(:emit_timer_start), timer_stop: method(:emit_timer_stop),
             on_timer: Lowering::NOTHING, play_sample: @mixer.method(:emit_play_sample),
             stop_sample: @mixer.method(:emit_stop_sample),
+            set_clock: ->(node) { @clock_chip.emit_set_clock(node, @lowering.method(:value)) },
           )
           @layer_stack = []      # the layers the program declared, backmost first
           @uses_pressed = false  # whether the program reads edge-detected input
