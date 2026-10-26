@@ -45,13 +45,14 @@ module RubyGBA
   # @param maker [String, nil] the 2 characters that name a publisher. Leave it out and the
   #   cartridge says it has none, which is true — "01" is Nintendo's.
   # @param validate [Boolean] run the ROM-image validation after build (default: true)
-  # @param fast_cartridge [Boolean] ask the console for quick cartridge timing at boot
-  #   (default: true). Pass false to leave the cautious power-on timing alone — the
-  #   escape hatch for a cartridge that can't keep up.
-  # @param fast_code [Boolean] let the build work out which routines are worth keeping
+  # @param fast_cartridge [Boolean, nil] ask the console for quick cartridge timing at boot
+  #   (on unless said). Pass false to leave the cautious power-on timing alone — the
+  #   escape hatch for a cartridge that can't keep up. The Game Boy Advance's alone.
+  # @param fast_code [Boolean, nil] let the build work out which routines are worth keeping
   #   in the console's quick memory, where code runs about two and a half times faster
-  #   (default: true). `rom.profile` says what it chose. Pass false to stop it choosing —
-  #   a routine you mark `func :name, fast: true` yourself still goes there.
+  #   (on unless said). `rom.profile` says what it chose. Pass false to stop it choosing —
+  #   a routine you mark `func :name, fast: true` yourself still goes there. The Game Boy
+  #   Advance's alone.
   # @param progress [RubyGBA::Messages::Progress] what the build says it is doing while it does it.
   #   The default says nothing; `Progress.to($stderr)` names each phase and how far it has
   #   got. See {RubyGBA::Messages::Progress}.
@@ -93,8 +94,11 @@ module RubyGBA
   # for the stack is one the game's variables, lists and code cannot have.
   # +console+ is the console the cartridge is for (:gba, :gbc; see {Console::Kit}), and every build
   # names it: nothing is taken to be for the Advance.
-  def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: true,
-                 fast_code: true, out: $stdout, err: $stderr, progress: Messages::Progress.silent,
+  # +code+, +maker+, +fast_cartridge+, +fast_code+, +stack_room+ and a saved +profile+ are the Game
+  # Boy Advance's alone (Cartridge::AdvanceBuild::SETTINGS): a build for another console that sets
+  # one is refused.
+  def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: nil,
+                 fast_code: nil, out: $stdout, err: $stderr, progress: Messages::Progress.silent,
                  profile: false, settings: {}, save_memory: nil, stack_room: nil, console: nil, &block)
     # The six that say how the game is built travel as one value from here on (see
     # {Cartridge::Options}), checked now so a setting that cannot be right stops the build first.
@@ -102,6 +106,10 @@ module RubyGBA
                                      fast_code: fast_code, save_memory: save_memory, stack_room: stack_room,
                                      console: console)
     refuse_unnamed_console!(title) if options.console.nil?
+    # A measurement taken earlier is a console setting; true and false only say whether to measure.
+    said = Console.console_settings_said(code: code, maker: maker, **options.to_h,
+                                         profile: ([true, false].include?(profile) ? nil : profile))
+    Console.refuse_unusable_console_settings!(said, consoles: [options.console], title: title, named_in: "console:")
     # Settle where this build prints BEFORE anything is read or checked, so a caller
     # that named somewhere the build cannot write is told on every build rather than on
     # the one build that finally has a warning to give (see {Messages::BuildOutput}).

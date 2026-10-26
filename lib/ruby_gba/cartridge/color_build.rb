@@ -4,10 +4,15 @@ module RubyGBA
   module Cartridge
     # THE GAME BOY COLOR'S CARTRIDGE, made from a checked program by IR::Backends::GBC (see
     # Console::ColorKit). Measuring, quick memory and the ROM validation are the Advance's and are
-    # not asked for. A routine asked to be listed (`dump_func`) is listed as the ARM it was made
+    # not asked for, and a build that says one of the Advance's settings is refused before it
+    # gets here (Cartridge::AdvanceBuild::SETTINGS). A routine asked to be listed (`dump_func`) is listed as the ARM it was made
     # into, which only the Advance has, so it is refused in the words of the Color's answers.
     module ColorBuild
       module_function
+
+      # The Color has no setting of its own: what it is built with every console has.
+      def console_settings = []
+      def refuse_unusable_settings!(_said) = nil
 
       # The cartridge for +request+ (a Cartridge::BuildRequest). The findings are left as they were.
       def build(request)

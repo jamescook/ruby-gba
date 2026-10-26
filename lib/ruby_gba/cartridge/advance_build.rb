@@ -7,6 +7,42 @@ module RubyGBA
     module AdvanceBuild
       module_function
 
+      # THE SETTINGS ONLY THE ADVANCE HAS (its console settings), by the name each is set with. A
+      # game for the Advance and the Color says them once, and its Color cartridge is built without
+      # them; a build for the Color alone that sets one is refused
+      # (Console.refuse_unusable_console_settings!).
+      #
+      #   code, maker     the four characters an emulator tells one cartridge from another by, and
+      #                   the two that name a publisher, in the Advance's cartridge header
+      #   fast_cartridge  the quick cartridge timing asked for at boot; on unless said false
+      #   fast_code       letting the build choose which routines go in the quick memory; on
+      #                   unless said false
+      #   stack_room      how many bytes of the quick memory the game's stack is given; the build
+      #                   decides unless said (see IR::Backends::GBA::TopOfQuickMemory)
+      #   profile         a measurement taken earlier, a path or a Diagnostics::RoutineProfile,
+      #                   which decides what goes in the quick memory
+      SETTINGS = %i[code maker fast_cartridge fast_code stack_room profile].freeze
+
+      # The least stack room a game can ask for: the console's own routines a game calls need this
+      # much of it.
+      LEAST_STACK_ROOM = 64
+
+      def console_settings = SETTINGS
+
+      # Refuses a value in +said+ (a setting's name to the value it was set to, for the settings
+      # above) that the Advance's build cannot use, naming what it can.
+      def refuse_unusable_settings!(said)
+        refuse_unusable_stack_room!(said[:stack_room]) if said.key?(:stack_room)
+      end
+
+      # What the lowering is told, from +options+ (a Cartridge::Options): what the game said, and
+      # for what it did not, what the Advance does when nothing is said. A finished cartridge
+      # records the same (BuildRecord#build_options), which is what builds it the same way again.
+      def lowering_options(options)
+        { fast_cartridge: options.fast_cartridge != false, fast_code: options.fast_code != false,
+          stack_room: options.stack_room }
+      end
+
       # The cartridge for +request+ (a Cartridge::BuildRequest), with the findings of the
       # guardrails that read the build's own decisions added to the request's.
       def build(request)
@@ -18,8 +54,8 @@ module RubyGBA
         # named from here — most of the time a build spends is in there, and it is three phases,
         # not one (see Placement#choose_fast_funcs).
         measured = load_routine_profile(request.profile, program, request.err)
-        backend = IR::Backends::GBA.new(**request.options.lowering, progress: request.progress,
-                                                                    routine_profile: measured)
+        backend = IR::Backends::GBA.new(**lowering_options(request.options), progress: request.progress,
+                                                                             routine_profile: measured)
         machine_code = backend.lower(program)
         record = backend.build_record(program)
 
@@ -84,7 +120,17 @@ module RubyGBA
                  "quick memory, so it is out of date. To fix this, measure the game again and save " \
                  "the result.")
       end
-      private_class_method :load_routine_profile, :warn_of_stale_profile
+      # A number of bytes the stack can hold whole numbers in, from the least the console's own
+      # routines need to the most the quick memory can give it.
+      def refuse_unusable_stack_room!(stack_room)
+        most = IR::Backends::GBA::TopOfQuickMemory::MOST_STACK_BYTES
+        return if stack_room.is_a?(Integer) && stack_room.between?(LEAST_STACK_ROOM, most) && (stack_room % 4).zero?
+
+        raise ArgumentError, "stack_room: #{stack_room.inspect} is not a size the stack can have. It must be a " \
+                             "number of bytes that is a multiple of 4, from #{LEAST_STACK_ROOM} to #{most}. To fix " \
+                             "this, use such a number, or remove stack_room: and the build picks the size."
+      end
+      private_class_method :load_routine_profile, :warn_of_stale_profile, :refuse_unusable_stack_room!
     end
   end
 end

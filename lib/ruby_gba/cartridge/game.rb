@@ -13,9 +13,7 @@ module RubyGBA
     # #build_rom (the finished cartridge) — so an example is one `RubyGBA.game` call
     # instead of a module of wiring.
     class Game
-      # +options+ is how the game is built (see {Options}), for anything that has to build it
-      # the same way — the IR dump (`build --format=ir`), whose emitted class has to lower to
-      # the same cartridge, reads its lowering half.
+      # +options+ is how the game is built (see {Options}), as the game said it.
       attr_reader :title, :code, :maker, :options
 
       # The consoles the game is for, by name (see Console::DESCRIPTIONS), in the order the game
@@ -30,6 +28,8 @@ module RubyGBA
         @maker = maker
         @options = options
         @consoles = Console.refuse_unknown_consoles!(consoles, setting: "consoles:")
+        Console.refuse_unusable_console_settings!(console_settings_said, consoles: @consoles, title: title,
+                                                                         named_in: "consoles:")
         @block = shareable_if_possible(block)
         freeze
       end
@@ -119,11 +119,17 @@ module RubyGBA
       #
       # +console+ is the console the cartridge is for, the first the game names unless said: a
       # Game Boy Advance cartridge (Cartridge::ROM) or a Game Boy Color one (Cartridge::GBCROM).
+      #
+      # A console setting the game says that +console+ does not have is for another of the game's
+      # consoles, and this cartridge is built without it. A saved +profile+ handed here is this
+      # build's own, so on a console that cannot use one it is refused.
       def build_rom(out: $stdout, err: $stderr, validate: true, progress: Messages::Progress.silent,
                     profile: true, settings: {}, console: @consoles.first)
-        options = @options.with(console: refuse_console_not_for!(console))
-        RubyGBA.build(@title, code: @code, maker: @maker, validate: validate, out: out, err: err,
-                      progress: progress, profile: profile, settings: settings, **options.to_h, &@block)
+        console = refuse_console_not_for!(console)
+        options = { code: @code, maker: @maker, **@options.with(console: console).to_h }
+        options = options.except(*(Console.console_settings - Console.for(console).console_settings))
+        RubyGBA.build(@title, validate: validate, out: out, err: err, progress: progress, profile: profile,
+                              settings: settings, **options, &@block)
       end
 
       # A friendly output filename from the title, ending as the console's cartridges do:
@@ -161,6 +167,9 @@ module RubyGBA
       end
 
       private
+
+      # The console settings this game says, by name, to their values.
+      def console_settings_said = Console.console_settings_said(code: @code, maker: @maker, **@options.to_h)
 
       # This game's block, run — the tree and what the run learned besides.
       #
@@ -234,7 +243,11 @@ module RubyGBA
     # Game Boy Color too. NOTHING IS TAKEN TO BE FOR THE ADVANCE, because the command line builds
     # a cartridge for each console a game names, and a game that said nothing would be built for
     # whichever console the framework happened to start with.
-    def game(title, code: nil, maker: nil, frame_sync: :auto, fast_cartridge: true, fast_code: true,
+    #
+    # A console setting, one only some consoles have (+code+, +maker+, +fast_cartridge+,
+    # +fast_code+, +stack_room+; see Cartridge::AdvanceBuild::SETTINGS), is for the consoles of the
+    # game's that have it, and a game none of whose consoles has it is refused here.
+    def game(title, code: nil, maker: nil, frame_sync: :auto, fast_cartridge: nil, fast_code: nil,
              save_memory: nil, stack_room: nil, consoles: nil, &block)
       unless block
         raise ArgumentError, %(RubyGBA.game needs a block: RubyGBA.game("NAME", consoles: %i[gba]) { ... })

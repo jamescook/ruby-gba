@@ -20,9 +20,13 @@ module RubyGBA
     #   description             what a game can tell about the console (Console::Description)
     #   answers                 what each verb does on it (Console::GBCFeatures, say), or nil for
     #                           a console where every verb works as the Advance's does
-    #   builder                 what makes its cartridge from a checked program, given a
-    #                           Cartridge::BuildRequest (Cartridge::AdvanceBuild, say)
-    #   cartridge               the kind of cartridge that is
+    #   builder                 what makes its cartridge (Cartridge::AdvanceBuild, say). It answers
+    #                           build(request), the cartridge from a checked program and a
+    #                           Cartridge::BuildRequest; console_settings, the names of the CONSOLE
+    #                           SETTINGS it reads (build settings only some consoles have, such
+    #                           as the Advance's `stack_room:`); and refuse_unusable_settings!(said),
+    #                           which refuses a value of one of those it cannot use
+    #   cartridge               the kind of cartridge that is (below)
     #   reader                  the reader that plays one back (Diagnostics::Verifier, say)
     #   measured_builds?        whether its build is measured by running it, which is what chooses
     #                           what goes in a quick memory, and what its cartridge reports of
@@ -32,6 +36,23 @@ module RubyGBA
     #   drawn_by_runtimes?      whether the desktop program and the web page can be made from its
     #                           build: the C and JavaScript runtimes draw one screen size, fixed
     #                           when they are compiled, and it is the Advance's
+    #
+    # What every console's cartridge answers, whichever kind it is, and all a caller that has not
+    # asked which console it is for can ask of one:
+    #
+    #   console                    the name of the console it is for (also asked of its class)
+    #   buffer, size               its bytes, and how many there are
+    #   header_title               the title field of its header, as the header holds it
+    #   write(path)                its bytes, written to +path+
+    #   built                      what the build worked out about it, or nil
+    #   source_program             the checked program it was built from
+    #   var_addresses              where the build put each of the game's variables
+    #   profile(format:, out:, frames:, settle:, keys:, scene:, from:)
+    #                              where its frames went, run in the emulator
+    #
+    # and its class answers header?(bytes), whether +bytes+ are a cartridge of its kind, and
+    # title_field_of(bytes). Anything else one kind has (the Advance's ROM#placement, say) is
+    # asked only by code that already knows which console it holds.
     class Kit
       attr_reader :description
 
@@ -46,6 +67,10 @@ module RubyGBA
       def measured_builds? = false
       def compared_side_by_side? = false
       def drawn_by_runtimes? = false
+
+      # The console settings its build reads, by name, and whether +setting+ is one of them.
+      def console_settings = builder.console_settings
+      def console_setting?(setting) = console_settings.include?(setting)
     end
 
     # The Game Boy Advance's.
@@ -86,6 +111,36 @@ module RubyGBA
     # Of the consoles +names+, the first whose build the desktop and web runtimes draw
     # (Kit#drawn_by_runtimes?), or nil when there is none.
     def self.drawn_by_runtimes(names) = names.find { |name| self.for(name).drawn_by_runtimes? }
+
+    # Every console setting there is, by name: a build setting only some consoles have
+    # (Kit#console_settings).
+    def self.console_settings = kits.flat_map(&:console_settings).uniq
+
+    # Of +values+ (a setting's name to its value, as a game or a build was given them), the
+    # console settings that were said: the ones that are not nil.
+    def self.console_settings_said(values) = values.slice(*console_settings).compact
+
+    # A SETTING SAID FOR A CONSOLE THAT DOES NOT HAVE IT is refused, rather than dropped: the author
+    # asked for something the cartridge would not have.
+    #
+    # +said+ is the console settings that were said, by name, to their values
+    # (console_settings_said); +consoles+ the consoles the game or the build is for; +title+ the
+    # game's; and +named_in+ the keyword those consoles were named with (`consoles:` for a game,
+    # `console:` for a build), so the fix says where to add one. A setting is refused when none of
+    # +consoles+ has it, and a value when a console that has it cannot use it.
+    def self.refuse_unusable_console_settings!(said, consoles:, title:, named_in:)
+      kits = consoles.map { |name| self.for(name) }
+      said.each_key do |setting|
+        next if kits.any? { |kit| kit.console_setting?(setting) }
+
+        holders = self.kits.select { |kit| kit.console_setting?(setting) }.map(&:title)
+        raise ArgumentError, "`#{setting}:` is set for #{title}. Only the #{holders.join(' and the ')} " \
+                             "#{holders.size == 1 ? 'has' : 'have'} this setting. #{title} is for the " \
+                             "#{kits.map(&:title).join(' and the ')}. To fix this, remove `#{setting}:`. Or name " \
+                             "the #{holders.first} in `#{named_in}`."
+      end
+      kits.each { |kit| kit.builder.refuse_unusable_settings!(said.slice(*kit.console_settings)) }
+    end
 
     # What a game can tell about the console named +name+.
     def self.described(name) = self.for(name).description

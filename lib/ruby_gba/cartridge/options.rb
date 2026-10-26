@@ -15,18 +15,20 @@ module RubyGBA
     # it, before anything is read off disk.
     #
     # +frame_sync+ is :auto (the framework paces each game_loop) or :manual (the game places
-    # `wait_vblank` itself). +fast_cartridge+ asks the console for quick cartridge timing at boot.
-    # +fast_code+ lets the build choose which routines go in the console's quick memory.
-    # +save_memory+ is how much save memory the cartridge has, in kilobytes (8, 32, 64 or 128),
-    # or nil to let the game's save_data records decide. 8 is the EEPROM, which only a game that
-    # asks for it gets (see IR::SaveLayout::EEPROM).
-    # +stack_room+ is how many bytes of the quick memory the game's stack is given, or nil for the
-    # build to decide (see IR::Backends::GBA::TopOfQuickMemory).
+    # `wait_vblank` itself). +save_memory+ is how much save memory the cartridge has, in kilobytes
+    # (8, 32, 64 or 128), or nil to let the game's save_data records decide. 8 is the EEPROM, which
+    # only a game that asks for it gets (see IR::SaveLayout::EEPROM).
     # +console+ names the console the game is built for (see Console::Kit), held as its Symbol
     # however it was written. It is nil until something names one: a game says its consoles where it
     # is named and is built for one of them, and RubyGBA.build refuses a build that names none.
+    #
+    # +fast_cartridge+, +fast_code+ and +stack_room+ are SETTINGS ONLY THE ADVANCE HAS, and only its
+    # build reads them: what each means, what it is when nothing is said, and which values it can
+    # take are Cartridge::AdvanceBuild's, and so is refusing a value it cannot use. Each is nil when
+    # the game says nothing, so that a build for another console can tell a setting it does not
+    # have from one nobody asked for (see Console.refuse_unusable_console_settings!).
     Options = Data.define(:frame_sync, :fast_cartridge, :fast_code, :save_memory, :stack_room, :console) do
-      def initialize(frame_sync: :auto, fast_cartridge: true, fast_code: true, save_memory: nil, stack_room: nil,
+      def initialize(frame_sync: :auto, fast_cartridge: nil, fast_code: nil, save_memory: nil, stack_room: nil,
                      console: nil)
         console = Console.named(console) unless console.nil?
         unless %i[auto manual].include?(frame_sync)
@@ -37,29 +39,8 @@ module RubyGBA
                                "has 8, 32, 64 or 128 kilobytes. To fix this, use one of those numbers, or leave " \
                                "save_memory: out and the build picks the smallest that holds the saves."
         end
-        refuse_unusable_stack_room!(stack_room)
 
         super
-      end
-
-      # The least stack room a game can ask for: the console's own routines a game calls need this
-      # much of it.
-      LEAST_STACK_ROOM = 64
-
-      # The three the lowering takes, which is also what a finished cartridge records it was told
-      # (see {BuildRecord#build_options}) and what must be given again to build it the same way.
-      def lowering = { fast_cartridge: fast_cartridge, fast_code: fast_code, stack_room: stack_room }
-
-      private
-
-      def refuse_unusable_stack_room!(stack_room)
-        most = IR::Backends::GBA::TopOfQuickMemory::MOST_STACK_BYTES
-        return if stack_room.nil? ||
-                  (stack_room.is_a?(Integer) && stack_room.between?(LEAST_STACK_ROOM, most) && (stack_room % 4).zero?)
-
-        raise ArgumentError, "stack_room: #{stack_room.inspect} is not a size the stack can have. It must be a " \
-                             "number of bytes that is a multiple of 4, from #{LEAST_STACK_ROOM} to #{most}. To fix " \
-                             "this, use such a number, or remove stack_room: and the build picks the size."
       end
     end
   end

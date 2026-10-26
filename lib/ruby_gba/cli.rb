@@ -758,7 +758,7 @@ module RubyGBA
       game = load_game(game_file)
       rom = game.build_rom(settings: given_settings, console: console_drawn_by_runtimes(game, "The IR"))
       source = RubyGBA::IR::Dump.class_source(rom.source_program, class_name: "#{constantize(game.title)}IR",
-                                            **game.options.lowering)
+                                            **rom.build_options)
       if options[:output]
         File.write(options[:output], source)
         say "Wrote #{options[:output]}"
