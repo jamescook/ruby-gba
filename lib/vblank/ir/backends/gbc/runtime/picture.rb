@@ -733,6 +733,7 @@ module VBlank
               asm.ret
 
               asm.label("rt_sprites_end")
+              asm.call("rt_picture_not_up_stop")
               if lends
                 asm.load(:hl, memory[LENT] + 10)
                 asm.load(:a, [:hl])

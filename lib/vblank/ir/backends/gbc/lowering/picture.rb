@@ -41,6 +41,11 @@ module VBlank
             # One table of the drawing's numbers, as #drawing_table keeps it for the data.
             DrawingTable = Data.define(:label, :bytes, :entries, :banked)
 
+            # A pose's entry in a sprite's table of the group holding each of its pictures
+            # (#emit_held_group_check) when no one group holds it. A group's number is always less
+            # (Runtime::PictureGroups::MOST_GROUPS).
+            IN_NO_ONE_GROUP = 0xFF
+
             # The art the program's pictures were made into, for the cartridge to keep.
             attr_reader :art
 
@@ -52,6 +57,14 @@ module VBlank
             # Where a game with a map bigger than the grid keeps its copy of the grid and its list of
             # cells for the blank, [copy, list] (Runtime::BigMaps), or nil for a game with none.
             attr_reader :big_map_places
+
+            # What each check of #emit_refuse_pictures_not_up asks, by its number (GBC::PictureCheck).
+            def picture_checks
+              @picture_checks.map do |sprite, groups, poses, holdings, named, slots|
+                PictureCheck.new(sprite: sprite, groups: groups, poses: poses, holdings: holdings, group_numbers: named,
+                                 said_at: slots.map { |slot| place_of(slot) })
+              end
+            end
 
             private
 
@@ -70,6 +83,7 @@ module VBlank
               @patches = by_name(@program.walk, :backing_buffer) # what sprites on a painted screen cover
               @column_routines = {} # a picture drawn a column at a time -> its routine's label
               @drawing_tables = [] # DrawingTable each, for the data
+              @picture_checks = [] # what each check asks, by its number (#picture_checks)
             end
 
             # Each colour list's own number, saying which of its sets it holds now (Reference
@@ -159,6 +173,92 @@ module VBlank
                 end
               end
             end
+
+            # A SPRITE SHOWING A PICTURE NONE OF WHOSE GROUPS IS UP STOPS THE GAME, as the interpreter
+            # stops it (Reference#refuse_pictures_not_up!): on the console it would show whatever the
+            # groups up put where that picture goes in sprite memory. Asked as the sprite is placed,
+            # of every set of its own scene or of every screen that holds the picture in a group,
+            # whether the game said one of those groups is up in one of the set's slots. +pose+ is
+            # the pose the sprite shows, and +said+ that pose when the program never changes it.
+            #
+            # A sprite of many pictures is asked by a table of the group holding each, a byte a
+            # pose, so the question costs the same whichever it shows; a picture held in several
+            # groups of the set is asked of all of them, a question of its own. A sprite that fails
+            # is noted as one of #picture_checks, by its number, with the pose, and the game stops
+            # once the pass's sprites are placed (rt_picture_not_up), so the reader of the run can
+            # say it in the interpreter's words, naming the sprite the interpreter names.
+            #
+            # A sprite of a scene that has not taken over yet is asked nothing, as the interpreter
+            # asks nothing of it (Reference#up_in_this_scene?): its scene says which groups are up
+            # as it takes over (#emit_groups_wanted).
+            def emit_refuse_pictures_not_up(obj, said, pose)
+              asked = fresh("pictures_asked")
+              if obj.scene && @scene
+                jump_unless(Build.binop(:==, Build.var_ref(@scene), Build.int(@scenes.fetch(obj.scene))), asked)
+              end
+              emit_picture_up_checks(obj, said, pose, asked)
+              @asm.label(asked)
+            end
+
+            # Every set's checks of the sprite, in the interpreter's order; the first that finds its
+            # picture not up notes it and goes to +asked+, past the rest, as the interpreter stops at
+            # the first.
+            def emit_picture_up_checks(obj, said, pose, asked)
+              @picture_sets.each_value do |set|
+                next unless set.scene.nil? || set.scene == obj.scene
+
+                holdings = obj.poses.map { |picture| set.groups_holding(picture) }
+                next if holdings.all?(&:empty?)
+
+                slots = @group_slots.fetch(set.name).map(&:shown)
+                named = set.groups.each_index.select { |number| set.names_group?(number) }
+                check = Build.int(register_picture_check([obj.declared || obj.name, set.name, obj.poses, holdings, named, slots]))
+                ints = ->(groups) { groups.map { |group| Build.int(group) } }
+                if said
+                  holding = said.negative? ? [] : holdings.fetch(said, [])
+                  emit_group_up_check(slots, ints.call(holding), check, pose, asked) unless holding.empty?
+                else
+                  emit_held_group_check(slots, holdings, check, pose, asked)
+                  holdings.each_with_index do |holding, i|
+                    next unless holding.length > 1
+
+                    another = fresh("not_this_pose")
+                    jump_unless(Build.binop(:==, pose, Build.int(i)), another)
+                    emit_group_up_check(slots, ints.call(holding), check, pose, asked, fine: another)
+                  end
+                end
+              end
+            end
+
+            # The poses held in one group of the set, by the table: +pose+'s entry is its group, or
+            # IN_NO_ONE_GROUP for a pose held in none of the set's groups or in several.
+            def emit_held_group_check(slots, holdings, check, pose, asked)
+              held_in = holdings.map { |holding| holding.length == 1 ? holding.first : IN_NO_ONE_GROUP }
+              return if held_in.all?(IN_NO_ONE_GROUP)
+
+              fine = fresh("held_group_up")
+              in_table = Build.binop(:and, Build.binop(:>=, pose, Build.int(0)), Build.binop(:<, pose, Build.int(held_in.length)))
+              jump_unless(in_table, fine)
+              group = Build.var_ref(keep_local(:held_in))
+              value(Entry.new(drawing_table("held_in", 1, held_in), 1, false, pose))
+              store(group.name)
+              jump_if(Build.binop(:==, group, Build.int(IN_NO_ONE_GROUP)), fine)
+              emit_group_up_check(slots, [group], check, pose, asked, fine: fine)
+            end
+
+            # Notes the sprite and goes to +asked+ unless one of the set's +slots+ says one of
+            # +groups+ (nodes) is up; goes on at +fine+ when one does.
+            def emit_group_up_check(slots, groups, check, pose, asked, fine: fresh("group_up"))
+              up = slots.product(groups).map { |slot, group| Build.binop(:==, Build.var_ref(slot), group) }
+              jump_if(up.reduce { |either, other| Build.binop(:or, either, other) }, fine)
+              runtime_call("rt_picture_not_up", [check, pose])
+              @asm.jump(asked)
+              @asm.label(fine)
+            end
+
+            # The number of the check +check+ asks, a new one if no other check asks it yet:
+            # [sprite, set, its poses, the groups holding each, the numbers naming a group, the slots].
+            def register_picture_check(check) = @picture_checks.index(check) || (@picture_checks << check).length - 1
 
             # The table of slots the blank walks (Runtime::PictureGroups), for a game with groups.
             def emit_group_slots(asm)
@@ -1073,6 +1173,7 @@ module VBlank
                 value(obj.pose)
                 store(pose.name)
               end
+              emit_refuse_pictures_not_up(obj, said, pose)
               unless fixed_sprite(obj, said, level)
                 out_of_range = said ? nil : fresh("pose_out_of_range")
                 if out_of_range

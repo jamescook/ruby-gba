@@ -36,6 +36,7 @@ module VBlank
             PICTURE_NOT_THERE = 6
             SAVE_READ_OUTSIDE = 7
             SAVE_WRITE_OUTSIDE = 8
+            PICTURE_NOT_UP = 9 # the numbers: which check stopped it (GBC::Places#picture_checks), and the pose
 
             # Where the reader finds each of them: the place in work memory each was given.
             STATE = "rt state" # RUNNING, HALTED or WENT_WRONG
@@ -74,6 +75,8 @@ module VBlank
             # The frames of music owed: drawn while the game was in the middle of a pass, and played
             # where the pass ends (see rt_vblank_interrupt).
             MUSIC_OWED = "rt music owed"
+            # 1 once a sprite placed in this pass was found showing a picture not up (rt_picture_not_up).
+            PICTURE_NOT_UP_NOTED = "rt picture not up"
 
             module_function
 
@@ -96,6 +99,7 @@ module VBlank
               memory.reserve(PAD_HELD, 1)
               memory.reserve(PAD_PRESSED, 1)
               memory.reserve(MUSIC_OWED, 1)
+              memory.reserve(PICTURE_NOT_UP_NOTED, 1)
             end
 
             def emit(asm, memory)
@@ -396,6 +400,36 @@ module VBlank
               asm.load([memory[FAULT]], :a)
               asm.load(:a, WENT_WRONG)
               asm.jump("rt_stop_with_state")
+
+              # rt_picture_not_up(check, pose): which of the build's checks found a sprite showing a
+              # picture whose group is not up (Lowering::Picture#emit_refuse_pictures_not_up), and
+              # the pose it shows, noted for the end of the sprites (rt_picture_not_up_stop). The
+              # reader of the run finds the sprite, the picture and the groups up by them.
+              #
+              # NOTED, NOT STOPPED HERE, because the interpreter names the hindmost of the sprites
+              # that show a picture not up, and the sprites are placed front-most first: the last
+              # noted is the one it names.
+              asm.label("rt_picture_not_up")
+              asm.load_hl_sp(2)
+              asm.load(:b, 8)
+              asm.call("rt_take_args")
+              asm.load(:hl, memory[FAULT] + 3)
+              8.times do |i|
+                asm.load_high(:a, Calls.arg(memory, i / 4, 2) + (i % 4))
+                asm.load([:hli], :a)
+              end
+              asm.load(:a, 1)
+              asm.load([memory[PICTURE_NOT_UP_NOTED]], :a)
+              asm.ret
+
+              # rt_picture_not_up_stop, as a pass's sprites are all placed: the game stops if one
+              # of them was noted (rt_picture_not_up).
+              asm.label("rt_picture_not_up_stop")
+              asm.load(:a, [memory[PICTURE_NOT_UP_NOTED]])
+              asm.and_a(:a)
+              asm.ret(:z)
+              asm.load(:a, PICTURE_NOT_UP)
+              asm.jump("rt_fault")
             end
           end
         end

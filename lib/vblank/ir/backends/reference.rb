@@ -2515,17 +2515,8 @@ module VBlank
         end
 
         def picture_not_up_message(on, groups, holding)
-          sprite = on[:object].declared || on[:object].name
-          up = up_numbers(groups)
-          state = case up.length
-                  when 0 then "No group of :#{groups.name} is up"
-                  when 1 then "Only group #{up.first} of :#{groups.name} is up"
-                  else "Only the groups #{up.join(' and ')} of :#{groups.name} are up"
-                  end
-          which = holding.length == 1 ? "group #{holding.first}" : "groups #{holding.join(' or ')}"
-          "The sprite :#{sprite} shows :#{on[:picture]}, which is in #{which} of :#{groups.name}. #{state}. So on " \
-            "the console :#{sprite} will show other pictures. To fix this, show #{which} of :#{groups.name} before " \
-            ":#{sprite} shows :#{on[:picture]}."
+          Faults.picture_not_up(sprite: on[:object].declared || on[:object].name, picture: on[:picture],
+                                groups: groups.name, holding: holding, up: up_numbers(groups))
         end
 
         # Does this object turn or resize? It does unless BOTH its angle and its size are

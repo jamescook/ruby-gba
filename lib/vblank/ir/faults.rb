@@ -38,6 +38,25 @@ module VBlank
         "a sprite is showing picture #{pose} of its #{count}"
       end
 
+      # The sprite +sprite+ shows +picture+, which the picture groups +groups+ hold only in the
+      # groups numbered +holding+, and the groups up are +up+ (their numbers, none or more).
+      #
+      # The one sentence here the native and JavaScript runtimes never say: a program for a computer
+      # or a page keeps every picture in reach whatever is up, so nothing goes wrong there, and their
+      # runs are checked against the interpreter, which says it. A console that keeps only the groups
+      # up in its sprite memory says it too (the Game Boy Color, GBC::HeadlessRun).
+      def picture_not_up(sprite:, picture:, groups:, holding:, up:)
+        state = case up.length
+                when 0 then "No group of :#{groups} is up"
+                when 1 then "Only group #{up.first} of :#{groups} is up"
+                else "Only the groups #{up.join(' and ')} of :#{groups} are up"
+                end
+        which = holding.length == 1 ? "group #{holding.first}" : "groups #{holding.join(' or ')}"
+        "The sprite :#{sprite} shows :#{picture}, which is in #{which} of :#{groups}. #{state}. So on " \
+          "the console :#{sprite} will show other pictures. To fix this, show #{which} of :#{groups} before " \
+          ":#{sprite} shows :#{picture}."
+      end
+
       # +did+ is "read" or "wrote to"; +size+ is the save memory's bytes.
       def save_outside(did, at, size)
         format("The program %<did>s save memory at 0x%<at>X, and save memory is %<kb>dK, which ends at " \

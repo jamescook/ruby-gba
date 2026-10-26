@@ -103,6 +103,84 @@ class TestGBCPictureGroups < Minitest::Test
     assert_equal [1, 0], touching
   end
 
+  # The pass two rooms' games change on: the pictures the sprites show, and the group up.
+  CHANGE_PASS = 3
+
+  # Two rooms of three pictures, the first room's group up from power-on and, from CHANGE_PASS,
+  # group +then_up+ (5 names neither). Each of +sprites+ — its name, then [its pictures, the pose it
+  # shows from CHANGE_PASS] — shows its first picture until then; a sprite of one picture shows it
+  # all along, a pose the program never changes. With +shared+, the second room's first picture is
+  # in the first room's group too.
+  private def two_rooms(sprites:, then_up: 0, shared: false)
+    names = TestGBCPictureGroups.names(2)
+    first = names[0, PICTURES_A_ROOM] + (shared ? [names[PICTURES_A_ROOM]] : [])
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      names.each_with_index do |name, n|
+        image(name, "#" => :white, "r" => :red, "g" => :green, "." => :transparent) { TestGBCPictureGroups.art(n) }
+      end
+      shelf = picture_groups(:rooms, { 0 => first, 1 => names[PICTURES_A_ROOM, PICTURES_A_ROOM] })
+      passes = var :passes, 0
+      things = sprites.map do |name, (pictures, later)|
+        [sprite(name, facing: pictures.to_h { |picture| [picture, picture] }, at: [16, 40]), pictures, later,
+         var(:"#{name}_pose", 0)]
+      end
+      shelf.show 0
+      game_loop do
+        passes.add! 1
+        (passes >= CHANGE_PASS).then { shelf.show then_up }
+        things.each do |thing, pictures, later, pose|
+          next if pictures.length == 1
+
+          (passes >= CHANGE_PASS).then { pose.set! later }
+          thing.face pictures, showing: pose
+        end
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # On the console the sprite would show whatever the room up put in sprite memory, so the
+  # cartridge stops the game, in the interpreter's words. Played on the cartridge alone, since a
+  # checked run's interpreter stops first.
+  private def assert_stops_as_the_interpreter_does(program)
+    said = assert_raises(VBlank::IR::ProgramError) { Reference.new.run(program, frames: CHANGE_PASS + 3) }
+    stopped = assert_raises(VBlank::IR::ProgramError) { GBC::HeadlessRun.new.run(program, frames: CHANGE_PASS + 3) }
+
+    assert_equal said.message, stopped.message
+  end
+
+  # A sprite whose one picture is the second room's: not up from power-on.
+  def test_a_picture_the_program_never_changes_stops_the_cartridge_as_the_interpreter_does
+    names = TestGBCPictureGroups.names(2)
+    assert_stops_as_the_interpreter_does(two_rooms(sprites: { thing: [[names[PICTURES_A_ROOM + 1]], nil] }))
+  end
+
+  # The first room's picture is up until the sprite shows one of the second's.
+  def test_a_picture_chosen_as_the_game_runs_stops_the_cartridge_once_it_is_not_up
+    game = two_rooms(sprites: { thing: [TestGBCPictureGroups.names(2), PICTURES_A_ROOM + 1] })
+
+    GBC::HeadlessRun.new.run(game, frames: CHANGE_PASS - 1)
+    assert_stops_as_the_interpreter_does(game)
+  end
+
+  # The shared picture is in both groups, and from CHANGE_PASS the game says a number naming neither.
+  def test_a_picture_in_two_groups_neither_up_stops_the_cartridge_as_the_interpreter_does
+    game = two_rooms(sprites: { thing: [TestGBCPictureGroups.names(2), PICTURES_A_ROOM] }, then_up: 5, shared: true)
+
+    GBC::HeadlessRun.new.run(game, frames: CHANGE_PASS - 1)
+    assert_stops_as_the_interpreter_does(game)
+  end
+
+  # Two sprites showing pictures not up: the cartridge names the one the interpreter names.
+  def test_of_two_sprites_not_up_the_cartridge_names_the_interpreters
+    names = TestGBCPictureGroups.names(2)
+    assert_stops_as_the_interpreter_does(two_rooms(sprites: { back: [names, PICTURES_A_ROOM + 1],
+                                                              front: [names, PICTURES_A_ROOM + 2] }))
+  end
+
   def test_the_same_pictures_without_groups_are_refused
     error = assert_raises(GBC::LoweringError) { GBC.new.build(rooms(grouped: false)) }
 

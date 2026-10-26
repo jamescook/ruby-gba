@@ -408,8 +408,17 @@ module VBlank
             when Runtime::Frame::PICTURE_NOT_THERE then Faults.picture_missing(first, second)
             when Runtime::Frame::SAVE_READ_OUTSIDE then Faults.save_outside("read", first, second)
             when Runtime::Frame::SAVE_WRITE_OUTSIDE then Faults.save_outside("wrote to", first, second)
+            when Runtime::Frame::PICTURE_NOT_UP then picture_not_up_message(@places.picture_checks.fetch(first), second)
             else "the game went wrong (#{code})"
             end
+          end
+
+          # Reference#picture_not_up_message, from what the check that stopped the game asked, the
+          # pose the sprite showed, and the numbers the game said in the set's slots as it stopped.
+          def picture_not_up_message(check, pose)
+            up = check.said_at.map { |at| word(at) }.select { |number| check.group_numbers.include?(number) }.uniq
+            Faults.picture_not_up(sprite: check.sprite, picture: check.poses.fetch(pose), groups: check.groups,
+                                  holding: check.holdings.fetch(pose), up: up)
           end
         end
       end
