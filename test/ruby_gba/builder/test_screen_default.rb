@@ -36,7 +36,7 @@ class TestScreenDefault < Minitest::Test
   end
 
   def test_a_game_with_no_screen_line_builds
-    rom = RubyGBA.build("NOSCREEN", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("NOSCREEN", console: :gba, out: StringIO.new, err: StringIO.new) do
       game_loop do
         pixel 10, 10, :red
       end

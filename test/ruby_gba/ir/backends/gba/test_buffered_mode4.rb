@@ -125,7 +125,7 @@ class TestBufferedMode4 < Minitest::Test
   # A routine nothing calls is still written into the cartridge, so its colors have to be in
   # the table too.
   def test_a_routine_nothing_calls_that_draws_still_builds
-    rom = RubyGBA.build("UNCALLED", out: nil, err: nil) do
+    rom = RubyGBA.build("UNCALLED", console: :gba, out: nil, err: nil) do
       screen :bitmap, tear_free: true
       func(:unused) { fill_rect 0, 0, 8, 8, :red }
       game_loop { clear_screen :green }

@@ -89,7 +89,7 @@ class TestIRGuardrailListInLoop < Minitest::Test
   # stream, but the build still succeeds (advisory, not fatal).
   def test_the_build_warns_but_succeeds_when_declaring_a_list_inside_the_loop
     err = StringIO.new
-    RubyGBA.build("LIST", code: "BLST", maker: "01", out: StringIO.new, err: err) do
+    RubyGBA.build("LIST", console: :gba, code: "BLST", maker: "01", out: StringIO.new, err: err) do
       screen :bitmap
       game_loop do
         wait_vblank

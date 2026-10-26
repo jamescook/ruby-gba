@@ -133,7 +133,7 @@ class TestRoomWalls < Minitest::Test
 
   private def blocked_game(room_count)
     maps = (0...room_count).to_h { |i| [:"r#{i}", scattered_room(i)] }
-    RubyGBA.build("ROOMS", code: "BRMS", maker: "01", validate: false,
+    RubyGBA.build("ROOMS", console: :gba, code: "BRMS", maker: "01", validate: false,
                   out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image(:wall_t, "#" => :blue) { SOLID_TILE }

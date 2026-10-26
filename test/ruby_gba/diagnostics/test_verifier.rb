@@ -11,7 +11,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_red_pixel_readback
-    rom = RubyGBA.build("REDPIX", code: "BRDP", maker: "01") do
+    rom = RubyGBA.build("REDPIX", console: :gba, code: "BRDP", maker: "01") do
       screen :bitmap
       pixel 120, 80, :red
       halt
@@ -21,7 +21,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_black_background
-    rom = RubyGBA.build("REDPIX", code: "BRDP", maker: "01") do
+    rom = RubyGBA.build("REDPIX", console: :gba, code: "BRDP", maker: "01") do
       screen :bitmap
       pixel 120, 80, :red
       halt
@@ -31,7 +31,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_green_pixel_readback
-    rom = RubyGBA.build("GRNPIX", code: "BGRP", maker: "01") do
+    rom = RubyGBA.build("GRNPIX", console: :gba, code: "BGRP", maker: "01") do
       screen :bitmap
       pixel 50, 50, :green
       halt
@@ -41,7 +41,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_blue_pixel_readback
-    rom = RubyGBA.build("BLUPIX", code: "BBLP", maker: "01") do
+    rom = RubyGBA.build("BLUPIX", console: :gba, code: "BBLP", maker: "01") do
       screen :bitmap
       pixel 200, 100, :blue
       halt
@@ -51,7 +51,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_fill_rect_region
-    rom = RubyGBA.build("FILL", code: "BFIL", maker: "01") do
+    rom = RubyGBA.build("FILL", console: :gba, code: "BFIL", maker: "01") do
       screen :bitmap
       fill_rect 10, 10, 20, 20, :red
       halt
@@ -62,7 +62,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_fill_rect_outside_is_black
-    rom = RubyGBA.build("FILL", code: "BFIL", maker: "01") do
+    rom = RubyGBA.build("FILL", console: :gba, code: "BFIL", maker: "01") do
       screen :bitmap
       fill_rect 100, 70, 40, 20, :blue
       halt
@@ -74,7 +74,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_pixel_gba_returns_15bit
-    rom = RubyGBA.build("WHITE", code: "BWHT", maker: "01") do
+    rom = RubyGBA.build("WHITE", console: :gba, code: "BWHT", maker: "01") do
       screen :bitmap
       pixel 0, 0, :white
       halt
@@ -84,7 +84,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_all_black_empty_screen
-    rom = RubyGBA.build("EMPTY", code: "BEMP", maker: "01") do
+    rom = RubyGBA.build("EMPTY", console: :gba, code: "BEMP", maker: "01") do
       screen :bitmap
       halt
     end
@@ -93,7 +93,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_all_black_false_when_pixel_drawn
-    rom = RubyGBA.build("DOT", code: "BDOT", maker: "01") do
+    rom = RubyGBA.build("DOT", console: :gba, code: "BDOT", maker: "01") do
       screen :bitmap
       pixel 0, 0, :white
       halt
@@ -103,7 +103,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_screen_map
-    rom = RubyGBA.build("RECT", code: "BRCT", maker: "01") do
+    rom = RubyGBA.build("RECT", console: :gba, code: "BRCT", maker: "01") do
       screen :bitmap
       fill_rect 0, 0, 16, 16, :red
       halt
@@ -118,7 +118,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_report
-    rom = RubyGBA.build("REPORT", code: "BRPT", maker: "01") do
+    rom = RubyGBA.build("REPORT", console: :gba, code: "BRPT", maker: "01") do
       screen :bitmap
       fill_rect 10, 10, 20, 20, :green
       halt
@@ -132,7 +132,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_region_mismatch_returns_nil_on_match
-    rom = RubyGBA.build("MATCH", code: "BMCH", maker: "01") do
+    rom = RubyGBA.build("MATCH", console: :gba, code: "BMCH", maker: "01") do
       screen :bitmap
       fill_rect 0, 0, 10, 10, :red
       halt
@@ -142,7 +142,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_region_mismatch_returns_details
-    rom = RubyGBA.build("MISMATCH", code: "BMIS", maker: "01") do
+    rom = RubyGBA.build("MISMATCH", console: :gba, code: "BMIS", maker: "01") do
       screen :bitmap
       pixel 5, 5, :red
       halt
@@ -155,7 +155,7 @@ class TestVerifier < Minitest::Test
   end
 
   def test_coords_validation
-    rom = RubyGBA.build("BOUNDS", code: "BBND", maker: "01") do
+    rom = RubyGBA.build("BOUNDS", console: :gba, code: "BBND", maker: "01") do
       screen :bitmap
       halt
     end
@@ -170,7 +170,7 @@ class TestVerifier < Minitest::Test
   # anything or not. That is one abandoned file per verification, and this suite verifies
   # thousands. So the save goes in a directory of the Verifier's own instead.
   def test_verifying_a_rom_leaves_no_save_file_loose_in_the_temp_directory
-    rom = RubyGBA.build("SAVER", code: "BSVR", maker: "01") do
+    rom = RubyGBA.build("SAVER", console: :gba, code: "BSVR", maker: "01") do
       screen :bitmap
       high = save_var :high_score, 0
       s = var :s, 0
@@ -202,7 +202,7 @@ class TestVerifier < Minitest::Test
 
   # Blue with a green block and a red strip on it.
   private def a_picture
-    reader_of(RubyGBA.build("PICTURE") do
+    reader_of(RubyGBA.build("PICTURE", console: :gba) do
       screen :bitmap
       clear_screen :blue
       fill_rect 100, 60, 40, 40, :green
@@ -212,7 +212,7 @@ class TestVerifier < Minitest::Test
   end
 
   private def all_red
-    reader_of(RubyGBA.build("ALLRED") do
+    reader_of(RubyGBA.build("ALLRED", console: :gba) do
       screen :bitmap
       clear_screen :red
       game_loop {}
@@ -225,7 +225,7 @@ class TestVerifier < Minitest::Test
 
   # A white box on blue that walks two pixels to the right on every frame.
   private def a_walking_box
-    reader_of(RubyGBA.build("WALKBOX") do
+    reader_of(RubyGBA.build("WALKBOX", console: :gba) do
       screen :bitmap
       x = var :x, 20
       game_loop do
@@ -340,7 +340,7 @@ class TestVerifier < Minitest::Test
   # The darkest grey there is, darkened half way by the display, comes to a number below
   # the lowest of the five bits: black to every reader of colours, and not to this one.
   def test_a_screen_lit_only_below_five_bits_is_not_all_black
-    rom = RubyGBA.build("DIMMED") do
+    rom = RubyGBA.build("DIMMED", console: :gba) do
       screen :bitmap
       clear_screen rgb(1, 1, 1)
       fade :black, 50

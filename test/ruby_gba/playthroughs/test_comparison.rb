@@ -20,7 +20,7 @@ class TestComparison < Minitest::Test
   # or as a sprite standing where that tile would be. The console builds the same picture
   # out of different parts.
   private def white_square(drawn_as:)
-    RubyGBA.build("SQUARE", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("SQUARE", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image :block, "#" => :white do
         (["########"] * 8).join("\n")

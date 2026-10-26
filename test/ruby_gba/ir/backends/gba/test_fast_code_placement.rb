@@ -147,7 +147,7 @@ class TestFastCodePlacement < Minitest::Test
   # --- it says what it did ---
 
   def test_the_report_names_what_it_kept_in_quick_memory
-    rom = RubyGBA.build("FASTC", code: "FSTC", maker: "01", err: StringIO.new) do
+    rom = RubyGBA.build("FASTC", console: :gba, code: "FSTC", maker: "01", err: StringIO.new) do
       screen :bitmap
       clear_screen :black
       t = var :t, 0

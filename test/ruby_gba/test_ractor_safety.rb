@@ -59,7 +59,7 @@ class TestRactorSafety < Minitest::Test
     # font that ships, and a font the program declares for itself. Each was somewhere the
     # library used to stop, and the declared font was the last of them.
     def cartridge
-      RubyGBA.build("RACTOR", out: StringIO.new, err: StringIO.new) do
+      RubyGBA.build("RACTOR", console: :gba, out: StringIO.new, err: StringIO.new) do
         screen :bitmap
         clear_screen :blue
         font(:mine) { glyph "A", "###\n#.#\n###" }

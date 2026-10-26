@@ -99,7 +99,7 @@ class TestIRGuardrailSeedInLoop < Minitest::Test
   # the build still succeeds (advisory, not fatal).
   def test_the_build_warns_but_succeeds_when_seeding_inside_a_scene
     err = StringIO.new
-    RubyGBA.build("SEED", code: "BSED", maker: "01", out: StringIO.new, err: err) do
+    RubyGBA.build("SEED", console: :gba, code: "BSED", maker: "01", out: StringIO.new, err: err) do
       screen :bitmap
       var :state, 0
       scene :play do

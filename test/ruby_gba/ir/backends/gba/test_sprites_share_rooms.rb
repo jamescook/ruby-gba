@@ -121,7 +121,7 @@ class TestSpritesShareRooms < Minitest::Test
   private def pool_game(poses)
     art = method(:big_art)
     names = POSES.first(poses)
-    RubyGBA.build("ROOMS", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("ROOMS", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       names.each_with_index { |name, n| image name, width: 64, height: 64, data: art.call(n) }
       shards = pool :shard, x: 0, y: 0, look: 0, capacity: 3, facing: names.to_h { |name| [name, name] }
@@ -168,7 +168,7 @@ class TestSpritesShareRooms < Minitest::Test
     art = method(:big_art)
     names = POSES.first(8)
     statues = POSES.last(12)
-    RubyGBA.build("ROOMS", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("ROOMS", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       POSES.each_with_index { |name, n| image name, width: 64, height: 64, data: art.call(n) }
       var :state, 0

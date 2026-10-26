@@ -28,7 +28,7 @@ class TestLoopForm < Minitest::Test
   end
 
   private def shapes_of(&block)
-    rom = RubyGBA.build("LOOPS", err: StringIO.new,
+    rom = RubyGBA.build("LOOPS", console: :gba, err: StringIO.new,
                                  out: StringIO.new, &block)
     [rom, rom.loop_shapes]
   end
@@ -114,7 +114,7 @@ class TestLoopForm < Minitest::Test
   # very registers a held loop counts in, so a loop that kept its counter around one would
   # count in a number the clipper had just overwritten and run away entirely.
   def test_a_loop_around_a_drawn_image_counts_right_on_the_console
-    rom = RubyGBA.build("LOOPBLIT", code: "BLBL", maker: "01", err: StringIO.new, out: StringIO.new) do
+    rom = RubyGBA.build("LOOPBLIT", console: :gba, code: "BLBL", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       image(:dot, "#" => :red, "." => :blue) { "#.\n.#" }
       x = var :bx, 2
@@ -136,7 +136,7 @@ class TestLoopForm < Minitest::Test
   # Drawing#emit_digit_routines) holds its own x/y/color in the very registers a held loop
   # counts in, so a loop drawing one inside itself has to give the registers up too.
   def test_a_loop_around_a_live_number_counts_right_on_the_console
-    rom = RubyGBA.build("LOOPDGT", code: "BLDG", maker: "01", err: StringIO.new, out: StringIO.new) do
+    rom = RubyGBA.build("LOOPDGT", console: :gba, code: "BLDG", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       var :n, 4
       passes = var :passes, 0
@@ -179,7 +179,7 @@ class TestLoopForm < Minitest::Test
   # sharpest case, because a loop is the one thing that certainly does take those registers:
   # the inner one would count in the outer one's counter, and the outer would never reach four.
   def test_a_loop_down_an_else_branch_counts_right_on_the_console
-    rom = RubyGBA.build("LOOPELSE", code: "BLEL", maker: "01", err: StringIO.new, out: StringIO.new) do
+    rom = RubyGBA.build("LOOPELSE", console: :gba, code: "BLEL", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       total = var :total, 0
       b = self
@@ -213,7 +213,7 @@ class TestLoopForm < Minitest::Test
 
   def test_no_other_statement_kind_lands_on_the_registers_a_held_loop_uses
     kinds = nil
-    rom = RubyGBA.build("LOOPSWEEP", code: "BLSW", maker: "01", err: StringIO.new, out: StringIO.new) do
+    rom = RubyGBA.build("LOOPSWEEP", console: :gba, code: "BLSW", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       enable_sound
       define_sound :hit, frequency: 400, duty: :quarter, decay: :fast
@@ -302,7 +302,7 @@ class TestLoopForm < Minitest::Test
   # ...and the console agrees, which is the only place a clobbered register would show. Read
   # back out of memory rather than off the screen: the number IS the answer here.
   def test_the_console_agrees_about_both_shapes
-    rom = RubyGBA.build("LOOPSUM", code: "BLSM", maker: "01", err: StringIO.new, out: StringIO.new) do
+    rom = RubyGBA.build("LOOPSUM", console: :gba, code: "BLSM", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       xs = list :xs, capacity: 8
       8.times { |i| xs << (i + 1) }
@@ -325,7 +325,7 @@ class TestLoopForm < Minitest::Test
   # A loop nested inside another still counts right, which is the case where the outer loop
   # cannot hold its counter and the inner one can.
   def test_a_nested_loop_counts_right_on_the_console
-    rom = RubyGBA.build("LOOPNEST", code: "BLNS", maker: "01", err: StringIO.new, out: StringIO.new) do
+    rom = RubyGBA.build("LOOPNEST", console: :gba, code: "BLNS", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       total = var :total, 0
       b = self
@@ -344,7 +344,7 @@ class TestLoopForm < Minitest::Test
   # read comes from there. Get it wrong and the index reads as whatever the borrower left in
   # the register, which is a wrong answer rather than a slow one.
   def test_a_spilled_loop_reads_its_index_inside_the_saved_statement
-    rom = RubyGBA.build("LOOPIDX", code: "BLIX", maker: "01", err: StringIO.new, out: StringIO.new) do
+    rom = RubyGBA.build("LOOPIDX", console: :gba, code: "BLIX", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       seen = var :seen, 0
       hits = var :hits, 0
@@ -375,7 +375,7 @@ class TestLoopForm < Minitest::Test
   # reads its index counts up against a limit and saves both; one that does not counts down and
   # has only its counter to save.
   def test_a_spilled_loop_emits_the_save_and_the_restore
-    rom = RubyGBA.build("LOOPSAVE", code: "BLSV", maker: "01", err: StringIO.new, out: StringIO.new) do
+    rom = RubyGBA.build("LOOPSAVE", console: :gba, code: "BLSV", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       n = var :n, 0
       b = self
@@ -495,7 +495,7 @@ class TestLoopForm < Minitest::Test
   # A count that runs no passes — nought, or below it — must still run none. A loop that tests
   # at the END of a pass has to make its first test before the first pass instead.
   def test_a_loop_counted_nought_or_below_runs_no_passes_on_the_console
-    rom = RubyGBA.build("LOOPNONE", code: "BLNO", maker: "01", err: StringIO.new, out: StringIO.new) do
+    rom = RubyGBA.build("LOOPNONE", console: :gba, code: "BLNO", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       none = var :none, 0
       below = var :below, -3
@@ -532,7 +532,7 @@ class TestLoopForm < Minitest::Test
   # told, on the console as in the interpreter — once running its whole count, once stopped
   # partway by what the body read.
   def test_a_loop_through_memory_reads_its_index_and_stops_where_told
-    rom = RubyGBA.build("LOOPMEMI", code: "BLMI", maker: "01", err: StringIO.new, out: StringIO.new) do
+    rom = RubyGBA.build("LOOPMEMI", console: :gba, code: "BLMI", maker: "01", err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       whole = var :whole, 0
       stopped = var :stopped, 0
@@ -568,7 +568,7 @@ class TestLoopForm < Minitest::Test
   # block captures it, and the call to that routine is all the body says. Counting that loop
   # down would hand the routine the passes left instead of the pass it is on.
   def test_an_index_read_only_by_a_routine_the_body_calls_still_counts_up
-    rom = RubyGBA.build("LOOPCAPT", err: StringIO.new, out: StringIO.new) do
+    rom = RubyGBA.build("LOOPCAPT", console: :gba, err: StringIO.new, out: StringIO.new) do
       screen :bitmap
       seen = var :seen, 0
       b = self
@@ -605,7 +605,7 @@ class TestLoopForm < Minitest::Test
   # the caller and the routine each landed — and a body written out four hundred times lands
   # somewhere different from one written out two hundred.
   private def pass_rom(name)
-    RubyGBA.build(name, err: StringIO.new, out: StringIO.new, fast_code: false) do
+    RubyGBA.build(name, console: :gba, err: StringIO.new, out: StringIO.new, fast_code: false) do
       screen :bitmap
       n = var :n, 0
       stand_in = var :stand_in, 0

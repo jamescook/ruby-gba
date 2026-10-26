@@ -97,7 +97,7 @@ class TestSongTooManyPartsGuardrail < Minitest::Test
   private def build(&program)
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("PARTS", code: "ZPRT", maker: "01", out: StringIO.new, err: err) do
+      RubyGBA.build("PARTS", console: :gba, code: "ZPRT", maker: "01", out: StringIO.new, err: err) do
         screen :bitmap
         enable_sound
         instrument :organ, pcm: [60, -60] * 400, rate: 8000, note: :C4

@@ -45,8 +45,8 @@ class TestGameSuite < Minitest::Test
     end
   end
 
-  # A game that names no console is for the Advance alone, and its rake test plays every lowering
-  # of an Advance game: the Game Boy Color's run is not played, and has no task to ask for it.
+  # A game for the Advance alone has a rake test that plays every lowering of an Advance game: the
+  # Game Boy Color's run is not played, and has no task to ask for it.
   def test_rake_test_plays_the_games_tests_on_every_lowering_of_its_console
     out, passed, lowerings = rake("test")
 
@@ -69,7 +69,7 @@ class TestGameSuite < Minitest::Test
   end
 
   # A Rakefile that names a console there is not is told which there are, and one that names none
-  # is told to leave the setting out: what `consoles:` refuses where the game is named.
+  # is told to name them: what `consoles:` refuses where the game is named.
   def test_a_game_that_names_an_unknown_console_is_told_the_consoles
     out, passed, = rake("-T", env: { "GAME_SUITE_CONSOLES" => "gba snes" })
 
@@ -78,11 +78,12 @@ class TestGameSuite < Minitest::Test
     assert_match(/:gba/, out)
   end
 
-  def test_a_game_that_names_no_console_is_told_to_leave_the_setting_out
+  def test_a_game_that_names_no_console_is_told_to_name_them
     out, passed, = rake("-T", env: { "GAME_SUITE_CONSOLES" => "" })
 
     refute passed
     assert_match(/t\.consoles names no console/, out)
+    assert_match(/%i\[gba\]/, out)
   end
 
   # The native lowering's run alone, its tests played in several processes rather than Ractors.

@@ -6,7 +6,7 @@ class TestConditionals < Minitest::Test
   include RubyGBA::Console::Hardware
 
   private def build(validate: false, &block)
-    RubyGBA.build("CONDTEST", code: "BCND", maker: "01", validate: validate, &block)
+    RubyGBA.build("CONDTEST", console: :gba, code: "BCND", maker: "01", validate: validate, &block)
   end
 
   private def instructions(rom)

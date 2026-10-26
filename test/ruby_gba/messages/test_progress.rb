@@ -55,7 +55,7 @@ class TestProgress < Minitest::Test
   # Build it while a progress is listening, and hand back its phase lines in columns.
   private def phases_of_a_build
     out = StringIO.new
-    RubyGBA.build("SPEAK", code: "ASPK", maker: "01", out: StringIO.new, err: StringIO.new,
+    RubyGBA.build("SPEAK", console: :gba, code: "ASPK", maker: "01", out: StringIO.new, err: StringIO.new,
                           progress: Progress.to(out), &MANY_STATEMENTS)
     phases_in(out)
   end
@@ -81,7 +81,7 @@ class TestProgress < Minitest::Test
 
   def test_the_silent_one_is_what_a_build_gets_unless_it_asks
     err = StringIO.new
-    RubyGBA.build("QUIET", code: "AQUI", maker: "01", out: StringIO.new, err: err) do
+    RubyGBA.build("QUIET", console: :gba, code: "AQUI", maker: "01", out: StringIO.new, err: err) do
       screen :bitmap
       fill_rect 0, 0, 8, 8, :red
       halt
@@ -281,7 +281,7 @@ class TestProgress < Minitest::Test
   end
 
   private def a_cartridge_built_with(progress)
-    RubyGBA.build("PACK", code: "APAK", maker: "01", out: StringIO.new, err: StringIO.new,
+    RubyGBA.build("PACK", console: :gba, code: "APAK", maker: "01", out: StringIO.new, err: StringIO.new,
                           progress: progress) do
       screen :bitmap
       paint_the_rows 4
@@ -317,7 +317,7 @@ class TestProgress < Minitest::Test
   # sprite sheet can name itself with no new plumbing.
   def test_a_games_own_code_can_say_what_it_is_doing
     out = StringIO.new
-    RubyGBA.build("GAME", code: "AGAM", maker: "01", out: StringIO.new, err: StringIO.new,
+    RubyGBA.build("GAME", console: :gba, code: "AGAM", maker: "01", out: StringIO.new, err: StringIO.new,
                           progress: Progress.to(out)) do
       screen :bitmap
       Floors.new(self).read 3
@@ -379,7 +379,7 @@ class TestProgress < Minitest::Test
   def test_a_build_that_stops_closes_the_line_it_had_open
     out = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("BROKE", code: "ABRK", maker: "01", out: StringIO.new, err: StringIO.new,
+      RubyGBA.build("BROKE", console: :gba, code: "ABRK", maker: "01", out: StringIO.new, err: StringIO.new,
                              progress: Progress.to(out)) do
         screen :tiled
         fill_rect 0, 0, 8, 8, :red # painting on a tiled screen: a guardrail error
@@ -395,7 +395,7 @@ class TestProgress < Minitest::Test
   # shape of the build — so the findings are held and written once every phase has had its say.
   def test_a_warning_is_said_after_the_build_and_not_in_the_middle_of_it
     said = StringIO.new
-    RubyGBA.build("NOISY", code: "ANOI", maker: "01", out: StringIO.new, err: said,
+    RubyGBA.build("NOISY", console: :gba, code: "ANOI", maker: "01", out: StringIO.new, err: said,
                            progress: Progress.to(said)) do
       screen :bitmap
       game_loop { seed 42 } # seeding every frame: a guardrail warning
@@ -485,7 +485,7 @@ class TestProgress < Minitest::Test
   # routine measured again. That is a different measurement, so it says so.
   def test_measuring_again_says_why
     out = StringIO.new
-    RubyGBA.build("FAR", out: StringIO.new, err: StringIO.new, progress: Progress.to(out)) do
+    RubyGBA.build("FAR", console: :gba, out: StringIO.new, err: StringIO.new, progress: Progress.to(out)) do
       screen :bitmap
       vars = Array.new(1200) { |n| var :"v#{n}", 0 }
       func(:count) { 200.times { vars.last.add! 1 } }

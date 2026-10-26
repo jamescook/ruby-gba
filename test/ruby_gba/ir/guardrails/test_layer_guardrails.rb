@@ -638,7 +638,7 @@ class TestLayerGuardrails < Minitest::Test
   # a person building one reads.
   def test_a_real_build_reports_a_layer_that_holds_nothing
     err = StringIO.new
-    RubyGBA.build("LAYERS", code: "BLYR", maker: "01", err: err) do
+    RubyGBA.build("LAYERS", console: :gba, code: "BLYR", maker: "01", err: err) do
       screen :tiled
       image(:red_guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
       layers :world, :ui
@@ -652,7 +652,7 @@ class TestLayerGuardrails < Minitest::Test
   def test_a_real_build_reports_a_stack_the_screen_does_not_honor
     err = StringIO.new
     map = (0...4).map { "." * 4 }
-    RubyGBA.build("LAYERS", code: "BLYR", maker: "01", err: err) do
+    RubyGBA.build("LAYERS", console: :gba, code: "BLYR", maker: "01", err: err) do
       screen :bitmap
       image(:grass, "#" => :green) { (["#" * 8] * 8).join("\n") }
       tiles :terrain, "." => :grass
@@ -669,7 +669,7 @@ class TestLayerGuardrails < Minitest::Test
   # that picture is now the one the stack asked for.
   def test_a_real_build_says_nothing_about_a_reversed_sprite_stack
     err = StringIO.new
-    RubyGBA.build("LAYERS", code: "BLYR", maker: "01", err: err) do
+    RubyGBA.build("LAYERS", console: :gba, code: "BLYR", maker: "01", err: err) do
       screen :bitmap
       image(:red_guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
       image(:blue_guy, "#" => :blue) { (["#" * 8] * 8).join("\n") }
@@ -685,7 +685,7 @@ class TestLayerGuardrails < Minitest::Test
   # Advisory, both of them: the ROM is still built and still runs. A warning that
   # stopped the build would make a stack something you cannot adopt a bit at a time.
   def test_neither_warning_stops_the_build
-    rom = RubyGBA.build("LAYERS", code: "BLYR", maker: "01", err: StringIO.new) do
+    rom = RubyGBA.build("LAYERS", console: :gba, code: "BLYR", maker: "01", err: StringIO.new) do
       screen :tiled
       image(:red_guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
       layers :world, :ui

@@ -16,7 +16,7 @@ class TestPlaythroughWatching < Minitest::Test
   include PNGReading
 
   private def ticking_game
-    RubyGBA.build("TICKING", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("TICKING", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       ticks = var :ticks, 0
       x = var :x, 0

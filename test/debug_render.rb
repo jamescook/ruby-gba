@@ -29,7 +29,7 @@ end
 # Expected: MOV r0, #3 / ORR r0, r0, #0x0400 / MOV r1, #0x04000000 / STRH r0,[r1] / HALT
 # ============================================================
 puts "=== Test A: Display mode only ==="
-rom = RubyGBA.build("DISPONLY", code: "BTST", maker: "01") do
+rom = RubyGBA.build("DISPONLY", console: :gba, code: "BTST", maker: "01") do
   screen :bitmap
   halt
 end
@@ -68,7 +68,7 @@ puts
 # Test B: Single red pixel at center
 # ============================================================
 puts "=== Test B: Red pixel at (120, 80) ==="
-rom = RubyGBA.build("REDPIX", code: "BTST", maker: "01") do
+rom = RubyGBA.build("REDPIX", console: :gba, code: "BTST", maker: "01") do
   screen :bitmap
   pixel 120, 80, :red
   halt
@@ -89,7 +89,7 @@ puts
 # Test C: Big visible rectangle (easier to spot)
 # ============================================================
 puts "=== Test C: Large blue rectangle (80x60 centered) ==="
-rom = RubyGBA.build("BIGRECT", code: "BTST", maker: "01") do
+rom = RubyGBA.build("BIGRECT", console: :gba, code: "BTST", maker: "01") do
   screen :bitmap
   fill_rect 80, 50, 80, 60, :blue
   halt
@@ -107,7 +107,7 @@ puts
 # Test D: Multiple large color blocks
 # ============================================================
 puts "=== Test D: Three large color blocks ==="
-rom = RubyGBA.build("BLOCKS", code: "BTST", maker: "01") do
+rom = RubyGBA.build("BLOCKS", console: :gba, code: "BTST", maker: "01") do
   screen :bitmap
   fill_rect 10, 10, 60, 60, :red
   fill_rect 90, 10, 60, 60, :green

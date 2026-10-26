@@ -6,7 +6,7 @@ class TestScenes < Minitest::Test
   include RubyGBA::Console::Hardware
 
   private def build(validate: false, &block)
-    RubyGBA.build("SCNTEST", code: "BSCN", maker: "01", validate: validate, &block)
+    RubyGBA.build("SCNTEST", console: :gba, code: "BSCN", maker: "01", validate: validate, &block)
   end
 
   # ========================================================================

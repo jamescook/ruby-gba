@@ -41,7 +41,7 @@ class TestListFillWord < Minitest::Test
   end
 
   private def on_console(game)
-    rom = RubyGBA.build("LISTFILL", out: StringIO.new, err: StringIO.new, profile: false, &game)
+    rom = RubyGBA.build("LISTFILL", console: :gba, out: StringIO.new, err: StringIO.new, profile: false, &game)
     v = assert_emulator_loads_rom(rom, frames: 4, vars: rom.var_addresses)
     READINGS.map { |name| v.var(name) }
   end
@@ -64,7 +64,7 @@ class TestListFillWord < Minitest::Test
   # WHAT IT IS FOR: a dialogue box's 3,328 bytes cleared on the frame it opens. One at a time
   # from the cartridge, that is most of a frame; filled, a small part of one.
   def test_clearing_a_box_every_frame_takes_a_small_part_of_it
-    rom = RubyGBA.build("CLEARBOX", out: StringIO.new, err: StringIO.new, profile: false, fast_code: false,
+    rom = RubyGBA.build("CLEARBOX", console: :gba, out: StringIO.new, err: StringIO.new, profile: false, fast_code: false,
                                     &filling { |canvas, shade| canvas.fill shade })
     result = RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
 

@@ -20,7 +20,7 @@ class TestVerifierPasses < Minitest::Test
   # checked against. The counter is the last thing in the body, so it says how many passes
   # FINISHED — which is what #passes reports.
   private def self_counting_rom
-    RubyGBA.build("PASSES", validate: false) do
+    RubyGBA.build("PASSES", console: :gba, validate: false) do
       screen :bitmap
       clear_screen :black
       passes = var :passes, 0
@@ -31,7 +31,7 @@ class TestVerifierPasses < Minitest::Test
   # A pass far too big for one frame: the console gets fewer passes than the frames that ran,
   # which is the situation the count exists for.
   private def overrunning_rom
-    RubyGBA.build("HEAVY", validate: false) do
+    RubyGBA.build("HEAVY", console: :gba, validate: false) do
       screen :bitmap
       passes = var :passes, 0
       game_loop do
@@ -71,7 +71,7 @@ class TestVerifierPasses < Minitest::Test
   # instruction that asks the console to sleep, which the console's own startup can enter
   # twice).
   def test_a_loop_left_in_the_cartridge_is_counted_the_same
-    rom = RubyGBA.build("SLOWMEM", validate: false, fast_code: false) do
+    rom = RubyGBA.build("SLOWMEM", console: :gba, validate: false, fast_code: false) do
       screen :bitmap
       clear_screen :black
       passes = var :passes, 0
@@ -84,7 +84,7 @@ class TestVerifierPasses < Minitest::Test
   end
 
   def test_a_heavy_loop_left_in_the_cartridge_is_counted_the_same
-    rom = RubyGBA.build("SLOWHEAVY", validate: false, fast_code: false) do
+    rom = RubyGBA.build("SLOWHEAVY", console: :gba, validate: false, fast_code: false) do
       screen :bitmap
       passes = var :passes, 0
       game_loop do
@@ -100,7 +100,7 @@ class TestVerifierPasses < Minitest::Test
 
   # A game that places its own wait for the screen puts a different instruction first again.
   def test_a_game_that_waits_for_the_screen_itself_is_counted_the_same
-    rom = RubyGBA.build("MANUAL", validate: false, frame_sync: :manual) do
+    rom = RubyGBA.build("MANUAL", console: :gba, validate: false, frame_sync: :manual) do
       screen :bitmap
       clear_screen :black
       passes = var :passes, 0
@@ -116,7 +116,7 @@ class TestVerifierPasses < Minitest::Test
   end
 
   def test_a_program_with_no_game_loop_has_no_passes
-    rom = RubyGBA.build("NOLOOP", validate: false) do
+    rom = RubyGBA.build("NOLOOP", console: :gba, validate: false) do
       screen :bitmap
       clear_screen :red
       halt

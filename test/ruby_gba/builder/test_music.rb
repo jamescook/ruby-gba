@@ -8,7 +8,7 @@ class TestMusic < Minitest::Test
   include RubyGBA::Console::Hardware
 
   private def build(validate: false, &block)
-    RubyGBA.build("MUSTEST", code: "BMUS", maker: "01", validate: validate, &block)
+    RubyGBA.build("MUSTEST", console: :gba, code: "BMUS", maker: "01", validate: validate, &block)
   end
 
   # ========================================================================

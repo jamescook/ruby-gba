@@ -324,7 +324,7 @@ class TestSaveData < Minitest::Test
     store = SaveImage.new
     files_after(store, :up, :a)
     oracle = play(built(&names_peeked), store.dup)
-    rom = RubyGBA.build("PEEKS", out: StringIO.new, err: StringIO.new, &names_peeked)
+    rom = RubyGBA.build("PEEKS", console: :gba, out: StringIO.new, err: StringIO.new, &names_peeked)
     v = assert_emulator_loads_rom(rom, frames: 4, save: store, vars: rom.var_addresses)
 
     readings = %i[first length none total]

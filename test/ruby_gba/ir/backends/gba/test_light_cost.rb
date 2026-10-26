@@ -10,7 +10,7 @@ require "test_helper"
 class TestLightCost < Minitest::Test
   # A white room, with +light+ run before the loop and +each+ inside it.
   private def room(light: nil, each: nil)
-    RubyGBA.build("LIGHTCOST", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("LIGHTCOST", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image(:white_tile, "#" => :white) { (["#" * 8] * 8).join("\n") }
       tiles :set, "#" => :white_tile
@@ -78,7 +78,7 @@ class TestLightCost < Minitest::Test
   # In a scene that sees through a layer the light is switched off, and costs nothing there.
   def test_a_light_switched_off_in_a_scene_costs_next_to_nothing
     with_title = lambda do |iris|
-      RubyGBA.build("LIGHTOFF", out: StringIO.new, err: StringIO.new) do
+      RubyGBA.build("LIGHTOFF", console: :gba, out: StringIO.new, err: StringIO.new) do
         screen :tiled
         layers :ground, :water
         image(:white_tile, "#" => :white) { (["#" * 8] * 8).join("\n") }

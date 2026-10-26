@@ -17,7 +17,7 @@ class TestPlaythroughTape < Minitest::Test
   # counts presses of A. Its first tick is on its second frame: the first frame is the
   # cartridge setting itself up.
   private def ticking_game(title = "TICKING")
-    RubyGBA.build(title, out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build(title, console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       ticks = var :ticks, 0
       x = var :x, 0

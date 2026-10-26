@@ -46,7 +46,7 @@ class TestIRGuardrailPaintedPictureWithOtherPoses < Minitest::Test
   def test_the_build_stops_and_explains
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("MIXED", out: StringIO.new, err: err) do
+      RubyGBA.build("MIXED", console: :gba, out: StringIO.new, err: err) do
         screen :tiled
         colors :ink, [:transparent, :white]
         canvas = list :canvas, capacity: 64, width: :byte

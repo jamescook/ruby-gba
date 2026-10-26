@@ -8,7 +8,7 @@ require "test_helper"
 class TestIRGuardrailListFilledByLoop < Minitest::Test
   private def warnings(&game)
     err = StringIO.new
-    RubyGBA.build("FILLED", out: StringIO.new, err: err, profile: false, &game)
+    RubyGBA.build("FILLED", console: :gba, out: StringIO.new, err: err, profile: false, &game)
     err.string
   end
 

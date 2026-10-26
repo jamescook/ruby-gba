@@ -14,7 +14,7 @@ require "test_helper"
 class TestSaveMemory < Minitest::Test
   # A game whose one record keeps +bytes+ flags, +copies+ times over.
   private def game(bytes:, copies:, **options)
-    RubyGBA.build("SAVEMEM", out: nil, err: nil, **options) do
+    RubyGBA.build("SAVEMEM", console: :gba, out: nil, err: nil, **options) do
       screen :bitmap
       flags = list :flags, capacity: bytes, width: :byte
       files = save_data(:file, copies: copies) { keep flags }
@@ -82,7 +82,7 @@ class TestSaveMemory < Minitest::Test
 
   # A game that keeps nothing in a save_data record still has save memory, for its save_var.
   def test_naming_flash_for_a_game_with_only_a_save_var_gives_it_flash
-    rom = RubyGBA.build("SAVEMEM", out: nil, err: nil, save_memory: 128) do
+    rom = RubyGBA.build("SAVEMEM", console: :gba, out: nil, err: nil, save_memory: 128) do
       screen :bitmap
       save_var :best, 0
       game_loop {}
@@ -96,7 +96,7 @@ class TestSaveMemory < Minitest::Test
   # 64K exactly, so a save_var beside them needs 128K.
   def test_a_save_var_beside_records_on_flash_takes_room_of_its_own
     built = ->(with_save_var) do
-      RubyGBA.build("SAVEMEM", out: nil, err: nil) do
+      RubyGBA.build("SAVEMEM", console: :gba, out: nil, err: nil) do
         screen :bitmap
         save_var :best, 0 if with_save_var
         flags = list :flags, capacity: 6000, width: :byte

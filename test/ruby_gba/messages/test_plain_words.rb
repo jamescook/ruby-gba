@@ -83,7 +83,7 @@ class TestPlainWords < Minitest::Test
   # settles it: reword either side and this routine goes back to being reported as a `func`
   # nobody wrote.
   def test_the_glyph_routine_a_font_gets_is_named_from_what_the_author_typed
-    rom = RubyGBA.build("DIGIT", code: "DIGI", maker: "01") do
+    rom = RubyGBA.build("DIGIT", console: :gba, code: "DIGI", maker: "01") do
       screen :bitmap
       var :score, 0
       game_loop { draw_number :score, 10, 10, :white, digits: 3 }
@@ -101,7 +101,7 @@ class TestPlainWords < Minitest::Test
   # finding at power-on where each record lives — are named from the record the author declared,
   # so a profile that shows a save costing a frame says which record, and says it is a save.
   def test_the_routines_a_save_data_record_gets_are_named_from_the_record
-    rom = RubyGBA.build("SAVEWORDS") do
+    rom = RubyGBA.build("SAVEWORDS", console: :gba) do
       screen :bitmap
       hearts = var :hearts, 3
       files = save_data(:file, copies: 3) { keep hearts }
@@ -222,7 +222,7 @@ class TestPlainWords < Minitest::Test
   # A game with enough per-frame work that the build finds a routine worth moving, so both the
   # progress line and the report have something to name.
   def a_game_worth_moving(progress:)
-    RubyGBA.build("NAMES", code: "ANAM", maker: "01", out: StringIO.new, err: StringIO.new,
+    RubyGBA.build("NAMES", console: :gba, code: "ANAM", maker: "01", out: StringIO.new, err: StringIO.new,
                            progress: progress) do
       screen :bitmap
       spin = var :spin, 0
@@ -239,7 +239,7 @@ class TestPlainWords < Minitest::Test
   # were painted, so no depth can move them afterwards, and the refusal has to name the verb the
   # author typed rather than the `draw_digit` node it became.
   def a_number_drawn_in_a_layer
-    RubyGBA.build("LAYER", code: "ALAY", maker: "01", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("LAYER", console: :gba, code: "ALAY", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       layers :world, :ui
       score = var :score, 0

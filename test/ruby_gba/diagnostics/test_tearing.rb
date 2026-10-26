@@ -20,7 +20,7 @@ class TestTearing < Minitest::Test
   # whether it can finish before the display arrives. Two draws under opposite tests, so the
   # colour really changes each frame — a repaint in the same colour tears invisibly.
   private def alternating_band(height)
-    RubyGBA.build("TEAR", code: "BTER", maker: "01", err: StringIO.new) do
+    RubyGBA.build("TEAR", console: :gba, code: "BTER", maker: "01", err: StringIO.new) do
       screen :bitmap
       c = var :c, 0
       game_loop do
@@ -58,7 +58,7 @@ class TestTearing < Minitest::Test
   # there is no single picture to read a tear off. It answers "not measured here", which is
   # a different thing from "no tear" and must not be mistaken for it.
   def test_a_tear_free_screen_is_not_measured_rather_than_reported_clean
-    rom = RubyGBA.build("TEARF", code: "BTRF", maker: "01", err: StringIO.new) do
+    rom = RubyGBA.build("TEARF", console: :gba, code: "BTRF", maker: "01", err: StringIO.new) do
       screen :bitmap, tear_free: true
       c = var :c, 0
       game_loop do
@@ -74,7 +74,7 @@ class TestTearing < Minitest::Test
   # A tiled screen has no framebuffer at all — the console builds the picture from tiles as
   # it draws — so there is nothing to hold a shown row against.
   def test_a_tiled_screen_has_no_picture_to_read_a_tear_off
-    rom = RubyGBA.build("TILED", code: "BTLD", maker: "01", err: StringIO.new) do
+    rom = RubyGBA.build("TILED", console: :gba, code: "BTLD", maker: "01", err: StringIO.new) do
       screen :tiled
       image(:blk, "#" => :red) { (["#" * 8] * 8).join("\n") }
       tiles :set, "#" => :blk

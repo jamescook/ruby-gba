@@ -431,7 +431,7 @@ class TestTileRuns < Minitest::Test
   # of them — the scene the player plays in included. Twenty painted pictures add nothing to it.
   def test_twenty_painted_pictures_add_nothing_to_the_game_loop
     sizes = [1, 20].map do |count|
-      rom = RubyGBA.build("TAGS#{count}", out: StringIO.new, err: StringIO.new, profile: false, &name_tags(count))
+      rom = RubyGBA.build("TAGS#{count}", console: :gba, out: StringIO.new, err: StringIO.new, profile: false, &name_tags(count))
       rom.placement.sizes.fetch(:__frame)
     end
 
@@ -444,7 +444,7 @@ class TestTileRuns < Minitest::Test
   def test_twenty_painted_pictures_share_one_copy_routine
     routine = RubyGBA::Messages::MadeNames.make(:painted_copies)
     sizes = [1, 20].map do |count|
-      rom = RubyGBA.build("COPY#{count}", out: StringIO.new, err: StringIO.new, profile: false, &name_tags(count))
+      rom = RubyGBA.build("COPY#{count}", console: :gba, out: StringIO.new, err: StringIO.new, profile: false, &name_tags(count))
       rom.placement.sizes.fetch(routine)
     end
 

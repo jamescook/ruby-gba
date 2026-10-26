@@ -178,7 +178,7 @@ class TestIRGuardrailCallInsideArea < Minitest::Test
   def test_the_build_stops_and_explains
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("CIAR", code: "BCIA", maker: "01", out: StringIO.new, err: err) do
+      RubyGBA.build("CIAR", console: :gba, code: "BCIA", maker: "01", out: StringIO.new, err: err) do
         screen :bitmap
         func(:draw_something) { fill_rect 0, 0, 240, 160, :red }
         game_loop { inside(0, 0, 100, 100) { call :draw_something } }

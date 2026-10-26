@@ -111,7 +111,7 @@ class TestBiosCompress < Minitest::Test
   # --- The build records the packing report on the ROM (display is the CLI's job) ---
 
   private def compressible_tiled
-    RubyGBA.build("PACK", code: "BPAK", maker: "01", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("PACK", console: :gba, code: "BPAK", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image(:red_t, "#" => :red) { (["########"] * 8).join("\n") }
       tiles :set, "R" => :red_t
@@ -131,7 +131,7 @@ class TestBiosCompress < Minitest::Test
   end
 
   def test_a_build_with_nothing_to_pack_has_an_empty_report
-    rom = RubyGBA.build("PLAIN", code: "BPLN", maker: "01", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("PLAIN", console: :gba, code: "BPLN", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       clear_screen :black
       halt

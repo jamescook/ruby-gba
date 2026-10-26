@@ -6,7 +6,7 @@ class TestSubroutines < Minitest::Test
   include RubyGBA::Console::Hardware
 
   private def build(validate: false, &block)
-    RubyGBA.build("SUBTEST", code: "BSUB", maker: "01", validate: validate, &block)
+    RubyGBA.build("SUBTEST", console: :gba, code: "BSUB", maker: "01", validate: validate, &block)
   end
 
   private def instructions(rom)

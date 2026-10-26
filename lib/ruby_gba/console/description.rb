@@ -10,7 +10,7 @@ module RubyGBA
     # It says nothing about HOW the console is driven — register addresses, memory, the processor —
     # which is each lowering's own business (Console::Hardware is the Advance's). A program carries
     # the name of the console it was built for, and anything that reads it asks
-    # Console.described(program.console).
+    # Program#described_console.
     #
     # +name+ is how a game and the command line name it (:gba), +title+ how a person does.
     # +screen_width+ and +screen_height+ are in pixels. +buttons+ are the ones it has, in the
@@ -36,7 +36,7 @@ module RubyGBA
       def middle = [screen_width / 2, screen_height / 2]
     end
 
-    # The Game Boy Advance, which every game is built for unless it says otherwise.
+    # The Game Boy Advance.
     ADVANCE = Description.new(name: :gba, title: "Game Boy Advance", screen_width: 240, screen_height: 160,
                               buttons: %i[a b select start right left up down r l].freeze, sprites: 128,
                               # The most the desktop and web builds draw in one frame, too.
@@ -52,19 +52,20 @@ module RubyGBA
                             backgrounds: 1, turning_backgrounds: 0, blends: false, list_colors: 4,
                             painted_pages: 1, clock_keeps_date: false, extension: ".gbc")
 
-    # The console a game is built for when it does not say.
-    DEFAULT = :gba
-
     # Each console's description is reached through its kit (Console::Kit, Console.described).
 
     # The consoles a game says it is for, as a frozen list of names: one name or a list of them.
-    # A name no console has, or no name at all, is refused. +setting+ is what the game wrote them
-    # in (`consoles:` where the game is named, `t.consoles` in its Rakefile), so both are checked
-    # alike and the refusal says which.
+    # A name no console has, or no name at all, is refused, since no console is the one a game is
+    # for when it does not say. +setting+ is what the game wrote them in (`consoles:` where the
+    # game is named, `t.consoles` in its Rakefile), so both are checked alike and the refusal says
+    # which.
     def self.refuse_unknown_consoles!(consoles, setting:)
       named = Array(consoles).map(&:to_sym)
       named.each { |name| described(name) }
-      raise ArgumentError, "#{setting} names no console. Leave it out for the Game Boy Advance alone." if named.empty?
+      if named.empty?
+        raise ArgumentError, "#{setting} names no console. Name the consoles the game is for: " \
+                             "`%i[gba]` for the Game Boy Advance alone, or `%i[gba gbc]` for the Game Boy Color too."
+      end
 
       named.freeze
     end

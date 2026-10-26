@@ -36,7 +36,8 @@ module RubyGBA
 
       # --- program root ---
 
-      # +console+ is the console the program is built for, the Advance unless said.
+      # +console+ is the console the program is built for; a tree made by hand for no console in
+      # particular leaves it out (see Nodes::Program).
       def program(*statements, console: nil)
         Nodes.build(:program, children: statements, console: console)
       end

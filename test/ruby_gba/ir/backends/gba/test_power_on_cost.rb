@@ -13,7 +13,7 @@ class TestPowerOnCost < Minitest::Test
   # over: a frame that ran out of time stops counting at its end, and two that both did would
   # read the same however different their work.
   private def power_on_instructions(slots)
-    rom = RubyGBA.build("POWERON", out: StringIO.new, err: StringIO.new, profile: false) do
+    rom = RubyGBA.build("POWERON", console: :gba, out: StringIO.new, err: StringIO.new, profile: false) do
       fields = (1..12).to_h { |n| [:"f#{n}", 0] }
       things = pool :things, capacity: slots, **fields
       game_loop { things.each { |thing| thing.f1.add! 1 } }

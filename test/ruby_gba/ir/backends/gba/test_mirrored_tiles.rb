@@ -43,7 +43,7 @@ class TestMirroredTiles < Minitest::Test
   end
 
   private def build(&block)
-    RubyGBA.build("MIRROR", out: StringIO.new, err: StringIO.new, &block)
+    RubyGBA.build("MIRROR", console: :gba, out: StringIO.new, err: StringIO.new, &block)
   end
 
   def test_each_mirror_draws_the_right_way_round

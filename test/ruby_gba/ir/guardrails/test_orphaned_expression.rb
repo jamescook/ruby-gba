@@ -270,7 +270,7 @@ class TestOrphanedExpression < Minitest::Test
   # The smallest game that used to be stopped: a pool, a routine with nothing in it, a walk.
   def test_a_game_whose_pool_routine_is_empty_builds
     err = StringIO.new
-    rom = RubyGBA.build("EMPTY", err: err, out: StringIO.new) do
+    rom = RubyGBA.build("EMPTY", console: :gba, err: err, out: StringIO.new) do
       screen :bitmap
       things = pool :things, x: 0, y: 0, capacity: 2
       things.func(:thing_waits) { |_thing| }
@@ -285,7 +285,7 @@ class TestOrphanedExpression < Minitest::Test
     err = StringIO.new
 
     ex = assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("FLAGS", code: "BFLG", maker: "01", err: err) do
+      RubyGBA.build("FLAGS", console: :gba, code: "BFLG", maker: "01", err: err) do
         screen :bitmap
         flags = var :flags, 0
         game_loop { flags |= 4 }
@@ -298,7 +298,7 @@ class TestOrphanedExpression < Minitest::Test
   end
 
   def test_the_same_game_written_correctly_builds
-    rom = RubyGBA.build("FLAGS", code: "BFLG", maker: "01", err: StringIO.new) do
+    rom = RubyGBA.build("FLAGS", console: :gba, code: "BFLG", maker: "01", err: StringIO.new) do
       screen :bitmap
       flags = var :flags, 0
       game_loop { flags.set! flags | 4 }

@@ -29,7 +29,7 @@ class TestFlickerMeasured < Minitest::Test
   # and never repaint. Half the marks land in each of the screen's two pictures, and
   # once the trail stops they stay that way.
   private def losing_rom
-    RubyGBA.build("FLICKLOSE", code: "FLKL", maker: "01", validate: false) do
+    RubyGBA.build("FLICKLOSE", console: :gba, code: "FLKL", maker: "01", validate: false) do
       screen :bitmap, tear_free: true
       clear_screen :black
       n = var :n, 0
@@ -45,7 +45,7 @@ class TestFlickerMeasured < Minitest::Test
   # build-time check cannot tell apart from the one above: same verbs, same shape,
   # and the only difference is how many frames each mark is drawn on.
   private def kept_rom
-    RubyGBA.build("FLICKKEEP", code: "FLKK", maker: "01", validate: false) do
+    RubyGBA.build("FLICKKEEP", console: :gba, code: "FLKK", maker: "01", validate: false) do
       screen :bitmap, tear_free: true
       clear_screen :black
       n = var :n, 0
@@ -68,7 +68,7 @@ class TestFlickerMeasured < Minitest::Test
   # pictures — under the floor, and the reading would come out clean whether or not the
   # rule was right. Stepping clear each time makes a wrong rule show up.
   private def repainting_rom
-    RubyGBA.build("FLICKFULL", code: "FLKF", maker: "01", validate: false) do
+    RubyGBA.build("FLICKFULL", console: :gba, code: "FLKF", maker: "01", validate: false) do
       screen :bitmap, tear_free: true
       n = var :n, 0
       game_loop do
@@ -135,7 +135,7 @@ class TestFlickerMeasured < Minitest::Test
   # A screen that keeps one picture cannot lose half a drawing, and says nothing
   # rather than saying "no".
   def test_a_plain_bitmap_game_is_not_asked
-    rom = RubyGBA.build("FLICKPLAIN", code: "FLKP", maker: "01", validate: false) do
+    rom = RubyGBA.build("FLICKPLAIN", console: :gba, code: "FLKP", maker: "01", validate: false) do
       screen :bitmap
       n = var :n, 0
       game_loop do

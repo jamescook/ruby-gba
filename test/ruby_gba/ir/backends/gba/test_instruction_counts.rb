@@ -114,7 +114,7 @@ class TestInstructionCounts < Minitest::Test
   # The cartridge carries it, like every other answer the build worked out — that is what
   # lets `rom.explain` price a frame off the build instead of guessing at it.
   def test_the_cartridge_carries_what_each_node_emitted
-    rom = RubyGBA.build("COUNT", code: "BCNT", maker: "01", err: StringIO.new) do
+    rom = RubyGBA.build("COUNT", console: :gba, code: "BCNT", maker: "01", err: StringIO.new) do
       screen :bitmap
       y = var :y, 0
       game_loop { y.add! 1 }

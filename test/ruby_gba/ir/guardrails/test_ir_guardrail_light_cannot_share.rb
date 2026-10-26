@@ -80,7 +80,7 @@ class TestIrGuardrailLightCannotShare < Minitest::Test
   # included: the switch the build adds to each scene is not the game moving the light.
   def test_a_whole_build_with_the_light_and_a_see_through_layer_in_different_scenes_builds
     water = see_through_water
-    rom = RubyGBA.build("TURNS", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("TURNS", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       layers :ground, :water
       image(:tile, "#" => :white) { (["#" * 8] * 8).join("\n") }

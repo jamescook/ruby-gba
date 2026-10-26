@@ -13,7 +13,7 @@ require "stringio"
 class TestBuildReport < Minitest::Test
   # Two routines far too big for the 32K, so something must be kept and something passed over.
   private def crowded_game
-    RubyGBA.build("BRPT", code: "BRPT", maker: "01") do
+    RubyGBA.build("BRPT", console: :gba, code: "BRPT", maker: "01") do
       screen :bitmap, tear_free: true
       clear_screen :black
       var :x, 0
@@ -35,7 +35,7 @@ class TestBuildReport < Minitest::Test
   # A save_data record keeps a buffer of its own in the roomy memory, under a name the build
   # made up. The author wrote `save_data :file`, so that is what the line says.
   def test_a_save_records_buffer_is_named_as_the_record
-    rom = RubyGBA.build("BRSAVE", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("BRSAVE", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       hearts = var :hearts, 3
       files = save_data(:file, copies: 2) { keep hearts }
@@ -61,7 +61,7 @@ class TestBuildReport < Minitest::Test
   # A GAME WHOSE SCENES EACH KEEP THEIR OWN is told which routines each scene keeps while it is
   # up — the split is a decision nobody wrote, so the report is the only place it shows.
   def test_it_says_what_each_scene_keeps_while_it_is_up
-    rom = RubyGBA.build("BRSETS", out: StringIO.new, err: StringIO.new, profile: false) do
+    rom = RubyGBA.build("BRSETS", console: :gba, out: StringIO.new, err: StringIO.new, profile: false) do
       x = var :x, 0
       var :where, 0
       func(:title_work) { 1200.times { x.add! 1 } }
@@ -87,7 +87,7 @@ class TestBuildReport < Minitest::Test
   # ...AND WHICH SCENE'S SHARE A ROUTINE MISSED. With the room split, a routine of play's that
   # does not fit missed play's share, not the whole game's: the title's routine took none of it.
   def test_it_says_which_scenes_share_a_routine_did_not_fit_in
-    rom = RubyGBA.build("BRMISS", out: StringIO.new, err: StringIO.new, profile: false) do
+    rom = RubyGBA.build("BRMISS", console: :gba, out: StringIO.new, err: StringIO.new, profile: false) do
       x = var :x, 0
       var :where, 0
       func(:title_work) { 1200.times { x.add! 1 } }
@@ -127,7 +127,7 @@ class TestBuildReport < Minitest::Test
   # statement of that routine and emits nothing, so a count of statements names a line of
   # declarations ahead of the line the routine's size really comes from.
   def test_it_names_the_line_that_emits_the_most_not_the_most_statements
-    rom = RubyGBA.build("BRCOST", maker: "01", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("BRCOST", console: :gba, maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :tiled
       x = var :x, 0
       scene(:play) do
@@ -148,7 +148,7 @@ class TestBuildReport < Minitest::Test
   # so asking it which statement holds it answers with the last one — here a line of another
   # routine, which is not in the routine the note is about at all.
   def test_a_value_shared_by_many_statements_is_charged_to_each_of_them
-    rom = RubyGBA.build("BRSHARE", maker: "01", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("BRSHARE", console: :gba, maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image(:dot, "#" => :red) { "########\n" * 8 }
       x = var :x, 3
@@ -174,7 +174,7 @@ class TestBuildReport < Minitest::Test
   end
 
   def test_it_says_how_much_of_a_font_the_game_actually_draws
-    rom = RubyGBA.build("BRFT", code: "BRFT", maker: "01") do
+    rom = RubyGBA.build("BRFT", console: :gba, code: "BRFT", maker: "01") do
       screen :bitmap
       clear_screen :black
       draw_text "HI", 10, 10, :white
@@ -189,7 +189,7 @@ class TestBuildReport < Minitest::Test
   # A game that draws straight into the picture the display is reading CAN tear, and that is
   # a fact about the screen it chose rather than about how long anything takes.
   def test_a_single_buffered_game_is_told_it_can_tear
-    rom = RubyGBA.build("BRTR", code: "BRTR", maker: "01") do
+    rom = RubyGBA.build("BRTR", console: :gba, code: "BRTR", maker: "01") do
       screen :bitmap
       var :x, 0
       game_loop { clear_screen :black; add! :x, 1 }
@@ -222,7 +222,7 @@ class TestBuildReport < Minitest::Test
   # A tiled game that fades out over +frames+, placed under a HUD when +under+ says so.
   private def fading_game(frames, under: nil)
     tile = SOLID_TILE
-    RubyGBA.build("BRFD") do
+    RubyGBA.build("BRFD", console: :gba) do
       screen :tiled
       image(:red_art, "#" => :red) { tile }
       image(:badge, "#" => :green) { tile }
@@ -262,7 +262,7 @@ class TestBuildReport < Minitest::Test
 
   # A game keeping +bytes+ flags in +copies+ copies, with a save_var if +best+.
   private def saving_game(bytes:, copies:, best: false, **options)
-    RubyGBA.build("BRPTSAVE", out: nil, err: nil, **options) do
+    RubyGBA.build("BRPTSAVE", console: :gba, out: nil, err: nil, **options) do
       screen :bitmap
       save_var :best, 0 if best
       flags = list :flags, capacity: bytes, width: :byte, fast: false
@@ -306,7 +306,7 @@ class TestBuildReport < Minitest::Test
   # A game with save_vars and no record has the smallest size because nothing needs more, and
   # writes no table of places.
   def test_a_game_with_only_save_vars_is_said_to_have_the_smallest
-    rom = RubyGBA.build("BRPTVARS", out: nil, err: nil) do
+    rom = RubyGBA.build("BRPTVARS", console: :gba, out: nil, err: nil) do
       screen :bitmap
       save_var :best, 0
       game_loop {}
@@ -357,7 +357,7 @@ class TestBuildReport < Minitest::Test
   # Each scene is a screen of its own with four levels of its own, so two scenes using three
   # each are three of four apiece, never six of four.
   def test_the_stack_counts_levels_per_scene
-    rom = RubyGBA.build("SCENESTK") do
+    rom = RubyGBA.build("SCENESTK", console: :gba) do
       screen :tiled
       image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
       tiles :set, "#" => :tile

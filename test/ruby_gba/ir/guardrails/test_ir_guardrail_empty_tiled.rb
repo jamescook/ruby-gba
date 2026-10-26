@@ -179,7 +179,7 @@ class TestIRGuardrailEmptyTiled < Minitest::Test
   def test_build_halts_on_a_tiled_screen_with_nothing_to_show
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("BLANK", code: "BBLN", maker: "01", out: StringIO.new, err: err) do
+      RubyGBA.build("BLANK", console: :gba, code: "BBLN", maker: "01", out: StringIO.new, err: err) do
         screen :tiled
         game_loop do
           wait_vblank

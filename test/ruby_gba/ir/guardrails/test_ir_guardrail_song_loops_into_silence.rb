@@ -66,7 +66,7 @@ class TestSongLoopsIntoSilenceGuardrail < Minitest::Test
     intro = Score::Part.new(notes: [Score::Note.new(at: 0, key: :C4, length: 12)])
     score = Score.new(parts: [intro], tempo: 150, length: 72, loop_from: 24) # a tick is a frame
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("SILENT", code: "ZSIL", maker: "01", out: StringIO.new, err: err) do
+      RubyGBA.build("SILENT", console: :gba, code: "ZSIL", maker: "01", out: StringIO.new, err: err) do
         screen :bitmap
         enable_sound
         music = songs :music, [score]
@@ -81,7 +81,7 @@ class TestSongLoopsIntoSilenceGuardrail < Minitest::Test
   def test_a_song_block_that_marks_its_loop_before_nothing_but_a_rest
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("SILENT", code: "ZSIL", maker: "01", out: StringIO.new, err: err) do
+      RubyGBA.build("SILENT", console: :gba, code: "ZSIL", maker: "01", out: StringIO.new, err: err) do
         screen :bitmap
         enable_sound
         song :fanfare do

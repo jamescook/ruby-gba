@@ -9,7 +9,7 @@ require "stringio"
 # was a valid cartridge and half a report. These pin that a ROM is one or the other.
 class TestBuildRecord < Minitest::Test
   private def a_built_rom
-    RubyGBA.build("RECORD", code: "ZREC", maker: "01", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("RECORD", console: :gba, code: "ZREC", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       clear_screen :black
       t = var :t, 0
@@ -62,7 +62,7 @@ class TestBuildRecord < Minitest::Test
   # ...including what it was TOLD, because measuring a cartridge means building it again the
   # same way, and a ROM built with different settings has a frame rate the shipped one does not.
   def test_a_built_cartridge_remembers_the_options_it_was_built_with
-    rom = RubyGBA.build("SLOW", code: "ZSLW", maker: "01", fast_code: false, fast_cartridge: false, stack_room: 512,
+    rom = RubyGBA.build("SLOW", console: :gba, code: "ZSLW", maker: "01", fast_code: false, fast_cartridge: false, stack_room: 512,
                                 out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       game_loop { fill_rect 0, 0, 40, 8, :green }

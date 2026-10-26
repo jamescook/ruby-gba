@@ -128,12 +128,12 @@ class TestUses < Minitest::Test
   # A pack's checks report on the build that uses it, and on no other.
   def test_a_packs_checks_join_the_build_that_uses_it
     said = StringIO.new
-    RubyGBA.build("USESCHECK", out: said, err: said) do
+    RubyGBA.build("USESCHECK", console: :gba, out: said, err: said) do
       uses Checked
       game_loop {}
     end
     quiet = StringIO.new
-    RubyGBA.build("NOCHECK", out: quiet, err: quiet) { game_loop {} }
+    RubyGBA.build("NOCHECK", console: :gba, out: quiet, err: quiet) { game_loop {} }
 
     assert_match(/uses the Checked pack/, said.string)
     refute_match(/uses the Checked pack/, quiet.string)

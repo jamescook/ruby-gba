@@ -49,7 +49,7 @@ class TestSquareNoteTooLowGuardrail < Minitest::Test
 
   private def warnings(&program)
     err = StringIO.new
-    RubyGBA.build("LOWNOTE", code: "ZLOW", maker: "01", out: StringIO.new, err: err) do
+    RubyGBA.build("LOWNOTE", console: :gba, code: "ZLOW", maker: "01", out: StringIO.new, err: err) do
       screen :bitmap
       enable_sound
       instance_exec(&program)

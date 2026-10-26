@@ -260,7 +260,7 @@ class TestLayerTwoAmounts < Minitest::Test
   # `transparency: 100` already gets.
   def test_showing_too_little_of_itself_to_see_is_a_friendly_warning
     err = StringIO.new
-    RubyGBA.build("FAINT", out: StringIO.new, err: err) do
+    RubyGBA.build("FAINT", console: :gba, out: StringIO.new, err: err) do
       screen :tiled
       image(:pane, "#" => :white) { "########\n" * 8 }
       tiles :panes, "#" => :pane

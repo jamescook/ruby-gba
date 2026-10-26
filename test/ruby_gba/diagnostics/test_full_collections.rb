@@ -11,7 +11,7 @@ require "test_helper"
 class TestFullCollections < Minitest::Test
   def setup = require_emulator!
 
-  private def build(&block) = RubyGBA.build("FULL", out: nil, err: nil, &block)
+  private def build(&block) = RubyGBA.build("FULL", console: :gba, out: nil, err: nil, &block)
 
   private def growths(rom) = RubyGBA::Diagnostics::Profiler.survey_scenes(rom, frames: 10).growths
 
@@ -45,7 +45,7 @@ class TestFullCollections < Minitest::Test
   def test_a_list_walked_every_frame_is_named_with_its_measured_frame_rate
     err = StringIO.new
     helper = self
-    RubyGBA.build("FULL", out: nil, err: err, profile: true) do
+    RubyGBA.build("FULL", console: :gba, out: nil, err: err, profile: true) do
       screen :bitmap
       walk = helper.heavy_list(self)
       game_loop { walk.call }

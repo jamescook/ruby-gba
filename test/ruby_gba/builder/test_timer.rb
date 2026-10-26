@@ -315,7 +315,7 @@ class TestTimer < Minitest::Test
   # A number drawn only from a tick is drawn: the routine that draws a font's digits is shared,
   # and it used to be laid out before the tick's code asked for it, so the game did not build.
   def test_a_number_drawn_only_from_a_tick_is_drawn_on_the_console
-    rom = RubyGBA.build("TICKNUM", out: nil, err: nil) do
+    rom = RubyGBA.build("TICKNUM", console: :gba, out: nil, err: nil) do
       screen :bitmap
       clear_screen :black
       shown = var :shown, 7

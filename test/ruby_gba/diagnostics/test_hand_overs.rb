@@ -18,7 +18,7 @@ class TestHandOvers < Minitest::Test
   # +work_in+ is where the work is done each pass: in the play scene, or in the game loop
   # outside it, where it runs on the pass that copies the pictures too.
   private def game(pictures:, loads_first: false, work_in: :scene, **build)
-    RubyGBA.build("HANDOVER", out: nil, err: nil, **build) do
+    RubyGBA.build("HANDOVER", console: :gba, out: nil, err: nil, **build) do
       screen :tiled
       random = Random.new(7)
       colors = Array.new(16) { |n| Color.rgb(n * 2, 31 - (n * 2), (n * 5) % 32) }

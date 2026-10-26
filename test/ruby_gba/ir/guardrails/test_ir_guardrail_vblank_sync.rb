@@ -101,7 +101,7 @@ class TestIRGuardrailVblankSync < Minitest::Test
   # leaves one missing — that side is asserted in test_frame_sync.rb.
   private def build_err(&block)
     err = StringIO.new
-    RubyGBA.build("GUARD", code: "BGRD", maker: "01",
+    RubyGBA.build("GUARD", console: :gba, code: "BGRD", maker: "01",
                   out: StringIO.new, err: err, frame_sync: :manual, &block)
     err.string
   end

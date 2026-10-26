@@ -52,11 +52,29 @@ module RubyGBA
         # what the console does not, and a game that only works there is not this library's.
         # Guardrail warnings are printed to +err+, as the cartridge build prints them.
         #
-        # It is the ADVANCE's cartridge whatever else the game is for, because the runtime draws
-        # the Advance's 240×160 screen (RG_SCREEN_WIDTH, RG_SCREEN_HEIGHT), and a game laid out
-        # for the Color's would be drawn in one corner of it.
+        # The cartridge is for the console Native.console_for chooses, since the runtime draws one
+        # screen size (RG_SCREEN_WIDTH, RG_SCREEN_HEIGHT), and a game laid out for another console's
+        # would be drawn in one corner of it.
         def checked_program(game, settings: {}, err: $stderr)
-          game.build_rom(profile: false, out: nil, err: err, settings: settings, console: :gba).built.source_program
+          game.build_rom(profile: false, out: nil, err: err, settings: settings,
+                         console: Native.console_for(game, made: "A program for another machine")).source_program
+        end
+
+        # THE CONSOLE A GAME'S DESKTOP PROGRAM AND WEB PAGE ARE MADE AS: the first the game names
+        # whose build the runtimes draw (Console.drawn_by_runtimes). The C and JavaScript runtimes
+        # draw one screen size, fixed when they are compiled, and it is the Advance's, so a game
+        # for the Color alone is refused, saying what to write. +made+ names what was asked for
+        # ("A web page"), for the refusal.
+        def self.console_for(game, made:)
+          console = Console.drawn_by_runtimes(game.consoles)
+          return console if console
+
+          drawn = Console.kits.select(&:drawn_by_runtimes?)
+          titles = drawn.map(&:title).join(" or the ")
+          wanted = (game.consoles + drawn.map(&:name)).uniq.join(" ")
+          raise LoweringError, "#{made} is made only from a game for the #{titles}. #{game.title} is not for " \
+                               "the #{titles}. To fix this, write `consoles: %i[#{wanted}]` where the game is " \
+                               "named. Use `screen_width` and `screen_height` to place what the game draws."
         end
 
         # The runtime's C files each kind of build compiles beside the game's. The desktop build

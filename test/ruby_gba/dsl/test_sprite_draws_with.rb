@@ -245,7 +245,7 @@ class TestSpriteDrawsWith < Minitest::Test
   # --- friendly errors ---
 
   private def built(&block)
-    RubyGBA.build("COLORS", code: "BCOL", maker: "01", out: StringIO.new, err: StringIO.new, &block)
+    RubyGBA.build("COLORS", console: :gba, code: "BCOL", maker: "01", out: StringIO.new, err: StringIO.new, &block)
   end
 
   private def refused(error = ArgumentError, &block)

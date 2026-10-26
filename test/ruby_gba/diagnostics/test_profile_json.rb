@@ -22,7 +22,7 @@ class TestProfileJson < Minitest::Test
   end
 
   private def build(title, code, &block)
-    RubyGBA.build(title, code: code, maker: "01", out: StringIO.new, err: StringIO.new, &block)
+    RubyGBA.build(title, console: :gba, code: code, maker: "01", out: StringIO.new, err: StringIO.new, &block)
   end
 
   private def light

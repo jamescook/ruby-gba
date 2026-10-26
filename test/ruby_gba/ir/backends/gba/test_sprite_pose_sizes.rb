@@ -60,7 +60,7 @@ class TestSpritePoseSizes < Minitest::Test
     art = shapes.map { |w, h, ox, oy| pose(w, h, ox, oy) }
     canvas = CANVAS
     clear = CLEAR
-    RubyGBA.build("POSE", code: "BPOS", maker: "01", validate: false,
+    RubyGBA.build("POSE", console: :gba, code: "BPOS", maker: "01", validate: false,
                   out: StringIO.new, err: StringIO.new) do
       screen :tiled
       names = art.each_with_index.map do |data, k|

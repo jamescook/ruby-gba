@@ -117,7 +117,7 @@ class TestIRGuardrailOrphanedCondition < Minitest::Test
   def test_build_halts_on_a_native_if_slip
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("GUARD", code: "BGRD", maker: "01", out: StringIO.new, err: err) do
+      RubyGBA.build("GUARD", console: :gba, code: "BGRD", maker: "01", out: StringIO.new, err: err) do
         screen :bitmap
         x = var :x, 5
         if x > 3        # the footgun: a native `if` on a Condition
@@ -133,7 +133,7 @@ class TestIRGuardrailOrphanedCondition < Minitest::Test
 
   def test_build_is_quiet_when_you_branch_with_then
     err = StringIO.new
-    RubyGBA.build("GUARD", code: "BGRD", maker: "01", out: StringIO.new, err: err) do
+    RubyGBA.build("GUARD", console: :gba, code: "BGRD", maker: "01", out: StringIO.new, err: err) do
       screen :bitmap
       x = var :x, 5
       (x > 3).then { set! :y, 1 }

@@ -16,7 +16,7 @@ class TestTickRateMeasured < Minitest::Test
   # +work+ is how many times the handler spins; +clears+ how many full-screen fills the
   # frame does. Both are the two things that cost ticks, and this can make either.
   private def rom_for(rate:, work: 0, clears: 1, name: "TICK")
-    RubyGBA.build(name, code: "TCKM", maker: "01", validate: false) do
+    RubyGBA.build(name, console: :gba, code: "TCKM", maker: "01", validate: false) do
       screen :bitmap
       beats = var :beats, 0
       spin = var :spin, 0
@@ -103,7 +103,7 @@ class TestTickRateMeasured < Minitest::Test
 
   # A game with no timer at all has nothing to say and no line to print.
   def test_a_game_with_no_timer_reads_nothing
-    rom = RubyGBA.build("NOTIMER", code: "TCKN", maker: "01", validate: false) do
+    rom = RubyGBA.build("NOTIMER", console: :gba, code: "TCKN", maker: "01", validate: false) do
       screen :bitmap
       game_loop { clear_screen :black }
     end

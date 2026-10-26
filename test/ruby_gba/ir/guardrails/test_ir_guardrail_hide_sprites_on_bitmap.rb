@@ -55,7 +55,7 @@ class TestIRGuardrailHideSpritesOnBitmap < Minitest::Test
   def test_the_build_stops_and_explains
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("HIDE", out: StringIO.new, err: err) do
+      RubyGBA.build("HIDE", console: :gba, out: StringIO.new, err: err) do
         screen :bitmap
         game_loop { hide_sprites }
       end

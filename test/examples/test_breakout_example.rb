@@ -28,8 +28,11 @@ class TestBreakoutExample < Minitest::Test
     script = lambda do |frame|
       frame == 1 ? [:start] : then_hold
     end
-    game_player.input_each_frame(&script).run(Breakout.program, frames: frames)
+    game_player.input_each_frame(&script).run(Breakout::GAME.program(console: game_console), frames: frames)
   end
+
+  # How wide the screen of this run's console is, which the game lays its wall and paddle out on.
+  private def screen_width = RubyGBA::Console.described(game_console).screen_width
 
   # RubyGBA.build runs the guardrails and Doctor, so a clean, non-empty build is
   # itself the structural check.
@@ -63,7 +66,7 @@ class TestBreakoutExample < Minitest::Test
   # the real game, not just in isolation.
   def test_holding_right_drives_the_paddle_to_the_edge
     r = play(then_hold: [:right])
-    assert_equal Breakout::SCREEN_W - Breakout::PADDLE_W, r[:paddle_x],
+    assert_equal screen_width - Breakout::PADDLE_W, r[:paddle_x],
                  "held right, the paddle should end clamped at the right wall"
   end
 

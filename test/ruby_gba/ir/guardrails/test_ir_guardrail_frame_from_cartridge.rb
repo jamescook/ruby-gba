@@ -14,7 +14,7 @@ class TestFrameFromCartridgeGuardrail < Minitest::Test
   # warning names.
   private def game(cold_in_a_func:)
     err = StringIO.new
-    rom = RubyGBA.build("COLD", code: "ZCLD", maker: "01", out: StringIO.new, err: err) do
+    rom = RubyGBA.build("COLD", console: :gba, code: "ZCLD", maker: "01", out: StringIO.new, err: err) do
       screen :bitmap
       spin = var :spin, 0
       cold = lambda { 4000.times { spin.add! 1 } }
@@ -62,7 +62,7 @@ class TestFrameFromCartridgeGuardrail < Minitest::Test
   # a title that does nothing and a playing scene that draws a second bar.
   private def measured_game(inline:, work: 5000, scenes: false)
     err = StringIO.new
-    rom = RubyGBA.build("WORK#{inline ? 'IN' : 'OUT'}#{'S' if scenes}", out: StringIO.new, err: err, profile: true) do
+    rom = RubyGBA.build("WORK#{inline ? 'IN' : 'OUT'}#{'S' if scenes}", console: :gba, out: StringIO.new, err: err, profile: true) do
       screen :bitmap
       spin = var :spin, 0
       busy = var :busy, 0

@@ -60,7 +60,7 @@ class TestFaceShowing < Minitest::Test
   # The line that picks costs the same whatever the number of poses; only the table grows.
   def test_a_hundred_poses_cost_the_code_of_ten
     sizes = [10, 100].map do |count|
-      rom = RubyGBA.build("FACE#{count}", out: StringIO.new, err: StringIO.new, profile: false, &stepping(count))
+      rom = RubyGBA.build("FACE#{count}", console: :gba, out: StringIO.new, err: StringIO.new, profile: false, &stepping(count))
       rom.placement.sizes.fetch(:__frame)
     end
 

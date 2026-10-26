@@ -112,7 +112,7 @@ class TestBigMaps < Minitest::Test
   # A jump straight across, the view's row unchanged: the whole view is filled again in the
   # gap, not walked over a column at a time, which would take far longer than the gap.
   def test_a_jump_across_alone_fills_the_whole_view
-    rom = RubyGBA.build("BIGX", out: nil, err: nil) do
+    rom = RubyGBA.build("BIGX", console: :gba, out: nil, err: nil) do
       screen :tiled
       image(:floor, "#" => :green) { (["#" * 8] * 8).join("\n") }
       tiles :ground, "#" => :floor
@@ -271,7 +271,7 @@ class TestBigMaps < Minitest::Test
   # its body does on that pass.
   private def taking_over_every_fourth_pass(name, &body)
     big = (["#" * 100] * 90).freeze
-    RubyGBA.build(name, out: nil, err: nil) do
+    RubyGBA.build(name, console: :gba, out: nil, err: nil) do
       screen :tiled
       image(:floor, "#" => :green) { (["#" * 8] * 8).join("\n") }
       tiles :ground, "#" => :floor
@@ -337,7 +337,7 @@ class TestBigMaps < Minitest::Test
   # there and where the view is put: one whole view, five columns of 21 cells and three rows of 31.
   def test_a_first_takeover_named_at_the_end_of_the_pass_before_fills_the_view_once
     test = self
-    rom = RubyGBA.build("BIGF1", out: nil, err: nil) { test.named_at_the_end_of_a_pass(self) }
+    rom = RubyGBA.build("BIGF1", console: :gba, out: nil, err: nil) { test.named_at_the_end_of_a_pass(self) }
     copies = RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, settle: 0, picture: false).video_copies
     copied = copies.find { |copy| copy.source.include?(":ground") }&.copies || 0
 

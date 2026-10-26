@@ -200,7 +200,7 @@ class TestSpriteOffScreen < Minitest::Test
   # the game switched off. Where the table can say its place, it says the game's own.
   def test_a_sprite_off_the_screen_is_still_a_row_of_the_consoles_table
     require_emulator!
-    rom = RubyGBA.build("PARKED", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("PARKED", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image(:block, "#" => :red, "o" => :white) { TestSpriteOffScreen.checks(16, 16) }
       image(:slab, "#" => :red, "o" => :white) { TestSpriteOffScreen.checks(64, 64) }

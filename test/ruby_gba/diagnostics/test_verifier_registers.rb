@@ -9,7 +9,7 @@ require "stringio"
 # named it; where it landed is the build's business.
 class TestVerifierRegisters < Minitest::Test
   private def counting_rom
-    RubyGBA.build("REGS", code: "BREG", maker: "01", validate: false, out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("REGS", console: :gba, code: "BREG", maker: "01", validate: false, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       count = var :count, 0
       func(:count_up) { count.add! 1 }

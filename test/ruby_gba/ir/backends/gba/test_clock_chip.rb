@@ -24,7 +24,7 @@ class TestClockChip < Minitest::Test
 
   # A game that keeps every reading of the clock in a variable of the same name, every pass.
   private def rom
-    RubyGBA.build("CLOCK", out: StringIO.new, err: StringIO.new, profile: false) do
+    RubyGBA.build("CLOCK", console: :gba, out: StringIO.new, err: StringIO.new, profile: false) do
       screen :bitmap
       now = clock
       kept = READINGS.to_h { |name| [name, var(name, -1)] }
@@ -98,7 +98,7 @@ class TestClockChip < Minitest::Test
 
   # A game that sets the clock on its third pass, and otherwise keeps every reading as the one above.
   private def setting_rom(set_on_pass: 2)
-    RubyGBA.build("SETCLOCK", out: StringIO.new, err: StringIO.new, profile: false) do
+    RubyGBA.build("SETCLOCK", console: :gba, out: StringIO.new, err: StringIO.new, profile: false) do
       screen :bitmap
       now = clock
       var :hour_at_power_on, now.hour

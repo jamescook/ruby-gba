@@ -10,7 +10,7 @@ require "test_helper"
 # costs time a game would otherwise have — so the profile counts them, from the console, on
 # the frames it measured.
 class TestVideoCopies < Minitest::Test
-  private def build(&block) = RubyGBA.build("VCOPY", out: nil, err: nil, &block)
+  private def build(&block) = RubyGBA.build("VCOPY", console: :gba, out: nil, err: nil, &block)
 
   private def copies(rom) = RubyGBA::Diagnostics::Profiler.run(rom, frames: 20, picture: false).video_copies
 

@@ -355,7 +355,7 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
   def test_build_stops_on_more_layers_than_the_console_stacks
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("LAYERS", out: StringIO.new, err: err) do
+      RubyGBA.build("LAYERS", console: :gba, out: StringIO.new, err: err) do
         screen :tiled
         image(:i_blue, "#" => :blue) { "########\n" * 8 }
         tiles :t, "#" => :i_blue

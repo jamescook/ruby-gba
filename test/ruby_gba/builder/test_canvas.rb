@@ -132,7 +132,7 @@ class TestCanvas < Minitest::Test
   # A letter hands back where it ended, and a game that has no use for that must still build:
   # the whole build, guardrails and all, not only the tree.
   def test_drawing_words_whose_answer_nobody_reads_build
-    rom = RubyGBA.build("CANVAS", out: nil, err: nil) do
+    rom = RubyGBA.build("CANVAS", console: :gba, out: nil, err: nil) do
       screen :tiled
       board = canvas :board, width: 64, height: 16, colors: %i[transparent white]
       background :front, tiles: :board, map: board.cells

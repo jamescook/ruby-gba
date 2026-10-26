@@ -22,7 +22,7 @@ class TestRoomyMemory < Minitest::Test
   include Differential
 
   private def build(title, &block)
-    RubyGBA.build(title, code: "B#{title[0, 3]}", maker: "01",
+    RubyGBA.build(title, console: :gba, code: "B#{title[0, 3]}", maker: "01",
                          out: StringIO.new, err: StringIO.new, &block)
   end
 

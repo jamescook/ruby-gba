@@ -60,7 +60,7 @@ class TestSpriteMirror < Minitest::Test
   private def sprite_bytes(poses, mirror_of: [])
     canvas = CANVAS
     clear = CLEAR
-    rom = RubyGBA.build("MIRR", code: "BMIR", maker: "01", validate: false,
+    rom = RubyGBA.build("MIRR", console: :gba, code: "BMIR", maker: "01", validate: false,
                         out: StringIO.new, err: StringIO.new) do
       screen :tiled
       names = poses.each_with_index.map do |data, k|

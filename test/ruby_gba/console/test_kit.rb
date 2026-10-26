@@ -28,10 +28,16 @@ class TestKit < Minitest::Test
     assert_same Console.for(:gbc), Console.for("gbc")
   end
 
-  def test_a_console_nobody_has_is_refused_with_the_names_there_are
-    error = assert_raises(ArgumentError) { Console.for(:snes) }
+  def test_a_console_named_in_words_is_held_by_its_symbol
+    assert_equal :gbc, Console.named("gbc")
+  end
 
-    assert_match(/:gba and :gbc/, error.message)
+  def test_a_console_nobody_has_is_refused_with_the_names_there_are
+    [:snes, nil].each do |name|
+      error = assert_raises(ArgumentError) { Console.for(name) }
+
+      assert_match(/:gba and :gbc/, error.message, name.inspect)
+    end
   end
 
   # Where a console's own code lives: its lowering, its build and its own reader. Anywhere else, a

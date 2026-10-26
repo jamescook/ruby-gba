@@ -583,7 +583,7 @@ class TestTint < Minitest::Test
   # needs is shared, so it lands wherever it is first required and the same tint reads as 172
   # bytes in one program and 52 in another. So it is run and counted.
   private def cost_of(&body)
-    rom = RubyGBA.build("TINT", code: "TINT", maker: "01", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("TINT", console: :gba, code: "TINT", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       game_loop { body.call(self) }
     end

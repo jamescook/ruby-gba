@@ -22,11 +22,13 @@ module RubyGBA
     # asks for it gets (see IR::SaveLayout::EEPROM).
     # +stack_room+ is how many bytes of the quick memory the game's stack is given, or nil for the
     # build to decide (see IR::Backends::GBA::TopOfQuickMemory).
-    # +console+ names the console the game is built for (see Console::Description), :gba unless said.
+    # +console+ names the console the game is built for (see Console::Kit), held as its Symbol
+    # however it was written. It is nil until something names one: a game says its consoles where it
+    # is named and is built for one of them, and RubyGBA.build refuses a build that names none.
     Options = Data.define(:frame_sync, :fast_cartridge, :fast_code, :save_memory, :stack_room, :console) do
       def initialize(frame_sync: :auto, fast_cartridge: true, fast_code: true, save_memory: nil, stack_room: nil,
-                     console: Console::DEFAULT)
-        Console.described(console)
+                     console: nil)
+        console = Console.named(console) unless console.nil?
         unless %i[auto manual].include?(frame_sync)
           raise ArgumentError, "frame_sync must be :auto or :manual, got #{frame_sync.inspect}"
         end

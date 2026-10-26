@@ -42,7 +42,7 @@ class TestTopOfQuickMemory < Minitest::Test
   # A GAME THAT NEVER DIVIDES GETS THE REST OF THE 32K: the console's 256 bytes and the stack are
   # all that is held back, where the whole top 4K used to be.
   def test_a_game_that_never_divides_has_all_but_the_stack_and_the_consoles_room
-    rom = RubyGBA.build("ROOMY", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("ROOMY", console: :gba, out: StringIO.new, err: StringIO.new) do
       n = var :n, 0
       game_loop { n.add! 1 }
     end
@@ -52,7 +52,7 @@ class TestTopOfQuickMemory < Minitest::Test
   end
 
   def test_a_game_can_say_how_much_stack_room_it_wants
-    rom = RubyGBA.build("STACKY", stack_room: 2048, out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("STACKY", console: :gba, stack_room: 2048, out: StringIO.new, err: StringIO.new) do
       n = var :n, 0
       game_loop { n.add! 1 }
     end
@@ -76,7 +76,7 @@ class TestTopOfQuickMemory < Minitest::Test
   DEEP = 300
 
   def test_a_deep_chain_of_calls_counts_right_on_the_console
-    rom = RubyGBA.build("DEEPCALL", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("DEEPCALL", console: :gba, out: StringIO.new, err: StringIO.new) do
       total = var :total, 0
       func(:"level#{DEEP}") { total.add! DEEP }
       (1...DEEP).reverse_each do |level|
@@ -119,7 +119,7 @@ class TestTopOfQuickMemory < Minitest::Test
   # The game loop sits two routines deep, in a long counted loop, while a fast timer ticks: so its
   # return addresses are at the top of its stack whenever the handler runs.
   def test_a_handler_forty_routines_deep_leaves_the_game_running_on_the_console
-    rom = RubyGBA.build("TICKDEEP", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("TICKDEEP", console: :gba, out: StringIO.new, err: StringIO.new) do
       var :hits, 0
       passes = var :passes, 0
       sum = var :sum, 0

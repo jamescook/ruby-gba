@@ -69,7 +69,7 @@ class TestSpriteTileSharing < Minitest::Test
   # ...and the same through RubyGBA.build, which is where the sprite-memory figure is.
   private def sprite_bytes(art, canvas, rate: 4)
     clear = CLEAR
-    rom = RubyGBA.build("SHARE", code: "BSHR", maker: "01", validate: false,
+    rom = RubyGBA.build("SHARE", console: :gba, code: "BSHR", maker: "01", validate: false,
                         out: StringIO.new, err: StringIO.new) do
       screen :tiled
       names = art.each_with_index.map do |data, k|
@@ -140,7 +140,7 @@ class TestSpriteTileSharing < Minitest::Test
     poses = { rest: noise(16, 21), left: noise(16, 22), right: noise(16, 23),
               up: noise(16, 24), down: noise(16, 25) }
     apart = { left: noise(16, 31), right: noise(16, 32), up: noise(16, 33), down: noise(16, 34) }
-    rom = RubyGBA.build("FOUR", code: "BFOU", maker: "01", validate: false,
+    rom = RubyGBA.build("FOUR", console: :gba, code: "BFOU", maker: "01", validate: false,
                         out: StringIO.new, err: StringIO.new) do
       screen :tiled
       poses.each { |name, data| image name, width: 16, height: 16, data: data, transparent: clear }
@@ -212,7 +212,7 @@ class TestSpriteTileSharing < Minitest::Test
   def test_a_cycle_of_one_picture_shares_it_and_stays_on_the_plain_draw
     one = noise(32, 41)
     clear = CLEAR
-    still = RubyGBA.build("ONE", validate: false,
+    still = RubyGBA.build("ONE", console: :gba, validate: false,
                           out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image :hero, width: 32, height: 32, data: one, transparent: clear
@@ -265,7 +265,7 @@ class TestSpriteTileSharing < Minitest::Test
   def test_the_profile_says_what_sharing_saved
     clear = CLEAR
     art = ping_pong_art
-    rom = RubyGBA.build("SHARE", code: "BSHR", maker: "01", validate: false,
+    rom = RubyGBA.build("SHARE", console: :gba, code: "BSHR", maker: "01", validate: false,
                         out: StringIO.new, err: StringIO.new) do
       screen :tiled
       art.each_with_index { |d, k| image :"p#{k}", width: 32, height: 32, data: d, transparent: clear }

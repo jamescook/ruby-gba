@@ -47,7 +47,7 @@ class TestNoteEnvelope < Minitest::Test
   end
 
   private def build(envelope, holds_from: nil, tune: score(envelope))
-    RubyGBA.build("ENVELOPE", code: "BENV", maker: "01", validate: false) do
+    RubyGBA.build("ENVELOPE", console: :gba, code: "BENV", maker: "01", validate: false) do
       screen :bitmap
       enable_sound
       instrument :tone, pcm: RECORDING, rate: RATE, note: :C4, holds_from: holds_from
@@ -68,7 +68,7 @@ class TestNoteEnvelope < Minitest::Test
   # there is nothing in it but the wave, and measured rather than worked out because what
   # reaches the test is the console's output through the emulator's own resampling.
   private def the_waves_own_step
-    control = RubyGBA.build("ENVELOPE", code: "BENV", maker: "01", validate: false) do
+    control = RubyGBA.build("ENVELOPE", console: :gba, code: "BENV", maker: "01", validate: false) do
       screen :bitmap
       enable_sound
       tone = sample :tone, pcm: RECORDING, rate: RATE, note: :C4
@@ -173,7 +173,7 @@ class TestNoteEnvelope < Minitest::Test
       parts: [RubyGBA::Audio::Score::Part.new(plays: :tone, notes: [RubyGBA::Audio::Score::Note.new(at: 0, key: :C4, length: 60)])],
       tempo: TEMPO, ticks_per_beat: TICKS_PER_BEAT, length: 90
     )
-    held = RubyGBA.build("ENVELOPE", code: "BENV", maker: "01", validate: false) do
+    held = RubyGBA.build("ENVELOPE", console: :gba, code: "BENV", maker: "01", validate: false) do
       screen :bitmap
       enable_sound
       instrument :tone, pcm: short, rate: RATE, note: :C4, holds_from: 0
@@ -255,7 +255,7 @@ class TestNoteEnvelope < Minitest::Test
 
   def test_a_hold_point_outside_the_recording_names_itself
     error = assert_raises(ArgumentError) do
-      RubyGBA.build("ENVELOPE", code: "BENV", maker: "01", validate: false) do
+      RubyGBA.build("ENVELOPE", console: :gba, code: "BENV", maker: "01", validate: false) do
         screen :bitmap
         enable_sound
         instrument :tone, pcm: SINE, rate: RATE, note: :C4, holds_from: 5.0

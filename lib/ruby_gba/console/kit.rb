@@ -29,6 +29,9 @@ module RubyGBA
     #                           packing and placement
     #   compared_side_by_side?  whether two of its cartridges can be compared side by side
     #                           (Playthroughs::Comparison lines screens up at the Advance's size)
+    #   drawn_by_runtimes?      whether the desktop program and the web page can be made from its
+    #                           build: the C and JavaScript runtimes draw one screen size, fixed
+    #                           when they are compiled, and it is the Advance's
     class Kit
       attr_reader :description
 
@@ -42,6 +45,7 @@ module RubyGBA
       def answers = nil
       def measured_builds? = false
       def compared_side_by_side? = false
+      def drawn_by_runtimes? = false
     end
 
     # The Game Boy Advance's.
@@ -51,6 +55,7 @@ module RubyGBA
       def reader = Diagnostics::Verifier
       def measured_builds? = true
       def compared_side_by_side? = true
+      def drawn_by_runtimes? = true
     end
 
     # The Game Boy Color's.
@@ -69,16 +74,25 @@ module RubyGBA
     # The kit for the console named +name+ (a Symbol or a String). A name no console has is
     # refused with the names there are.
     def self.for(name)
-      KITS.fetch(name.to_sym) do
-        raise ArgumentError, "there is no console named #{name.inspect}. The consoles are " \
-                             "#{KITS.keys.map(&:inspect).join(' and ')}."
+      KITS.fetch(name&.to_sym) do
+        named = name.nil? ? "No console is named" : "There is no console named #{name.inspect}"
+        raise ArgumentError, "#{named}. The consoles are #{KITS.keys.map(&:inspect).join(' and ')}."
       end
     end
 
     # Every console's kit.
     def self.kits = KITS.values
 
-    # The console named +name+, the Advance for nil.
-    def self.described(name) = name.nil? ? ADVANCE : self.for(name).description
+    # Of the consoles +names+, the first whose build the desktop and web runtimes draw
+    # (Kit#drawn_by_runtimes?), or nil when there is none.
+    def self.drawn_by_runtimes(names) = names.find { |name| self.for(name).drawn_by_runtimes? }
+
+    # What a game can tell about the console named +name+.
+    def self.described(name) = self.for(name).description
+
+    # The console +name+ names, as the Symbol every part of the library holds it as, so a console
+    # named in a String is the same console and never a name compared and missed. A name no
+    # console has is refused.
+    def self.named(name) = self.for(name).name
   end
 end

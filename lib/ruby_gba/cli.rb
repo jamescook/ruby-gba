@@ -732,15 +732,21 @@ module RubyGBA
       "#{game.title} is for the #{named}. Say which cartridge to #{doing}: add --console #{offered.join(' or --console ')}."
     end
 
-    # A web page, a desktop program and the IR dump are all made from the game as the Advance plays
-    # it, since the two runtimes draw the Advance's 240×160 screen. So they need a game for the
-    # Advance; one for the Color alone is refused, saying what to write.
-    def refuse_game_not_for_advance!(game, made)
-      return if game.consoles.include?(:gba)
+    # A web page, a desktop program and the IR dump are all made from the game as one console plays
+    # it, since the two runtimes draw one screen size (Native.console_for chooses which). A game for
+    # no such console is refused, saying what to write.
+    def console_drawn_by_runtimes(game, made)
+      RubyGBA::IR::Backends::Native.console_for(game, made: made)
+    rescue RubyGBA::IR::Backends::Native::LoweringError => e
+      raise Thor::Error, e.message
+    end
 
-      raise Thor::Error, "#{made} is made from the Game Boy Advance's game, and #{game.title} is for the Game Boy " \
-                         "Color alone. To make one, lay the game out from `screen_width` and `screen_height`, and " \
-                         "say `consoles: %i[#{(game.consoles + [:gba]).join(' ')}]` where the game is named."
+    # The file a build that is not a cartridge writes, beside the game file: the cartridge's name
+    # for +console+ with +ending+ in place of the cartridge's.
+    def file_beside(game, game_file, console, ending)
+      cartridge = game.default_filename(console: console)
+      File.join(File.dirname(File.expand_path(game_file)),
+                cartridge.delete_suffix(RubyGBA::Console.described(console).extension) + ending)
     end
 
     # The "ir" format (--format=ir): the game's IR as a standalone Ruby class, instead
@@ -750,8 +756,7 @@ module RubyGBA
     # ROM bytes themselves are simply not written anywhere.
     def build_ir(game_file)
       game = load_game(game_file)
-      refuse_game_not_for_advance!(game, "The IR")
-      rom = game.build_rom(settings: given_settings, console: :gba)
+      rom = game.build_rom(settings: given_settings, console: console_drawn_by_runtimes(game, "The IR"))
       source = RubyGBA::IR::Dump.class_source(rom.source_program, class_name: "#{constantize(game.title)}IR",
                                             **game.options.lowering)
       if options[:output]
@@ -767,7 +772,7 @@ module RubyGBA
     # the end where that name is already a folder, as a game split across files often has.
     def build_native(game_file)
       game = load_game(game_file)
-      refuse_game_not_for_advance!(game, "A program for this computer")
+      console = console_drawn_by_runtimes(game, "A program for this computer")
       target = options[:target]&.tr("-", "_")&.to_sym
       if target && !RubyGBA::IR::Backends::Native::TARGETS.key?(target)
         names = RubyGBA::IR::Backends::Native::TARGETS.keys.map { |name| name.to_s.tr("_", "-") }
@@ -775,7 +780,7 @@ module RubyGBA
                            "#{names.join(', ')}. To build for this computer, leave out --target."
       end
       path = options[:output] || begin
-        plain = File.join(File.dirname(File.expand_path(game_file)), game.default_filename(console: :gba).delete_suffix(".gba"))
+        plain = file_beside(game, game_file, console, "")
         plain = "#{plain}-#{options[:target]}" if target
         plain = "#{plain}-desktop" if File.directory?(plain)
         target == :windows ? "#{plain}.exe" : plain
@@ -812,11 +817,9 @@ module RubyGBA
     # the cartridge with the output's ending in place of .gba.
     def build_web(game_file)
       game = load_game(game_file)
-      refuse_game_not_for_advance!(game, "A web page")
+      console = console_drawn_by_runtimes(game, "A web page")
       js = options[:js]
-      path = options[:output] ||
-             File.join(File.dirname(File.expand_path(game_file)),
-                       game.default_filename(console: :gba).delete_suffix(".gba") + WEB_OUTPUTS.fetch(js))
+      path = options[:output] || file_beside(game, game_file, console, WEB_OUTPUTS.fetch(js))
       web = RubyGBA::IR::Backends::JS.new
       data = options[:data].to_sym
       case js

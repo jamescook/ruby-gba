@@ -11,7 +11,7 @@ require "stringio"
 class TestIRGuardrailClockNeverAsked < Minitest::Test
   private def build_warnings(&)
     err = StringIO.new
-    RubyGBA.build("CLOCK", out: StringIO.new, err: err, &)
+    RubyGBA.build("CLOCK", console: :gba, out: StringIO.new, err: err, &)
     err.string
   end
 

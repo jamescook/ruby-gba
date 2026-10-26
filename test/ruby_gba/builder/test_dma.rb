@@ -6,7 +6,7 @@ class TestDMA < Minitest::Test
   include RubyGBA::Console::Hardware
 
   private def build(validate: false, &block)
-    RubyGBA.build("DMATEST", code: "BDMA", maker: "01", validate: validate, &block)
+    RubyGBA.build("DMATEST", console: :gba, code: "BDMA", maker: "01", validate: validate, &block)
   end
 
   private def instructions(rom)

@@ -104,7 +104,7 @@ class TestSongParts < Minitest::Test
     err = StringIO.new
     too_many = VOICES + 1
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("SONGOVER", code: "ZSNO", maker: "01", out: StringIO.new, err: err) do
+      RubyGBA.build("SONGOVER", console: :gba, code: "ZSNO", maker: "01", out: StringIO.new, err: err) do
         screen :bitmap
         enable_sound
         instrument :organ, pcm: [60, -60] * 400, rate: 8000, note: :C4
@@ -125,7 +125,7 @@ class TestSongParts < Minitest::Test
   def test_a_song_as_wide_as_the_mixer_is_no_trouble_to_a_game_with_sounds_of_its_own
     tune = song_of(Array.new(VOICES) { :C4 })
     err = StringIO.new
-    RubyGBA.build("SONGALL", code: "ZSNA", maker: "01", out: StringIO.new, err: err) do
+    RubyGBA.build("SONGALL", console: :gba, code: "ZSNA", maker: "01", out: StringIO.new, err: err) do
       screen :bitmap
       enable_sound
       instance_exec(&tune)
@@ -141,7 +141,7 @@ class TestSongParts < Minitest::Test
 
   def test_the_profile_shows_what_the_music_costs
     tune = song_of(CHORD)
-    rom = RubyGBA.build("SONGCOST", code: "ZSNC", maker: "01", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("SONGCOST", console: :gba, code: "ZSNC", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       enable_sound
       instance_exec(&tune)

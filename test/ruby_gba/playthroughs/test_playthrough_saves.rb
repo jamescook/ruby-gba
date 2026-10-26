@@ -115,7 +115,7 @@ class TestPlaythroughSaves < Minitest::Test
 
   # A cartridge with no save memory has none to hand back.
   def test_a_cartridge_with_no_save_memory_hands_back_no_save
-    counting = RubyGBA.build("COUNTING", out: StringIO.new, err: StringIO.new) do
+    counting = RubyGBA.build("COUNTING", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       ticks = var :ticks, 0
       game_loop { ticks.add! 1 }

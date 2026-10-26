@@ -16,7 +16,7 @@ class TestPlaythrough < Minitest::Test
   # if RIGHT is down; and one more if B and LEFT are down together. It does so little that it
   # never takes longer than a frame, so a frame and a trip round its loop are the same thing.
   private def counting_game
-    RubyGBA.build("COUNTING", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("COUNTING", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       ticks = var :ticks, 0
       taps = var :taps, 0

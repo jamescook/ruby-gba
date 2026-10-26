@@ -25,7 +25,7 @@ module RubyGBA
       # @param color [Symbol, Integer] fill color (default: :red)
       # @return [RubyGBA::Cartridge::ROM]
       def solid_fill(color = :red)
-        RubyGBA.build("SOLIDFILL") do
+        RubyGBA.build("SOLIDFILL", console: :gba) do
           screen :bitmap
           fill_rect 0, 0, 240, 160, color
           halt
@@ -37,7 +37,7 @@ module RubyGBA
       #
       # @return [RubyGBA::Cartridge::ROM]
       def color_bars
-        RubyGBA.build("COLORBARS") do
+        RubyGBA.build("COLORBARS", console: :gba) do
           screen :bitmap
           fill_rect 0,   0, 80, 160, :red
           fill_rect 80,  0, 80, 160, :green
@@ -52,7 +52,7 @@ module RubyGBA
       #
       # @return [RubyGBA::Cartridge::ROM]
       def corners
-        RubyGBA.build("CORNERS") do
+        RubyGBA.build("CORNERS", console: :gba) do
           screen :bitmap
           size = 20
           fill_rect 0, 0, size, size, :red                                # top-left
@@ -68,7 +68,7 @@ module RubyGBA
       #
       # @return [RubyGBA::Cartridge::ROM]
       def crosshair
-        RubyGBA.build("CROSSHAIR") do
+        RubyGBA.build("CROSSHAIR", console: :gba) do
           screen :bitmap
           # Horizontal line at y=80
           fill_rect 0, 79, 240, 2, :white

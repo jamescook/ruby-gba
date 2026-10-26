@@ -15,7 +15,7 @@ class TestProfiler < Minitest::Test
 
   # One routine doing nearly all the work, one doing almost none, and one nothing calls.
   private def lopsided_game
-    RubyGBA.build("PROF", code: "PROF", maker: "01", err: nil) do
+    RubyGBA.build("PROF", console: :gba, code: "PROF", maker: "01", err: nil) do
       screen :bitmap
       clear_screen :black
       var :x, 0
@@ -89,7 +89,7 @@ class TestProfiler < Minitest::Test
   # A game costs what the player makes it cost, so the buttons held have to reach the
   # measured frames — otherwise every reading is of a game standing still.
   def test_the_buttons_it_is_given_are_held_while_it_measures
-    game = RubyGBA.build("PHLD", code: "PHLD", maker: "01") do
+    game = RubyGBA.build("PHLD", console: :gba, code: "PHLD", maker: "01") do
       screen :bitmap
       clear_screen :black
       var :x, 0
@@ -109,7 +109,7 @@ class TestProfiler < Minitest::Test
   # so a routine that starts a whole-screen clear runs a dozen instructions and takes most of a
   # frame. Counted by instructions the sums win; counted by time the clear has to.
   def test_the_time_a_copy_takes_is_charged_to_the_routine_that_starts_it
-    game = RubyGBA.build("PCPY", err: nil) do
+    game = RubyGBA.build("PCPY", console: :gba, err: nil) do
       screen :bitmap
       var :x, 0
       func(:the_clear) { clear_screen :black }
@@ -138,7 +138,7 @@ class TestProfiler < Minitest::Test
   # A game whose every pass waits for the screen to leave the break and then to reach +line+,
   # so each pass ends on that line of the next picture whatever the lowering emits.
   private def game_ending_on_line(line)
-    RubyGBA.build("PLIN", err: nil) do
+    RubyGBA.build("PLIN", console: :gba, err: nil) do
       extend RubyGBA::Builder::Debug
       screen :bitmap
       var :spin, 0
@@ -186,7 +186,7 @@ class TestProfiler < Minitest::Test
   # from power-on ends on the last of them whatever the lowering emits. A line in the picture after
   # one in the break is waited for from below it, so the setting up runs on into the next picture.
   private def game_set_up_until(*lines)
-    RubyGBA.build("PPON", err: nil) do
+    RubyGBA.build("PPON", console: :gba, err: nil) do
       extend RubyGBA::Builder::Debug
       screen :bitmap
       var :spin, 0
@@ -283,7 +283,7 @@ class TestProfiler < Minitest::Test
   # time is named after the list, and the rest of the setting up has a name of its own, so neither
   # reads as code nothing knows about.
   def test_from_power_on_the_setting_up_and_its_fill_loops_are_named
-    game = RubyGBA.build("PPOW", err: nil) do
+    game = RubyGBA.build("PPOW", console: :gba, err: nil) do
       screen :bitmap
       held = list :held, capacity: 2000
       repeat(2000) { held.push 1 }
@@ -308,7 +308,7 @@ class TestProfiler < Minitest::Test
   # A game boots to its title and a held button will not get past one, because a menu reads
   # the press EDGE. So which screen gets measured has to be said rather than played to.
   private def scened_game
-    RubyGBA.build("PSCN", code: "PSCN", maker: "01") do
+    RubyGBA.build("PSCN", console: :gba, code: "PSCN", maker: "01") do
       screen :bitmap
       clear_screen :black
       var :state, 0
@@ -342,7 +342,7 @@ class TestProfiler < Minitest::Test
   # (a snake with nobody steering dies in a few frames), and then the measuring is of the
   # screen it fell into, under the name of the one that was asked for. So it is held there.
   def test_a_scene_is_held_rather_than_merely_entered
-    rom = RubyGBA.build("PHLD2", code: "PHL2", maker: "01") do
+    rom = RubyGBA.build("PHLD2", console: :gba, code: "PHL2", maker: "01") do
       screen :bitmap
       clear_screen :black
       var :state, 1
@@ -380,7 +380,7 @@ class TestProfiler < Minitest::Test
   # that can DOES is a race between the display's row and the game's, and only running it
   # settles that — so it is measured here rather than priced.
   def test_a_game_that_draws_more_than_fits_is_seen_to_tear
-    heavy = RubyGBA.build("PTER", code: "PTER", maker: "01") do
+    heavy = RubyGBA.build("PTER", console: :gba, code: "PTER", maker: "01") do
       screen :bitmap
       var :x, 0
       game_loop do
@@ -396,7 +396,7 @@ class TestProfiler < Minitest::Test
   end
 
   def test_a_game_that_keeps_up_is_seen_not_to_tear
-    light = RubyGBA.build("PTEL", code: "PTEL", maker: "01") do
+    light = RubyGBA.build("PTEL", console: :gba, code: "PTEL", maker: "01") do
       screen :bitmap
       var :x, 0
       game_loop { fill_rect 0, 0, 8, 8, :red; add! :x, 1 }
@@ -409,7 +409,7 @@ class TestProfiler < Minitest::Test
   # "We did not look" must never read as "nothing was wrong", so a screen that cannot tear
   # reports nothing at all rather than a reassuring zero.
   def test_a_screen_that_cannot_tear_reports_nothing_rather_than_no_tear
-    buffered = RubyGBA.build("PTEB", code: "PTEB", maker: "01") do
+    buffered = RubyGBA.build("PTEB", console: :gba, code: "PTEB", maker: "01") do
       screen :bitmap, tear_free: true
       var :x, 0
       game_loop { clear_screen :black; add! :x, 1 }
@@ -427,7 +427,7 @@ class TestProfiler < Minitest::Test
   # this and no scene contains it — it is STATE, which is what a saved moment carries and a
   # booted scene does not.
   private def armed_game(bump = 1)
-    RubyGBA.build("PSAV", code: "PSAV", maker: "01") do
+    RubyGBA.build("PSAV", console: :gba, code: "PSAV", maker: "01") do
       screen :bitmap
       clear_screen :black
       armed = var :armed, 0

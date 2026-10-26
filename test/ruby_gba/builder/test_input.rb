@@ -6,7 +6,7 @@ class TestInput < Minitest::Test
   include RubyGBA::Console::Hardware
 
   private def build(validate: false, &block)
-    RubyGBA.build("INPTEST", validate: validate, &block)
+    RubyGBA.build("INPTEST", console: :gba, validate: validate, &block)
   end
 
   private def instructions(rom)

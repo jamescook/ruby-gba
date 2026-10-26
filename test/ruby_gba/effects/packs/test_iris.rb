@@ -39,7 +39,7 @@ class TestIris < Minitest::Test
   def test_an_iris_out_never_brought_back_is_a_warning
     out = StringIO.new
     err = StringIO.new
-    RubyGBA.build("IRIS", out: out, err: err) do
+    RubyGBA.build("IRIS", console: :gba, out: out, err: err) do
       screen :tiled
       image(:white_tile, "#" => :white) { (["#" * 8] * 8).join("\n") }
       tiles :set, "#" => :white_tile

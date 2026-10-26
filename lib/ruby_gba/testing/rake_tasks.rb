@@ -14,6 +14,7 @@ module RubyGBA
     #   require "ruby_gba/testing/rake_tasks"
     #
     #   RubyGBA::Testing::RakeTasks.new do |t|
+    #     t.consoles = %i[gba]                           # the consoles the game is for
     #     t.test_files = FileList["test/**/test_*.rb"]   # the default
     #   end
     #
@@ -26,12 +27,13 @@ module RubyGBA
     #
     # Each takes TEST= for one file, and `rake test` plays it on each lowering whose run loads it.
     #
-    # A game for the Game Boy Color too says so here as it does where the game is named:
-    # `t.consoles = %i[gba gbc]`. That adds a fifth task, `rake test:lowering:gbc`, the game built
-    # as a Color cartridge and checked against the interpreter, and `rake test` plays it too. A game
-    # that says nothing is for the Advance alone, and gets no Color run it could never pass. The
-    # Rakefile cannot see which games its tests build, so it is told the same list the games are,
-    # and it takes and refuses exactly what `consoles:` does.
+    # The Rakefile names the consoles the game is for, as the game does where it is named:
+    # `t.consoles = %i[gba]` for the Advance alone, `t.consoles = %i[gba gbc]` for the Game Boy Color
+    # too. The Color adds a fifth task, `rake test:lowering:gbc`, the game built as a Color cartridge
+    # and checked against the interpreter, and `rake test` plays it too; a game for the Advance alone
+    # gets no Color run it could never pass. The Rakefile cannot see which games its tests build, so
+    # it is told the same list the games are, and it takes and refuses exactly what `consoles:` does,
+    # a Rakefile that names none included.
     #
     # The GBA lowering's run is a plain test run, so a suite that puts its tests in Ractors
     # (--ractor in TESTOPTS) keeps doing so there. The native lowering's run cannot, and spreads
@@ -52,7 +54,7 @@ module RubyGBA
 
       # The test files; the folders a test file can require from by bare name (the game's own code
       # and its tests, lib and test unless told); the folders each lowering owns; and the consoles
-      # the game is for, the Advance alone unless told.
+      # the game is for, which every Rakefile names.
       attr_accessor :test_files, :libs, :lowering_folders, :consoles
 
       def initialize
@@ -60,7 +62,7 @@ module RubyGBA
         @test_files = Rake::FileList["test/**/test_*.rb"]
         @libs = %w[lib test]
         @lowering_folders = {}
-        @consoles = [Console::DEFAULT]
+        @consoles = nil
         yield self if block_given?
         @lowerings = Lowering.lowerings_for(Console.refuse_unknown_consoles!(consoles, setting: "t.consoles"))
         define_lowering_tasks

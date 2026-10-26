@@ -11,7 +11,7 @@ require "test_helper"
 require "tempfile"
 
 def build_and_run(name, &block)
-  rom = RubyGBA.build(name, code: "BTST", maker: "01", &block)
+  rom = RubyGBA.build(name, console: :gba, code: "BTST", maker: "01", &block)
   puts "Built #{name}: #{rom.size} bytes"
   puts RubyGBA::Diagnostics::Inspector.from_rom(rom).header_report
   puts RubyGBA::Diagnostics::Inspector.from_rom(rom).code_report(max_instructions: 20)

@@ -23,7 +23,7 @@ class TestTileSetSwap < Minitest::Test
   # bringing a still view along does. +measured+ builds the way a game is built: placed by
   # what a run of it measured.
   private def walk(areas:, tinted: false, busywork: false, measured: false)
-    RubyGBA.build("WALK#{areas}#{tinted ? 'T' : 'P'}", profile: measured, out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("WALK#{areas}#{tinted ? 'T' : 'P'}", console: :gba, profile: measured, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image(:shrine_floor, "#" => :red) { (["#" * 8] * 8).join("\n") }
       image(:clearing_grass, "#" => :green) { (["#" * 8] * 8).join("\n") }

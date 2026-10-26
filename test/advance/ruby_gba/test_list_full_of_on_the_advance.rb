@@ -41,7 +41,7 @@ class TestListFullOfOnTheAdvance < Minitest::Test
 
     assert_equal [4099, -1, -1, 300, -70_000, -70_000, 9, 4, 6], interpreted
     require_emulator!
-    rom = RubyGBA.build("LISTFULL", out: StringIO.new, err: StringIO.new, profile: false, &WIDTHS)
+    rom = RubyGBA.build("LISTFULL", console: :gba, out: StringIO.new, err: StringIO.new, profile: false, &WIDTHS)
     v = assert_emulator_loads_rom(rom, frames: 4, vars: rom.var_addresses)
 
     assert_equal interpreted, READINGS.map { |name| v.var(name) }

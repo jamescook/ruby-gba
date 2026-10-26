@@ -92,8 +92,14 @@ _Avoid_: project, app, sketch
 
 **Program**:
 The whole op-tree a DSL block builds, rooted at one node. This is the thing backends
-consume and guardrails walk.
+consume and guardrails walk. It names the console it was built for, and every build names
+one.
 _Avoid_: AST, bytecode, source tree
+
+**Unbound program**:
+A program that names no console: one a test builds by hand, or with a Builder told no
+console. Each test run plays it as that run's console. Nothing a game or a build makes is one.
+_Avoid_: default console, the Advance's program
 
 **IR**:
 The node model a program is made of — plain Ruby data describing *what the program

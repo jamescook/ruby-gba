@@ -21,7 +21,7 @@ class TestMixerLeavesTheGap < Minitest::Test
   # Looping voices at a high rate: more mixing than the gap holds, and well inside the two
   # thirds of a frame the mix has once it waits for the first line.
   def self.heavy_game
-    RubyGBA.build("GAP", out: StringIO.new, err: StringIO.new, profile: false) do
+    RubyGBA.build("GAP", console: :gba, out: StringIO.new, err: StringIO.new, profile: false) do
       screen :tiled
       image(:top, "#" => :white) { "########\n" * 8 }
       image(:low, "#" => :white) { "########\n" * 8 }

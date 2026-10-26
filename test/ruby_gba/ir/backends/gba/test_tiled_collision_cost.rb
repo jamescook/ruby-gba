@@ -34,7 +34,7 @@ class TestTiledCollisionCost < Minitest::Test
 
   private def game(movers:, pillars:)
     map = room_map(pillars)
-    RubyGBA.build("COLL", code: "BCOL", maker: "01", validate: false,
+    RubyGBA.build("COLL", console: :gba, code: "BCOL", maker: "01", validate: false,
                   out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image :brick, width: 8, height: 8, data: Array.new(64, RubyGBA::Graphics::Color.rgb(20, 10, 5))

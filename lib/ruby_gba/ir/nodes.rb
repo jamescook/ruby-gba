@@ -899,9 +899,13 @@ module RubyGBA
         operands button: :option
       end
 
-      # The whole program. +console+ names the console it was built for (see
-      # Console::Description), whose screen the game was laid out on and checked against; a
-      # program that does not say is the Advance's.
+      # The whole program. +console+ names the console it was built for (see Console::Kit), whose
+      # screen the game was laid out on and checked against. Every build names one.
+      #
+      # AN UNBOUND PROGRAM names none: a tree a test makes by hand, or with a Builder that was not
+      # told a console. It is a test's, and each test run plays it as the console that run is for
+      # (Testing#program_played). Until then it is laid out and checked on the Advance's screen,
+      # the one the hand-built trees were written against.
       class Program
         include Node
         kind :program
@@ -909,7 +913,10 @@ module RubyGBA
         operands console: :name
 
         # What the console this program was built for can do: its screen, buttons, sprites.
-        def described_console = Console.described(console)
+        def described_console = console ? Console.described(console) : Program.unbound_console
+
+        # What an unbound program is laid out and checked on.
+        def self.unbound_console = Console::ADVANCE
       end
 
       # A FONT THE PROGRAM DECLARED, the same way a declared picture is a node: it draws

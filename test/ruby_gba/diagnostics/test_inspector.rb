@@ -13,7 +13,7 @@ class TestInspector < Minitest::Test
   end
 
   private def minimal_rom
-    RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false) do
+    RubyGBA.build("TEST", console: :gba, code: "BTST", maker: "01", validate: false) do
       halt
     end
   end
@@ -338,7 +338,7 @@ class TestInspector < Minitest::Test
   # ========================================================================
 
   def test_no_unknown_instructions_in_pong
-    rom = RubyGBA.build("PONG", code: "BPNG", maker: "01", validate: false) do
+    rom = RubyGBA.build("PONG", console: :gba, code: "BPNG", maker: "01", validate: false) do
       screen :bitmap
       set! :state, 0
       scene :title do
@@ -385,7 +385,7 @@ class TestInspector < Minitest::Test
 
   def test_dump_func_prints_output
     out = StringIO.new
-    RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false, out: out, err: nil) do
+    RubyGBA.build("TEST", console: :gba, code: "BTST", maker: "01", validate: false, out: out, err: nil) do
       func :my_func do
         set! :x, 42
       end
@@ -400,7 +400,7 @@ class TestInspector < Minitest::Test
 
   def test_dump_func_works_with_scene_name
     out = StringIO.new
-    RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false, out: out, err: nil) do
+    RubyGBA.build("TEST", console: :gba, code: "BTST", maker: "01", validate: false, out: out, err: nil) do
       scene :title do
         set! :x, 1
       end
@@ -417,7 +417,7 @@ class TestInspector < Minitest::Test
   # nonsense that looks real — so the listing shows them as what they are.
   def test_dump_func_shows_a_number_table_as_numbers
     out = StringIO.new
-    RubyGBA.build("TEST", validate: false, out: out, err: nil) do
+    RubyGBA.build("TEST", console: :gba, validate: false, out: out, err: nil) do
       func(:my_func, fast: true) { set! :x, 0x12345678 }
       dump_func :my_func
       game_loop { call :my_func }
@@ -430,7 +430,7 @@ class TestInspector < Minitest::Test
 
   def test_dump_func_warns_on_unknown
     err = StringIO.new
-    RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false, err: err) do
+    RubyGBA.build("TEST", console: :gba, code: "BTST", maker: "01", validate: false, err: err) do
       dump_func :nonexistent
       halt
     end

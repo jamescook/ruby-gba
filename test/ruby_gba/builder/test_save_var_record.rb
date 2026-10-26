@@ -73,7 +73,7 @@ class TestSaveVarRecord < Minitest::Test
 
   def test_a_save_var_on_flash_in_a_game_with_no_game_loop_is_refused
     message = assert_raises(ArgumentError) do
-      RubyGBA.build("FLASHVAR", out: nil, err: nil, save_memory: 64) do
+      RubyGBA.build("FLASHVAR", console: :gba, out: nil, err: nil, save_memory: 64) do
         screen :bitmap
         save_var :best, 0
         halt

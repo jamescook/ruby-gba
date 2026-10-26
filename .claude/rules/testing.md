@@ -137,7 +137,9 @@ bites a test that pairs a picture with a variable.
 - **IR directly**, when the lowering is under test: `include RubyGBA::IR::Build`, then
   `program(screen(:bitmap), clear_screen(:white), bitmap(:s, width:, height:, pixels:, transparent:), blit(:s, x, y), halt)`.
 - **DSL**, when the surface is: `b = RubyGBA::Builder.new; b.instance_eval { … }; b.finalize_program; b.program`,
-  or `RubyGBA.build("NAME") { … }` for a ROM (pass `out:`/`err:` a `StringIO` to assert warnings).
+  or `RubyGBA.build("NAME", console: :gba) { … }` for a ROM (pass `out:`/`err:` a `StringIO` to assert
+  warnings). A build always names its console. A Builder or a hand-built `program(...)` names none, and each
+  run plays it as that run's console.
   Don't write a `code:`: made-up codes collide with real cartridges, which is a build error.
 
 ## Choosing test values

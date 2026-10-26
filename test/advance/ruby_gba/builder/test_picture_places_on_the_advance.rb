@@ -183,7 +183,7 @@ class TestPicturePlacesOnTheAdvance < Minitest::Test
 
   private def refused(&block)
     assert_raises(ArgumentError) do
-      RubyGBA.build("PLACES", code: "BPLC", maker: "01", out: StringIO.new, err: StringIO.new, &block)
+      RubyGBA.build("PLACES", console: :gba, code: "BPLC", maker: "01", out: StringIO.new, err: StringIO.new, &block)
     end
   end
 

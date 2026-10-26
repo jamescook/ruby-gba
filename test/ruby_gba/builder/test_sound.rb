@@ -6,7 +6,7 @@ class TestSound < Minitest::Test
   include RubyGBA::Console::Hardware
 
   private def build(validate: false, &block)
-    RubyGBA.build("SNDTEST", code: "BSND", maker: "01", validate: validate, &block)
+    RubyGBA.build("SNDTEST", console: :gba, code: "BSND", maker: "01", validate: validate, &block)
   end
 
   # ========================================================================
@@ -216,7 +216,7 @@ class TestSound < Minitest::Test
 
   def test_beep_writes_correct_frequency_value
     # 440 Hz: freq_val = 2048 - 131072/440 = 2048 - 298 = 1750
-    rom = RubyGBA.build("TEST", code: "BTST", maker: "01", validate: false) do
+    rom = RubyGBA.build("TEST", console: :gba, code: "BTST", maker: "01", validate: false) do
       enable_sound
       beep 440
       halt

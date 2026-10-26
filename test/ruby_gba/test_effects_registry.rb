@@ -221,7 +221,7 @@ class TestEffectsRegistry < Minitest::Test
     err = StringIO.new
 
     ex = assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("WATCH", code: "BWCH", maker: "01", err: err) do
+      RubyGBA.build("WATCH", console: :gba, code: "BWCH", maker: "01", err: err) do
         screen :bitmap
         watched_verb
         halt

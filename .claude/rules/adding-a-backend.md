@@ -47,10 +47,16 @@ a console of its own needs beyond a lowering:
   `Diagnostics::GBCProfiler`): the Advance's never learn about it.
 - **A kit naming all of it** (`Console::Kit`, `Console.for(:gbc)`, in `console/kit.rb`): its
   description, its answers, the build that makes its cartridge (`Cartridge::ColorBuild`, handed a
-  `Cartridge::BuildRequest`), the cartridge kind, its reader, and whether its builds are measured.
+  `Cartridge::BuildRequest`), the cartridge kind, its reader, whether its builds are measured, and
+  whether the desktop and web runtimes can draw it (`drawn_by_runtimes?`; they draw one screen
+  size today, the Advance's, so `Console.drawn_by_runtimes` picks the console those builds are made as).
   The build, the reader chooser, the cartridge-file reader and the command line ask the kit, so a
   console is added by describing it and giving it a kit. Nothing outside a console's own code
   compares console names (`test/ruby_gba/console/test_kit.rb` fails the build if something does).
+- **No console by default.** A game names its consoles, a build (`RubyGBA.build(..., console:)`)
+  and a Rakefile (`t.consoles`) name theirs, and a name is held as its Symbol however it was
+  written (`Console.named`). Only an unbound program, a tree built for a test (a Builder told
+  none, a hand-built `program(...)`), names none, and each run plays it as that run's console.
 
 `GBC::Lowering` is a peer of the GBA lowering, not of the native one: it walks the IR and emits
 SM83 machine code itself (its picture and sound in `GBC::Lowering::Picture` and

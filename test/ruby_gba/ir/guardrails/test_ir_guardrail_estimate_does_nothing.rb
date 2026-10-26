@@ -26,7 +26,7 @@ class TestIRGuardrailEstimateDoesNothing < Minitest::Test
 
   private def build_warnings(&game)
     err = StringIO.new
-    RubyGBA.build("HINTS", out: StringIO.new, err: err, &game)
+    RubyGBA.build("HINTS", console: :gba, out: StringIO.new, err: err, &game)
     err.string
   end
 

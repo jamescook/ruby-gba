@@ -445,7 +445,7 @@ class TestCLI < Minitest::Test
         out, status = cli("build", "coloronly.rb", "--format", format, dir: dir)
 
         refute status.success?, "#{format}: #{out}"
-        assert_match(/Game Boy Color alone/, out, format)
+        assert_match(/COLORONLY is not for the Game Boy Advance/i, out, format)
         assert_match(/consoles: %i\[gbc gba\]/, out, format)
         refute_match(/\.rb:\d+:in/, out, "#{format}: should not leak a backtrace")
       end

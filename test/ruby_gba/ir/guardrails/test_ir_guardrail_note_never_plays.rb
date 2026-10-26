@@ -59,7 +59,7 @@ class TestNoteNeverPlaysGuardrail < Minitest::Test
   def test_a_note_shorter_than_a_frame_in_a_song_block_stops_the_build
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("TOOFAST", code: "ZFST", maker: "01", out: StringIO.new, err: err) do
+      RubyGBA.build("TOOFAST", console: :gba, code: "ZFST", maker: "01", out: StringIO.new, err: err) do
         screen :bitmap
         enable_sound
         song :racing do

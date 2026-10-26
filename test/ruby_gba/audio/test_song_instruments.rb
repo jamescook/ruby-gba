@@ -70,7 +70,7 @@ class TestSongInstruments < Minitest::Test
   def test_an_instrument_nobody_declared_is_a_friendly_error
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("NOPIANO", code: "ZNOP", maker: "01", out: StringIO.new, err: err) do
+      RubyGBA.build("NOPIANO", console: :gba, code: "ZNOP", maker: "01", out: StringIO.new, err: err) do
         screen :bitmap
         enable_sound
         song(:tune) { voice(:melody, plays: :piano) { note :C4, :quarter } }

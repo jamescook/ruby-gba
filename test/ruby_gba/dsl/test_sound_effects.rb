@@ -780,7 +780,7 @@ class TestSoundEffects < Minitest::Test
   def test_the_profile_counts_what_the_sound_effects_cost
     interrupt_samples = lambda do |playing|
       effects = Array.new(8) { |n| every_ten_ticks(:C5, :E5, :G5, priority: n) }
-      rom = RubyGBA.build("SFXCOST", code: "ZSFX", maker: "01", out: StringIO.new, err: StringIO.new) do
+      rom = RubyGBA.build("SFXCOST", console: :gba, code: "ZSFX", maker: "01", out: StringIO.new, err: StringIO.new) do
         screen :bitmap
         enable_sound
         sfx = sound_effects :sfx, effects

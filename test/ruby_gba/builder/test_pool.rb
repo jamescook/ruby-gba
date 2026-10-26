@@ -150,7 +150,7 @@ class TestPool < Minitest::Test
   # A cartridge with a pool :crowd of +capacity+ things of four whole-number fields: 25 bytes
   # a thing, counting the pool's own bookkeeping.
   private def crowd_cartridge(capacity:, **words)
-    RubyGBA.build("CROWD", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("CROWD", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       pool :crowd, x: 0, y: 0, vx: 0, vy: 0, capacity: capacity, **words
       game_loop {}
@@ -211,7 +211,7 @@ class TestPool < Minitest::Test
   # the lists the framework made it from.
   def test_pools_that_fill_the_roomier_memory_between_them_are_named_as_pools
     error = assert_raises(GBA::LoweringError) do
-      RubyGBA.build("TWO", out: StringIO.new, err: StringIO.new) do
+      RubyGBA.build("TWO", console: :gba, out: StringIO.new, err: StringIO.new) do
         screen :bitmap
         pool :left, x: 0, y: 0, vx: 0, vy: 0, capacity: 5400
         pool :right, x: 0, y: 0, vx: 0, vy: 0, capacity: 5400
@@ -229,7 +229,7 @@ class TestPool < Minitest::Test
   def test_a_big_pool_that_draws_its_instances_does_not_build
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("FLOCK", out: StringIO.new, err: err) do
+      RubyGBA.build("FLOCK", console: :gba, out: StringIO.new, err: err) do
         screen :tiled
         image(:dot, "#" => :white) { "########\n" * 8 }
         pool :flock, x: 0, y: 0, capacity: 1000, image: :dot, fast: false
@@ -244,7 +244,7 @@ class TestPool < Minitest::Test
   # instances are drawn with among them — a list the pool only gains when one is first told
   # `draw_with`, after the rest are declared.
   def test_a_cold_pool_keeps_the_colors_its_instances_draw_with_out_of_the_quick_memory_too
-    rom = RubyGBA.build("COLD", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("COLD", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image :dot, width: 8, height: 8, data: Array.new(64, :red), colors: %i[transparent red]
       colors :hurt, %i[transparent white]

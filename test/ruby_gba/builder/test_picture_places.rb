@@ -118,7 +118,7 @@ class TestPicturePlaces < Minitest::Test
 
   private def refused(&block)
     assert_raises(ArgumentError) do
-      RubyGBA.build("PLACES", code: "BPLC", maker: "01", out: StringIO.new, err: StringIO.new, &block)
+      RubyGBA.build("PLACES", console: :gba, code: "BPLC", maker: "01", out: StringIO.new, err: StringIO.new, &block)
     end
   end
 
@@ -137,7 +137,7 @@ class TestPicturePlaces < Minitest::Test
 
   # Nothing is wrong while the other list agrees about the two places, so nothing is said.
   def test_a_repeated_color_the_other_list_keeps_together_is_left_alone
-    rom = RubyGBA.build("PLACES", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("PLACES", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image :ship, width: 8, height: 8, data: COLORS, colors: OWN
       colors :hurt, %i[transparent yellow white yellow]
@@ -150,7 +150,7 @@ class TestPicturePlaces < Minitest::Test
 
   # The repeated colour is only a problem where the art draws it.
   def test_a_repeated_color_the_art_never_draws_is_left_alone
-    rom = RubyGBA.build("PLACES", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("PLACES", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image :ship, width: 8, height: 8, data: Array.new(64) { :green }, colors: OWN
       colors :hurt, HURT

@@ -20,7 +20,7 @@ module RubyGBA
     # libmgba probe, a gem of its own in this repository.
     #
     # @example Verify a pixel
-    #   rom = RubyGBA.build("TEST") do
+    #   rom = RubyGBA.build("TEST", console: :gba) do
     #     screen :bitmap
     #     pixel 120, 80, :red
     #     halt

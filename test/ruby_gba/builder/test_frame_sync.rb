@@ -24,7 +24,7 @@ class TestFrameSync < Minitest::Test
   # said to the developer.
   private def build(frame_sync: :auto, &block)
     err = StringIO.new
-    rom = RubyGBA.build("SYNC", code: "BSYN", maker: "01",
+    rom = RubyGBA.build("SYNC", console: :gba, code: "BSYN", maker: "01",
                         out: StringIO.new, err: err, frame_sync: frame_sync, &block)
     [rom.source_program, err.string]
   end

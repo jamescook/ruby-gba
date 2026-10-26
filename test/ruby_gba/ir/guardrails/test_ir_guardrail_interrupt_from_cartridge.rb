@@ -16,7 +16,7 @@ class TestIRGuardrailInterruptFromCartridge < Minitest::Test
 
   private def build_warnings(insisted:)
     err = StringIO.new
-    RubyGBA.build("CROWDED", out: StringIO.new, err: err, profile: false) do
+    RubyGBA.build("CROWDED", console: :gba, out: StringIO.new, err: err, profile: false) do
       screen :bitmap
       enable_sound
       song(:tune) { voice(1) { note :C4, :quarter } }
@@ -50,7 +50,7 @@ class TestIRGuardrailInterruptFromCartridge < Minitest::Test
   # what left the interrupt's routine out, so it is not blamed.
   def test_a_small_insisted_routine_that_took_no_part_is_not_named
     err = StringIO.new
-    rom = RubyGBA.build("CROWDED", out: StringIO.new, err: err, profile: false) do
+    rom = RubyGBA.build("CROWDED", console: :gba, out: StringIO.new, err: err, profile: false) do
       screen :bitmap
       enable_sound
       song(:tune) { voice(1) { note :C4, :quarter } }

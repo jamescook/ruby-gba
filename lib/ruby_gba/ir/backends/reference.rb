@@ -167,6 +167,7 @@ module RubyGBA
           @vars = Hash.new(0)      # variable store; an unwritten variable reads as 0
           @funcs = {}              # name -> :func node
           @screen = Framebuffer.new # the fake bitmap screen the draw ops write into
+          @console = Nodes::Program.unbound_console # until a program says which (see #size_screen_for)
           @held = Set.new          # buttons down right now
           @seen = Set.new          # buttons down at the last frame the screen showed
           @pressed = Set.new       # buttons that went down since the last pass took its presses
@@ -318,7 +319,7 @@ module RubyGBA
 
         # The screen is the one the program was built for (Program#described_console): a game laid
         # out on a smaller console's screen is drawn on that screen here too. A tree made by hand
-        # with no program at its root is the Advance's.
+        # with no program at its root is played the way an unbound program is.
         def size_screen_for(node)
           return unless node.kind == :program
 
@@ -900,7 +901,7 @@ module RubyGBA
           @screen_mode = node.mode
           # A tear-free screen is two pages only where the console keeps two; one that only ever
           # shows a picture whole keeps one, and a single paint is on every frame there.
-          @buffered = (node.buffered || false) && (@console.nil? || @console.painted_pages == 2)
+          @buffered = (node.buffered || false) && @console.painted_pages == 2
           @screen.paged = @buffered
           @screen.tint_by_display = tint_by_display? # a tint in force is mixed this screen's way
           @screen.show_in_blocks(painted_screen? ? @block : 1) # the size of a block outlasts the screen it was said on
@@ -2159,7 +2160,7 @@ module RubyGBA
         end
 
         # Does the display mix a tint in as it draws, which only the plain bitmap screen does?
-        def tint_by_display? = painted_screen? && !@buffered && (@console.nil? || @console.blends)
+        def tint_by_display? = painted_screen? && !@buffered && @console.blends
 
         # Turn the blend on or off for the thing about to be painted: on for anything the
         # placed fade reaches, off for anything it leaves alone. A +name+ of nil is the
@@ -3193,7 +3194,7 @@ module RubyGBA
         def clock_keeps_date?
           return @clock_keeps_date unless @clock_keeps_date.nil?
 
-          @console.nil? || @console.clock_keeps_date
+          @console.clock_keeps_date
         end
 
         # SETTING THE CLOCK keeps how far the time set is from the clock's own, to the whole

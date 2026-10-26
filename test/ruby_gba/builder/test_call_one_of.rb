@@ -107,7 +107,7 @@ class TestCallOneOf < Minitest::Test
   # cartridge never moves. Both are reached through the same table, so a build that wrote the
   # cartridge's address for the moved routine would jump into whatever else was there.
   def test_a_routine_in_the_quick_memory_and_one_in_the_cartridge_are_both_reached
-    rom = RubyGBA.build("PICKFAST", code: "BPK2", maker: "01", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("PICKFAST", console: :gba, code: "BPK2", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       moved = var :moved, 0
       left = var :left, 0
@@ -132,7 +132,7 @@ class TestCallOneOf < Minitest::Test
   # length in a register first. 257 is the first length that needs it.
   def test_a_list_longer_than_a_number_can_ride_in_an_instruction
     names = (0...257).map { |i| :"op#{i}" }
-    rom = RubyGBA.build("PICKLONG", code: "BPK4", maker: "01", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("PICKLONG", console: :gba, code: "BPK4", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       n = var :n, 0
       last = var :last, 256
@@ -155,7 +155,7 @@ class TestCallOneOf < Minitest::Test
   # not a broken game, it is a game that quietly lost the speed it was given the memory for.
   # What says which one ran is a measurement: the profile finds the routine where it really is.
   def test_a_routine_picked_by_number_runs_where_it_was_put
-    rom = RubyGBA.build("PICKWHERE", code: "BPK5", maker: "01", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("PICKWHERE", console: :gba, code: "BPK5", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       n = var :n, 0
       which = var :which, 0
@@ -173,7 +173,7 @@ class TestCallOneOf < Minitest::Test
   # A loop around it has to give up the two registers it would otherwise count in, exactly as a
   # plain call does — so this pins that the loop still counts right on the console.
   def test_a_loop_around_it_counts_right_on_the_console
-    rom = RubyGBA.build("PICKLOOP", code: "BPK3", maker: "01", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("PICKLOOP", console: :gba, code: "BPK3", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       passes = var :passes, 0
       hits = var :hits, 0
@@ -368,7 +368,7 @@ class TestCallOneOf < Minitest::Test
   # read out of a table — so the number is worked out as it runs, as a script's would be.
   def dispatch_rom(count, code:, dispatches: DISPATCHES)
     names = (0...count).map { |i| :"op#{i}" }
-    RubyGBA.build("PICKCOST", code: code, maker: "01", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("PICKCOST", console: :gba, code: code, maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       n = var :n, 0
       steps = table :steps, (0...dispatches).map { |i| (i * 37) % count }
@@ -382,7 +382,7 @@ class TestCallOneOf < Minitest::Test
   # every one of them asked on every dispatch.
   def chain_rom(count, code:)
     names = (0...count).map { |i| :"op#{i}" }
-    RubyGBA.build("PICKCHAIN", code: code, maker: "01", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("PICKCHAIN", console: :gba, code: code, maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       n = var :n, 0
       op = var :op, 0

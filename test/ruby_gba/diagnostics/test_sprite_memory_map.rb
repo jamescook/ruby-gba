@@ -35,7 +35,7 @@ class TestSpriteMemoryMap < Minitest::Test
   # eight pictures — 2K + 24K + 16K, too much, so the hero keeps one frame at a time.
   private def harbor
     art = TestSpriteMemoryMap.method(:art)
-    RubyGBA.build("HARBOR", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("HARBOR", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       PICTURES.each_with_index { |name, n| image name, width: 64, height: 64, data: art.call(n) }
       sprite :badge, facing: { still: :art_0 }, at: [0, 0]
@@ -98,7 +98,7 @@ class TestSpriteMemoryMap < Minitest::Test
   def test_sprites_taking_turns_at_shared_rooms_save_nothing
     art = TestSpriteMemoryMap.method(:art)
     poses = PICTURES.first(20)
-    rom = RubyGBA.build("ROOMS", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("ROOMS", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       poses.each_with_index { |name, n| image name, width: 64, height: 64, data: art.call(n) }
       shards = pool :shard, x: 0, y: 0, look: 0, capacity: 3, facing: poses.to_h { |name| [name, name] }
@@ -158,7 +158,7 @@ class TestSpriteMemoryMap < Minitest::Test
   def test_a_build_that_stops_on_sprite_memory_carries_the_map
     art = TestSpriteMemoryMap.method(:art)
     error = assert_raises(GBA::SpriteMemoryFull) do
-      RubyGBA.build("CROWDED", out: StringIO.new, err: StringIO.new) do
+      RubyGBA.build("CROWDED", console: :gba, out: StringIO.new, err: StringIO.new) do
         screen :tiled
         PICTURES.each_with_index { |name, n| image name, width: 64, height: 64, data: art.call(n) }
         sprite :badge, facing: { still: :art_0 }, at: [0, 0]

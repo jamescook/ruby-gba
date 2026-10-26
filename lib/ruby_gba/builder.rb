@@ -48,12 +48,12 @@ module RubyGBA
   # what lets a {#call} refer to a {#func} defined later in the block.
   #
   # @example Minimal ROM
-  #   rom = RubyGBA.build("MYGAME") do
+  #   rom = RubyGBA.build("MYGAME", console: :gba) do
   #     entry { loop_forever }
   #   end
   #
   # @example Draw pixels
-  #   rom = RubyGBA.build("PIXELS") do
+  #   rom = RubyGBA.build("PIXELS", console: :gba) do
   #     screen :bitmap
   #     pixel 120, 80, :red
   #     pixel 121, 80, color("#00FF00")
@@ -100,7 +100,6 @@ module RubyGBA
     # @param progress [RubyGBA::Messages::Progress] what a build says it is doing (see {#progress})
     # @param settings [Hash] what this build was told, read by the game with `setting` (see {Settings})
     def initialize(options: Cartridge::Options.new, progress: Messages::Progress.silent, settings: {})
-      @console = Console.described(options.console)
       @frame_sync = options.frame_sync
       @save_memory = options.save_memory # kilobytes the game named, or nil to let its records decide
       @settings = settings.to_h.transform_keys(&:to_sym)
@@ -188,8 +187,11 @@ module RubyGBA
       # lowers to a ROM. Each statement attaches to the container on top of the
       # stack — the program root, or an open control-flow block (a loop, an if, a
       # func body) while its block runs.
-      # A program built for the Advance says nothing, as one made by hand says nothing.
-      @program = Build.program(console: @console.name == Console::DEFAULT ? nil : @console.name)
+      # The program names the console the options name, and a Builder told none makes an unbound
+      # program (see IR::Nodes::Program). The game is laid out on the screen
+      # the program says it is for.
+      @program = Build.program(console: options.console)
+      @console = @program.described_console
       @container_stack = [@program]
       @shown_while = []        # the conditions open right here, for a declaration that is only presented under them
 

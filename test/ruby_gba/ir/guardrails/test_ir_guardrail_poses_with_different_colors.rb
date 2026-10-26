@@ -109,7 +109,7 @@ class TestIRGuardrailPosesWithDifferentColors < Minitest::Test
   def test_build_stops_with_the_explanation
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("COLORS", out: StringIO.new, err: err) do
+      RubyGBA.build("COLORS", console: :gba, out: StringIO.new, err: err) do
         screen :tiled
         image :left, width: 8, height: 8, data: WARM_ART, colors: WARM
         image :right, width: 8, height: 8, data: COLD_ART, colors: COLD

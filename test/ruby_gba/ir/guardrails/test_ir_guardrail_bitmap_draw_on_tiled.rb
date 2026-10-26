@@ -196,7 +196,7 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
   def test_the_build_stops_and_explains
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("GAP", code: "BGAP", maker: "01", out: StringIO.new, err: err) do
+      RubyGBA.build("GAP", console: :gba, code: "BGAP", maker: "01", out: StringIO.new, err: err) do
         screen :tiled
         image(:blue_t, "#" => :blue) { SOLID_TILE }
         tiles :ground, "#" => :blue_t

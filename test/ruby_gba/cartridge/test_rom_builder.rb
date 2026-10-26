@@ -13,7 +13,7 @@ class TestRomBuilder < Minitest::Test
     # The build's own streams take the debug_halt reminder, rather than catching it off the
     # process. Where a build prints is a thing you pass it, so there is no need to reach for
     # the process's own output — and reaching for it is something a worker may not do.
-    rom = RubyGBA.build("DBGHLT", code: "BDBG", maker: "01", validate: false,
+    rom = RubyGBA.build("DBGHLT", console: :gba, code: "BDBG", maker: "01", validate: false,
                         out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       clear_screen :blue
@@ -27,7 +27,7 @@ class TestRomBuilder < Minitest::Test
   end
 
   def test_build_produces_valid_header
-    rom = RubyGBA.build("TEEKTEST", code: "BTKE", maker: "01") do
+    rom = RubyGBA.build("TEEKTEST", console: :gba, code: "BTKE", maker: "01") do
       halt # lowers to a branch-to-self at the code start
     end
 
@@ -65,7 +65,7 @@ class TestRomBuilder < Minitest::Test
   # program's own first instruction sits where the code starts, with no timing write
   # in front of it.
   def test_a_build_can_keep_the_power_on_cartridge_timing
-    rom = RubyGBA.build("SLOWCART", code: "BSLW", maker: "01", fast_cartridge: false) do
+    rom = RubyGBA.build("SLOWCART", console: :gba, code: "BSLW", maker: "01", fast_cartridge: false) do
       halt
     end
 
@@ -74,7 +74,7 @@ class TestRomBuilder < Minitest::Test
 
   def test_build_embeds_nintendo_logo
     require "digest"
-    rom = RubyGBA.build("LOGOTEST", code: "BLGO", maker: "01") do
+    rom = RubyGBA.build("LOGOTEST", console: :gba, code: "BLGO", maker: "01") do
       entry { loop_forever }
     end
 
@@ -92,7 +92,7 @@ class TestRomBuilder < Minitest::Test
   end
 
   def test_write_creates_file
-    rom = RubyGBA.build("WRITETEST", code: "BWTE", maker: "99") do
+    rom = RubyGBA.build("WRITETEST", console: :gba, code: "BWTE", maker: "99") do
       entry { loop_forever }
     end
 
@@ -136,7 +136,7 @@ class TestRomBuilder < Minitest::Test
   end
 
   def test_title_truncated_to_12_chars
-    rom = RubyGBA.build("LONGERTHANTWELVE", code: "BXXX", maker: "01") do
+    rom = RubyGBA.build("LONGERTHANTWELVE", console: :gba, code: "BXXX", maker: "01") do
       entry { loop_forever }
     end
 
@@ -145,18 +145,18 @@ class TestRomBuilder < Minitest::Test
 
   def test_invalid_game_code_raises
     assert_raises(ArgumentError) do
-      RubyGBA.build("TEST", code: "AB", maker: "01") { entry { loop_forever } }
+      RubyGBA.build("TEST", console: :gba, code: "AB", maker: "01") { entry { loop_forever } }
     end
   end
 
   def test_invalid_maker_code_raises
     assert_raises(ArgumentError) do
-      RubyGBA.build("TEST", code: "ABCD", maker: "X") { entry { loop_forever } }
+      RubyGBA.build("TEST", console: :gba, code: "ABCD", maker: "X") { entry { loop_forever } }
     end
   end
 
   def test_nop_emits_correctly
-    rom = RubyGBA.build("NOPTEST", code: "BNOP", maker: "01") do
+    rom = RubyGBA.build("NOPTEST", console: :gba, code: "BNOP", maker: "01") do
       entry do
         nop
         loop_forever
@@ -170,7 +170,7 @@ class TestRomBuilder < Minitest::Test
 
   def test_header_intact_after_code_emission
     # Verify that emitted code doesn't overwrite the header region (0x00-0xBF)
-    rom = RubyGBA.build("TEEKTEST", code: "BTKE", maker: "01") do
+    rom = RubyGBA.build("TEEKTEST", console: :gba, code: "BTKE", maker: "01") do
       entry { loop_forever }
     end
 

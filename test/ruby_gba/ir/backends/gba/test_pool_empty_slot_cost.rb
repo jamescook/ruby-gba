@@ -15,7 +15,7 @@ class TestPoolEmptySlotCost < Minitest::Test
 
   # Two things live, in a pool declared with +capacity+ slots.
   private def rom(capacity)
-    RubyGBA.build("ROWS", out: StringIO.new, err: StringIO.new, profile: false) do
+    RubyGBA.build("ROWS", console: :gba, out: StringIO.new, err: StringIO.new, profile: false) do
       screen :tiled
       image(:rock, "#" => :white) { Array.new(8) { "#" * 8 }.join("\n") }
       var :where, 0

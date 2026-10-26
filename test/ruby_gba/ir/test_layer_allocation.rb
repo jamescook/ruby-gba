@@ -205,7 +205,7 @@ class TestLayerAllocation < Minitest::Test
   # --- the report ---
 
   def test_the_report_says_what_each_layer_became
-    rom = RubyGBA.build("STACKED", code: "BSTK", maker: "01") do
+    rom = RubyGBA.build("STACKED", console: :gba, code: "BSTK", maker: "01") do
       screen :tiled
       image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
       image(:guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
@@ -230,7 +230,7 @@ class TestLayerAllocation < Minitest::Test
   end
 
   def test_the_report_says_nothing_about_a_stack_a_game_never_declared
-    rom = RubyGBA.build("PLAIN", code: "BPLN", maker: "01") do
+    rom = RubyGBA.build("PLAIN", console: :gba, code: "BPLN", maker: "01") do
       screen :bitmap
       fill_rect 0, 0, 10, 10, :red
       halt

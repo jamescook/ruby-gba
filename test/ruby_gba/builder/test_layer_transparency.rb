@@ -594,7 +594,7 @@ class TestLayerTransparency < Minitest::Test
     tile = SOLID_TILE
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("LAYERS", out: StringIO.new, err: err) do
+      RubyGBA.build("LAYERS", console: :gba, out: StringIO.new, err: err) do
         screen :tiled
         image(:art, "#" => :white) { tile }
         layers :water, :jellyfish

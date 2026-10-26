@@ -154,7 +154,7 @@ class TestIRGuardrailTooManySprites < Minitest::Test
   def test_build_stops_with_the_explanation
     err = StringIO.new
     assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("SPRITES", out: StringIO.new, err: err) do
+      RubyGBA.build("SPRITES", console: :gba, out: StringIO.new, err: err) do
         screen :tiled
         image(:dot, "#" => :white) { "########\n" * 8 }
         520.times { |i| sprite :dot, at: [i % 30 * 8, i / 30 * 8] }

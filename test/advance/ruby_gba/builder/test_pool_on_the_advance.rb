@@ -29,7 +29,7 @@ class TestPoolOnTheAdvance < Minitest::Test
   # A cartridge with a pool :crowd of +capacity+ things of four whole-number fields: 25 bytes
   # a thing, counting the pool's own bookkeeping.
   private def crowd_cartridge(capacity:, **words)
-    RubyGBA.build("CROWD", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("CROWD", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       pool :crowd, x: 0, y: 0, vx: 0, vy: 0, capacity: capacity, **words
       game_loop {}

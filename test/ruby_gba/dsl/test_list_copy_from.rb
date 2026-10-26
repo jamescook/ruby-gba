@@ -43,7 +43,7 @@ class TestListCopyFrom < Minitest::Test
   private def readings(run) = %i[first last held].map { |name| run[name] }
 
   private def on_console(game)
-    rom = RubyGBA.build("COPYFROM", out: StringIO.new, err: StringIO.new, &game)
+    rom = RubyGBA.build("COPYFROM", console: :gba, out: StringIO.new, err: StringIO.new, &game)
     v = assert_emulator_loads_rom(rom, frames: 4, vars: rom.var_addresses)
     %i[first last held].map { |name| v.var(name) }
   end
@@ -80,7 +80,7 @@ class TestListCopyFrom < Minitest::Test
   # letter pictures, eighteen runs, on the frame it opens. Copied a byte at a time that was
   # most of a frame; as a block it is a small part of one.
   def test_eighteen_runs_of_64_bytes_take_a_small_part_of_a_frame
-    rom = RubyGBA.build("LETTERS", out: StringIO.new, err: StringIO.new) do
+    rom = RubyGBA.build("LETTERS", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image(:dot, "#" => :white) { "########\n" * 8 }
       sprite :dot, at: [0, 0]

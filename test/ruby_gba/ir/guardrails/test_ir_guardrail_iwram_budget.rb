@@ -142,7 +142,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
   def test_the_build_stops_on_a_program_past_every_memory
     err = StringIO.new
     error = assert_raises(RubyGBA::ROMError) do
-      RubyGBA.build("BIG", code: "BBIG", maker: "01", out: StringIO.new, err: err) do
+      RubyGBA.build("BIG", console: :gba, code: "BBIG", maker: "01", out: StringIO.new, err: err) do
         screen :bitmap
         list :trail, capacity: 100_000 # ~400KB of slots, past both memories together
         game_loop { wait_vblank }
@@ -156,7 +156,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
   # overflow, never on an ordinary game's handful of vars, lists, and a pool.
   def test_a_realistic_program_builds_unaffected
     err = StringIO.new
-    RubyGBA.build("GAME", code: "BGME", maker: "01", out: StringIO.new, err: err) do
+    RubyGBA.build("GAME", console: :gba, code: "BGME", maker: "01", out: StringIO.new, err: err) do
       screen :tiled
       image(:ufo, "#" => :green) { "########\n" * 8 }
       enemies = pool :enemy, x: 0, y: 0, hp: 3, capacity: 32, image: :ufo

@@ -43,7 +43,7 @@ class TestSongNeedsFramesGuardrail < Minitest::Test
 
   def test_the_build_says_it_out_loud
     err = StringIO.new
-    RubyGBA.build("SILENT", code: "ZSIL", maker: "01", out: StringIO.new, err: err) do
+    RubyGBA.build("SILENT", console: :gba, code: "ZSIL", maker: "01", out: StringIO.new, err: err) do
       enable_sound
       song(:tune) { note :C4, :quarter }
       play_song :tune

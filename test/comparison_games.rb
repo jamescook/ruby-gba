@@ -35,7 +35,7 @@ module ComparisonGames
   # +logo_for+ frames of a black screen ahead of the game, on which the game does not tick.
   # Two walkers with different logos are the same game, out of step from power-on.
   def walker(speed: 2, turns_red_at: 100_000, red_for: 100_000, counts_by: 1, specks: 0, spare_variables: 0, logo_for: 0)
-    RubyGBA.build("WALKER", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("WALKER", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       spare_variables.times { |spare| var :"spare#{spare}", 0 }
       ticks = var :ticks, 0
@@ -74,7 +74,7 @@ module ComparisonGames
   # +specks+ white pixels in a row are drawn on it too, far from any edge: a difference of a
   # known size that IS one at five bits.
   def grey_screen(brightened:, specks: 0)
-    RubyGBA.build("GREY", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("GREY", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       clear_screen(brightened ? rgb(16, 16, 16) : rgb(17, 17, 17))
       specks.times { |speck| pixel SPECK_X + speck, SPECK_Y, :white }

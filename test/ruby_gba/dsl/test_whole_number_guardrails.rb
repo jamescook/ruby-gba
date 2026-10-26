@@ -14,7 +14,7 @@ require "stringio"
 # for, and nothing else in the suite would notice.
 class TestWholeNumberGuardrails < Minitest::Test
   private def build(&block)
-    RubyGBA.build("WHOLE", code: "BWHL", maker: "01", err: StringIO.new, out: StringIO.new, &block)
+    RubyGBA.build("WHOLE", console: :gba, code: "BWHL", maker: "01", err: StringIO.new, out: StringIO.new, &block)
   end
 
   # Each verb, and the words only that verb's message has any business saying.

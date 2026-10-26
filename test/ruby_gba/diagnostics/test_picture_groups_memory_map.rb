@@ -36,7 +36,7 @@ class TestPictureGroupsMemoryMap < Minitest::Test
   # pool of gulls can show any room's.
   private def harbor
     art = TestPictureGroupsMemoryMap.method(:art)
-    RubyGBA.build("HARBOR", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("HARBOR", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :tiled
       PICTURES.each_with_index { |name, n| image name, width: 64, height: 64, data: art.call(n) }
       sprite :badge, facing: { still: :art_0 }, at: [0, 0]
@@ -127,7 +127,7 @@ class TestPictureGroupsMemoryMap < Minitest::Test
   def test_a_set_of_groups_too_big_to_be_up_together_is_named_when_the_build_stops
     art = TestPictureGroupsMemoryMap.method(:art)
     error = assert_raises(GBA::SpriteMemoryFull) do
-      RubyGBA.build("CROWDED", out: StringIO.new, err: StringIO.new) do
+      RubyGBA.build("CROWDED", console: :gba, out: StringIO.new, err: StringIO.new) do
         screen :tiled
         PICTURES.each_with_index { |name, n| image name, width: 64, height: 64, data: art.call(n) }
         rooms = picture_groups :rooms, { 0 => PICTURES[1..10], 1 => PICTURES[11..20] }, up_together: [[0, 1]]
@@ -151,7 +151,7 @@ class TestPictureGroupsMemoryMap < Minitest::Test
   # placed like a chessboard's squares, those of one colour sharing places, so the room the
   # groups take is the pair's and the scene is the pair with the hero and the heart.
   def test_the_busiest_set_of_many_rooms_is_two_rooms
-    rom = RubyGBA.build("ROOMS", out: StringIO.new, err: StringIO.new) { ManyRoomsGame.declare(self) }
+    rom = RubyGBA.build("ROOMS", console: :gba, out: StringIO.new, err: StringIO.new) { ManyRoomsGame.declare(self) }
     play = rom.sprite_memory.screens.find { |screen| screen.scene == :play }
     rooms = play.picture_groups.fetch(0)
     pair = 2 * ManyRoomsGame::ROOM_BYTES
@@ -166,7 +166,7 @@ class TestPictureGroupsMemoryMap < Minitest::Test
   private def full_scene_message(&block)
     art = TestPictureGroupsMemoryMap.method(:art)
     assert_raises(GBA::SpriteMemoryFull) do
-      RubyGBA.build("CROWDED", out: StringIO.new, err: StringIO.new) do
+      RubyGBA.build("CROWDED", console: :gba, out: StringIO.new, err: StringIO.new) do
         screen :tiled
         PICTURES.each_with_index { |name, n| image name, width: 64, height: 64, data: art.call(n) }
         var :state, 0

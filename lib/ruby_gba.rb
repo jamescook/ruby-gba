@@ -91,14 +91,17 @@ module RubyGBA
   # +stack_room+ is how many bytes of the console's quick memory the game's stack is given. Leave it
   # out and the build gives it 1024, or more for a game whose calls nest deeply; every byte held
   # for the stack is one the game's variables, lists and code cannot have.
+  # +console+ is the console the cartridge is for (:gba, :gbc; see {Console::Kit}), and every build
+  # names it: nothing is taken to be for the Advance.
   def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: true,
                  fast_code: true, out: $stdout, err: $stderr, progress: Messages::Progress.silent,
-                 profile: false, settings: {}, save_memory: nil, stack_room: nil, console: Console::DEFAULT, &block)
+                 profile: false, settings: {}, save_memory: nil, stack_room: nil, console: nil, &block)
     # The six that say how the game is built travel as one value from here on (see
     # {Cartridge::Options}), checked now so a setting that cannot be right stops the build first.
     options = Cartridge::Options.new(frame_sync: frame_sync, fast_cartridge: fast_cartridge,
                                      fast_code: fast_code, save_memory: save_memory, stack_room: stack_room,
                                      console: console)
+    refuse_unnamed_console!(title) if options.console.nil?
     # Settle where this build prints BEFORE anything is read or checked, so a caller
     # that named somewhere the build cannot write is told on every build rather than on
     # the one build that finally has a warning to give (see {Messages::BuildOutput}).
@@ -191,6 +194,12 @@ module RubyGBA
     # file this build opened for itself. A stream the caller opened is left alone.
     output&.close
   end
+
+  def self.refuse_unnamed_console!(title)
+    raise ArgumentError, "#{title} names no console to build for. Add `console:` to RubyGBA.build. Use " \
+                         "`console: :gba` for the Game Boy Advance, or `console: :gbc` for the Game Boy Color."
+  end
+  private_class_method :refuse_unnamed_console!
 
   # BUILD IT, RUN IT, BUILD IT AGAIN — which is how the build knows what a game spends its
   # frames on instead of guessing.

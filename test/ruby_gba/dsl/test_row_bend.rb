@@ -466,7 +466,7 @@ class TestRowBend < Minitest::Test
   # through the DSL rather than assembled from a program, because a profile needs the record
   # the build makes — where every routine ended up cannot be recovered from the bytes.
   private def bars_rom(&bend)
-    RubyGBA.build("BEND", code: "BEND", maker: "01", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("BEND", console: :gba, code: "BEND", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image(:bar, "." => :transparent, "#" => :red) { (["##......"] * 8).join("\n") }
       tiles :stripes, "#" => :bar
@@ -477,7 +477,7 @@ class TestRowBend < Minitest::Test
   end
 
   private def four_bends_rom
-    RubyGBA.build("BND4", code: "BND4", maker: "01", out: StringIO.new, err: StringIO.new) do
+    RubyGBA.build("BND4", console: :gba, code: "BND4", maker: "01", out: StringIO.new, err: StringIO.new) do
       screen :tiled
       image(:bar, "." => :transparent, "#" => :red) { (["##......"] * 8).join("\n") }
       tiles :stripes, "#" => :bar

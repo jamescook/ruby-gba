@@ -21,4 +21,24 @@ class TestOptions < Minitest::Test
       assert_equal room, RubyGBA.game("GOODSTACK", consoles: %i[gba], stack_room: room) { halt }.options.stack_room
     end
   end
+
+  # Every build names the console its cartridge is for; nothing is taken to be for the Advance.
+  def test_a_build_that_names_no_console_is_refused
+    error = assert_raises(ArgumentError) { RubyGBA.build("NOCONSOLE", out: nil, err: nil) { halt } }
+
+    assert_match(/NOCONSOLE names no console/, error.message)
+    assert_match(/console: :gba/, error.message)
+  end
+
+  # A console named in a String is the console of that name, and the cartridge is that console's.
+  def test_a_console_named_in_a_string_builds_that_consoles_cartridge
+    { "gba" => RubyGBA::Cartridge::ROM, "gbc" => RubyGBA::Cartridge::GBCROM }.each do |name, kind|
+      rom = RubyGBA.build("STRINGED", console: name, out: nil, err: nil) do
+        screen :bitmap
+        game_loop { pixel 1, 1, :white }
+      end
+
+      assert_instance_of kind, rom, name
+    end
+  end
 end

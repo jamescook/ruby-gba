@@ -232,7 +232,7 @@ class TestSpriteOneFrameAtATime < Minitest::Test
   def test_the_report_tells_sharing_apart_from_keeping_one_frame
     hero = (0...63).map { |n| :"hero_#{n}" }
     art = method(:frame_art)
-    rom = RubyGBA.build("REPORT", code: "BRPT", maker: "01", validate: false,
+    rom = RubyGBA.build("REPORT", console: :gba, code: "BRPT", maker: "01", validate: false,
                         out: StringIO.new, err: StringIO.new) do
       screen :tiled
       hero.each_with_index { |name, n| image name, width: 32, height: 32, data: art.call(n) }
