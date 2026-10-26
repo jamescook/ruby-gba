@@ -1,226 +1,78 @@
 # VBlank
 
-**A Ruby DSL that compiles to real Game Boy Advance ROMs — built as a teaching tool, and written end-to-end by AI.**
+**Write a 2D retro game in plain Ruby, and build it for the consoles it was made for — written end to end by AI.**
 
-The name is the pause after every frame, when the screen has finished drawing and it is safe to change the picture. Every machine a game here runs on has one — the Game Boy Advance, the Game Boy Color, a desktop window, a browser tab — so the name fits whichever of them a game is built for.
+The name is the pause after every frame, when the screen has finished drawing and it is safe to change the picture. Every machine a game here runs on has one, so the name fits whichever of them a game is built for.
 
-You write plain Ruby. `vblank` turns it into an ARM7 cartridge that boots on a real GBA or any emulator. The guiding rule is simple: **you should need to know Ruby, not the hardware.** No VRAM, no DISPCNT, no ARM assembly, no "why is my screen black" — the framework manages the machine and turns the classic footguns into friendly, plain-language errors.
+You write Ruby. VBlank turns it into a cartridge that boots on the real console or in any emulator, and the same game can also be a program for a computer or a page in a browser. It began as a way to learn: **you need to know Ruby, not the hardware.** No video memory, no registers, no assembly, no "why is my screen black" — the framework manages the machine and turns the classic mistakes into plain-language errors. It has since grown into a tool for building real games, and those two aims share the same language. The language is about 2D games today: tiles, sprites, layers and a painted screen.
 
-It is also an experiment in **AI-native tooling**: every line here was written by an AI agent, and the whole toolchain is shaped around giving an agent (and a human) fast, mechanical, readable feedback while building a game.
+It is also an experiment in AI-native tooling: every line was written by an AI agent, and the toolchain is shaped around giving an agent (and a human) fast, readable feedback while building a game.
 
-![Snake, built entirely with the VBlank DSL, running in an emulator](assets/snake.gif)
+![Snake, built with VBlank, running in an emulator](assets/snake.gif)
 
-> The game above is a complete Snake — growing body, random food, scoring, game-over — written in the DSL. Full source: [`examples/snake.rb`](examples/snake.rb).
+> A complete Snake written in VBlank. Source: [`examples/snake.rb`](examples/snake.rb).
+
+## Where a game runs
+
+| Target | Status |
+|---|---|
+| Game Boy Advance | Fairly robust. Every feature works here, and it is what the examples are written for. |
+| Game Boy Color | Underway. Much of the language works; what the Color cannot do is refused at build time, in plain words. |
+| A program for a computer | Works, built from the game as C. The Mac build is played and tested; Windows and Linux builds are made but not yet run on those systems. |
+| A web page | Works, built from the game as JavaScript. One file that opens from a disk or any web server. |
+| Super Nintendo | Planned. |
+
+Every game says which consoles it is for, and a build makes a cartridge for each one.
+
+## A first game
 
 ```ruby
-require_relative "lib/vblank"
+require "vblank"
 
-# A trimmed slice of examples/snake.rb — see that file for the full, commented game.
-# (Grid constants like CELL, MIN_COL, BODY_CAP and the STEP beat are defined there.)
-Snake = VBlank.game("SNAKE", consoles: %i[gba]) do
+Walk = VBlank.game "WALK", consoles: %i[gba gbc] do
   screen :bitmap
-  enable_sound
-  define_sound :eat, frequency: 880, duty: :quarter, decay: :fast
-
-  # The snake's body is two parallel lists (xs[i], ys[i]), one entry per cell.
-  # `list` is a bounded, runtime-sized collection — a ring buffer in IWRAM.
-  xs = list :xs, capacity: BODY_CAP
-  ys = list :ys, capacity: BODY_CAP
-
-  var :state, 0
-  dx = var :dx, 1
-  dy = var :dy, 0
-  food_x = var :food_x, 0
-  food_y = var :food_y, 0
-  score  = var :score, 0
-
-  func :spawn_food do
-    roll :food_x, MIN_COL..MAX_COL      # a deterministic PRNG stream (seed / roll / rand)
-    roll :food_y, MIN_ROW..MAX_ROW
-  end
-
-  func :step_snake do
-    hx = xs.last + dx                   # arithmetic on list cells + handles
-    hy = ys.last + dy
-    # Hit a wall -> game over; else grow a new head and either eat or slide forward.
-    ((hx < MIN_COL) | (hx > MAX_COL) | (hy < MIN_ROW) | (hy > MAX_ROW)).then do
-      state.set! 2
-      beep :die
-    end.else do
-      xs.push hx; ys.push hy
-      draw_rect_at hx * CELL, hy * CELL, CELL, CELL, :white
-      ((hx == food_x) & (hy == food_y)).then do    # ate the food: grow + score
-        score.add! 1; beep :eat; call :spawn_food
-      end.else do
-        xs.shift; ys.shift                          # slid forward: drop the tail
-      end
-    end
-  end
-
-  scene :playing do
-    # Steer if the turn is perpendicular (the full file buffers it so you can't reverse).
-    held(:up).then    { (dy == 0).then { dx.set! 0; dy.set!(-1) } }
-    held(:right).then { (dx == 0).then { dx.set! 1; dy.set! 0 } }
-    every(STEP) { call :step_snake }    # move on a beat, not every frame
-  end
+  x = var :x, 40
+  y = var :y, 40
 
   game_loop do
-    case_var :state do
-      when_val 1, :playing              # title (0) + game_over (2) omitted — see full file
-    end
+    held(:left).then  { x.sub! 1 }
+    held(:right).then { x.add! 1 }
+    held(:up).then    { y.sub! 1 }
+    held(:down).then  { y.add! 1 }
+
+    clear_screen :black
+    draw_text "WALK", :center, 8, :white
+    draw_rect_at x, y, 8, 8, :yellow
   end
 end
 
-Snake.write_if_main   # `ruby snake.rb` writes snake.gba; guardrails run at build time
-```
-
-Every game says which consoles it is for — `consoles: %i[gba]` for the Game Boy Advance alone, `%i[gba gbc]` for the Game Boy Color too — and a game that says nothing does not build. A build makes a cartridge for each console the game names. Build it and run it in any GBA emulator:
-
-```bash
-ruby examples/snake.rb             # => writes snake.gba
-vblank build examples/snake.rb     # the same, via the CLI (adds -o / --console / --profile / --stats)
-rake test                          # unit + emulator integration tests (builds the emulator first)
-```
-
----
-
-## Design pillars
-
-### Teaching tool first — hide the hardware
-
-Every user-facing verb speaks intent and color *names*, never registers or jargon. `screen :bitmap`, `draw_rect_at`, `beep :eat`, `clear_screen :black`. The framework owns the palette, VRAM layout, VBlank timing, and DMA. Sensible, safe defaults (edge-clipping, safe writes) mean nothing corrupts memory or silently fails — and a **raw escape hatch** stays available for anyone who *wants* to drop down to the metal.
-
-It also fixes the hardware defaults a real game has to fix and a first-timer never knows about — the console reads the cartridge at its slowest, safest speed at power-on, so every ROM asks for the quicker timing before it runs a line of your code. Pass `fast_cartridge: false` to keep the cautious one.
-
-### Guardrails — footguns become teaching errors
-
-The worst part of learning the GBA is that mistakes rarely tell you *what* went wrong. A wrong register, a draw that runs off-screen, an 8-bit store into 16-bit-only memory — and you get a silent black screen, or garbled visuals, or memory corruption that surfaces somewhere unrelated, or a ROM that works in one emulator and hangs on real hardware. The failure is almost never next to its cause. So known footguns are caught at **build time** and explained in plain language: *drew something but never set a screen mode*, *game loop that never waits for the screen*, *a draw that lands entirely off-screen*, *a comparison used as a native Ruby `if`*. Fatal problems stop the build so a broken ROM can't ship; advisories print and let it through. Fixes are **suggested, never silently applied**. The check registry is **extensible** — a feature or plugin can register its own guardrails.
-
-### The value-centric DSL — why it matters
-
-`var :dx, 1` returns a **handle**, and comparisons build a small expression tree rather than executing immediately:
-
-```ruby
-(hy > MAX_ROW).then { state.set! 2 }         # a Condition, not a Ruby `if`
-ate = (hx == food_x) & (hy == food_y)        # comparisons composed with &
-xs.push xs.last + dx                         # arithmetic on handles and list cells
-```
-
-This matters because those handles and comparisons are **data the compiler can see**. `xs.last + dx` isn't run — it's recorded, so it can be validated, optimized, and lowered to whatever the target needs. It also lets guardrails catch the `if`-instead-of-`.then` slip (a comparison used as a native Ruby `if` silently does nothing on hardware) and gives every operand one consistent, checkable shape.
-
-### The IR — one description, many targets
-
-The DSL does **not** emit ARM directly. Each verb builds a node in an in-memory **intermediate representation** (IR) — a plain-Ruby, inspectable op-tree. A separate pass validates it, then a **backend** consumes it: one *lowers* it to an ARM7 ROM, another *interprets* it in Ruby to a framebuffer (used for headless tests and as the reference oracle), a third writes it out as C and builds it into a program for a computer (see [Playing on a computer](#playing-on-a-computer)), and a fourth writes the same statements as JavaScript for a web page (see [Playing in a browser](#playing-in-a-browser)). A **cross-backend conformance fixture** keeps them honest against shared reference semantics (`IR::Int32`, signed 32-bit).
-
-This adds a layer of machinery, and it earns it: forward references (branches, calls, scene jumps) resolve automatically in a two-pass lowering instead of hand-rolled offset math; whole-program passes like register allocation and constant-pooling become possible; guardrails inspect the whole program *before* a byte is emitted; and — the big one — **new targets are new backends, not a rewrite of the language.** Nodes are tagged **portable vs hardware-only**, which is what made the web target tractable and keeps the terminal and GBC ones so.
-
-### Effect packs — add verbs without touching the compiler
-
-The DSL is extensible. A **pack** is a module of verbs you register, and from then on they're ordinary DSL verbs — a game writes them next to `fill_rect` and can't tell which is which:
-
-```ruby
-module Juice
-  def flash_corner(color)          # plain DSL verbs, no receiver — like a `func` body
-    fill_rect 0, 0, 20, 20, color
-  end
-
-  def self.checks = [MyCheck.new]  # the pack's own guardrails, active only while it's loaded
-end
-
-VBlank.register_effects(Juice)
-VBlank::Effects.register(:wash) { |c| clear_screen c }   # or a single verb, inline
-```
-
-The one rule at the seam: **a pack composes public verbs; it never builds IR or touches hardware.** That isn't taste. A verb built from public verbs bottoms out in things every backend already runs, so it works on the console *and* in the reference interpreter the day you write it — no per-backend lowering, no conformance fixture to extend. Anything lower is **kernel** and gets baked in properly.
-
-**Rule of thumb:** a kernel primitive is a new thing the machine can *do*; a pack is a new way to *use* what it already does. New capability → kernel. New convenience → pack. If writing it means opening a file under `ir/backends/`, it was never a pack. Effects tend to come in **pairs** across that line:
-
-| kernel primitive | the pack on top of it |
-|---|---|
-| `camera` — move the whole picture | `shake_screen` — jitter it, then put it back |
-| `fade` — blend the picture toward a color | `fade_in` / `fade_out` — walk the amount over frames |
-
-Screen shake is the worked example, and it ships as a default pack. Moving the picture at all is kernel — `camera` is an IR node with a real lowering on each backend. *Shaking* is not: it's `camera` called with a jittering offset, four variables and a routine that runs each frame. So `shake_screen` lives in a pack written in the same verbs a game is, and neither backend knows the file exists — copy `lib/vblank/effects/packs/screen_shake.rb` to write your own. The rule is enforced, not just documented: a test reads the pack sources and fails one that builds IR or names a hardware register.
-
-### `rom.profile` — see the work, measured
-
-```ruby
-rom.profile                        # what the build made, then where the frames actually went
-rom.profile(scene: :playing)       # hold the game in one screen and measure that
-rom.profile(from: "boss.state")    # measure a moment you played to and saved
-```
-
-Two halves, and neither answers the question alone.
-
-**What the build made** is read off the finished build and cannot drift: how big each routine came out, which ones fit in the console's 32K of quick memory and which missed, what a routine that missed wanted and what was left when its turn came, its most repeated line, and whether that looks like a helper emitted at every call site. None of it survives into a running cartridge — by then the decisions are made and the evidence is gone, which is why a profiler cannot produce it.
-
-**What it cost** comes from running the cartridge: which of your routines the console really spent its frames in, the rate it produced, and how much of each frame was left over. It samples the program counter every instruction and puts those addresses back against the routines you wrote, so nothing is predicted and nothing can be wrong about a loop it could not see through. It counts the time each instruction took as well as how often it ran, because the two part company at a copy into video memory: the console stops the processor until a copy is done, so a routine that sends a screenful of pictures runs a dozen instructions and can take most of a frame. Each routine's line says both shares. And it says when a pass of the game loop ended a few lines after the break between pictures began: that pass waits for the next break, so a game loses a whole picture for those few lines, and the rate alone cannot say why.
-
-The same measurement is also a **build decision**: a build runs the game and uses what it learns to choose which routines to keep in the quick memory, where the same code runs about 2.3x faster.[^fast] Measured on a Wolfenstein port, choosing that way rather than from the shape of the program took idle time per frame from 26.0% to 38.7% on identical work.
-
-Tearing is split the same way. Whether a game **can** tear is a fact about the screen it chose — one that draws straight into the picture the display is reading can, a double-buffered or tiled one cannot, however slow it is — so the build says it. Whether one that can **does** is a race between the display's row and the game's, and the run settles it by holding what the display showed against what the game had finished drawing.
-
-This framework used to ship a cost *estimator* instead: a frame priced in scanlines against a budget, with a verdict of fits or tears. It was a second statement of what the hardware costs, kept in step with the backend by hand, so every mispricing was a bug — 169 of the repo's first 567 commits touched it. It has been deleted in favour of the above.
-
-[^fast]: How much quicker, why, and how the build chooses what goes there: [`placement.rb`](lib/vblank/ir/backends/gba/placement.rb). `rom.profile` prints what it chose, how much room is left, and what did not fit.
-
-### Playing on a computer
-
-A game can also be built as a program for a computer, with a window, the keyboard as the console's buttons, and its sound — one file that needs nothing installed beside it:
-
-```bash
-vblank build examples/pong.rb --format=native                   # for this computer
-vblank build examples/pong.rb --format=native --target windows  # 64-bit Windows (pong-windows.exe)
-vblank build examples/pong.rb --format=native --target linux    # 64-bit Linux; also linux-arm
-```
-
-The game is written out as C and compiled with [zig](https://ziglang.org) (installed through mise), which carries the C library of every system it builds for and compiles [SDL3](https://libsdl.org) and [Dear ImGui](https://github.com/ocornut/imgui) from source for each, so a Mac builds the Windows and Linux programs with nothing else installed. The first build takes a while because it compiles SDL; every build after reuses it.
-
-**The window has a menu and keys of its own, which the game never sees.** Move the mouse (or press F1) and a menu comes up over the picture: the window's size and fullscreen, the volume, which key and gamepad button is each console button, and the keys below. They start as P to pause and resume, N to step one frame while paused, Tab to fast forward while held, F11 for fullscreen, M to mute and F3 to show or hide the frame rate in the corner; no console button is on any of them. What the menu changes is kept in a small text file you can edit by hand, `settings.txt`, in the folder your computer has for the program's own files: one for every game, and one for each game that wins over it (`--settings-file PATH` uses a file of your own). How it all works and what it costs: [`doc/research/desktop-window.md`](doc/research/desktop-window.md).
-
-**The Windows and Linux programs have not yet been run on those systems.** They are built and checked to be programs for the computer asked for; the Mac build is the one that is played and tested. A Mac program can only be built on a Mac.
-
-`rake test` plays every test's game as C as well as on the cartridge, replaying each game and comparing every frame's picture and sound with the interpreter, so a feature is not done until the C build has it too (`rake test:lowering:native` plays only that side).
-
-### Playing in a browser
-
-A game can also be built as one web page that plays it in a browser — the keyboard, a controller or buttons on a phone's screen as the console's buttons, sound, and saves kept between visits. The page holds everything it needs, so it opens from a disk or any web server:
-
-```bash
-vblank build examples/pong.rb --format=web   # pong.html, beside the game
-vblank preview examples/pong.rb              # serve it; every reload builds it again from the file
-```
-
-`preview` is the quick loop while you work: edit the game, reload the page. It shows the game as the framework understands it, so check the cartridge too before shipping.
-
-A page of your own, the game as a module for your site or a bundler, and the game's options are described at the top of [`lib/vblank/ir/backends/js.rb`](lib/vblank/ir/backends/js.rb).
-
-`rake test` plays every test's game this way too, under [node](https://nodejs.org), and compares every frame with the interpreter (`rake test:lowering:js` plays only that side).
-
-### Playing on a Game Boy Color
-
-A game can be built for the Game Boy Color too. It says so where it is named, and lays itself out from the screen it is being built for, `screen_width` and `screen_height`, rather than from 240 and 160:
-
-```ruby
-VBlank.game "PONG", consoles: %i[gba gbc] do
-  paddle_x = screen_width - 12
-  # ...
-end
+Walk.write_if_main
 ```
 
 ```bash
-vblank build examples/pacman.rb                 # pacman.gba and pacman.gbc, beside the game
-vblank build examples/pacman.rb --console gbc   # pacman.gbc alone
-vblank play examples/pacman.rb --console gbc --script walk.rb   # play, profile and compare need --console for a game of two
+vblank new pong                            # write a starter game to pong.rb
+vblank build walk.rb                       # walk.gba and walk.gbc, beside the game
+vblank build walk.rb --console gbc         # the Color's cartridge alone
+vblank build walk.rb --format=native       # a program for this computer
+vblank build walk.rb --format=web          # walk.html
+vblank preview walk.rb                     # play it in a browser; every reload rebuilds it
 ```
 
-When the Color cannot play a game that names it, `build` still writes the Advance's cartridge, says why the Color's was not made, and ends as a failure; take `:gbc` out of `consoles:` if the game is not for the Color.
+`vblank` also plays a game from a script with nobody at the controls (`play`), finds where two builds of a game start to differ (`compare`), and measures where a cartridge's frames go (`profile`). `vblank help` lists every command.
 
-The Color is a smaller machine: a 160×144 screen, eight buttons, one background, forty sprites and ten on a row of the screen, and lists of four colours. What every verb does there is decided once, in `Console::ColorAnswers`, and written out in [`.claude/dsl/game-boy-color.md`](.claude/dsl/game-boy-color.md): it **works**, or it is **refused** in plain words before anything is made, naming the hardware the Color lacks (a turning background, a recording, the shoulder buttons). Nothing is shown differently. A painted screen works too, holding four colours at once; fades and tints move the Color's colours, the only way it has. `examples/pacman.rb` builds for both consoles. `examples/pong.rb` zooms its title on a turning screen, so it is the Advance's alone, and `examples/pong_gbc.rb` is the same game changed for the Color. `rake test` plays both on the Color against the interpreter, frame by frame (`rake test:lowering:gbc`).
+## How it works
 
-### Testing a game on every lowering
+**Mistakes become teaching errors.** The worst part of learning an old console is that a mistake rarely says what went wrong — you get a black screen, or garbled pictures, or a crash far from its cause. VBlank checks the game before it builds and says what happened and how to fix it: *drew something but never chose a screen*, *a game loop that never waits for the screen*, *a comparison used as a Ruby `if`*. A serious problem stops the build; a smaller one prints a warning. Fixes are suggested, never made silently.
 
-A game's own tests can do the same, with the library's test helper. In the game's test helper (minitest is in the game's Gemfile):
+**One description of the game, many targets.** The language does not write machine code as it goes. Each verb records what the game does, and the whole game is checked before anything is made. A backend then turns that description into its target: an Advance cartridge, a Color cartridge, C, or JavaScript. A Ruby interpreter runs the same description too, and it is the answer every target is tested against. A new console is a new backend, not a new language.
+
+**Add verbs without touching the compiler.** A game can register a module of its own verbs, written in the same verbs it already uses, and from then on they read like the built-in ones. Because such a verb is made only of other verbs, it works on every target the day it is written. Screen shake and fades ship this way: see [`lib/vblank/effects/packs/`](lib/vblank/effects/packs/).
+
+**See where the time went.** `rom.profile` (or `vblank profile game.rb`) shows what the build made and where a running cartridge spent its frames, routine by routine, measured in the emulator rather than estimated. The build uses the same measurement to choose which routines go in the console's fastest memory.
+
+## Testing a game
+
+A game's tests play it through the library's test helper, and each test runs on every target the game is for, compared frame by frame against the interpreter:
 
 ```ruby
 require "vblank/testing"
@@ -228,278 +80,28 @@ require "vblank/testing"
 class Minitest::Test
   include VBlank::Testing
 end
-```
 
-and in a test, play the game through `game_player`, the same calls on either side:
-
-```ruby
 def test_holding_right_walks
-  played = game_player.hold(:right).run(MyGame::GAME.program, frames: 6)
-  assert_equal 6, played[:x]
+  played = game_player.hold(:right).run(Walk.program, frames: 6)
+  assert_equal 46, played[:x]
 end
 ```
 
-In the game's Rakefile:
-
-```ruby
-require "vblank/testing/rake_tasks"
-
-VBlank::Testing::RakeTasks.new do |t|
-  t.test_files = FileList["test/**/test_*.rb"]   # the default
-end
-```
-
-To check the cartridge itself against the interpreter, include `VBlank::Testing::Pictures` as well and ask for the same picture:
-
-```ruby
-def test_the_title_screen_draws_on_the_console
-  assert_backends_agree(MyGame::GAME.program, frames: 4, keys: [:start])
-end
-```
-
-It builds the cartridge, plays it in the emulator with the same buttons held, and compares every one of the 38,400 pixels with the interpreter's picture at the matching moment. `frames:` takes a list too (`frames: [2, 4, 6]`, or `1..20` for every frame of the first twenty), and each is compared. A difference fails the test with how many pixels differ, the first few by place and colour, and a map of the screen marking where. `backend_pictures` hands back both pictures instead, for a difference that is known and not yet fixed. It needs the ruby-gba-emulator gem in the game's Gemfile (the block under "Status", below); without it the test stops and says what to add. On the native and JavaScript sides there is no cartridge, so the same line checks the game as C, or as JavaScript, against the interpreter on every frame instead.
-
-`rake test` then plays every test three times, one run after the other: on the interpreter, which is what the cartridge is checked against; as C; and as JavaScript — where every frame of every game is compared with the interpreter and a difference fails that test, naming the frame. A game built for the Color too (`consoles: %i[gba gbc]` where it is named) says the same in its Rakefile, `t.consoles = %i[gba gbc]`, and gets a fourth run, as a Game Boy Color cartridge; a Rakefile that says nothing is for the Advance alone and has no Color run. It ends with a line for each. `rake test:lowering:gba`, `rake test:lowering:native`, `rake test:lowering:js` and (for the Color) `rake test:lowering:gbc` play one side, and each takes `TEST=` for one file. The native side needs zig 0.17, and the JavaScript side node 18 or later. Both play their tests in several processes rather than Ractors, since each test starts a program. A test that only one side can play goes in a folder that side owns (`t.lowering_folders = { native: ["test/native"] }`), and `skip_on_native "why"` or `skip_on_js "why"` skips one test on that side, which counts its skips by reason at the end.
-
-A game whose Rakefile keeps its own `rake test`, or a task for each group of its tests, makes only the runs it wants, under its own names, with `VBlank::Testing::TestTask`. That is rake's own test task told which lowering it is for, and it defines nothing else:
-
-```ruby
-require "vblank/testing/test_task"
-
-namespace :test do
-  namespace :native do
-    VBlank::Testing::TestTask.new(:items) do |t|
-      t.lowering = :native
-      t.libs = %w[game/lib test]
-      t.test_files = FileList["test/items/**/test_*.rb"]
-    end
-  end
-end
-```
-
-`rake test:native:items` then plays that group as C, played the way the native side always is. None of its settings reach a task run after it in the same rake call.
-
-### Future targets
-
-The backend split is deliberate. Planned peers of the ARM, C and JavaScript backends, all reusing the same IR:
-
-- **Terminal (TTY)** — render the framebuffer as half-block ANSI; run a game in any terminal, even over SSH.
-
----
-
-## Built by AI, for AI-assisted development
-
-This entire tool is AI-written, and the workflow is designed so an agent can iterate safely and fast:
-
-- **Tight, mechanical feedback loops.** The Ruby interpreter renders the IR headlessly (no emulator needed), a pixel Verifier reads back actual frames, guardrails give plain-language pass/fail at build time, and `rom.profile` emits machine-readable per-routine measurements an agent can reason over. An agent can build → validate → run → diff → profile without leaving Ruby.
-- **Mechanical safety rails.** An IR verifier enforces the value model on every build (a malformed tree is a *library* bug, raised loudly); the conformance fixture diffs backends so a change can't silently break one target.
-- **A checked-in codebase map.** This project uses [understand-anything](https://github.com/Egonex-AI/Understand-Anything) to generate a map of the codebase, kept in `.ua/`.
-
----
-
-## Feature progress
-
-A rough map of the GBA surface. Checked = working today; unchecked = planned (tracked in `bd`).
-
-**Working**
-
-- [x] Bitmap display — Mode 3, 240×160, 15-bit color
-- [x] Drawing — pixels, rectangles, DMA fills, screen clear
-- [x] Bitmap images + runtime `blit` (transparency, edge-clipping; ASCII-art or array)
-- [x] Text + live `draw_number` — two built-in fonts, and on a tiled screen each character is drawn for you as a glyph sprite
-- [x] Value-centric expression DSL — `.then`/`.else`, `&`/`|`, integer division
-- [x] Control flow — `func`/`call`, `scene`/`case_var`, `game_loop`, `repeat`
-- [x] Scenes / screens — a game is a state machine of scenes; each **owns what it draws** (a scene's sprites/HUD show only while it's active), plus per-scene display mode
-- [x] Input — D-pad + buttons (`held` / `pressed`)
-- [x] Double-buffering — tear-free Mode 4 page-flip (`screen :bitmap, tear_free: true`) + auto-managed palette
-- [x] Hardware sprites / OAM — poses (`facing:`), flipbook animation (`frames:` / `rate:`), stacking, sprite/tile collision
-- [x] Sprite rotation + scaling — `face_angle` / `turn` / `scale`, done by the console's affine hardware
-- [x] Tiled backgrounds (Mode 0) — text or CSV maps, scrolling, stacked parallax layers
-- [x] Rotozoom backgrounds — a whole tiled layer that turns and resizes as one piece (`screen :rotozoom`), for a zooming title screen or a spinning race track; sprites already do both
-- [x] Layers — name the stack once (`layers :sky, :world, :ui`), then say where a thing belongs; one layer can be see-through
-- [x] Screen effects — `fade` / `tint` / `flash_screen` / `fade_out` / `fade_in`; a fade can be placed *in* the stack (dim the game, keep the HUD) or held to a rectangle of the screen (`inside:` / `outside:`), and `pixelate` / `pixelate_out` / `pixelate_in` break the picture into blocks
-- [x] Lights — `spotlight` (a lantern in a cave), and `iris_out` / `iris_in` closing a circle on a point between scenes, done by the console's window hardware
-- [x] Menus — `menu` with rows, a cursor, held-button repeat, rows that open and shut, and rows whose words change
-- [x] Camera — `camera`, `camera_follows` (the follow-you camera), `shake_screen`, `pulse`
-- [x] Row-by-row bends — `background.scroll_each_row` gives every row its own offset: rippling water, heat haze, a screen melting
-- [x] Sound — four PSG channels (music, SFX, noise, wave) + multi-voice songs (`song`/`voice`, `beep`, `noise`, `wave`)
-- [x] Sampled PCM audio (Direct Sound / DMA sound) — `sample` / `instrument`, WAV import, mixer refilled once per frame
-- [x] Deterministic randomness — `seed` / `roll` / `rand` / `chance` / `randomize`
-- [x] Timing + motion — `every` / `after`, `approach`, plus free-running hardware `timer`s with `on_tick`
-- [x] VBlank-IRQ frame timing — `game_loop` paces itself at one pass per frame, sleeping the CPU on the BIOS interrupt wait rather than busy-waiting
-- [x] Numbers with a fraction — write a Float and the fixed point is managed for you, multiplies and divides included
-- [x] Runtime collections — `list`, `pool` (many of a component, without desyncing parallel lists), `grid`, and build-time `table` lookups in ROM
-- [x] Save / load persistence — `save_var` (saved on change), and `save_data` records of variables, lists and pools saved when the game says so, several copies each, written in the background; on battery-backed memory, flash or an EEPROM, sized by the build
-- [x] Asset pipeline — PNG → tiles / sprites / animation frames, CSV tilemaps → backgrounds, and native `.aseprite` files read straight (layers, frames, palette, named animations — no export step)
-- [x] Fonts — built-in + register your own (`font` from glyph art)
-- [x] Guardrails (extensible registry) + build-time validation, findings traced to the DSL line
-- [x] Effect packs — register your own DSL verbs (and their guardrails); four ship by default (screen shake, screen fade, follow camera, pulse)
-- [x] `rom.profile` — what the build made, and what it cost when it ran
-- [x] Playthroughs — play a cartridge from a script with nobody at the controls, record what was pressed as a tape, and compare two cartridges frame by frame to find where they drift
-- [x] IR + four backends (GBA lowering, reference interpreter in pure Ruby, C for a desktop program, JavaScript for a browser) with a conformance fixture + portability tagging
-- [x] A program for a computer — `--format=native`, for this Mac or built for Windows and Linux (see [Playing on a computer](#playing-on-a-computer))
-- [x] A page for a browser — `--format=web`, and `vblank preview` to play a game in a tab that rebuilds on every reload (see [Playing in a browser](#playing-in-a-browser))
-- [x] CLI — `vblank build / preview / profile / play / compare / inspect / new` (Thor): per-command help, typed options, friendly errors
-
-**Planned / Ideas**
-
-- [ ] Tiled TMX import (maps bigger than the console's grid already work, from text or CSV)
-- [ ] More motion verbs — lerp / wrap / bounce / snap
-- [x] Target-neutral draw layer (decouple draw intent from the framebuffer)
-- [ ] A layer shown only inside a box the game moves, and a light shaped by a sprite (the rest of the console's windows)
-- [x] CLI `preview` — run a game in the browser (JS backend)
-- [x] JS / `<canvas>` backend (web target + live preview)
-- [ ] Terminal (TTY) and Game Boy Color backends
-
----
+In the game's Rakefile, `require "vblank/testing/rake_tasks"` and `VBlank::Testing::RakeTasks.new` give it a `rake test` that does this. The comments in [`lib/vblank/testing/`](lib/vblank/testing/) describe the rest.
 
 ## Examples
 
-Every example under [`examples/`](examples/) is a complete, runnable game or demo
-that teaches **one pattern** — the code *is* the documentation. Each file's header
-comment explains the hardware it touches and, where there's a choice, *why it took
-its approach over the alternatives*. Build any of them with `ruby examples/<name>.rb`
-(or `vblank build examples/<name>.rb`).
+Every file in [`examples/`](examples/) is a complete game or demo that teaches one idea, and its header comment explains the hardware it touches. Build any of them with `ruby examples/<name>.rb`. Good places to start:
 
-| Example | Teaches | How it draws |
-|---|---|---|
-| [`pong.rb`](examples/pong.rb) | Paddle/ball bounce, AABB `overlaps?` collision, scoring, music + SFX, a title `menu` over a zooming backdrop | Direct Mode 3 game, whole frame redrawn; the title on `screen :rotozoom` |
-| [`pong_gbc.rb`](examples/pong_gbc.rb) | `pong.rb` changed for the Game Boy Color: laid out from `screen_width`, the title still | Painted screen; the title on `screen :tiled` |
-| [`breakout.rb`](examples/breakout.rb) | A whole grid of `overlaps?` bricks, lives, angle-on-paddle-hit | Tear-free (double-buffered), whole frame redrawn |
-| [`snake.rb`](examples/snake.rb) | A growing `list` body, an `every` movement beat, live score | Direct Mode 3, **only the changed cells** redrawn |
-| [`snake_buffered.rb`](examples/snake_buffered.rb) | The *same* game written the naïve way and still tear-free | Double-buffered, whole board redrawn each frame |
-| [`raycaster.rb`](examples/raycaster.rb) | A first-person view of a maze, drawn the Wolfenstein way. Positions, ray steps and wall distances all hold fractions (write a Float and the fixed point is managed for you); the sine curve and the map are build-time `table`s in ROM | Direct Mode 3, one fill per screen column |
-| [`pacman.rb`](examples/pacman.rb) | The tiled-mode flagship: a tiled room, `facing:` poses, sprite-to-sprite `overlaps?` (eat pellets, dodge a chasing ghost), a live on-screen SCORE (`draw_text`/`draw_number` in tiled mode), sound | Tiled background + hardware (OAM) sprites, HUD as glyph sprites |
-| [`hero.rb`](examples/hero.rb) | A follow-you camera: a hardware sprite pinned to screen center while a world bigger than the screen scrolls under it (`background.scroll_to`) | Scrolling tiled background + a hardware sprite over it |
-| [`sprite_mover.rb`](examples/sprite_mover.rb) | Steering a single sprite over a kept background | A software sprite over a preserved bitmap |
-| [`animate.rb`](examples/animate.rb) | A flipbook `sprite` (`frames:` / `rate:`) — a spinning coin you can also walk | A software sprite cycling its frames on a hidden timer |
-| [`tiles.rb`](examples/tiles.rb) | A room built from reusable 8×8 tiles + a text map (`tiles` / `background`) | Tiled background, drawn by the tile hardware |
-| [`scroll.rb`](examples/scroll.rb) | Panning a camera over a world bigger than the screen (`background.scroll_by`, wraps at the edge) | Tiled background, scrolled by the tile hardware |
-| [`parallax.rb`](examples/parallax.rb) | Two background layers (far clouds, near trees) scrolling at different speeds to fake depth | Stacked tiled layers, composited + independently scrolled |
-| [`lake.rb`](examples/lake.rb) | Water that ripples: every row of a layer gets its own sideways offset (`scroll_each_row`), read from a sine table that travels a little each frame. Plus a named layer stack and half-see-through jellyfish drifting over it | Tiled layers, bent row by row by the display itself |
-| [`bird.rb`](examples/bird.rb) | Art straight from a native `.aseprite` file — layers, frames and palette read with no export step — and a sprite that tilts (`face_angle`) and drifts nearer and further (`pulse`) at once | Tiled: one hardware sprite through the console's rotate/scale hardware |
-| [`maze.rb`](examples/maze.rb) | A hero that walks corridors and is stopped by the walls (`tiles solid:`, `sprite.blocked_by`) | Tiled room + a hardware sprite with tile collision |
-| [`sheet.rb`](examples/sheet.rb) | Art imported from PNG files: a tile sheet paints the room, a transparent sprite sheet animates the hero (`tiles from:` / `sprite frames_from:`) | Tiled room + a hardware sprite, both imported from images |
-| [`level.rb`](examples/level.rb) | A level designed in a map editor: import the whole tile sheet as numbered tiles, then read the room straight from a CSV export (`tiles from:` / `background from:`) | Tiled room from a CSV tilemap + a hardware sprite |
-| [`shmup.rb`](examples/shmup.rb) + [`shmup/`](examples/shmup) | A game **split across files** with real **scenes**: `player.rb`, `enemies.rb`, `hud.rb` are plain Ruby objects that take the build — no base class, no magic. Ship, diving enemies, per-pixel shot hits, a live HUD, and a **PLAYING → GAME OVER → restart** flow where losing the last ship hides the field and shows the game-over screen (no visibility flags) | Tiled: hardware sprites + text HUD + per-pixel collision, scene-scoped |
-| [`piano.rb`](examples/piano.rb) | The sampled-sound showcase: two hands playing a tune from ONE recorded note, re-pitched across the keyboard by `instrument`, with three voices sounding together through the software mixer | Tiled: hands and key-lights as hardware sprites over a keyboard background |
-| [`jukebox.rb`](examples/jukebox.rb) | The PSG sound showcase: three classical tunes written as plain notes (`song` / `note`) — Ode to Joy played two-handed with a `voice :melody` over a `voice :bass` — a cursor that picks one to play and loop, and bobbing "now playing" bars | Tear-free (double-buffered) bitmap menu |
+- [`pong.rb`](examples/pong.rb) — paddles, a ball, collision, scoring, music and a title menu.
+- [`pacman.rb`](examples/pacman.rb) — a tiled maze, sprites, a chasing ghost and a live score; it builds for the Advance and the Color.
+- [`breakout.rb`](examples/breakout.rb) — a wall of bricks, lives and scenes on a screen that never tears.
+- [`shmup.rb`](examples/shmup.rb) — a game split across files, with a play, game-over and restart flow.
+- [`raycaster.rb`](examples/raycaster.rb) — a first-person maze, drawn the Wolfenstein way.
 
-Newer showcases: [`dive.rb`](examples/dive.rb) + [`dive/`](examples/dive) (a game where
-several awkward features meet: a turning disc of sunlight, see-through water, one fish
-picture in six species' colours, an air gauge), [`meadow.rb`](examples/meadow.rb) (a map
-far bigger than the console's grid, and a cabin door that pixelates the room out and back
-in), [`cave.rb`](examples/cave.rb) (a lantern `spotlight`, and an iris out of the cave),
-[`corridor.rb`](examples/corridor.rb) (a first-person crawl that uses most of each frame on
-purpose), [`sparks.rb`](examples/sparks.rb) (a `pool` of particles) and
-[`rotozoom_bg.rb`](examples/rotozoom_bg.rb) (a background that turns and resizes).
+## Using it in a game
 
-Smaller demos round out the surface: [`pixels.rb`](examples/pixels.rb) (static
-drawing), [`grid_cursor.rb`](examples/grid_cursor.rb) (a `grid` with a moving
-cursor), [`buffered_bounce.rb`](examples/buffered_bounce.rb), and the font demos
-[`fonts.rb`](examples/fonts.rb) / [`font_styles.rb`](examples/font_styles.rb) /
-[`floating_digits.rb`](examples/floating_digits.rb).
-
-### Scenes — a game is a state machine of screens
-
-A real game has screens: a title, the game itself, a game-over card. Model each as a
-`scene`, hold the current one in a variable, and `case_var` runs exactly one per frame:
-
-```ruby
-var :state, PLAYING
-
-scene :playing do
-  ship = sprite :ship, at: [112, 132]     # belongs to :playing
-  draw_number :score, 46, 4, :yellow       # so does the HUD
-  # ... move, shoot, collide ...
-  (lives <= 0).then { set! :state, GAME_OVER }
-end
-
-scene :game_over do
-  draw_text "GAME OVER", 93, 68, :red       # shown only on this screen
-  pressed(:start).then { set! :state, PLAYING }
-end
-
-game_loop do
-  case_var(:state) { when_val PLAYING, :playing; when_val GAME_OVER, :game_over }
-end
-```
-
-The point: **a scene owns what it draws.** A sprite or HUD element declared inside a scene
-is on screen only while that scene is active — so switching state switches the whole
-screen, with no "hide this" flag anywhere. (Declare something at the top level instead and
-it shows in every scene — a persistent HUD.) A scene can also be a class in its own file
-(construct it inside its `scene` block) and can run in its own display mode. Worked
-example: [`shmup.rb`](examples/shmup.rb) (PLAYING → GAME OVER → restart).
-
-### Choosing how to draw a moving thing
-
-The examples above deliberately solve the same kind of problem more than one way.
-Which to reach for:
-
-- **A sprite** (`sprite :hero, at: [x, y]`) — when a thing moves over a background
-  you want to keep. The *same* handle works two ways, picked by the screen: on
-  `screen :bitmap` it's a software sprite that saves and restores the pixels
-  underneath (so it leaves no trail and you never clear the screen — but *don't* use
-  one in a game that clears and repaints the whole screen every frame, since it
-  repaints itself before your scene draws and the clear would wipe it; see
-  `sprite_mover.rb`); on `screen :tiled` it's a hardware sprite the console
-  composites over the background for free, which also stacks cleanly and has none of
-  that clear-order caveat (see `pacman.rb`, `hero.rb`). Either way two sprites collide
-  for free (`hero.overlaps?(coin)`), since each knows its own size.
-- **A plain `box` + `draw_rect_at`** — when you already redraw the frame, or the
-  thing isn't sprite-shaped. Collision is the same `overlaps?`. (see `pong.rb`, `breakout.rb`)
-- **Redraw only what changed** — in direct Mode 3, repaint just the few cells that
-  moved instead of the whole screen. The most work per frame, but it stays at 60fps
-  and never tears. (see `snake.rb`)
-- **Tear-free double-buffering** (`screen :bitmap, tear_free: true`) — when you'd
-  rather just clear and repaint *everything* and not think about tearing, at the cost
-  of frame rate if you draw a lot. (see `snake_buffered.rb`, `breakout.rb`)
-
----
-
-## Project layout
-
-```
-lib/vblank/
-  builder.rb, builder/*      # the DSL surface, split by concern (drawing, input, sound, ...)
-  dsl/                       # what a game names: Value, Condition, Sprite, List, Pool, ...
-  audio/, graphics/          # the sound and music model; colours, fonts, images
-  effects/                   # effect packs: verbs built from other verbs (screen fade, shake, ...)
-  ir/
-    node.rb, build.rb        # the IR op-tree + constructors
-    int32.rb, portability.rb # reference semantics; portable vs hardware-only tags
-    guardrails/              # the check registry + individual footgun checks
-    backends/gba*            # lower IR -> ARM7 ROM (gba/asm.rb is the ARM encoder)
-    backends/reference*      # interpret IR -> framebuffer (headless oracle)
-    backends/native*         # write IR as C, built by zig into a desktop program
-    backends/js*             # the same statements as JavaScript, for a web page (and node, for tests)
-  console/                   # the console's hardware: addresses, registers, flags
-  cartridge/                 # cartridge bytes: ROM assembly, header, game code, validation
-  diagnostics/               # reading a built or running cartridge back: Verifier, Profiler, BuildReport
-  playthroughs/              # playing a cartridge with nobody at the controls; tapes; comparisons
-  messages/                  # how a build talks while it builds: progress, plain-language findings
-examples/                    # runnable games + demos (see the Examples section above)
-assets/                      # captured GIFs / screenshots
-```
-
-## Status
-
-Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites (rotated and scaled), scrolling, bending and turning backgrounds, a named layer stack, screen effects and lights, four-channel and sampled sound, saves, and the asset pipeline are all in (see `examples/`). Every example builds as a program for a computer (`ruby tools/native_examples.rb` checks them all) and as a web page, and both are checked against the interpreter frame by frame. The Mac program is the one that is played; the Windows and Linux ones are built but not yet run on those systems. The terminal and Game Boy Color backends are still planned. The current proving ground is a Wolfenstein 3D port ([ruby-wolf3d](https://github.com/jamescook/ruby-wolf3d)) — a real game in its own repository that depends on this one as a gem, which is what's surfacing most of the framework gaps that still need closing.
-
-**A game is written in Ruby, and the framework that reads it is Ruby.** What a build needs beyond that depends on what it makes:
-
-| To… | you need |
-|---|---|
-| build a cartridge (`.gba`) | Ruby only |
-| run a game on the interpreter (headless tests) | Ruby only |
-| build a web page, or `vblank preview` | Ruby to build it, a browser to play it |
-| build a program for a computer | zig 0.17, which compiles the C and SDL3 |
-| import a picture from a PNG | ImageMagick (`.aseprite` files are read in Ruby) |
-| test a game as JavaScript | node 18 or later |
-| check or measure a cartridge | the `ruby-gba-emulator` gem: a C compiler and libmgba |
-
-Anything that reads what a ROM *actually did* runs it in an emulator through **`ruby-gba-emulator`**, a separate gem (in this repository, under `ruby-gba-emulator/`) binding libmgba. It is deliberately not a dependency of this gem, so somebody who only builds cartridges installs no compiler; add it to your Gemfile when you want to verify or profile one:
+Building a cartridge needs only Ruby. Checking or measuring one runs it in an emulator, through the `ruby-gba-emulator` gem, which lives in this repository but is not a dependency, so somebody who only builds cartridges needs no C compiler. Add both to a game's Gemfile in one block:
 
 ```ruby
 git "https://github.com/jamescook/vblank.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
@@ -508,8 +110,17 @@ git "https://github.com/jamescook/vblank.git", glob: "{,ruby-gba-emulator/}*.gem
 end
 ```
 
-**One block for both**, because both gems live in that one repository. Writing them as two separate `gem ... github:` lines looks equivalent and is not: bundler counts `glob:` as part of a git source's identity, so that is two sources — but the directory it clones into is named from the URL alone, so they race into one directory and the clone fails outright on a cold cache. One block is one source, one clone, and the two gems can never land on different commits.
+Keep it as one block. Two separate `gem ... github:` lines look the same but are two sources that clone into one folder, and the clone fails.
 
-Two things use it: the pixel read-back the tests assert on, and `rom.profile` — which is also what a build runs to decide what to keep in the quick memory. (How you install libmgba varies by platform, and most dev setups have a C compiler already.)
+| To… | you need |
+|---|---|
+| build a cartridge, or run a game in the interpreter | Ruby |
+| build a web page, or `vblank preview` | Ruby, and a browser to play it |
+| build a program for a computer | zig 0.17 |
+| import a picture from a PNG | ImageMagick (`.aseprite` files are read in Ruby) |
+| test a game as JavaScript | node 18 or later |
+| check or measure a cartridge | `ruby-gba-emulator`: a C compiler and libmgba |
 
-A build with no emulator still works: it falls back to choosing from the shape of the program, and the report says which of the two happened rather than leaving you to guess.
+## Status
+
+Pre-1.0. Full games work end to end on the Game Boy Advance, and the computer and browser builds are checked against it frame by frame. The Game Boy Color is catching up. The proving grounds are ports of real games, each in its own repository, which find most of the gaps still to close: a Wolfenstein 3D port, [ruby-wolf3d](https://github.com/jamescook/ruby-wolf3d), and a port of The Legend of Zelda: The Minish Cap, which is underway and not public yet.
