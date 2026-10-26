@@ -142,6 +142,7 @@ module RubyGBA
             store_word_immediate(OBJ_HIDDEN_WORD, scratch)
             emit_start_copy_engine(from: scratch, to: OAM_START, control: @framebuffer.dma_fill_control(OAM_SIZE / 4))
             emit_clear_draw_run_copies
+            emit_clear_held_table
           end
 
           # The routine that writes the sprites nothing moves, and the two things remembered
@@ -226,6 +227,7 @@ module RubyGBA
             by_scene.each { |group| emit_scene_sprites(group) }
             emit_refresh_still_sprites
             @layout.draw_runs.each { |run| emit_copy_draw_run(run) }
+            emit_copy_held_table
           end
 
           # EVERY SPRITE OFF FOR A FRAME (see Builder::Sprites#hide_sprites).
@@ -388,7 +390,7 @@ module RubyGBA
             next_row = gensym
             emit_number(TMP, list + run.members - 1)
             emit_number(ADDR, list - 1)
-            emit_number(SPARE, OAM_START + (run.first_slot * 8))
+            emit_number(SPARE, oam_slot(run.first_slot, 0))
             place_label(next_sprite)
             emit(ASM.ldrb_offset(ACC, TMP, 0))            # which sprite goes next
             emit(ASM.sub_imm(TMP, TMP, 1))
@@ -421,6 +423,133 @@ module RubyGBA
               emit_start_copy_engine(from: var_addr(:_oam_clear), to: run.staging,
                                      control: @framebuffer.dma_fill_control(run.slots * 2))
             end
+          end
+
+          # MORE ROWS THAN THE CONSOLE'S TABLE HOLDS.
+          #
+          # The console draws its sprites from 128 rows, and every sprite is given a row while the
+          # cartridge is built — a pool one for every thing it can hold, so three pools of sixty
+          # need 180 although a room shows a handful. A game with more than 128 keeps all of them
+          # in a bigger copy of the table, in the roomy memory, and every sprite writes its row
+          # there exactly as it would have written the console's. Before each frame the rows that
+          # show something are copied into the console's table one after another, front to back
+          # (see #emit_held_table_routine): so what has to fit in 128 is one frame's sprites, as
+          # in the console's own games, which build their table each frame from what they draw.
+          #
+          # THE ORDER HOLDS. The console puts a lower row in front, and the copy keeps every row
+          # in the order the build gave it, only closing up the gaps the hidden ones leave.
+          #
+          # MORE SHOWING THAN 128: the frontmost 128 are drawn, and the rest are left out for that
+          # frame and counted (LEFT_OUT, which a profile reports). Every other backend draws them
+          # all — it has no table to run out of.
+          #
+          # +rows+ is how many rows the build handed out, +copy+ where the bigger table is, and
+          # +came_from+ a half a console row saying which row of the copy is in it this frame, so
+          # a reader of the running cartridge can say whose sprite each one is.
+          HeldTable = Data.define(:rows, :copy, :came_from) do
+            def row_address(slot) = copy + (slot * 8)
+          end
+
+          HELD_TABLE_ROUTINE = Messages::MadeNames.make(:held_sprite_table)
+          # How far into the console's table the last frame's copy reached, so the rows past this
+          # frame's are hidden only as far as there was anything to hide.
+          HELD_SHOWN_TO = :__held_sprites_shown_to
+          # How many rows were left out because the console's table was full, since power-on.
+          LEFT_OUT = :__sprites_left_out
+
+          # The bigger table for +rows+ rows, or nil when they fit in the console's own. +alloc+
+          # claims roomy memory, given how much and what for.
+          def self.plan_held_table(rows, alloc:)
+            return nil if rows <= MAX_SPRITES
+
+            HeldTable.new(rows: rows, copy: alloc.call(rows * 8, "where more sprites than the console draws are kept"),
+                          came_from: alloc.call(MAX_SPRITES * 2, "which sprite each row of the console's table is"))
+          end
+
+          # Every row of the copy hidden, at power-on, as the console's own table is.
+          def emit_clear_held_table
+            held = @layout.held_sprites or return
+
+            emit_start_copy_engine(from: var_addr(:_oam_clear), to: held.copy,
+                                   control: @framebuffer.dma_fill_control(held.rows * 2))
+            store_word_immediate(OAM_START + OAM_SIZE, var_addr(HELD_SHOWN_TO))
+            store_word_immediate(0, var_addr(LEFT_OUT))
+          end
+
+          def emit_copy_held_table
+            @call_cold_routine.call(HELD_TABLE_ROUTINE) if @layout.held_sprites
+          end
+
+          # THE COPY INTO THE CONSOLE'S TABLE. Each row of the copy is looked at in turn, and one
+          # that is not hidden has its first three halves copied to the next row of the console's,
+          # and its own number noted beside it; past the console's last row, it is counted
+          # instead. The fourth half of each row is left alone: it belongs to the table's groups
+          # for turning sprites, which are counted by place, not by sprite. Then the console's
+          # rows past the last one copied are hidden, as far as last frame's copy reached.
+          #
+          # A hidden row is one with its first half's two "how it is drawn" bits saying hidden and
+          # not turning (OBJ_HIDDEN_ATTR0 with the rotate/scale bit clear).
+          #
+          #   r1  the row of the copy being looked at     r5  its number
+          #   r2  where the copy ends                      r6  rows left out this frame
+          #   r3  the console's row being written         r7  scratch
+          #   r4  where its number is noted                r8  where the console's table ends
+          def emit_held_table_routine
+            held = @layout.held_sprites or return
+
+            look = gensym
+            full = gensym
+            passed = gensym
+            hide = gensym
+            hidden = gensym
+            emit(ASM.loop_forever) # fall-through guard: only ever entered by the call
+            place_label(HELD_TABLE_ROUTINE)
+            emit(ASM.push(4, 5, 6, 7, 8, 14))
+            emit_number(TMP, held.copy)
+            emit_number(SPARE, held.copy + (held.rows * 8))
+            emit_number(HIGH, OAM_START)
+            emit_number(4, held.came_from)
+            emit(ASM.load_immediate(5, 0))
+            emit(ASM.load_immediate(6, 0))
+            emit_number(8, OAM_START + OAM_SIZE)
+            place_label(look)
+            emit(ASM.load_halfword(ACC, TMP))
+            emit(ASM.and_imm(7, ACC, OBJ_ROTSCALE | OBJ_HIDDEN_ATTR0))
+            emit(ASM.cmp_imm(7, OBJ_HIDDEN_ATTR0))
+            emit_branch(:bcond, passed, cond: :eq)
+            emit(ASM.cmp_reg(HIGH, 8))
+            emit_branch(:bcond, full, cond: :hs)
+            emit(ASM.store_halfword(ACC, HIGH))
+            [2, 4].each do |half|
+              emit(ASM.load_halfword_offset(ACC, TMP, half))
+              emit(ASM.store_halfword_offset(ACC, HIGH, half))
+            end
+            emit(ASM.store_halfword(5, 4))
+            emit(ASM.add_imm(HIGH, HIGH, 8))
+            emit(ASM.add_imm(4, 4, 2))
+            emit_branch(:b, passed)
+            place_label(full)
+            emit(ASM.add_imm(6, 6, 1))
+            place_label(passed)
+            emit(ASM.add_imm(TMP, TMP, 8))
+            emit(ASM.add_imm(5, 5, 1))
+            emit(ASM.cmp_reg(TMP, SPARE))
+            emit_branch(:bcond, look, cond: :ne)
+            load_var(ACC, LEFT_OUT)
+            emit(ASM.add_reg(ACC, ACC, 6))
+            store_var(ACC, LEFT_OUT)
+            load_var(7, HELD_SHOWN_TO)
+            store_var(HIGH, HELD_SHOWN_TO)
+            emit_number(ACC, OBJ_HIDDEN_ATTR0)
+            place_label(hide)
+            emit(ASM.cmp_reg(HIGH, 7))
+            emit_branch(:bcond, hidden, cond: :hs)
+            emit(ASM.store_halfword(ACC, HIGH))
+            emit(ASM.add_imm(HIGH, HIGH, 8))
+            emit_branch(:b, hide)
+            place_label(hidden)
+            emit(ASM.pop(4, 5, 6, 7, 8, 15))
+            place_label(:"#{HELD_TABLE_ROUTINE}_end")
           end
 
           # The routine that writes one scene's moving sprites (see GBA#prepare_scene_sprites).
@@ -799,7 +928,10 @@ module RubyGBA
             place_label(done)
           end
 
-          def oam_slot(first, piece) = OAM_START + ((first + piece) * 8)
+          def oam_slot(first, piece)
+            held = @layout.held_sprites
+            held ? held.row_address(first + piece) : OAM_START + ((first + piece) * 8)
+          end
 
           # Where the part of a sprite's third word a frame decides is held while its pieces are
           # written. One variable serves every sprite, since each is done before the next.

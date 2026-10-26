@@ -19,56 +19,46 @@ module RubyGBA
       # look wrong, rather than a date that looks right and is not.
       QUESTIONS = %i[present set].freeze
 
-      # THE CHIP'S COUNT, which a game never reads: the framework reads it to keep a clock the game
-      # set (Builder::Clocks). The whole days since 2000-01-01 and the seconds into the day, as the
-      # chip counts them whatever date it says — a chip whose battery ran out counts from
-      # 2000-01-01, as every chip starts — and 1 when it has counted on since the console was last
-      # on, which a chip whose battery ran out has not. With no chip, each is 0.
+      READINGS = (TIME + QUESTIONS).freeze
+
+      # WHAT A GAME CAN SET THE CLOCK TO, each held to its range before it reaches any backend, so
+      # that every one is given the same date. The years are the ones a clock keeps: two digits
+      # of them, from 2000. A day past the end of its month is held to the last day of it as well
+      # (see DSL::Clock#set_to), so no backend is asked to keep a date that does not exist.
+      SET_RANGES = Ractor.make_shareable({ year: 2000..2099, month: 1..12, day: 1..31,
+                                           hour: 0..23, minute: 0..59, second: 0..59 })
+      SET_PARTS = SET_RANGES.keys.freeze
+
+      # A TIME THE GAME SETS IS KEPT AS HOW FAR IT IS FROM THE CLOCK'S OWN, and every reading has
+      # that added on; the clock itself is left as it is, since where it comes from is a
+      # backend's own business and not every source of the time can be changed. Kept in two of
+      # the game's own saved numbers, so it is there the next time the game is switched on, on
+      # every backend alike.
       #
-      # Retail games kept their clock this way on both consoles. Pokemon Emerald never writes a
-      # date into the Advance's chip: its save keeps how far the time the player set is from the
-      # chip's count. Pokemon Crystal does the same on the Color, whose chip counts days and keeps
-      # no date at all.
-      #
-      # A CHIP THAT KEEPS NO DATE (Console::Description#clock_keeps_date) counts its days from
-      # whenever it started, not from 2000-01-01, and has no date or time to give a game that never
-      # set one: every TIME reading of it is 0, and so is set?, until the game sets the clock. A
-      # test's chip of that kind starts counting on the day it names, at the time of day it names.
-      COUNT = %i[days seconds counting].freeze
-
-      READINGS = (TIME + QUESTIONS + COUNT).freeze
-
-      # A GAME THAT SETS THE CLOCK reads a number of the framework's for each of its readings and
-      # for set?, worked out once a pass from the chip's count and the time it set, by the
-      # framework's two routines (Builder::Clocks). A fact about the program, so a check reading it
-      # (Guardrails::Checks::ClockNeverAsked) knows those numbers for the readings they are.
-      SHOWN = (TIME + [:set]).to_h { |reading| [reading, :"__clock_shown_#{reading}"] }.freeze
-      ROUTINES = %i[__clock_readings __clock_at_power_on].freeze
-
-      # ...and what it keeps in its save: how far the time set is from the chip's count, in days
-      # and in seconds, and whether it set one — a fact a lowering reads too, since a chip that can
-      # count only so many days has whole days moved out of it into this record before it fills.
-      RECORD = %i[days seconds set].to_h { |part| [part, :"__clock_record_#{part}"] }.freeze
-
-      # The first day the count starts from, and the seconds in a day.
-      EPOCH = Time.utc(2000, 1, 1).freeze
-      DAY = 86_400
+      # IN TWO PARTS, whole days and the seconds left over (0 up to a day), because a century of
+      # seconds is more than one number holds. Every backend works the parts out the same way, so
+      # a backend checked against another reads the same two numbers.
+      OFFSET_DAYS = :__clock_offset_days
+      OFFSET_SECONDS = :__clock_offset_seconds
+      OFFSETS = [OFFSET_DAYS, OFFSET_SECONDS].freeze
+      SECONDS_A_DAY = 86_400
 
       module_function
 
+      # Whether +program+ ever sets the clock, which is when a backend adds the offset on.
+      def sets_clock?(program) = program.walk.any? { |node| node.kind == :set_clock }
+
       # +reading+ of a clock at +time+ — a Time, or nil for no clock at all — that was set when
-      # +set+ is true. A clock that keeps no date (+dated+ false) counts its days from the date
-      # it +started+ at.
+      # +set+ is true.
       #
       # The time is read as the date and the hour it SAYS, with no time zone: a clock holds the
       # local time it was set to and moves one second a second, through a change to summer time
       # and out of one. So a Time a test gives is taken at its word, and moving it on never makes
       # an hour appear or vanish.
-      def reading(reading, time, set:, started: time, dated: true)
+      def reading(reading, time, set:)
         return 0 unless time
         return 1 if reading == :present
-        return counted(reading, time, set, dated ? EPOCH : started) if COUNT.include?(reading)
-        return 0 unless set && dated
+        return 0 unless set
 
         case reading
         when :set then 1
@@ -85,69 +75,22 @@ module RubyGBA
         Time.utc(time.year, time.month, time.day, time.hour, time.min, time.sec + time.subsec) + seconds
       end
 
-      # The chip's count at +time+: its days since the date of +from+, its seconds, or whether it
-      # counted on (+set+).
-      def counted(reading, time, set, from)
-        case reading
-        when :days then (Time.utc(time.year, time.month, time.day) - Time.utc(from.year, from.month, from.day)).div(DAY)
-        when :seconds then (time.hour * 3600) + (time.min * 60) + time.sec
-        else set ? 1 : 0
-        end
-      end
-
-      # THE CALENDAR, AS A PROGRAM EVERY BACKEND RUNS: the days since 2000-01-01 of the date
-      # +year+, +month+ and +day+, as an IR value. Each argument makes a fresh node every time it
-      # is called, since a node has one place in the tree. The month is 1 to 12 and the day
-      # counts on from the 1st, so a day past the end of its month is a day of the next.
+      # A CHIP THAT KEEPS NO DATE (Console::Description#clock_keeps_date), the Color's, counts only
+      # the days and the time of day since it started. Its own time is taken as that many days on
+      # from 1 January 2000, so a time the game sets is kept as how far it is from that, as on
+      # every clock. A test's chip of that kind starts counting on the day +started+ names; this
+      # is its own time at +time+.
       #
-      # It counts from a year that starts in March, which puts the 29th of February last: then a
-      # month's first day is (153 * months since March + 2) / 5 into the year, and a year is 365
-      # days, one more every 4 years, one less every 100 and one more every 400, the 400 years
-      # always 146097 days. (Howard Hinnant's days_from_civil.)
-      def days_from_civil(year, month, day)
-        b = Build
-        march = -> { b.binop(:<=, month.call, b.int(2)) } # 1 for January and February
-        y = -> { b.binop(:-, year.call, march.call) }
-        era = -> { b.binop(:/, y.call, b.int(400)) }
-        yoe = -> { b.binop(:-, y.call, b.binop(:*, era.call, b.int(400))) }
-        since_march = b.binop(:-, b.binop(:+, month.call, b.int(9)), b.binop(:*, b.int(12), b.binop(:>, month.call, b.int(2))))
-        doy = b.binop(:+, b.binop(:/, b.binop(:+, b.binop(:*, b.int(153), since_march), b.int(2)), b.int(5)),
-                      b.binop(:-, day.call, b.int(1)))
-        doe = b.binop(:+, b.binop(:-, b.binop(:+, b.binop(:*, yoe.call, b.int(365)), b.binop(:/, yoe.call, b.int(4))),
-                                  b.binop(:/, yoe.call, b.int(100))), doy)
-        b.binop(:+, b.binop(:*, era.call, b.int(146_097)), b.binop(:-, doe, b.int(DAYS_TO_EPOCH)))
+      # With no date of its own to give, it reads as never set until the game sets it: every
+      # reading is 0 until there is an offset to add (see #undated_set?).
+      def undated(time, started)
+        days = (Time.utc(time.year, time.month, time.day) - Time.utc(started.year, started.month, started.day)) / SECONDS_A_DAY
+        Time.utc(2000, 1, 1, time.hour, time.min, time.sec + time.subsec) + (days.round * SECONDS_A_DAY)
       end
 
-      # From the first day of that count, 0000-03-01, to 2000-01-01.
-      DAYS_TO_EPOCH = 730_425
-
-      # THE DATE OF +days+ since 2000-01-01, the other way: statements that set +into+[:year],
-      # [:month], [:day] and [:weekday] (variable names), working in the variables +work+ names
-      # (:era, :doe, :yoe, :doy, :mp). +days+ makes a fresh node each call. 2000-01-01 was a
-      # Saturday, day 6 of the week. (Howard Hinnant's civil_from_days.)
-      def civil_from_days(days, into:, work:)
-        b = Build
-        v = ->(name) { b.var_ref(work.fetch(name)) }
-        z = -> { b.binop(:+, days.call, b.int(DAYS_TO_EPOCH)) }
-        [b.set(into.fetch(:weekday), b.binop(:%, b.binop(:+, days.call, b.int(6)), b.int(7))),
-         b.set(work.fetch(:era), b.binop(:/, z.call, b.int(146_097))),
-         b.set(work.fetch(:doe), b.binop(:-, z.call, b.binop(:*, v.call(:era), b.int(146_097)))),
-         b.set(work.fetch(:yoe),
-               b.binop(:/, b.binop(:-, b.binop(:+, b.binop(:-, v.call(:doe), b.binop(:/, v.call(:doe), b.int(1460))),
-                                                b.binop(:/, v.call(:doe), b.int(36_524))),
-                                   b.binop(:/, v.call(:doe), b.int(146_096))), b.int(365))),
-         b.set(work.fetch(:doy),
-               b.binop(:-, v.call(:doe), b.binop(:-, b.binop(:+, b.binop(:*, b.int(365), v.call(:yoe)),
-                                                            b.binop(:/, v.call(:yoe), b.int(4))),
-                                                b.binop(:/, v.call(:yoe), b.int(100))))),
-         b.set(work.fetch(:mp), b.binop(:/, b.binop(:+, b.binop(:*, b.int(5), v.call(:doy)), b.int(2)), b.int(153))),
-         b.set(into.fetch(:day), b.binop(:+, b.binop(:-, v.call(:doy), b.binop(:/, b.binop(:+, b.binop(:*, b.int(153), v.call(:mp)),
-                                                                                         b.int(2)), b.int(5))), b.int(1))),
-         b.set(into.fetch(:month), b.binop(:-, b.binop(:+, v.call(:mp), b.int(3)),
-                                           b.binop(:*, b.int(12), b.binop(:>=, v.call(:mp), b.int(10))))),
-         b.set(into.fetch(:year), b.binop(:+, b.binop(:+, v.call(:yoe), b.binop(:*, v.call(:era), b.int(400))),
-                                          b.binop(:<=, b.var_ref(into.fetch(:month)), b.int(2))))]
-      end
+      # Whether a chip that keeps no date reads as set: it counts on (+running+, its own answer)
+      # and the game set a time on it, which is an offset of anything but nought.
+      def undated_set?(running, offset_days, offset_seconds) = running && !(offset_days.zero? && offset_seconds.zero?)
     end
   end
 end

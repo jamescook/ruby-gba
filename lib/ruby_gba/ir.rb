@@ -5,6 +5,7 @@ require_relative "ir/program_error" # a game that goes wrong, as every backend s
 require_relative "ir/faults" # ...and the sentence it is said in
 require_relative "ir/buttons"
 require_relative "ir/clock" # what a game reads of the date and time, on every backend
+require_relative "ir/clock_calendar" # ...and the calendar a cartridge adds a time the game set on with
 require_relative "ir/screen"
 require_relative "ir/frames" # how many frames a pass of the game loop took
 require_relative "ir/node"  # what every node can do; names no kind

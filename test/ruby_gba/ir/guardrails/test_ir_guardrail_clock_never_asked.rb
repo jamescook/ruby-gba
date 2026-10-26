@@ -40,35 +40,4 @@ class TestIRGuardrailClockNeverAsked < Minitest::Test
 
     refute_match(/clock/, warnings)
   end
-
-  # A game that sets the clock reads numbers the framework keeps, and the framework's own
-  # routines read every reading and both questions: none of that counts as the game asking.
-  def test_a_game_that_sets_the_clock_and_never_asks_is_warned
-    warnings = build_warnings do
-      screen :bitmap
-      hour = var :hour, 0
-      game_loop do
-        now = clock
-        pressed(:a).then { now.set!(year: 2030, month: 1, day: 1, hour: 9, minute: 0, second: 0) }
-        hour.set! now.hour
-      end
-    end
-
-    assert_match(/clock\.set\?/, warnings)
-    assert_match(/test_ir_guardrail_clock_never_asked\.rb:\d+/, warnings)
-  end
-
-  def test_a_game_that_sets_the_clock_and_asks_is_not_warned
-    warnings = build_warnings do
-      screen :bitmap
-      hour = var :hour, 0
-      game_loop do
-        now = clock
-        pressed(:a).then { now.set!(year: 2030, month: 1, day: 1, hour: 9, minute: 0, second: 0) }
-        now.set?.then { hour.set! now.hour }
-      end
-    end
-
-    refute_match(/clock/, warnings)
-  end
 end

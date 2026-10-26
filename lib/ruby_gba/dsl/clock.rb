@@ -48,24 +48,38 @@ module RubyGBA
       # ask the player to set it rather than show a date that is not today.
       def set? = Condition.new(@builder, IR::Build.clock(:set))
 
-      # SET THE CLOCK to the date and time a game worked out — from a screen of its own that asked
-      # the player, however it likes; the framework draws nothing for it. Each is a number or a
-      # Value. Every reading after the next wait for the screen is that time, moving on a second a
-      # second, and so is every reading after the console is turned off and on again.
+      # SET THE CLOCK to a date and time, each a number or a {Value} the game works out — the
+      # player's choice on a screen that asks, say. The readings are that moment at once, and
+      # move on from it; `set?` is true from then on. On a cartridge with no clock it does
+      # nothing, and every reading stays 0.
       #
-      # As the console's own games did it, nothing is written into the clock chip: the game's save
-      # keeps how far the time set is from the chip's count, so a game that sets the clock has
-      # save memory. A day past the end of its month runs into the next, and so does a month past
-      # 12 into the next year, as a calendar counts. set? holds from then on, while the chip goes
-      # on counting; a chip whose battery runs out loses the time set with its own.
+      #   now.set_to(year: 2026, month: 10, day: year_day, hour: 9, minute: 30)
       #
-      #   now.set!(year: 2026, month: picked_month, day: picked_day, hour: 9, minute: 0, second: 0)
-      def set!(year:, month:, day:, hour:, minute:, second:)
-        parts = { year: year, month: month, day: day, hour: hour, minute: minute, second: second }
-        @builder.set_clock(parts.transform_values { |part| Value.node_for(part) })
+      # Each is held to what a clock can keep: the year to 2000-2099, the day to the days its
+      # month has. The day of the week follows from the date.
+      def set_to(year:, month:, day:, hour:, minute:, second: 0)
+        given = { year: year, month: month, day: day, hour: hour, minute: minute, second: second }
+        held = IR::Clock::SET_RANGES.to_h { |part, range| [part, number(given.fetch(part)).clamp(range.min, range.max)] }
+        held[:day] = held[:day].clamp(1, days_in_month(held[:year], held[:month]))
+        @builder.record_clock_set(IR::Build.set_clock(**held.transform_values(&:node)))
+        nil
       end
 
       private
+
+      def number(given) = given.is_a?(Value) ? given : Value.new(@builder, Value.node_for(given))
+
+      # 1 when the two are equal and 0 when not, as a number to work with rather than a test.
+      def one_if_equal(a, b) = Value.new(@builder, IR::Build.binop(:==, a.node, Value.node_for(b)))
+
+      # How many days +month+ of +year+ has. The months alternate thirty-one and thirty from
+      # January, starting again at August, which is what the bit test says; February takes two
+      # off that, or one in a leap year. Every fourth year between 2000 and 2099 is one.
+      def days_in_month(year, month)
+        february = one_if_equal(month, 2)
+        leap = one_if_equal(year % 4, 0)
+        ((month + (month >> 3)) & 1) + 30 - (february * (leap * -1 + 2))
+      end
 
       def reading(name) = Value.new(@builder, IR::Build.clock(name))
     end

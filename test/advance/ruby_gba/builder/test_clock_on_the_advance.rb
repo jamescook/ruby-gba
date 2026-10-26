@@ -5,7 +5,7 @@ require "test_helper"
 # THE DATE AND TIME THE ADVANCE'S CLOCK CHIP KEEPS, read by the game with nothing set. The chip the
 # Advance's cartridges carry holds the date, so a game reads it straight away; the Color's counts
 # days and holds none, and a game there reads the date only once it sets the clock
-# (test/ruby_gba/dsl/test_clock_set.rb). A test says what time the clock starts at, the way it says
+# (test/ruby_gba/dsl/test_clock_set_to.rb). A test says what time the clock starts at, the way it says
 # which buttons are held, and the time moves on one of the console's frames each frame — a little
 # more than a sixtieth of a second.
 class TestClockOnTheAdvance < Minitest::Test

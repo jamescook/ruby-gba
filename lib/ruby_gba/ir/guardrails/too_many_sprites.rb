@@ -10,13 +10,20 @@ module RubyGBA
   module IR
     module Guardrails
       module Checks
-        # MORE SPRITES THAN THE CONSOLE HAS PLACES FOR.
+        # MORE SPRITES THAN A GAME CAN KEEP PLACES FOR.
         #
         # The console composes its sprites from one table of 128 rows, and every sprite a
         # game declares is given a row while the cartridge is built. Sprites of two scenes
         # that are never up together take turns at the same rows (see IR::SpriteRows), so
         # what has to fit is the busiest screen: one scene's sprites with the ones every
-        # scene shows. A game over that has a sprite with nowhere to go.
+        # scene shows.
+        #
+        # A GAME CAN KEEP MORE ROWS THAN THE CONSOLE DRAWS, up to MOST: a pool keeps a row for
+        # every thing it can hold, and a room shows a handful of them. Past 128 the cartridge
+        # keeps its rows in a bigger copy of the table and copies the ones showing something
+        # into the console's before each frame (see Backends::GBA::SpriteDrawing::HeldTable),
+        # so what has to fit in 128 is one frame's sprites. MOST is the most any backend draws
+        # in a frame; a game over that has a sprite with nowhere to go.
         #
         # This used to be a number an author counted, until tiled text: the console draws
         # every character of a tiled `draw_text` as a sprite of its own, and a menu is two
@@ -31,12 +38,12 @@ module RubyGBA
         # which is the only part that cuts pictures up.
         class TooManySprites
           NAME = :too_many_sprites
-          PLAIN_NAME = "more sprites than the console has places for"
+          PLAIN_NAME = "more sprites than a game can keep places for"
+
+          MOST = 512
 
           def detect(program)
-            # How many places the console the game is built for has: the Advance's table, or the
-            # forty of a Game Boy Color.
-            most = program.described_console.sprites
+            most = most_places(program)
             plan = SpriteRows.plan(program) { 1 }
             return [] if plan.count <= most
 
@@ -53,6 +60,14 @@ module RubyGBA
 
           private
 
+          # How many places a game built for +program+'s console can keep: MOST on the Advance,
+          # whose cartridge keeps a bigger table than its 128 rows; the forty of a Game Boy Color,
+          # which keeps none.
+          def most_places(program)
+            console = program.described_console
+            console.name == Console::DEFAULT ? MOST : console.sprites
+          end
+
           # The busiest screen is over by itself: say how its places were spent.
           def busiest_message(plan, sprites, most)
             on_screen = sprites.select { |node| plan.busiest.names.include?(node.name) }
@@ -67,14 +82,14 @@ module RubyGBA
           # game over: the fix is where they are drawn, not how many there are.
           def between_message(plan, sprites, most)
             names = between_names(plan, sprites)
-            "This game needs #{plan.count} places for sprites. The console has places for #{most}. " \
+            "This game needs #{plan.count} places for sprites. A game can keep places for #{most} sprites. " \
               "Each scene fits.#{between_sentence(plan, sprites)} To fix this, put #{names} in a layer " \
               "behind the sprites of every scene, or in a layer in front of all of them."
           end
 
           def count_sentence(plan, most)
             scenes = plan.busiest.scenes
-            return "This game has #{plan.busiest.count} sprites. The console has places for #{most}." if scenes.empty?
+            return "This game has #{plan.busiest.count} sprites. A game can keep places for #{most} sprites." if scenes.empty?
 
             named = scenes.map { |scene| ":#{Modes.strip_scene_prefix(scene)}" }
             opening = if named.one?
@@ -83,7 +98,7 @@ module RubyGBA
                         "The #{named.join(' and ')} scenes are on the screen at the same time. Together " \
                           "they have #{plan.busiest.count} sprites."
                       end
-            "#{opening} This count includes the sprites that every scene shows. The console has places " \
+            "#{opening} This count includes the sprites that every scene shows. A game can keep places " \
               "for #{most}. The sprites of two scenes that are not on the screen at the same time use " \
               "the same places, so each scene must fit."
           end

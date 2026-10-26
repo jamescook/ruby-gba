@@ -566,7 +566,6 @@ module RubyGBA
       finalize_background_affine
       finalize_layer_blend
       finalize_light_switch
-      finalize_clock_readings # before the routines run each pass are called: it adds one
       finalize_per_frame_routines
       finalize_per_pass_routines
       refuse_non_scenes_in_scene_dispatch!

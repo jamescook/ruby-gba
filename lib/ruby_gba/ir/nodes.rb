@@ -335,6 +335,16 @@ module RubyGBA
         operands reading: :option
       end
 
+      # Set the clock to a date and time, each a value worked out as the game runs and already
+      # held to the range IR::Clock::SET_RANGES gives it: kept as how far it is from the clock's
+      # own (see IR::Clock::OFFSET_DAYS). With no clock it does nothing.
+      class SetClock
+        include Node
+        kind :set_clock
+        category :var
+        operands year: :value, month: :value, day: :value, hour: :value, minute: :value, second: :value
+      end
+
       class ClearScreen
         include Node
         kind :clear_screen

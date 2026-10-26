@@ -381,8 +381,7 @@ module RubyGBA
                                scales_objects: ScreenLayout.method(:scales?))
           @frames = Frames.new(emitter: @emit, primitives: @primitives)
           @clock_chip = ClockChip.new(emitter: @emit, primitives: @primitives,
-                                      call_cold_routine: method(:emit_call_cold_routine),
-                                      value: ->(node) { @lowering.value(node) })
+                                      call_cold_routine: method(:emit_call_cold_routine))
           # The kind-keyed dispatch that replaces eval_value's case. Every statement in the
           # program goes through it, which also makes it the one place that can say how far
           # this pass has got — and the one place that can count what each part of the
@@ -390,6 +389,7 @@ module RubyGBA
           @attribution = Attribution.new(@emit)
           @lowering = Lowering.new(progress: progress, emitted: @emit.method(:pos),
                                    attribution: @attribution)
+          @clock_chip.lowering = @lowering
           @save = Save.new(emitter: @emit, primitives: @primitives, lowering: @lowering, memory: @memory,
                            call_cold: method(:emit_call_cold_routine))
           @defined_sounds = {}   # name -> musical params (from define_sound)
@@ -539,6 +539,7 @@ module RubyGBA
             timer_start: method(:emit_timer_start), timer_stop: method(:emit_timer_stop),
             on_timer: Lowering::NOTHING, play_sample: @mixer.method(:emit_play_sample),
             stop_sample: @mixer.method(:emit_stop_sample),
+            set_clock: @clock_chip.method(:emit_set_clock),
           )
           @layer_stack = []      # the layers the program declared, backmost first
           @uses_pressed = false  # whether the program reads edge-detected input
@@ -606,6 +607,11 @@ module RubyGBA
                                    streamed_sprite_pose_vars: streamed_sprite_pose_vars,
                                    sprite_runs: sprite_runs,
                                    sprite_turns: @screen.sprite_turns { |name| var_addresses[name] },
+                                   held_sprites: @held_sprites &&
+                                     RubyGBA::Cartridge::BuildRecord::HeldSprites.new(
+                                       came_from: @held_sprites.came_from,
+                                       left_out_at: var_addresses[SpriteDrawing::LEFT_OUT],
+                                     ),
                                    scene_sets: scene_sets_record,
                                    missed_routine_parts: missed_routine_parts,
                                    build_options: { fast_cartridge: @fast_cartridge, fast_code: @fast_code,
@@ -926,6 +932,10 @@ module RubyGBA
                        else
                          []
                        end
+          # More rows than the console's table holds are kept in a bigger copy of it, in the roomy
+          # memory: it is written and read once a row a frame (see SpriteDrawing::HeldTable).
+          @held_sprites = SpriteDrawing.plan_held_table(@screen.sprite_table_rows,
+                                                        alloc: method(:alloc_sprite_record!))
           # A byte a pose for each pool whose poses are sent as they are first shown, saying
           # which are in sprite memory (see PoseSends). In the roomy memory: it is read once a
           # thing, where the quick memory is worth more to the code a frame runs.
@@ -959,13 +969,16 @@ module RubyGBA
             scene_sprites: @scene_sprites || [], gated_sprites: @gated_sprites || [],
             waits_for_frames: @uses_vblank,
             draw_runs: @draw_runs, pose_sent_bytes: @pose_sent_bytes, room_tables: @room_tables,
-            late_pages: IR::LatePages.of(program),
+            late_pages: IR::LatePages.of(program), held_sprites: @held_sprites,
           )
           @drawing.layout = layout
           @buffered.layout = layout
           @effects.layout = layout
           @sprite_drawing.layout = layout
           @sprite_drawing.hides_sprites = program.walk.any? { |node| node.kind == :hide_sprites }
+          counts_from_power_on = @uses_vblank && program.walk.any? do |node|
+            node.kind == :var_ref && node.name == IR::Frames::COUNT
+          end
           @background_drawing.layout = layout
           # Fast ROM + prefetch, first, unless it's all raw or the caller asked to keep
           # the console's cautious power-on timing.
@@ -992,6 +1005,7 @@ module RubyGBA
           # is where the sound buffers are silenced, so how long it takes depends on the sample
           # rate, and the machine hung above one rate and ran below it with nothing else changed.
           emit_mixer_boot if @mixer.plays_samples? # start the sound DMA + clock; voices added by `play`
+          @frames.emit_clear_frame_count if counts_from_power_on # ...before the interrupt that counts
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
           @clock_chip.emit_call_at_power_on # whether the cartridge has a clock, and its first reading
@@ -1041,6 +1055,7 @@ module RubyGBA
           @background_drawing.emit_set_swap_routines # bringing another set of tiles in, a routine a background
           @sprite_drawing.emit_shared_room_routines # giving a sprite a room for its pose, two routines a set of rooms
           @sprite_drawing.emit_lend_colors_routine # lending a group of sprite colours to the list a sprite wears
+          @sprite_drawing.emit_held_table_routine # copying the rows that show into the console's table
           @lists.emit_fill_routine # the one routine every list_fill calls, for the same reason
           @clock_chip.emit_routines # the conversations with the cartridge's clock chip
           @lists.emit_copy_routine # ...and every list_copy

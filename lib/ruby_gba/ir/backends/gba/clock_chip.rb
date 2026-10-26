@@ -18,9 +18,8 @@ module RubyGBA
         # week, hour, minute and second, each a byte holding two decimal digits.
         #
         # AT POWER-ON the chip is asked whether it is there at all and whether its time was ever
-        # set; a cartridge with no chip is never asked again, and every reading stays 0, which is
-        # IR::Clock's promise, as every date and time does on a chip whose battery ran out, which
-        # is read all the same for its count. THEN AFTER EACH WAIT FOR THE SCREEN
+        # set; a cartridge with no chip, or one whose battery ran out, is never asked again, and
+        # every reading stays 0, which is IR::Clock's promise. THEN AFTER EACH WAIT FOR THE SCREEN
         # the date and time are read into a copy the game reads, so every reading between two waits
         # is of one moment, as on every backend, and a game reading the time twenty times a pass
         # talks to the chip once.
@@ -50,6 +49,9 @@ module RubyGBA
           READ_DATE_AND_TIME = turned(0x65)
           READ_SETTINGS = turned(0x63)
           WRITE_SETTINGS = turned(0x62)
+          # Back to its first moment, 2000-01-01, with every setting cleared — the battery's
+          # running out among them, which nothing else clears.
+          RESET = turned(0x60)
 
           # In the settings: count the hours 0 to 23, and the battery has run out since the time
           # was last set.
@@ -68,60 +70,71 @@ module RubyGBA
           # names the time spent in it (GBA#lowered_routine_addresses).
           AT_POWER_ON = :__clock_chip_at_power_on
           AFTER_WAIT = :__clock_chip_each_pass
+          SET = :__clock_chip_set
+          ADD_OFFSET = :__clock_chip_add_offset
           SEND = :__clock_chip_send
           RECEIVE = :__clock_chip_receive
-          ROUTINES = [AT_POWER_ON, AFTER_WAIT, SEND, RECEIVE].freeze
+          ROUTINES = [AT_POWER_ON, AFTER_WAIT, SET, ADD_OFFSET, SEND, RECEIVE].freeze
 
-          # Where the copy of each reading is kept.
+          # Where the copy of each reading the game reads is kept...
           def self.var(reading) = :"__clock_#{reading}"
+
+          # ...in a game that sets the clock, where the chip's own reading goes, before the time
+          # set is added to it into the copy...
+          def self.chip_var(reading) = :"__clock_chip_#{reading}"
+
+          # ...where a time the game sets is put while how far it is from the chip's is worked out...
+          def self.set_var(reading) = :"__clock_set_#{reading}"
+
+          # ...and the working-out itself (see ClockCalendar). The copy is made again when the chip
+          # has been read since it was last made, or when the offset is no longer the one it was
+          # made with — the saved one coming in at power-on, or a new one set.
+          def self.work_var(part) = :"__clock_work_#{part}"
+          COPY_MADE = :__clock_copy_made
+          MADE_WITH = IR::Clock::OFFSETS.to_h { |offset| [offset, :"#{offset}_added"] }.freeze
+          COPY = IR::Clock::TIME.to_h { |reading| [reading, var(reading)] }.freeze
+          WORK = %i[cycles of_cycle years into months].to_h { |part| [part, work_var(part)] }.freeze
 
           # THE REGISTERS THE ROUTINES WORK IN: ACC for the byte going out or coming back, TMP for
           # the pins' value, SPARE as the bit count, and HIGH holding the pins' address. All four
-          # are a statement's own scratch, never held across one, and the routines are called only
-          # between statements, so nothing the game holds is in them. The two outer routines reach
-          # the copy through ADDR, as every variable is reached.
+          # are a statement's own scratch, never held across one. Every routine but one is called
+          # only between statements, so nothing the game holds is in them; the one that adds a time
+          # the game set is called as a value is being worked out, and keeps every register it
+          # might use as it found it (see #emit_add_offset_routine). The routines reach the copy
+          # through ADDR, as every variable is reached.
           BITS = 2 # GBA::SPARE, named here because this file loads before that one defines it
           BASE = 3 # GBA::HIGH, likewise
           LR = 14
           PC = 15
 
-          # +value+ works out an IR value into ACC, for the readings made from the copy by sums.
-          def initialize(emitter:, primitives:, call_cold_routine:, value:)
+          def initialize(emitter:, primitives:, call_cold_routine:)
             @emitter = emitter
             @primitives = primitives
             @call_cold_routine = call_cold_routine
-            @value = value
             @used = false
+            @sets = false
           end
 
-          # Does this program read the clock at all? Nothing here is emitted for one that does not.
-          # And does it read the chip's count (IR::Clock::COUNT), as a game that sets the clock does?
+          # The lowering, for the parts of a time the game sets and for the working-out that adds
+          # it on (see #emit_add_offset_routine), which are the program's own kind of statement.
+          # Handed in once it exists.
+          attr_writer :lowering
+
+          # Does this program read or set the clock at all? Nothing here is emitted for one that
+          # does neither.
           def prepare(program)
-            clock = program.walk.select { |node| node.kind == :clock }
-            @used = clock.any?
-            @counts = clock.any? { |node| IR::Clock::COUNT.include?(node.reading) }
+            @sets = IR::Clock.sets_clock?(program)
+            @used = @sets || program.walk.any? { |node| node.kind == :clock }
           end
 
           def used? = @used
 
-          # A READING, from the copy the last wait left.
-          #
-          # THE CHIP'S COUNT (IR::Clock::COUNT), which a game that sets the clock keeps its time from:
-          # a copy of its own, read whether or not the chip was ever set, since a chip whose battery
-          # ran out counts on from 2000-01-01 (#emit_after_wait_body). Its days and seconds are made
-          # from that copy by IR::Clock's calendar, and whether it counted on since the console was
-          # last on is whether it was set, since a chip whose battery ran out says it was not.
+          # A reading, from the copy the last wait left — made again first, in a game that sets
+          # the clock, if the chip was read or the offset changed since it was made. The two
+          # questions are never added to, and are read as they are.
           def eval_clock(node)
-            count = ->(reading) { Build.var_ref(self.class.var(:"count_#{reading}")) }
-            case node.reading
-            when :days then @value.call(IR::Clock.days_from_civil(-> { count.call(:year) }, -> { count.call(:month) },
-                                                                  -> { count.call(:day) }))
-            when :seconds
-              @value.call(Build.binop(:+, Build.binop(:+, Build.binop(:*, count.call(:hour), Build.int(3600)),
-                                                      Build.binop(:*, count.call(:minute), Build.int(60))), count.call(:second)))
-            when :counting then @primitives.load_var(ACC, self.class.var(:set))
-            else @primitives.load_var(ACC, self.class.var(node.reading))
-            end
+            @call_cold_routine.call(ADD_OFFSET) if @sets && IR::Clock::TIME.include?(node.reading)
+            @primitives.load_var(ACC, self.class.var(node.reading))
           end
 
           # At power-on: is there a chip, was it ever set, and the reading before the first wait.
@@ -137,6 +150,16 @@ module RubyGBA
             @call_cold_routine.call(AFTER_WAIT) if @used
           end
 
+          # A TIME THE GAME SETS: each part worked out into where it waits, and then the routine
+          # that keeps how far it is from the chip's (see #emit_set_body).
+          def emit_set_clock(node)
+            IR::Clock::SET_PARTS.each do |part|
+              @lowering.value(node.public_send(part))
+              @primitives.store_var(ACC, self.class.set_var(part))
+            end
+            @call_cold_routine.call(SET)
+          end
+
           # The routines themselves, in the cartridge: a reading is a long, slow conversation over
           # the cartridge's pins whether the code is fast or not.
           def emit_routines
@@ -144,6 +167,10 @@ module RubyGBA
 
             emit_routine(AT_POWER_ON) { emit_at_power_on_body }
             emit_routine(AFTER_WAIT) { emit_after_wait_body }
+            if @sets
+              emit_routine(SET) { emit_set_body }
+              emit_add_offset_routine
+            end
             emit_send_routine
             emit_receive_routine
           end
@@ -160,10 +187,16 @@ module RubyGBA
 
           # Every reading 0 to begin with — the console's memory is not nought at power-on — then
           # the settings read, the chip told to count in 24 hours, and the settings read again.
+          #
+          # In a game that sets the clock, its offset is nought too until the saved one comes in,
+          # which is after this: a reading made before then, in the starting value of a `var`,
+          # has nothing added, as on every backend.
           def emit_at_power_on_body
-            (IR::Clock::TIME + IR::Clock::QUESTIONS).each do |reading|
+            noughts = IR::Clock::READINGS.map { |reading| self.class.var(reading) }
+            noughts += [*IR::Clock::OFFSETS, COPY_MADE] if @sets
+            noughts.each do |name|
               @emitter.emit(ASM.load_immediate(ACC, 0))
-              @primitives.store_var(ACC, self.class.var(reading))
+              @primitives.store_var(ACC, name)
             end
             @emitter.emit_number(BASE, PINS)
             emit_pins_readable(1)
@@ -217,12 +250,13 @@ module RubyGBA
             @emitter.place_label(done)
           end
 
-          # A READING: nothing at all unless the chip is there, and then the date and time it says,
-          # each byte's two digits made one number as it comes — read whether or not it was set,
-          # since a game that sets the clock keeps its time from the chip's count (#eval_clock).
+          # A READING: nothing at all unless the chip is there and set, and then the date and time,
+          # each byte's two digits made one number as it comes — into the copy, or in a game that
+          # sets the clock into the chip's own reading, which the copy is made from when it is read.
           def emit_after_wait_body
+            into = @sets ? self.class.method(:chip_var) : self.class.method(:var)
             skip = @emitter.gensym
-            @primitives.load_var(ACC, self.class.var(@counts ? :present : :set))
+            @primitives.load_var(ACC, self.class.var(:set))
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit_branch(:bcond, skip, cond: :eq)
             @emitter.emit_number(BASE, PINS)
@@ -235,26 +269,132 @@ module RubyGBA
                 @emitter.emit_number(TMP, CENTURY)
                 @emitter.emit(ASM.add_reg(ACC, ACC, TMP))
               end
-              @primitives.store_var(ACC, self.class.var(@counts ? :"count_#{reading}" : reading))
+              @primitives.store_var(ACC, into.call(reading))
             end
             emit_end_conversation
             emit_pins_readable(0)
-            emit_count_shown_when_set if @counts
             @emitter.place_label(skip)
+            return unless @sets
+
+            # The chip has been read, so the copy is to be made again.
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, COPY_MADE)
           end
 
-          # In a game that keeps its time from the chip's count, the count is copied into what the
-          # game's readings read only when the chip was set: else they stay 0.
-          def emit_count_shown_when_set
-            unset = @emitter.gensym
+          # SETTING IT: nothing at all on a cartridge with no chip. The chip itself is never told
+          # the time — an emulator keeps its own whatever a cartridge says (mGBA does) — so what is
+          # kept is how far the time set is from the chip's (see IR::Clock::OFFSET_DAYS), worked
+          # out against a fresh reading. The copy is made from it the next time the game reads the
+          # clock, which is the time set, as on every backend.
+          #
+          # A CHIP WHOSE BATTERY RAN OUT is put back to its first moment first: on the chip the
+          # console's own games used that is what clears what it says about the battery, so the
+          # next power-on finds it set — and it clears the chip's settings with it, so it is told
+          # again to count the hours 0 to 23. Read after that, the chip says 2000-01-01, and the
+          # offset is worked out from there. (mGBA clears the battery's flag as soon as the
+          # settings are written, at every power-on, so no test there can tell this step is done.)
+          def emit_set_body
+            done = @emitter.gensym
+            was_set = @emitter.gensym
+            @primitives.load_var(ACC, self.class.var(:present))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, done, cond: :eq)
             @primitives.load_var(ACC, self.class.var(:set))
             @emitter.emit(ASM.cmp_imm(ACC, 0))
-            @emitter.emit_branch(:bcond, unset, cond: :eq)
-            ANSWER.each do |reading, _|
-              @primitives.load_var(ACC, self.class.var(:"count_#{reading}"))
-              @primitives.store_var(ACC, self.class.var(reading))
+            @emitter.emit_branch(:bcond, was_set, cond: :ne)
+            @emitter.emit_number(BASE, PINS)
+            emit_pins_readable(1)
+            emit_start_conversation(RESET)
+            emit_end_conversation
+            emit_start_conversation(WRITE_SETTINGS)
+            @emitter.emit(ASM.load_immediate(ACC, HOURS_24))
+            @emitter.emit_branch(:bl, SEND)
+            emit_end_conversation
+            emit_pins_readable(0)
+            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @primitives.store_var(ACC, self.class.var(:set))
+            @emitter.place_label(was_set)
+            @emitter.emit_branch(:bl, AFTER_WAIT) # the chip's time now
+            offset_statements.each { |statement| @lowering.statement(statement) }
+            @emitter.place_label(done)
+          end
+
+          # How far the time set is from the chip's, in days and the seconds left over (0 up to a day).
+          def offset_statements
+            days = IR::Clock::OFFSET_DAYS
+            seconds = IR::Clock::OFFSET_SECONDS
+            set = ->(reading) { Build.var_ref(self.class.set_var(reading)) }
+            chip = ->(reading) { Build.var_ref(self.class.chip_var(reading)) }
+            borrow = Build.binop(:<, Build.var_ref(seconds), Build.int(0))
+            [
+              Build.set(days, Build.binop(:-, ClockCalendar.day_number(set[:year], set[:month], set[:day]),
+                                          ClockCalendar.day_number(chip[:year], chip[:month], chip[:day]))),
+              Build.set(seconds, Build.binop(:-, ClockCalendar.seconds_into_day(set[:hour], set[:minute], set[:second]),
+                                             ClockCalendar.seconds_into_day(chip[:hour], chip[:minute], chip[:second]))),
+              Build.set(days, Build.binop(:-, Build.var_ref(days), borrow)),
+              Build.set(seconds, Build.binop(:+, Build.var_ref(seconds),
+                                             Build.binop(:*, borrow, Build.int(IR::Clock::SECONDS_A_DAY)))),
+            ]
+          end
+
+          # MAKING THE COPY, the chip's reading with the time set added: the chip's date and time as
+          # a day number and the seconds into it, the offset added, a day carried when the seconds
+          # pass midnight, and back to a date and a time. Made at most once between two readings
+          # of the chip, unless the offset changes in between — the saved one coming in at
+          # power-on, or a new one set — and marked made only once it is, so a reading that comes
+          # in the middle of the making makes it again rather than reading half of it.
+          #
+          # Called as a value is being worked out, which a routine of the chip's is not otherwise,
+          # so it keeps every register it might use as it found it.
+          def emit_add_offset_routine
+            out = @emitter.gensym
+            make = @emitter.gensym
+            kept = (1..12).to_a
+            @emitter.place_label(ADD_OFFSET)
+            @emitter.emit(ASM.push(*kept, LR))
+            @primitives.load_var(ACC, self.class.var(:set))
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, out, cond: :eq) # nothing set, and the copy reads zeros
+            @primitives.load_var(ACC, COPY_MADE)
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, make, cond: :eq)
+            MADE_WITH.each do |offset, made_with|
+              @primitives.load_var(ACC, offset)
+              @primitives.load_var(TMP, made_with)
+              @emitter.emit(ASM.cmp_reg(ACC, TMP))
+              @emitter.emit_branch(:bcond, make, cond: :ne)
             end
-            @emitter.place_label(unset)
+            @emitter.emit_branch(:b, out)
+            @emitter.place_label(make)
+            copy_statements.each { |statement| @lowering.statement(statement) }
+            MADE_WITH.each do |offset, made_with|
+              @primitives.load_var(ACC, offset)
+              @primitives.store_var(ACC, made_with)
+            end
+            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @primitives.store_var(ACC, COPY_MADE)
+            @emitter.place_label(out)
+            @emitter.emit(ASM.pop(*kept, PC))
+            @emitter.place_label(:"#{ADD_OFFSET}_end")
+          end
+
+          def copy_statements
+            chip = ->(reading) { Build.var_ref(self.class.chip_var(reading)) }
+            days = self.class.work_var(:days)
+            into_day = self.class.work_var(:into_day)
+            carry = Build.binop(:/, Build.var_ref(into_day), Build.int(IR::Clock::SECONDS_A_DAY))
+            [
+              Build.set(days, Build.binop(:+, ClockCalendar.day_number(chip[:year], chip[:month], chip[:day]),
+                                          Build.var_ref(IR::Clock::OFFSET_DAYS))),
+              Build.set(into_day, Build.binop(:+, ClockCalendar.seconds_into_day(chip[:hour], chip[:minute], chip[:second]),
+                                              Build.var_ref(IR::Clock::OFFSET_SECONDS))),
+              Build.set(days, Build.binop(:+, Build.var_ref(days), carry)),
+              Build.set(into_day, Build.binop(:%, Build.var_ref(into_day), Build.int(IR::Clock::SECONDS_A_DAY))),
+              *ClockCalendar.date_of_day_number(days, into: COPY, scratch: WORK),
+              Build.set(COPY[:hour], Build.binop(:/, Build.var_ref(into_day), Build.int(3600))),
+              Build.set(COPY[:minute], Build.binop(:%, Build.binop(:/, Build.var_ref(into_day), Build.int(60)), Build.int(60))),
+              Build.set(COPY[:second], Build.binop(:%, Build.var_ref(into_day), Build.int(60))),
+            ]
           end
 
           # ACC holds two decimal digits, one in each half of its low byte; it is left holding

@@ -46,7 +46,7 @@ module RubyGBA
                                                # the light is not made yet (shade_outside), and a game
                                                # without one works nothing out again
                                                show_light_now: :emit_nothing
-                                             }.merge(Picture::STATEMENTS).merge(Sound::STATEMENTS)
+                                             }.merge(Picture::STATEMENTS).merge(Sound::STATEMENTS).merge(Clock::STATEMENTS)
                                               .merge(TileRuns::STATEMENTS)
                                               .merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))
 
@@ -998,6 +998,7 @@ module RubyGBA
               runtime_call("rt_save_write", [at, kept.name, Build.int(SAVE_BYTES.fetch(:word))])
             end
             runtime_call("rt_save_write", [marker_at, Build.int(marker), Build.int(SAVE_BYTES.fetch(:word))])
+            emit_clock_readings_from_save
           end
 
           # Reference#exec_save_store: one `save_var`'s number into its place.

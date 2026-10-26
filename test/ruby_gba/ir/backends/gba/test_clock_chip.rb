@@ -15,7 +15,7 @@ require "stringio"
 class TestClockChip < Minitest::Test
   include EmulatorSupport
 
-  READINGS = (RubyGBA::IR::Clock::TIME + RubyGBA::IR::Clock::QUESTIONS).freeze
+  READINGS = RubyGBA::IR::Clock::READINGS
   THURSDAY = Time.new(2026, 10, 22, 21, 7, 5)
 
   def setup
@@ -92,18 +92,22 @@ class TestClockChip < Minitest::Test
     assert_equal 2027, interpreted.last[:year], "the run reaches the new year"
   end
 
-  # A GAME THAT SETS THE CLOCK, on its third pass: the cartridge keeps the time set from the chip's
-  # count, as Pokemon Emerald does, and never writes the chip. On a chip that was set and on one
-  # whose battery ran out, it reads what the interpreter reads.
-  private def setting_rom
-    RubyGBA.build("CLOCKSET", out: StringIO.new, err: StringIO.new, profile: false) do
+  # --- setting it -----------------------------------------------------------------
+
+  SATURDAY = { year: 2031, month: 5, day: 17, hour: 8, minute: 9, second: 10 }.freeze
+
+  # A game that sets the clock on its third pass, and otherwise keeps every reading as the one above.
+  private def setting_rom(set_on_pass: 2)
+    RubyGBA.build("SETCLOCK", out: StringIO.new, err: StringIO.new, profile: false) do
       screen :bitmap
       now = clock
+      var :hour_at_power_on, now.hour
+      before_the_loop = var :hour_before_the_loop, -1
+      before_the_loop.set! now.hour
       passes = var :passes, 0
       kept = READINGS.to_h { |name| [name, var(name, -1)] }
       game_loop do
-        passes.add! 1
-        (passes == 3).then { now.set!(year: 2030, month: 6, day: 15, hour: 12, minute: 30, second: 0) }
+        (passes == set_on_pass).then { now.set_to(**SATURDAY) }
         kept.each do |name, reading|
           case name
           when :present then reading.set! 0; now.present?.then { reading.set! 1 }
@@ -111,21 +115,52 @@ class TestClockChip < Minitest::Test
           else reading.set! now.public_send(name)
           end
         end
+        passes.add! 1
       end
     end
   end
 
-  def test_a_game_that_sets_the_clock_reads_on_the_cartridge_what_the_interpreter_reads
+  # THE CHIP IS NEVER WRITTEN — the emulator would keep its own time whatever it was told — so
+  # the cartridge keeps how far the time set is from the chip's and adds it on. Pass by pass that
+  # is what the interpreter reads, the second turning over on the same frame, for a chip that
+  # was set before and one whose battery ran out.
+  def test_a_cartridge_that_sets_the_clock_reads_what_the_interpreter_reads
     built = setting_rom
-    [true, false].each do |chip_set|
-      player = Reference.new.clock_at(THURSDAY, set: chip_set)
-      player.run(built.built.source_program, frames: 10)
-      v = RubyGBA::Diagnostics::Verifier.new(built, vars: built.built.var_addresses, frames: 10, clock: THURSDAY,
-                                                    clock_set: chip_set)
+    [true, false].each do |was_set|
+      interpreted = []
+      player = Reference.new.clock_at(THURSDAY, set: was_set)
+      player.each_vblank { interpreted << READINGS.to_h { |name| [name, player[name]] } }
+      player.run(built.built.source_program, frames: 90)
 
-      assert_equal READINGS.to_h { |name| [name, player[name]] }, console_readings(v), "the chip set: #{chip_set}"
-      assert_equal 2030, v.var(:year), "the time set is read (chip set: #{chip_set})"
+      v = RubyGBA::Diagnostics::Verifier.new(built, frames: 1, vars: built.built.var_addresses,
+                                             clock: THURSDAY, clock_set: was_set)
+      console = [console_readings(v)] + Array.new(89) { console_readings(v.step) }
+
+      # Compared as one yes or no, with the readings in the message: a failing comparison of two
+      # long lists works out its difference in a way a test played in a Ractor cannot.
+      same = console == interpreted
+
+      assert same, "a chip #{was_set ? "set" : "never set"} reads what the interpreter reads: " \
+                   "#{console.map { |r| r.values_at(:hour, :second, :set) }.uniq.inspect} against " \
+                   "#{interpreted.map { |r| r.values_at(:hour, :second, :set) }.uniq.inspect}"
+      assert_equal SATURDAY.merge(weekday: 6, second: 11, present: 1, set: 1), console.last
     end
+  end
+
+  # THE TIME SET IS THERE AT THE NEXT POWER-ON, from the save memory: switched off an hour, the
+  # cartridge reads the time set an hour on — read as it starts up, before the save has been read
+  # back, the chip's own time, as the interpreter does; and read before the game loop, once it
+  # has, the time set, though the chip has not been read again in between.
+  def test_the_time_set_comes_back_after_the_power_goes_off
+    built = setting_rom
+    first = RubyGBA::Diagnostics::Verifier.new(built, frames: 30, vars: built.built.var_addresses, clock: THURSDAY)
+    first.pixel(0, 0)
+    reader = setting_rom(set_on_pass: -1)
+    back = RubyGBA::Diagnostics::Verifier.new(reader, frames: 2, vars: reader.built.var_addresses,
+                                              clock: THURSDAY + 3600 + 1, save: first.save_image)
+
+    assert_equal [9, 9, 11], console_readings(back).values_at(:hour, :minute, :second)
+    assert_equal [22, 9], [back.var(:hour_at_power_on), back.var(:hour_before_the_loop)]
   end
 
   # WHAT READING THE CHIP COSTS A PASS: a command of eight bits out, seven bytes of eight back,

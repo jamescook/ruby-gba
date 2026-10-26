@@ -102,14 +102,8 @@ static void timers_frame(void) {
 /* --- the cartridge's clock (Reference#value_of_clock) --- */
 
 /* The readings in IR::Clock::READINGS's order, which is the number the game asks by. Nothing ties
- * the two together but the native runs of test_clock.rb and test_clock_set.rb, which read every one of
- * them. The last three are the clock's count, which a game that sets the clock keeps its time from:
- * days since 2000-01-01, seconds into the day, and whether it counted on (IR::Clock::COUNT). */
-enum { CLOCK_HOUR, CLOCK_MINUTE, CLOCK_SECOND, CLOCK_YEAR, CLOCK_MONTH, CLOCK_DAY, CLOCK_WEEKDAY, CLOCK_PRESENT, CLOCK_SET,
-       CLOCK_DAYS, CLOCK_SECONDS, CLOCK_COUNTING };
-
-/* From 1 January 1970, where the clock's seconds count from, to 1 January 2000. */
-#define DAYS_TO_2000 10957
+ * the two together but the native run of test_clock.rb, which reads every one of them. */
+enum { CLOCK_HOUR, CLOCK_MINUTE, CLOCK_SECOND, CLOCK_YEAR, CLOCK_MONTH, CLOCK_DAY, CLOCK_WEEKDAY, CLOCK_PRESENT, CLOCK_SET };
 
 #define SECONDS_A_DAY 86400
 
@@ -174,17 +168,15 @@ static void clock_frame(void) {
   clock_ticks %= RG_CONSOLE_TICKS_A_SECOND;
 }
 
-int32_t rg_clock_reading(int32_t reading) {
+int32_t rg_clock_reading(int32_t reading, int32_t offset_days, int32_t offset_seconds) {
   if (!clock_present) return 0;
   if (reading == CLOCK_PRESENT) return 1;
-  int64_t days = floor_div(clock_seconds, SECONDS_A_DAY);
-  int64_t into_day = clock_seconds - days * SECONDS_A_DAY;
-  if (reading == CLOCK_DAYS) return (int32_t)(days - DAYS_TO_2000);
-  if (reading == CLOCK_SECONDS) return (int32_t)into_day;
-  if (reading == CLOCK_COUNTING) return clock_set ? 1 : 0;
   if (!clock_set) return 0;
   if (reading == CLOCK_SET) return 1;
 
+  int64_t now = clock_seconds + (int64_t)offset_days * SECONDS_A_DAY + offset_seconds;
+  int64_t days = floor_div(now, SECONDS_A_DAY);
+  int64_t into_day = now - days * SECONDS_A_DAY;
   int64_t year;
   int32_t month, day;
   date_from_days(days, &year, &month, &day);
@@ -199,6 +191,32 @@ int32_t rg_clock_reading(int32_t reading) {
   default: rg_fault("the clock has no reading numbered %d", (int)reading);
   }
 }
+
+/* SETTING THE CLOCK (Reference#exec_set_clock): how far the time set is from the clock's own, to
+ * the whole second, in days and the seconds left over, kept here until the game takes the two
+ * parts into its saved numbers (rg_clock_kept_days and rg_clock_kept_seconds). The clock itself is never changed — in a
+ * window it is the computer's — and from then on it reads as set. */
+static int32_t clock_kept_days;
+static int32_t clock_kept_seconds;
+
+void rg_clock_set_to(int32_t year, int32_t month, int32_t day, int32_t hour, int32_t minute, int32_t second) {
+  if (!clock_present) return;
+  int64_t today = floor_div(clock_seconds, SECONDS_A_DAY);
+  int64_t days = days_from_date(year, month, day) - today;
+  int64_t seconds = hour * 3600 + minute * 60 + second - (clock_seconds - today * SECONDS_A_DAY);
+  if (seconds < 0) {
+    seconds += SECONDS_A_DAY;
+    days -= 1;
+  }
+  clock_kept_days = (int32_t)days;
+  clock_kept_seconds = (int32_t)seconds;
+  clock_set = 1;
+}
+
+/* The days and the seconds rg_clock_set_to kept — or +current+, the game's own number as it was,
+ * with no clock to have set. */
+int32_t rg_clock_kept_days(int32_t current) { return clock_present ? clock_kept_days : current; }
+int32_t rg_clock_kept_seconds(int32_t current) { return clock_present ? clock_kept_seconds : current; }
 
 /* The middle of Reference#advance_frame, in its order: the picture is switched on, the timers
  * tick, and then the music moves on. */

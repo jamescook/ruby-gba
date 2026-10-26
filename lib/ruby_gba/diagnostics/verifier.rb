@@ -44,6 +44,10 @@ module RubyGBA
         (rom.console == :gbc ? GBCVerifier : self).new(rom, **)
       end
 
+      # How many bytes of a clock's own state mGBA keeps after the save chip in its save file
+      # (see #save_image).
+      CLOCK_IN_SAVE_FILE = 16
+
       # @param rom [RubyGBA::Cartridge::ROM] a finalized ROM
       # @param frames [Integer] how many frames to run before reading pixels (default: 2)
       # @param keys [Integer, #call, nil] held-button input for each frame — an
@@ -332,8 +336,15 @@ module RubyGBA
       # The bus shows a 128K flash chip a bank at a time, so the chip is read from the file the
       # emulator keeps it in, which holds all of it. A cartridge with no save chip has nothing
       # in that file, and nil is what it hands back.
+      #
+      # A cartridge given a clock keeps that clock's own state in the same file, after the save
+      # chip: mGBA writes CLOCK_IN_SAVE_FILE bytes there (the chip's time and settings, and when
+      # it wrote them), which are the clock's and not the save chip's, so they are left out. A
+      # save chip is a whole number of kilobytes, so the clock's bytes are what is over.
       def save_image
         bytes = save_bytes
+        clock_bytes = @clock && bytes && bytes.bytesize % 1024 == CLOCK_IN_SAVE_FILE
+        bytes = bytes.byteslice(0, bytes.bytesize - CLOCK_IN_SAVE_FILE) if clock_bytes
         bytes && IR::SaveImage.from_sav(bytes, from: "The bytes of this cartridge's save memory")
       end
 
@@ -817,8 +828,12 @@ module RubyGBA
         own = (@rom.built.sprite_runs || []).reduce({}) { |found, run| found.merge(run.own_places(method(:mem8))) }
         table = palette(:sprites) # read once for the lot, not once per row
         turns = @rom.built.sprite_turns || {}
+        held = @rom.built.held_sprites
         @probe.sprites.map do |row|
-          home = own.fetch(row[:slot], row[:slot])
+          # A row of a game keeping more rows than the console's table is whichever of its own
+          # rows was copied there this frame.
+          slot = held ? held.row_in_copy(row[:slot], method(:mem16)) : row[:slot]
+          home = own.fetch(slot, slot)
           name = whose[home]
           dx, dy = moved.dig(home, pose_key(row, rooms, home)) || [0, 0]
           # A place several scenes' sprites take turns at is the sprite of the scene the table

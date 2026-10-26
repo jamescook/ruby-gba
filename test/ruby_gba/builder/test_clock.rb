@@ -6,7 +6,7 @@ require "test_helper"
 # readings are numbers like any variable's. A test says what time the clock starts at, the way it
 # says which buttons are held. What a chip that keeps the date reads with nothing set is the
 # Advance's alone (test/advance/ruby_gba/builder/test_clock_on_the_advance.rb); the Color's chip
-# keeps none, and its game reads a date once it sets one (test/ruby_gba/dsl/test_clock_set.rb).
+# keeps none, and its game reads a date once it sets one (test/ruby_gba/dsl/test_clock_set_to.rb).
 class TestClock < Minitest::Test
   # A game that keeps 1 in :present and :set while the clock says so, and its hour.
   private def asking_program

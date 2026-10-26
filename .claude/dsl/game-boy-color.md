@@ -25,6 +25,7 @@ test fails when the two differ.
 - `debug_halt` — works: the game stops there, as `halt` does; the cartridge is not cut short.
 - `game_loop` — works: the same as on the Advance.
 - `once_a_frame` — works: the same as on the Advance.
+- `frames_since_power_on` — works: the same as on the Advance.
 - `each_pass` — works: a step can start its own job again. A step that starts its own job through a routine it calls, or two jobs whose steps start each other, is refused for now: the Game Boy Color build cannot make a routine that calls itself yet.
 - `every` — works: the same as on the Advance.
 - `after` — works: the same as on the Advance.
@@ -87,7 +88,7 @@ test fails when the two differ.
 - `var` — works: a variable is the same 32-bit whole number as on the Advance.
 - `save_var` — works: kept in the cartridge's battery-backed memory.
 - `save_data` — works: kept in the cartridge's battery-backed memory.
-- `clock` — works: read from a clock chip in the cartridge, as Pokémon Gold, Silver and Crystal had. This chip counts days and keeps no date. So `clock.set?` is false and every reading is 0 until the game sets the clock with `clock.set!`, from a screen of its own that asks the player. After that, the time moves on with the chip, and the save keeps it.
+- `clock` — works: read from a clock chip in the cartridge, as Pokémon Gold, Silver and Crystal had. This chip counts days and keeps no date. So `clock.set?` is false and every reading is 0 until the game sets the clock with `clock.set_to`, from a screen of its own that asks the player. After that, the time moves on with the chip, and the save keeps it.
 - `saves_keep_everything` — works: the same as on the Advance.
 - `set` — works: the same as on the Advance.
 - `set!` — works: the same as on the Advance.

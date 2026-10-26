@@ -108,7 +108,8 @@ module RubyGBA
       Result = Data.define(:frames, :samples, :fps, :idle_share, :lines, :unattributed, :keys,
                            :reached, :tearing, :flicker, :tick_rates, :sound_drops, :video_copies,
                            :late_passes, :split_hints, :list_touches, :late_hand_overs,
-                           :pages_shown_at_once, :pages_shown_part_way, :power_on_pass, :colors_short) do
+                           :pages_shown_at_once, :pages_shown_part_way, :power_on_pass, :colors_short,
+                           :sprites_left_out) do
         # +split_hints+ are the parts of routines that missed the quick memory worth making a
         # `func` of (see SplitHints), busiest first. +list_touches+ is how many times the run read
         # or wrote each list, by its name. +late_hand_overs+ are the scenes that run late on the
@@ -120,8 +121,11 @@ module RubyGBA
         # break between pictures, where nothing tears. +colors_short+ is how many times a sprite
         # was drawn in another list's colours because no group was left to lend its list (see
         # .colors_short_line), each one sprite on one frame; nil for a game that lends nothing.
+        # +sprites_left_out+ is how many rows were left out of the console's full table (see
+        # .sprites_left_out_line), each one row on one frame; nil for a game whose rows fit it.
         def initialize(split_hints: [], list_touches: {}, late_hand_overs: [], pages_shown_at_once: 0,
-                       pages_shown_part_way: 0, power_on_pass: nil, colors_short: nil, **rest) = super
+                       pages_shown_part_way: 0, power_on_pass: nil, colors_short: nil, sprites_left_out: nil,
+                       **rest) = super
 
         def dropping_frames? = fps < 59.5
 
@@ -136,6 +140,7 @@ module RubyGBA
             late_passes: late_passes, power_on_pass: power_on_pass&.to_h,
             pages_shown_at_once: pages_shown_at_once,
             pages_shown_part_way: pages_shown_part_way, colors_short: colors_short,
+            sprites_left_out: sprites_left_out,
             late_hand_overs: late_hand_overs.map { |late| { scene: late.scene.to_s, loads_first: late.loads_first } },
             split_hints: split_hints.map { |hint| hint.to_h.merge(routine: hint.routine.to_s) },
             tearing: tearing && { looked: tearing.looked, torn: tearing.torn, worst: tearing.worst },
@@ -179,7 +184,8 @@ module RubyGBA
         holding = scene_state(rom, scene) + Array(holding) if scene
         reached = how_reached(scene, from)
 
-        losses = Losses.new(sounds: rom.built.sound_drops, colors_short_at: rom.built.colors_short_at)
+        losses = Losses.new(sounds: rom.built.sound_drops, colors_short_at: rom.built.colors_short_at,
+                            sprites_left_out_at: rom.built.held_sprites&.left_out_at)
         profile, tearing, flicker, lost, short = in_temp_rom(rom) do |path|
           probe = Emulator.probe(path)
           probe.clock_at(clock) if clock # a clock chip reading that moment (see Verifier#initialize)
@@ -200,7 +206,8 @@ module RubyGBA
             # READ BEFORE the picture is looked at, because looking at it steps the game on a
             # few more frames — and those frames are not the frames that were measured.
             lost_sounds = drops_in(probe, losses.sounds)
-            short = colors_short_in(probe, losses.colors_short_at)
+            short = [colors_short_in(probe, losses.colors_short_at),
+                     colors_short_in(probe, losses.sprites_left_out_at)]
             loaded_sets = sets_in(rom, probe)
             routines = rom.built.routines_with_sets(loaded_sets)
             [measured,
@@ -225,7 +232,7 @@ module RubyGBA
                 pages_shown_at_once: shown_at_once,
                 pages_shown_part_way: count_at_sites(profile, late_pages.select { |site| site[:tears] }, loaded_sets),
                 fps: pictures_per_second(profile, shown_at_once),
-                power_on_pass: power_on_pass, colors_short: short)
+                power_on_pass: power_on_pass, colors_short: short[0], sprites_left_out: short[1])
       end
 
       # NEW PICTURES A SECOND. The emulator counts the frames the game finished its work in by
@@ -300,9 +307,11 @@ module RubyGBA
       end
 
       # THE COUNTS THE CONSOLE KEEPS OF WHAT A RUN LOST: the sounds that did not play (a
-      # SoundDrops table, or nil) and where it counts sprites drawn in another list's colours
-      # (or nil).
-      Losses = Data.define(:sounds, :colors_short_at)
+      # SoundDrops table, or nil), where it counts sprites drawn in another list's colours (or
+      # nil), and where it counts rows left out of a full sprite table (or nil).
+      Losses = Data.define(:sounds, :colors_short_at, :sprites_left_out_at) do
+        def initialize(sprites_left_out_at: nil, **rest) = super
+      end
 
       def self.clear_losses(probe, losses)
         return if losses.nil?
@@ -312,6 +321,7 @@ module RubyGBA
           probe.write32(drops.music_at, 0)
         end
         probe.write32(losses.colors_short_at, 0) if losses.colors_short_at
+        probe.write32(losses.sprites_left_out_at, 0) if losses.sprites_left_out_at
       end
 
       # IS EACH TIMER DELIVERING THE RATE IT WAS ASKED FOR, counted off the same histogram the
@@ -767,6 +777,7 @@ module RubyGBA
         tick_rate_lines(result.tick_rates, printer)
         sound_drop_lines(result.sound_drops, printer)
         colors_short_line(result.colors_short, printer)
+        sprites_left_out_line(result.sprites_left_out, printer)
         video_copy_lines(result.video_copies, printer)
         printer.puts("")
 
@@ -945,6 +956,19 @@ module RubyGBA
                      "screen at once than the console has groups for", severity: :bad)
         printer.puts("  Each time is one sprite on one frame. To fix this, show fewer things with different " \
                      "lists at once, or give more of them the same list.")
+      end
+
+      # SPRITES LEFT OUT OF A FULL TABLE. A game with more sprites than the console's 128 places
+      # copies the ones that show into the table each frame, front to back, and with more than
+      # 128 showing the ones furthest back are not drawn on that frame. Said only when it
+      # happened; a game whose sprites fit the table has no count to say.
+      def self.sprites_left_out_line(left_out, printer)
+        return if left_out.nil? || left_out.zero?
+
+        printer.puts("  #{left_out} times, a sprite was not drawn: more than 128 sprites showed at once, and " \
+                     "the console draws 128", severity: :bad)
+        printer.puts("  Each time is one sprite on one frame, and the sprites furthest back are the ones left " \
+                     "out. To fix this, show fewer things at once.")
       end
 
       def self.sound_drop_lines(drops, printer)

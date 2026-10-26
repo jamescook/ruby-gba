@@ -420,8 +420,9 @@ module RubyGBA
         # happens to be when the test runs.
         #
         # The chip is the one the program's console carries: on a console whose chip keeps no date
-        # (Console::Description#clock_keeps_date) it counts days from the day +time+ names, and the
-        # game reads no date until it sets one. +keeps_date+ says which kind of chip it is instead,
+        # (Console::Description#clock_keeps_date) it counts days from the day +time+ names, the game
+        # reads no date until it sets one, and +set: false+ is a chip that stopped, which setting
+        # the clock starts again. +keeps_date+ says which kind of chip it is instead,
         # for a run checked against a cartridge for another console than the one the program was
         # built for. Returns self.
         def clock_at(time, set: true, keeps_date: nil)
@@ -720,6 +721,7 @@ module RubyGBA
           timer_start: :exec_timer_start,
           timer_stop: :exec_timer_stop,
           on_timer: :exec_on_timer,
+          set_clock: :exec_set_clock,
         }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :exec_declaration] }).freeze
 
         def exec(node)
@@ -3163,10 +3165,55 @@ module RubyGBA
         # A FRAME IS THE CONSOLE'S, a little more than a sixtieth of a second, since a clock keeps
         # real seconds and the console's frames are what this counts in; an emulator's clock pinned
         # to a moment moves on the same way, so the two read each second turn over on one frame.
+        #
+        # A time the game set is kept as how far it is from this clock (see IR::Clock::OFFSET_DAYS),
+        # and added on here.
+        #
+        # A chip that keeps no date, the Color's, reads as set only once the game has set a time
+        # on it (IR::Clock.undated_set?).
         def value_of_clock(node)
-          now = @clock_started && IR::Clock.moved_on(@clock_started, @screen_frame * Console::Hardware::FRAME_SECONDS)
-          dated = @clock_keeps_date.nil? ? @console.nil? || @console.clock_keeps_date : @clock_keeps_date
-          IR::Clock.reading(node.reading, now, set: @clock_set, started: @clock_started, dated: dated)
+          days = @vars.fetch(IR::Clock::OFFSET_DAYS, 0)
+          seconds = @vars.fetch(IR::Clock::OFFSET_SECONDS, 0)
+          now = clock_now
+          now &&= now + (days * IR::Clock::SECONDS_A_DAY) + seconds
+          set = clock_keeps_date? ? @clock_set : IR::Clock.undated_set?(@clock_set, days, seconds)
+          IR::Clock.reading(node.reading, now, set: set)
+        end
+
+        # The clock's own time now, before anything the game set is added on; nil for no clock.
+        def clock_now
+          return unless @clock_started
+
+          moved = IR::Clock.moved_on(@clock_started, @screen_frame * Console::Hardware::FRAME_SECONDS)
+          clock_keeps_date? ? moved : IR::Clock.undated(moved, @clock_started)
+        end
+
+        # Whether the clock chip is one that keeps the date: the console's own, unless #clock_at
+        # was told otherwise.
+        def clock_keeps_date?
+          return @clock_keeps_date unless @clock_keeps_date.nil?
+
+          @console.nil? || @console.clock_keeps_date
+        end
+
+        # SETTING THE CLOCK keeps how far the time set is from the clock's own, to the whole
+        # second, in days and the seconds left over — so the readings are the time set straight
+        # away, and the part of a second the clock was into carries on as it was, as it does on
+        # the console. Worked out with the calendar rather than with the formula the other
+        # backends use, so that the two are checked against each other.
+        def exec_set_clock(node)
+          now = clock_now
+          return unless now
+
+          wanted = IR::Clock::SET_PARTS.to_h { |part| [part, eval_value(node.public_send(part))] }
+          midnight = Time.utc(wanted[:year], wanted[:month], wanted[:day]) - Time.utc(now.year, now.month, now.day)
+          days = (midnight / IR::Clock::SECONDS_A_DAY).round
+          seconds = (wanted[:hour] * 3600) + (wanted[:minute] * 60) + wanted[:second] -
+                    ((now.hour * 3600) + (now.min * 60) + now.sec)
+          days, seconds = days + seconds.div(IR::Clock::SECONDS_A_DAY), seconds % IR::Clock::SECONDS_A_DAY
+          @vars[IR::Clock::OFFSET_DAYS] = days
+          @vars[IR::Clock::OFFSET_SECONDS] = seconds
+          @clock_set = true
         end
 
         # One byte (0..255) of a named embedded blob, read straight from the
