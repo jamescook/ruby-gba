@@ -70,14 +70,13 @@ module RubyGBA
       SETTINGS_WITH_FLAGS = (Comparison.settings + %i[lead_in pictures_in]).freeze
 
       # What a playing or a comparison stops with that is the caller's to fix: a setting that
-      # makes no sense, a game that would not build (the checks stopped it, or the Color's
+      # makes no sense, a game that would not build (the checks stopped it, or its console's
       # lowering refused it), a wait that never ended, a reading that could not be read, a
       # report that could not be written. Each already says what happened and what to do, so its
       # message is passed on as it is.
       def saying_errors_plainly
         yield
-      rescue ArgumentError, RubyGBA::ROMError, IR::Backends::GBC::LoweringError, GaveUp, Comparison::ReadingFailed,
-             Comparison::ReportNotWritten => e
+      rescue ArgumentError, RubyGBA::BuildError, GaveUp, Comparison::ReadingFailed, Comparison::ReportNotWritten => e
         raise Refused, message_with_flags(e.message)
       end
 

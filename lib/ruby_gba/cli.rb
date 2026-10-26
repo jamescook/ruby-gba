@@ -354,9 +354,10 @@ module RubyGBA
       else
         raise Thor::Error, "#{options[:format].inspect} is not a build format. The formats are: game, ir, native, web."
       end
-    rescue ArgumentError, RubyGBA::ROMError => e
-      # A setting the game does not ask for, or one it cannot read, or a build the guardrails
-      # stopped (their reasons are printed already): say why, not a backtrace.
+    rescue ArgumentError, RubyGBA::BuildError => e
+      # A setting the game does not ask for, or one it cannot read, or a build that stopped (the
+      # guardrails' reasons are printed already; a lowering's are the message): say why, not a
+      # backtrace.
       raise Thor::Error, e.message
     end
 
@@ -414,7 +415,7 @@ module RubyGBA
       game.build_rom(settings: given_settings, console: console_to_run(game, "profile"))
           .profile(format: format, frames: options[:frames], settle: options[:settle], scene: options[:scene],
                    from: options[:from], keys: held_buttons || [])
-    rescue ArgumentError => e
+    rescue ArgumentError, RubyGBA::BuildError => e
       raise Thor::Error, e.message
     end
 
@@ -672,9 +673,9 @@ module RubyGBA
       failed = {}
       consoles.each do |console|
         built[console] = write_cartridge_for(game, game_file, console)
-      rescue RubyGBA::ROMError, RubyGBA::IR::Backends::GBC::LoweringError => e
+      rescue RubyGBA::BuildError => e
         # A build the guardrails stopped (their reasons are printed already), or something the
-        # checks let through that a lowering cannot make.
+        # checks let through that the console's lowering cannot make.
         failed[console] = e.message
       end
       built.each_value { |rom| profile_rom(rom) } if options[:profile] || options[:scene] || options[:keys].any?
@@ -743,7 +744,7 @@ module RubyGBA
     # no such console is refused, saying what to write.
     def console_drawn_by_runtimes(game, made)
       RubyGBA::IR::Backends::Native.console_for(game, made: made)
-    rescue RubyGBA::IR::Backends::Native::LoweringError => e
+    rescue RubyGBA::BuildError => e
       raise Thor::Error, e.message
     end
 
@@ -795,7 +796,7 @@ module RubyGBA
           "(the first build compiles SDL, which takes a while)"
       RubyGBA::IR::Backends::Native.new.build_desktop(game, path, settings: given_settings, target: target)
       say "Built #{path}"
-    rescue RubyGBA::IR::Backends::Native::LoweringError, RubyGBA::IR::Backends::Native::Zig::Error => e
+    rescue RubyGBA::BuildError, RubyGBA::IR::Backends::Native::Zig::Error => e
       raise Thor::Error, e.message
     end
 
@@ -837,7 +838,7 @@ module RubyGBA
         web.build_page(game, path, settings: given_settings, template: template, data: data)
       end
       say "Built #{path}"
-    rescue RubyGBA::IR::Backends::JS::LoweringError, RubyGBA::IR::Guardrails::ValidationError => e
+    rescue RubyGBA::BuildError => e
       raise Thor::Error, e.message
     end
 
@@ -900,8 +901,8 @@ module RubyGBA
             # ...the game...
           end
       MSG
-    rescue RubyGBA::ROMError => e
-      # A build the guardrails stopped: show the plain-language reason, not a backtrace.
+    rescue RubyGBA::BuildError => e
+      # A build that stopped while the file loaded: show the plain-language reason, not a backtrace.
       raise Thor::Error, e.message
     end
 

@@ -17,7 +17,7 @@ module RubyGBA
     module Guardrails
       # Raised by Report#raise_on_error! when validation found a real problem
       # that wasn't (or couldn't be) auto-fixed.
-      class ValidationError < StandardError; end
+      class ValidationError < RubyGBA::BuildError; end
 
       # One problem a guardrail found.
       #   severity — :error (would break the ROM) or :warning (advisory — a

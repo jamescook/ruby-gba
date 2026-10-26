@@ -25,14 +25,14 @@ module RubyGBA
     class Palette
       # Raised when a program uses more distinct colors than the table can hold.
       # A friendly build-time error, not a silent failure.
-      class Overflow < StandardError; end
+      class Overflow < RubyGBA::BuildError; end
 
       # Raised when a program supplies its own table and then draws with a color that
       # is not in it.
-      class Missing < StandardError; end
+      class Missing < RubyGBA::BuildError; end
 
       # Raised when two screens supply different tables. The display has one.
-      class Conflict < StandardError; end
+      class Conflict < RubyGBA::BuildError; end
 
       # The table has 256 slots. Slot 0 is reserved for black so that an all-zero
       # (freshly cleared, never-painted) screen reads as black for free — the same

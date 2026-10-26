@@ -7,7 +7,7 @@ module RubyGBA
         # Raised when a program cannot be made into a Game Boy Color cartridge: it reaches something
         # the Color cannot do, or something its build does not make yet, or it is too big for the
         # cartridge or its memory. Said to the author in plain words.
-        class LoweringError < StandardError; end
+        class LoweringError < RubyGBA::BuildError; end
       end
     end
   end

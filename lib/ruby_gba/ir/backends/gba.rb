@@ -112,7 +112,9 @@ module RubyGBA
         include Placement
         include SceneQuickMemory
 
-        class LoweringError < StandardError; end
+        # Raised when a program cannot be made into an Advance cartridge, said to the author in
+        # plain words.
+        class LoweringError < RubyGBA::BuildError; end
 
         # The sprites' colours do not fit the console's table however they are arranged. A
         # LoweringError like any other to the author; told apart so that when a layout giving

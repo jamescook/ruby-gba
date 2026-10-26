@@ -2,6 +2,21 @@
 
 require_relative "ruby_gba/version"
 require_relative "ruby_gba/root"
+
+module RubyGBA
+  # A BUILD THAT STOPPED, whichever console or format it was for and whatever stopped it: the
+  # checks found a mistake, a lowering cannot make what the game asks for, the cartridge came out
+  # wrong. Each says what happened and what to do in its message, so a caller that turns a failed
+  # build into words for a person rescues this one class.
+  #
+  # Defined here, before the modules, because each lowering's own error is one of these and is
+  # defined while its module loads.
+  class BuildError < StandardError; end
+
+  # A build the checks stopped, or a cartridge that came out wrong.
+  class ROMError < BuildError; end
+end
+
 # THE WHOLE LIBRARY, A LINE FOR EACH MODULE, and this is the only place that says so. Each one loads a
 # module through a front door of its own (or, for version and pager, a single file); what is
 # inside a module is that module's business and is listed in its own front door.
@@ -9,6 +24,8 @@ require_relative "ruby_gba/root"
 # THE ORDER IS NOT ALPHABETICAL AND CANNOT BE. It is what each piece needs to have been defined
 # before its own class bodies run, and every step of it is a dependency worth knowing about:
 #
+#   ir needs BUILDERROR (above, before every module), because each lowering's error, the
+#     guardrails' and the colour table's are kinds of it.
 #   cartridge, audio, builder, diagnostics and ir all need CONSOLE first, the table of the
 #     hardware's addresses and flags. It needs nothing itself, so it goes at the top.
 #   ir needs AUDIO, because a backend sizes its music player from what a tune is.
@@ -33,7 +50,6 @@ require_relative "ruby_gba/playthroughs" # ...and playing one with nobody at the
 require_relative "ruby_gba/pager" # a long report shown a screen at a time
 
 module RubyGBA
-  class ROMError < StandardError; end
   # A saved profile that cannot be read, or that no longer matches the game it decides for.
   class ProfileError < StandardError; end
   # Build a GBA ROM using the DSL.

@@ -585,6 +585,31 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # And when it is the Advance's lowering: three timers whose ticks are read take six of the
+  # Advance's four hardware timers, which only the lowering counts.
+  def test_build_refuses_what_the_advance_lowering_cannot_make_without_a_backtrace
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "timers.rb"), <<~GAME)
+        require "ruby_gba"
+        RubyGBA.game("TIMERS", consoles: %i[gba]) do
+          screen :bitmap
+          %i[a b c].each do |name|
+            t = timer name, per_second: 60
+            var :"snap_\#{name}", 0
+            set! :"snap_\#{name}", t.ticks
+          end
+          halt
+        end
+      GAME
+      out, status = cli("build", "timers.rb", dir: dir)
+
+      refute status.success?, out
+      assert_match(/more hardware timers than the GBA has/, out)
+      refute File.exist?(File.join(dir, "timers.gba")), "no cartridge is written"
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+    end
+  end
+
   # And when the game keeps more than the Color has memory for.
   def test_build_refuses_a_game_too_big_for_the_colors_memory_without_a_backtrace
     Dir.mktmpdir do |dir|

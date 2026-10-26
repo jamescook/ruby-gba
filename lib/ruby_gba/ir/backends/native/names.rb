@@ -60,7 +60,7 @@ module RubyGBA
 
         # Raised when a program cannot be written as C: a kind of node this backend does not
         # lower yet, or a name that cannot be given a C name of its own.
-        class LoweringError < StandardError; end
+        class LoweringError < RubyGBA::BuildError; end
       end
     end
   end
