@@ -67,4 +67,16 @@ class TestScreenLate < Minitest::Test
 
     assert_match(/159/, err.message)
   end
+
+  # The rows are the screen's the game is built for: a Game Boy Color's has 144, so row 150 is
+  # past its bottom there, and a row the Advance's screen has.
+  def test_the_rows_are_the_screen_of_the_console_the_game_is_built_for
+    color = Builder.new(options: RubyGBA::Cartridge::Options.new(console: :gbc))
+    err = assert_raises(ArgumentError) { color.instance_eval { screen :bitmap, tear_free: true, late: 150 } }
+    assert_match(/from 0 to 143/, err.message)
+
+    advance = Builder.new
+    advance.instance_eval { screen :bitmap, tear_free: true, late: 150 }
+    assert_equal 150, advance.program.walk.find { |node| node.kind == :screen }.late
+  end
 end

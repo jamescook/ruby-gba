@@ -4,16 +4,16 @@ module RubyGBA
   class Builder
     # The variable verbs: declare and mutate the game's RAM variables — set/var,
     # add, sub, negate/flip, copy, abs, negate_abs, clamp, approach — plus
-    # introspection (var_address, variables). A concern of {Builder}, mixed in so
-    # these stay flat DSL verbs.
+    # introspection (variables). A concern of {Builder}, mixed in so these stay flat
+    # DSL verbs.
     #
-    # The allocation itself (ensure_var / var_address! / the @variables table) is
-    # builder core, shared by every concern, so it stays in Builder; these verbs
-    # just record the ops and lean on it.
+    # The list of names itself (ensure_var / the @variables set) is builder core,
+    # shared by every concern, so it stays in Builder; these verbs just record the ops
+    # and lean on it.
     module Variables
-      # Set a variable's value. If the variable hasn't been declared yet,
-      # it's automatically allocated in IWRAM. Returns a {Value} handle for the
-      # variable, so it can be compared and mutated with the expression DSL.
+      # Set a variable's value. If the variable hasn't been declared yet, it is
+      # declared here. Returns a {Value} handle for the variable, so it can be
+      # compared and mutated with the expression DSL.
       #
       # @param name [Symbol] variable name
       # @param value [Integer] value to store
@@ -226,19 +226,12 @@ module RubyGBA
         mirror_save(name)
       end
 
-      # Get the IWRAM address allocated for a variable.
-      # Useful for debugging and testing.
-      #
-      # @param name [Symbol] variable name
-      # @return [Integer] IWRAM address
-      def var_address(name)
-        var_address!(name)
-      end
-
-      # All declared variables with their IWRAM addresses.
-      # @return [Hash{Symbol => Hash}]
+      # The name of every variable the game has, in the order it first named each.
+      # Where each is kept is the lowering's to decide (a built cartridge's
+      # var_addresses says).
+      # @return [Array<Symbol>]
       def variables
-        @variables.dup
+        @variables.to_a
       end
 
       private

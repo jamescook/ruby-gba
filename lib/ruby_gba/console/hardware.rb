@@ -9,22 +9,11 @@ module RubyGBA
     # There's no OS, no filesystem, just raw memory-mapped hardware.
     #
     # Reference: https://problemkaputt.de/gbatek.htm
+    #
+    # What the interpreter needs to know as well — the screen's size, how long a frame is, how
+    # the sound is handed over — is Console::ADVANCE's to say, so it reads the same numbers for
+    # whichever console a game is played as.
     module Hardware
-
-      # ========================================================================
-      # Time
-      #
-      # The processor runs 16777216 cycles a second, and the display takes 280896 of them to
-      # draw one frame: 228 lines of 1232 cycles, 160 of them drawn and 68 the gap after. So a
-      # frame is a little more than a sixtieth of a second, and the console shows about 59.73
-      # of them a second — which anything keeping real seconds by counting frames has to know.
-      # ========================================================================
-
-      CYCLES_A_SECOND = 16_777_216
-      CYCLES_A_FRAME = 280_896
-
-      # How long a frame is, in seconds.
-      FRAME_SECONDS = Rational(CYCLES_A_FRAME, CYCLES_A_SECOND)
 
       # ========================================================================
       # Memory Map

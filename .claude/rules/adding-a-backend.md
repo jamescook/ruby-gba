@@ -34,11 +34,16 @@ The Game Boy Color is the first backend for a console other than the Advance, an
 a console of its own needs beyond a lowering:
 
 - **A description** (`Console::Description`, `Console.described(:gbc)`): its screen size, what it
-  can blend, and the rest a game or the interpreter asks of a console. A game says which consoles
-  it is for (`consoles: %i[gba gbc]`) and reads `screen_width` and `screen_height` rather than
-  writing 240 and 160. The interpreter plays the game as that console, so the answer key and the
-  cartridge agree about what the console cannot do (a fade the Color does not blend is walked
-  colour by colour, `IR::Fading`).
+  can blend, how long a frame is, the rates its mix of recordings can run at
+  (`Console::SampleClock`), the most one pool can take, and the rest a game or the interpreter
+  asks of a console. A game says which consoles it is for (`consoles: %i[gba gbc]`) and reads
+  `screen_width` and `screen_height` rather than writing 240 and 160. The builder and the
+  interpreter read these from the program's console and never from one console's hardware
+  file (`Console::Hardware` is the GBA lowering's), so the answer key and the cartridge agree
+  about what the console cannot do (a fade the Color does not blend is walked colour by colour,
+  `IR::Fading`). What every backend must count alike, a fade's steps and a pixelate's biggest
+  block (`Backends::FadeSteps`, `Backends::Blocks`), is written there once, and a console's
+  lowering is checked against it.
 - **An answer for every verb** (`Console::ColorAnswers`; every console has one, the Advance's
   `Console::AdvanceAnswers` included, and `Console::Answers` says what an answer is): it works, or
   it is refused in plain words naming the hardware the console lacks. Nothing is shown differently.

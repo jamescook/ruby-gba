@@ -18,9 +18,14 @@ module RubyGBA
       # two of its steps for each: 2/32 and 1/16 are the same share of the way, so the
       # picture is the same to the last bit and only the counting is finer. An amount with a
       # fraction is what asks for the thirty-seconds.
+      #
+      # These are what a fade MEANS, on every backend and every console, so they are written here
+      # rather than read off one console's registers. A console whose display blends counts in
+      # the same sixteenths (the Advance's BLD_MAX), and a console that cannot blend walks its
+      # colours (Console::Description#blends).
       module FadeSteps
-        DISPLAY = Console::Hardware::BLD_MAX
-        WALK = Console::Hardware::CHANNEL_LEVELS
+        DISPLAY = 16
+        WALK = 32
 
         module_function
 

@@ -98,7 +98,7 @@ module RubyGBA
         # A pool too big to share the quick memory is kept out of it, as though the game had
         # said `fast: false` — unless it said `fast: true`, which is then a friendly error.
         bytes = pool_bytes(handle, fields, widths)
-        refuse_pool_no_memory_holds!(handle, fields.size, bytes) if bytes > Console::Hardware::EWRAM_SIZE
+        refuse_pool_no_memory_holds!(handle, fields.size, bytes) if bytes > console.largest_memory_bytes
         if bytes > POOL_MAX_QUICK_BYTES
           refuse_oversized_fast_pool!(handle, fields.size, bytes) if fast
           fast = false
@@ -348,16 +348,18 @@ module RubyGBA
         pool.capacity * lists.sum { |_, width| Build::ELEMENT_BYTES.fetch(width) }
       end
 
-      # A POOL BIGGER THAN THE ROOMIER MEMORY FITS NOWHERE. A pool over the ceiling is kept
-      # there whole, so this is the most one pool can be, whatever else the game declares.
-      # It is refused here, at the line that wrote it and by its own name: the whole-program
-      # check asks only whether everything fits the two memories added together, which a
-      # pool a little over this size still does.
+      # A POOL BIGGER THAN THE ROOMIEST MEMORY FITS NOWHERE. A pool is kept whole in one
+      # memory (on the Advance, one over the quick memory's ceiling goes in the roomier one),
+      # so this is the most one pool can be, whatever else the game declares. It is refused
+      # here, at the line that wrote it and by its own name: the whole-program check asks only
+      # whether everything fits the memories added together, which a pool a little over this
+      # size still does. The size is the console's the game is built for
+      # (Console::Description#largest_memory_bytes).
       def refuse_pool_no_memory_holds!(pool, field_count, bytes)
         raise ArgumentError,
               "pool :#{pool.name} has #{pool.capacity} instances of #{field_count} fields each. It needs about " \
-              "#{bytes / 1024}KB. A pool this big is kept in the roomier memory of the console, which holds " \
-              "#{Console::Hardware::EWRAM_SIZE / 1024}KB. To fix this, use a smaller capacity. Or use fewer " \
+              "#{bytes / 1024}KB. A pool is kept whole in one memory. The largest memory of a #{console.title} " \
+              "holds #{console.largest_memory_bytes / 1024}KB. To fix this, use a smaller capacity. Or use fewer " \
               "fields. Or give fields a smaller width, like `widths: { hp: :byte }`."
       end
 

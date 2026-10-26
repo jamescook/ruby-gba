@@ -40,9 +40,6 @@ module RubyGBA
 
         DEFAULT_FRAMES = 30 # half a second — a scene change, not a blink
 
-        MIDDLE_X = Console::Hardware::SCREEN_WIDTH / 2
-        MIDDLE_Y = Console::Hardware::SCREEN_HEIGHT / 2
-
         # Close a circle on a point until the screen is black. Call it once, at the moment the
         # change begins; the framework walks the circle in on every frame from there.
         #
@@ -233,10 +230,12 @@ module RubyGBA
         # HOW FAR THE FARTHEST CORNER IS, without a square root. Across and down to it are
         # the longer and the shorter of two sides; the longer plus half the shorter is never
         # less than the corner's distance and at most an eighth more, which is close enough
-        # that the circle is moving on screen from the first frame of a walk.
+        # that the circle is moving on screen from the first frame of a walk. The middle is
+        # the screen's the game is built for.
         def corner_reach(light)
-          across = (light.x - MIDDLE_X).abs + MIDDLE_X
-          down = (light.y - MIDDLE_Y).abs + MIDDLE_Y
+          middle_x, middle_y = console.middle
+          across = (light.x - middle_x).abs + middle_x
+          down = (light.y - middle_y).abs + middle_y
           apart = (across - down).abs
           longer = (across + down + apart) >> 1
           shorter = (across + down - apart) >> 1

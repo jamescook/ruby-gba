@@ -7,7 +7,9 @@ module RubyGBA
       # to agree on, kept where both read it so they cannot come to different answers.
       #
       # HOW BIG a block can be is the display's: it keeps the size in a few bits, so there
-      # is a biggest one, and a size asked for past either end stops at that end.
+      # is a biggest one, and a size asked for past either end stops at that end. It is
+      # written here, since every backend has to stop at the same size, and the Advance's
+      # display keeps the same biggest one (MOSAIC_LARGEST).
       #
       # WHERE the blocks stop is one place for a whole program. A statement can leave a
       # layer, and everything in front of it, as drawn. A display keeps "in blocks" as a
@@ -15,7 +17,7 @@ module RubyGBA
       # program gets one such line, settled before it runs. One backend could draw two;
       # the other could not, so neither does.
       module Blocks
-        LARGEST = Console::Hardware::MOSAIC_LARGEST
+        LARGEST = 16
 
         module_function
 

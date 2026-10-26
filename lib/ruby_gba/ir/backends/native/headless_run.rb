@@ -354,12 +354,13 @@ module RubyGBA
 
           # The clock's moment as the program takes it: the date and the hour the Time says, as
           # seconds from the start of 1970 with no time zone (see IR::Clock.reading), and its part
-          # of a second as the console's ticks.
+          # of a second as the console's ticks: the Advance's, which the runtime counts in
+          # (RG_CONSOLE_TICKS_A_SECOND).
           def clock_options
             return [] unless @clock_started
 
             said = IR::Clock.moved_on(@clock_started, 0)
-            ticks = (said.subsec * Console::Hardware::CYCLES_A_SECOND).floor
+            ticks = (said.subsec * Console::ADVANCE.cycles_a_second).floor
             ["--clock-at", said.to_i.to_s, ticks.to_s, @clock_set ? "1" : "0"]
           end
 

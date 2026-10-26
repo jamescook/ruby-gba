@@ -6,20 +6,14 @@ module RubyGBA
     # single pixels, filled rectangles (fixed or run-time positioned), a whole-screen
     # clear. A concern of {Builder}, mixed in so these stay flat DSL verbs.
     #
-    # It includes Console::Hardware for the hardware register values behind the friendly
-    # names — the MODE_*/BG*_ENABLE bits in SCREEN_MODES and the SCREEN_* bounds in
-    # validate_coords! (a concern doesn't inherit Builder's own Console::Hardware include).
+    # The screen's size is the console's the game is built for (Builder#console), never one
+    # console's numbers written here.
     module Drawing
-      include Console::Hardware
-
-      # Friendly screen mode presets — the names {#screen} accepts. The tear-proof
-      # double-buffered screen isn't a separate name here: it's `screen :bitmap,
-      # tear_free: true` (which selects Mode 4 with an auto-built palette).
-      SCREEN_MODES = {
-        bitmap: MODE_3 | BG2_ENABLE, # 240x160 pixel canvas, 15-bit direct color
-        tiled:  MODE_0 | BG0_ENABLE, # tile/sprite background layers (most games)
-        rotozoom: MODE_2 | BG2_ENABLE, # one background that turns and resizes, and no scrolling ones
-      }.freeze
+      # The screens {#screen} knows by name: a pixel canvas, tile and sprite layers (most
+      # games), and one background that turns and resizes with no scrolling ones. How each is
+      # set up on a console is its lowering's business. The tear-proof double-buffered screen
+      # isn't a separate name here: it's `screen :bitmap, tear_free: true`.
+      SCREEN_NAMES = %i[bitmap tiled rotozoom].freeze
 
       # HOW BIG THE SCREEN IS, in pixels: 240 across and 160 down on a Game Boy Advance, 160 and
       # 144 on a Game Boy Color. A game written for both lays itself out from these rather than
@@ -38,7 +32,7 @@ module RubyGBA
       # @param mode [Symbol, Integer] a friendly name or raw REG_DISPCNT value
       #
       # @example Friendly
-      #   screen :bitmap          # a pixel canvas (MODE_3 | BG2_ENABLE)
+      #   screen :bitmap          # a pixel canvas
       #   screen :tiled           # tile/sprite layers
       #
       # HOW MANY TILE LAYERS `screen :tiled` HAS IS NOT FIXED, and nothing in a program
@@ -50,8 +44,9 @@ module RubyGBA
       # more scrolling layers than the arrangement holds is a friendly error naming both
       # counts, never a layer quietly left undrawn. See {Backends::GBA::Drawing#tiled_dispcnt}.
       #
-      # @example Raw (full control)
-      #   screen MODE_3 | BG2_ENABLE | OBJ_ENABLE
+      # @example Raw (full control, the Advance's display register written as it is)
+      #   hw = RubyGBA::Console::Hardware
+      #   screen hw::MODE_3 | hw::BG2_ENABLE | hw::OBJ_ENABLE
       #
       # Pass +tear_free: true+ to make `screen :bitmap` tear-proof: the framework
       # draws each frame to a hidden screen and shows it all at once, so the picture
@@ -96,8 +91,8 @@ module RubyGBA
       def screen(mode, tear_free: false, colors: nil, late: :wait, pace: 60)
         case mode
         when Symbol
-          unless SCREEN_MODES.key?(mode)
-            raise ArgumentError, "unknown screen mode: #{mode}. Known: #{SCREEN_MODES.keys.join(', ')}"
+          unless SCREEN_NAMES.include?(mode)
+            raise ArgumentError, "unknown screen mode: #{mode}. Known: #{SCREEN_NAMES.join(', ')}"
           end
         when Integer
           # a raw REG_DISPCNT value — passed through untouched
@@ -147,10 +142,10 @@ module RubyGBA
                                "finished page to show. To use late:, add tear_free: true."
         end
         return IR::LatePages::ANY_ROW if late == :show_now
-        return late if late.is_a?(Integer) && (0...SCREEN_HEIGHT).cover?(late)
+        return late if late.is_a?(Integer) && (0...console.screen_height).cover?(late)
 
         raise ArgumentError, "late: #{late.inspect} is not a setting. Use :wait (the default), :show_now, or a " \
-                             "row from 0 to #{SCREEN_HEIGHT - 1}."
+                             "row from 0 to #{console.screen_height - 1}."
       end
 
       # HOW MANY PICTURES THIS SCREEN KEEPS. A tear-free screen keeps two and shows
@@ -485,7 +480,7 @@ module RubyGBA
         refuse_light_shape_with_no_block!(block)
         refuse_second_light_shape!
         shade = @spotlight_shade
-        before = @variables.keys
+        before = @variables.to_a
         shade.children.clear
         edges = nil
         begin
@@ -497,7 +492,7 @@ module RubyGBA
         left, right = light_edges(light, edges)
         shade.left = DSL::Value.node_for(left)
         shade.right = DSL::Value.node_for(right)
-        own = @variables.keys - before
+        own = @variables.to_a - before
         refuse_light_shape_with_side_effects!(shade, own)
         start_own_variables_every_row(shade, own)
         @light_shape_own = own

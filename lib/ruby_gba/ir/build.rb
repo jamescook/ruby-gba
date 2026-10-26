@@ -697,19 +697,15 @@ module RubyGBA
       # Only a background declared under `screen :rotozoom` can carry this — the console's
       # rotate/scale hardware is a different pair of layers (BG2/BG3) from the ones a
       # `screen :tiled` background scrolls on.
-      # +around+ is the point on the screen the picture turns around, in pixels, and the
-      # middle of the screen when the program says nothing — which is where a picture that
-      # swings or grows about nothing in particular belongs.
-      def affine_background(name, angle:, scale:, around: nil)
-        x, y = around || MIDDLE_OF_THE_SCREEN
+      # +around+ is the point on the screen the picture turns around, in pixels, as [x, y].
+      # The builder gives the middle of the screen the game is built for when the game says
+      # nothing (Console::Description#middle), which is where a picture that swings or grows
+      # about nothing in particular belongs.
+      def affine_background(name, angle:, scale:, around:)
+        x, y = around
         Nodes.build(:affine_background, name: name, angle: to_value_node(angle), scale: to_value_node(scale),
                                         around_x: x, around_y: y)
       end
-
-      # Where a picture turns around when nothing says otherwise: the middle of the Advance's
-      # screen. A build says the middle of the screen it is for (Console::Description#middle);
-      # this is for a tree made by hand, which is the Advance's.
-      MIDDLE_OF_THE_SCREEN = Console::ADVANCE.middle.freeze
 
       # Show the named background scrolled to the offset (+x+, +y+) in pixels — the
       # top-left of the visible window over the map. x/y are value operands (variables

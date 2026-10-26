@@ -210,7 +210,7 @@ module RubyGBA
       # The game's own state, each name with the words that say what it is.
       def declared_state
         state = {}
-        @variables.each_key { |name| state[name] = "the variable :#{name}" unless scratch?(name) || persisted?(name) }
+        @variables.each { |name| state[name] = "the variable :#{name}" unless scratch?(name) || persisted?(name) }
         @program.walk do |node|
           state[node.name] = "the list :#{node.name}" if node.kind == :list_new && !scratch?(node.name)
         end

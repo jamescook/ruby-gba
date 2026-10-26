@@ -166,8 +166,9 @@ module RubyGBA
           @save = save
           @vars = Hash.new(0)      # variable store; an unwritten variable reads as 0
           @funcs = {}              # name -> :func node
-          @screen = Framebuffer.new # the fake bitmap screen the draw ops write into
           @console = Nodes::Program.unbound_console # until a program says which (see #size_screen_for)
+          # the fake screen the draw ops write into
+          @screen = Framebuffer.new(width: @console.screen_width, height: @console.screen_height)
           @held = Set.new          # buttons down right now
           @seen = Set.new          # buttons down at the last frame the screen showed
           @pressed = Set.new       # buttons that went down since the last pass took its presses
@@ -412,7 +413,7 @@ module RubyGBA
 
         # GIVE THE CARTRIDGE A CLOCK, reading +time+ at power-on, the way #hold gives it buttons.
         # It moves on one of the console's frames for every frame the screen shows — a little more
-        # than a sixtieth of a second (Console::Hardware::FRAME_SECONDS), so a run of sixty frames sees a
+        # than a sixtieth of a second (Console::Description#frame_seconds), so a run of sixty frames sees a
         # second go by — however many passes of the game loop those took. With
         # +set: false+ the clock is there and was never set, which a game can ask (`clock.set?`).
         #
@@ -1061,14 +1062,14 @@ module RubyGBA
         def exec_on_timer(_node); end
 
         # THE MIX RUNS AT THE CARTRIDGE'S CLOCK: the nearest the console's sample clock can keep
-        # to the rate the program's recordings ask for. That clock is the one thing here read
-        # off the console backend, and on purpose — how many samples a frame holds is a fact
-        # about the hardware the sound plays on, not about the program, and this mix exists to
-        # make the very bytes that hardware is handed. A program that mixes nothing has no clock.
+        # to the rate the program's recordings ask for (Console::SampleClock). How many samples
+        # a frame holds is a fact about the hardware the sound plays on, not about the program,
+        # and this mix exists to make the very bytes that hardware is handed. A program that
+        # mixes nothing has no clock.
         def start_mixer_clock(program)
           return unless IR::Mixing.mixes?(program)
 
-          @mixer.start_clock(clock: GBA::Timers.sample_clock(IR::Mixing.requested_rate(program)),
+          @mixer.start_clock(clock: @console.sample_clock(IR::Mixing.requested_rate(program)),
                              shapes: IR::Mixing.shapes_any_note?(program))
         end
 
@@ -3185,7 +3186,7 @@ module RubyGBA
         def clock_now
           return unless @clock_started
 
-          moved = IR::Clock.moved_on(@clock_started, @screen_frame * Console::Hardware::FRAME_SECONDS)
+          moved = IR::Clock.moved_on(@clock_started, @screen_frame * @console.frame_seconds)
           clock_keeps_date? ? moved : IR::Clock.undated(moved, @clock_started)
         end
 

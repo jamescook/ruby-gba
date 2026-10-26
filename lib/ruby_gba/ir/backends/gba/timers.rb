@@ -25,7 +25,7 @@ module RubyGBA
 
           # The GBA CPU clock: ~16.78 MHz (2**24 Hz). A timer at prescaler P ticks this
           # many times a second divided by P.
-          CPU_CLOCK_HZ = 16_777_216
+          CPU_CLOCK_HZ = Console::ADVANCE.cycles_a_second
 
           # [control bits, clock divisor], finest resolution first — we pick the finest
           # prescaler whose overflow period still fits the 16-bit counter.
@@ -41,70 +41,20 @@ module RubyGBA
           #
           # The console does NOT run at 60 frames a second. It runs at CPU_CLOCK_HZ divided
           # by this, which is 59.7275, and the difference is small enough to look like a
-          # rounding detail and much too big to treat as one — see #sample_clock.
-          FRAME_CYCLES = 228 * 308 * 4
+          # rounding detail and much too big to treat as one — see Console::SampleClock.
+          FRAME_CYCLES = Console::ADVANCE.cycles_a_frame
 
           # How many samples the sound DMA moves each time the sound hardware asks for more:
           # four 32-bit words, so sixteen 8-bit samples. It only ever moves a whole lot, which
-          # is half of why a sample clock cannot be chosen freely — see #sample_clock.
-          DMA_SAMPLES_A_LOT = 16
+          # is half of why a sample clock cannot be chosen freely — see Console::SampleClock.
+          DMA_SAMPLES_A_LOT = Console::ADVANCE.samples_a_copy
 
-          # A SAMPLE CLOCK A PER-FRAME MIXER CAN ACTUALLY KEEP UP WITH.
-          #
-          # The mixer fills a buffer once a frame and points the sound DMA at it; the DMA then
-          # feeds the hardware, which eats a sample every time this timer overflows. Handing
-          # over cleanly at every frame boundary puts TWO conditions on the clock, and missing
-          # either one puts an impulse in the sound at the frame rate — not a drift you notice
-          # after a minute, a rattle under the whole soundtrack, like a rolled tongue. Both are
-          # measured (test_mixer_sample_clock.rb), not reasoned about.
-          #
-          # ONE: as many samples must be written each frame as are read. The reads are fixed by
-          # the clock — the timer overflows every +period+ cycles, so the hardware reads
-          # FRAME_CYCLES / period samples a frame — and that is a whole number only when a
-          # frame divides by +period+ exactly. Which means the RATE is a consequence of picking
-          # a clock, not something to choose first and then round. Picking it first is how this
-          # went wrong: a rate divided by a round 60 gave one sample a frame fewer than a
-          # console running at 59.7275 frames a second actually eats.
-          #
-          # TWO: those samples must be a whole number of the lots the DMA moves. The DMA only
-          # ever transfers DMA_SAMPLES_A_LOT at a time, so its read position lands on a lot
-          # boundary and nowhere else. Hand it a buffer that is not a whole number of lots and
-          # every frame it either stops short of the end or runs past it — past it into
-          # whatever is allocated next, which it plays.
-          #
-          # Together: +period+ must divide FRAME_CYCLES / DMA_SAMPLES_A_LOT. Retail games land
-          # on the same answer from the other end — the Game Boy Advance sound driver picks a
-          # samples-per-frame out of a fixed table and derives its rate from that — and the
-          # entries of that table which are whole lots are all in this set.
-          #
-          # So: take the rate the program's recordings suggest, and give back the nearest clock
-          # that satisfies both. Nearest BY RATIO, because that is how a rate is heard. The
-          # author never names this rate and never sees it: their recordings are resampled to
-          # it as they play, at the pitch and for the duration they were recorded at, so
-          # landing off it costs a little bandwidth or a little mixing and nothing else.
-          # `rom.profile` says which rate a game got.
-          SampleClock = Data.define(:period, :rate, :samples_a_frame)
+          # The sample clock the mixer runs at: the one nearest +hz+ that a per-frame mixer can
+          # keep up with. Why only some clocks can be kept is Console::SampleClock's to say, since
+          # the interpreter mixes at the same rate.
+          SampleClock = Console::SampleClock
 
-          def self.sample_clock(hz)
-            period = sample_clock_periods.min_by do |candidate|
-              rate = CPU_CLOCK_HZ.fdiv(candidate)
-              rate > hz ? rate / hz : hz / rate
-            end
-            SampleClock.new(period: period, rate: CPU_CLOCK_HZ / period,
-                            samples_a_frame: FRAME_CYCLES / period)
-          end
-
-          # The periods that meet both conditions, and that the 16-bit counter can reach with
-          # no prescaler (past 65536 cycles it cannot, which puts a floor of 256Hz on all this).
-          SAMPLE_CLOCK_PERIODS = Ractor.make_shareable(
-            begin
-              whole = FRAME_CYCLES / DMA_SAMPLES_A_LOT
-              (1..Integer.sqrt(whole)).flat_map { |d| (whole % d).zero? ? [d, whole / d] : [] }
-                                      .select { |d| d <= 65_536 }.sort
-            end
-          )
-
-          def self.sample_clock_periods = SAMPLE_CLOCK_PERIODS
+          def self.sample_clock(hz) = Console::ADVANCE.sample_clock(hz)
 
           def initialize(emitter:)
             @emitter = emitter

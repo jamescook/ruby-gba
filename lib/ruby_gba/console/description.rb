@@ -31,11 +31,28 @@ module RubyGBA
     # whether the clock chip its cartridges carry holds the date and time, or only counts the days
     # and the time of day since it started (IR::Clock). +extension+ ends the name of a cartridge
     # file for it.
+    #
+    # +cycles_a_second+ is the clock the display counts in, and +cycles_a_frame+ how many of those
+    # it takes to draw one picture and the gap after it: together they are how long a frame is,
+    # which anything that keeps real seconds by counting frames needs. Neither console shows
+    # exactly sixty a second. +samples_a_copy+ is how many samples of mixed sound one copy hands
+    # the console's sound hardware, which decides the rates a mix can run at
+    # (Console::SampleClock), or nil where it mixes no recordings. +largest_memory_bytes+ is how
+    # many bytes the largest memory a game's lists and pools are kept in holds: one pool is kept
+    # whole in one memory, so no pool can be bigger.
     Description = Data.define(:name, :title, :screen_width, :screen_height, :buttons, :sprites, :sprite_places,
                               :sprites_a_row, :turning_sprites, :backgrounds, :turning_backgrounds,
                               :backgrounds_beside_turning, :blends, :list_colors, :painted_pages,
-                              :clock_keeps_date, :extension) do
+                              :clock_keeps_date, :cycles_a_second, :cycles_a_frame, :samples_a_copy,
+                              :largest_memory_bytes, :extension) do
       def screen_size = [screen_width, screen_height]
+
+      # How long one frame is, in seconds.
+      def frame_seconds = Rational(cycles_a_frame, cycles_a_second)
+
+      # The clock a mix of recordings runs at, as near +hz+ as this console's sound can keep up
+      # with (see Console::SampleClock).
+      def sample_clock(hz) = SampleClock.nearest(hz, self)
 
       # Whether any of its backgrounds can turn and resize.
       def turns_backgrounds? = turning_backgrounds.positive?
@@ -59,7 +76,12 @@ module RubyGBA
                               # Four layers that scroll, or two that scroll and one that turns.
                               backgrounds: 4, turning_backgrounds: 1, backgrounds_beside_turning: 2,
                               blends: true, list_colors: 16, painted_pages: 2, clock_keeps_date: true,
-                              extension: ".gba")
+                              # 228 lines of 1232 cycles: 160 drawn, and 68 the gap after.
+                              cycles_a_second: 16_777_216, cycles_a_frame: 280_896,
+                              # The sound copy moves four 32-bit words at a time: sixteen 8-bit samples.
+                              samples_a_copy: 16,
+                              # The 256K of roomier memory beside the 32K quick one.
+                              largest_memory_bytes: 256 * 1024, extension: ".gba")
 
     # The Game Boy Color: a smaller screen, eight buttons, forty sprites and ten on a row, one
     # background, nothing that turns, lists of four colours, and a clock that counts days. What
@@ -69,7 +91,11 @@ module RubyGBA
                             sprites_a_row: 10, turning_sprites: false,
                             backgrounds: 1, turning_backgrounds: 0, backgrounds_beside_turning: 0,
                             blends: false, list_colors: 4, painted_pages: 1, clock_keeps_date: false,
-                            extension: ".gbc")
+                            # 154 lines of 456 cycles: the Advance's frame exactly, on a clock a
+                            # quarter as fast. Double speed doubles the cycles, not the frames.
+                            cycles_a_second: 4_194_304, cycles_a_frame: 70_224, samples_a_copy: nil,
+                            # The 8K of work memory in view at once (see Backends::GBC::Memory).
+                            largest_memory_bytes: 8 * 1024, extension: ".gbc")
 
     # Each console's description is reached through its kit (Console::Kit, Console.described).
 

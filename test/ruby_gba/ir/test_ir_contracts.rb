@@ -32,9 +32,10 @@ class TestIRContracts < Minitest::Test
     assert_equal Screen::HEIGHT, RubyGBA::Console::Hardware::SCREEN_HEIGHT
   end
 
-  def test_the_interpreter_framebuffer_sizes_itself_from_the_contract
-    fb = RubyGBA::IR::Backends::Reference::Framebuffer.new
-    assert_equal Screen::WIDTH, fb.width
-    assert_equal Screen::HEIGHT, fb.height
+  # Before it plays a program, the interpreter's screen is the one a program that names no
+  # console is played on.
+  def test_an_interpreter_that_has_played_nothing_has_the_advances_screen
+    screen = RubyGBA::IR::Backends::Reference.new.screen
+    assert_equal [240, 160], [screen.width, screen.height]
   end
 end

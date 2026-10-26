@@ -116,7 +116,7 @@ class TestMixer < Minitest::Test
   def test_the_voice_table_reads_the_sounding_slots_out_of_any_memory
     base = 0x0300_0000
     table = GBA::Mixer::VoiceTable.new(base: base, count: 3,
-                                       clock: GBA::Timers.sample_clock(8000),
+                                       clock: RubyGBA::Console::ADVANCE.sample_clock(8000),
                                        sample_addresses: { zap: 0x0800_1000, hum: 0x0800_2000 })
     at = ->(slot, field) { base + (slot * GBA::Mixer::SLOT_BYTES) + field }
     memory = Hash.new(0)
@@ -285,7 +285,7 @@ class TestMixer < Minitest::Test
                        built: gba.build_record(b.program))
     v = assert_emulator_loads_rom(rom, frames: 20)
     # How long a buffer is, asked of the build rather than worked out here: how many samples
-    # go in a frame is the sound hardware's business (GBA::Timers.sample_clock), and a test
+    # go in a frame is the sound hardware's business (Console::SampleClock), and a test
     # that recomputes it from a round 60 reads past the end of the buffer into what is next.
     frame = v.sample_clock.samples_a_frame
 

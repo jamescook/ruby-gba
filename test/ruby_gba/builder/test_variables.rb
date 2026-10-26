@@ -2,13 +2,11 @@
 
 require "test_helper"
 
-# The var/set/add/sub DSL gives each named variable a fixed IWRAM slot and
-# exposes it through var_address / variables. These tests cover that allocation
-# and introspection. The behavior of the operations themselves — that `add`
-# really adds — is covered by the backend tests, which run the lowered ROM.
+# The var/set/add/sub DSL notes each named variable once, and `variables` lists them. These
+# tests cover that list. Where each is kept is a lowering's business, and the behavior of the
+# operations themselves — that `add` really adds — is covered by the backend tests, which run
+# the lowered ROM.
 class TestVariables < Minitest::Test
-  include RubyGBA::Console::Hardware
-
   # Build through the DSL and hand back the Builder for inspection.
   private def build_with_builder(&block)
     builder = RubyGBA::Builder.new
@@ -17,38 +15,26 @@ class TestVariables < Minitest::Test
   end
 
   # ========================================================================
-  # var — declaration and allocation
+  # var — declaration
   # ========================================================================
 
-  def test_var_allocates_iwram_address
-    builder = build_with_builder do
-      var :ball_x, 100
-    end
-
-    assert_equal IWRAM_START, builder.var_address(:ball_x)
-  end
-
-  def test_var_sequential_allocation
+  def test_variables_are_listed_in_the_order_the_game_names_them
     builder = build_with_builder do
       var :ball_x, 100
       var :ball_y, 80
       var :score, 0
     end
 
-    assert_equal IWRAM_START,     builder.var_address(:ball_x)
-    assert_equal IWRAM_START + 4, builder.var_address(:ball_y)
-    assert_equal IWRAM_START + 8, builder.var_address(:score)
+    assert_equal %i[ball_x ball_y score], builder.variables
   end
 
-  def test_var_called_twice_keeps_the_same_address
+  def test_var_then_set_is_one_variable
     builder = build_with_builder do
       var :ball_x, 100
       set! :ball_x, 200
     end
 
-    # Re-setting a variable reuses its slot rather than allocating a new one.
-    assert_equal IWRAM_START, builder.var_address(:ball_x)
-    assert_equal 1, builder.variables.size
+    assert_equal [:ball_x], builder.variables
   end
 
   # Two parts of a game that each declare a scratch `_seen` share ONE variable, and
@@ -120,30 +106,16 @@ class TestVariables < Minitest::Test
       set! :counter, 42
     end
 
-    assert_equal IWRAM_START, builder.var_address(:counter)
+    assert_equal [:counter], builder.variables
   end
 
-  def test_variables_returns_all_vars
-    builder = build_with_builder do
-      set! :x, 10
-      set! :y, 20
-    end
-
-    vars = builder.variables
-    assert_equal 2, vars.size
-    assert_equal IWRAM_START,     vars[:x][:address]
-    assert_equal IWRAM_START + 4, vars[:y][:address]
-  end
-
-  def test_set_then_set_reuses_address
+  def test_set_then_set_is_one_variable
     builder = build_with_builder do
       set! :x, 10
       set! :x, 20
     end
 
-    # Second set doesn't allocate a new address
-    assert_equal IWRAM_START, builder.var_address(:x)
-    assert_equal 1, builder.variables.size
+    assert_equal [:x], builder.variables
   end
 
   # ========================================================================
@@ -155,7 +127,7 @@ class TestVariables < Minitest::Test
       add_var! :nope, 1
     end
 
-    assert builder.variables.key?(:nope)
+    assert_includes builder.variables, :nope
   end
 
   def test_sub_var_auto_declares
@@ -163,7 +135,7 @@ class TestVariables < Minitest::Test
       sub_var! :nope, 1
     end
 
-    assert builder.variables.key?(:nope)
+    assert_includes builder.variables, :nope
   end
 
   # Both sides of a variable-to-variable op get a slot, so the operand is usable
@@ -173,8 +145,8 @@ class TestVariables < Minitest::Test
       add_var! :counter, :step
     end
 
-    assert builder.variables.key?(:counter)
-    assert builder.variables.key?(:step)
+    assert_includes builder.variables, :counter
+    assert_includes builder.variables, :step
   end
 
   # A declaration initializes ONCE, at program start — not every time the declaration

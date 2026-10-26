@@ -321,7 +321,7 @@ module RubyGBA
       # The number +showing+ gives, as a Value, or a friendly error. +verb+ is what the subject
       # was told to do, as a phrase: "face a pose", "put_in_layer a layer".
       def picked_step!(showing, subject, verb)
-        if showing.is_a?(Symbol) && !@variables.key?(showing)
+        if showing.is_a?(Symbol) && !@variables.include?(showing)
           raise ArgumentError, "#{subject} was told to #{verb} picked by :#{showing}, and no variable has " \
                                "that name. Declare it first with `var :#{showing}, 0`, or correct the name."
         end

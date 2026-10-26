@@ -259,11 +259,12 @@ module ConformanceFixture
       # A second, affine background (`screen :rotozoom`'s rotate/scale layer, not this
       # program's actual `screen :bitmap` — a synthetic combination no real program
       # would build, but which pins that every backend implements the op). Turned 30
-      # degrees at its drawn size, so a backend that ignored the angle, or the scale,
-      # draws a different picture from one that read both.
+      # degrees at its drawn size about the middle of the Advance's screen, so a backend
+      # that ignored the angle, the scale or the point draws a different picture from one
+      # that read all three.
       B.background(:affine_grid, tiles: [:tile_a, :tile_b], map: [[0, 1], [1, nil]],
                                  tile_w: 2, tile_h: 2, affine: true),
-      B.affine_background(:affine_grid, angle: B.int(30), scale: B.int(B::SCALE_ONE)),
+      B.affine_background(:affine_grid, angle: B.int(30), scale: B.int(B::SCALE_ONE), around: [120, 80]),
       B.camera(x: B.int(0), y: B.int(0)), # move the window over the whole picture
       B.fade(toward: :black, amount: B.int(0)), # blend the picture toward a color (0 = as drawn)
       # ...and the same effect placed in the stack: it reaches what is behind :actors and

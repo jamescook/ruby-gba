@@ -90,7 +90,7 @@ module RubyGBA
 
           # The rate the mix runs at and how many samples a frame holds: the console's own clock
           # for the rate the game's recordings ask for, as the interpreter takes it.
-          def mix_clock = @mix_clock ||= GBA::Timers.sample_clock(Mixing.requested_rate(@program))
+          def mix_clock = @mix_clock ||= @program.described_console.sample_clock(Mixing.requested_rate(@program))
 
           # How the mix runs (see the layout atop runtime/rg_mix.c).
           def mix_table

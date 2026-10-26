@@ -10,15 +10,12 @@ module RubyGBA
         # cells back to assert what a program *would* put on screen, with no
         # emulator and no ROM.
         #
-        # The default size, 240x160, is the console's bitmap-mode screen. Writes
-        # that fall outside the grid are silently dropped rather than raising or
-        # scribbling onto memory — the same edge-safety the DSL promises, so a
-        # stray pixel at (999, 999) can never corrupt anything or crash a test.
+        # Its size is the screen of the console the program is played as, which the
+        # interpreter says (Console::Description#screen_size). Writes that fall outside the
+        # grid are silently dropped rather than raising or scribbling onto memory — the
+        # same edge-safety the DSL promises, so a stray pixel at (999, 999) can never
+        # corrupt anything or crash a test.
         class Framebuffer
-          # Sized from the shared display contract, not a fresh copy of 240x160.
-          WIDTH = Screen::WIDTH
-          HEIGHT = Screen::HEIGHT
-
           attr_reader :width, :height, :camera_x, :camera_y, :fade_toward, :fade_steps,
                       :tint_color, :tint_steps
 
@@ -30,7 +27,7 @@ module RubyGBA
           TINT_STEPS = FadeSteps::WALK
 
           # @param fill [Integer] the color every cell starts as (0 reads as black)
-          def initialize(width: WIDTH, height: HEIGHT, fill: 0)
+          def initialize(width:, height:, fill: 0)
             @width = width
             @height = height
             @fill = fill

@@ -197,9 +197,22 @@ class TestPool < Minitest::Test
       message = too_big { pool :crowd, x: 0, y: 0, vx: 0, vy: 0, capacity: 10_800, **words }
 
       assert_match(/pool :crowd/, message)
-      assert_match(/roomier memory/, message, "it names the memory the pool would be kept in")
+      assert_match(/largest memory of a Game Boy Advance holds 256KB/, message, "it names the memory")
       assert_equal 270_000 / 1024, kilobytes_said(message)
     end
+  end
+
+  # The most a pool can be is the console's: a Game Boy Color has 8K of work memory in view, so
+  # 1,000 things of four whole-number fields, 16,000 bytes, are refused for it by name.
+  def test_a_pool_bigger_than_the_colors_memory_is_refused_naming_its_size
+    message = assert_raises(ArgumentError) do
+      Builder.new(options: RubyGBA::Cartridge::Options.new(console: :gbc)).instance_eval do
+        pool :crowd, x: 0, y: 0, vx: 0, vy: 0, capacity: 1000
+      end
+    end.message
+
+    assert_match(/pool :crowd/, message)
+    assert_match(/Game Boy Color holds 8KB/, message)
   end
 
   def test_an_insane_capacity_is_a_friendly_error

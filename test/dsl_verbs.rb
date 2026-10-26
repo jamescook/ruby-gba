@@ -50,7 +50,7 @@ module DslVerbs
   # record_light_shape, light_circle and show_light_now are the hooks behind `shape`, `circle`
   # and `show_now` on the light, documented on `spotlight`. game_pack_checks is what a build asks of `uses`, documented there.
   # record_clock_set is the hook behind `set_to` on the clock, documented on `clock`.
-  SKIP = %i[variables var_address debug_halted? make_object_rotatable make_object_scalable
+  SKIP = %i[variables debug_halted? make_object_rotatable make_object_scalable
             remember_sprite_recolors remember_background_draws_with
             record_row_bend make_background_affine screen_pages keep_showing_pictures
             tile_collision_routine play_from_list play_sound_effect

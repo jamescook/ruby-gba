@@ -61,8 +61,6 @@ module RubyGBA
   #     halt
   #   end
   class Builder
-    include Console::Hardware
-
     include Randomness # seed, randomize, roll, rand, chance
     include Sound      # enable_sound, define_sound, beep
     include Music      # song, play_song, stop_music
@@ -74,7 +72,7 @@ module RubyGBA
     include SpriteImport # sprite art adapters (sheets, Aseprite) feeding the sprite builder
     include Input      # if_held, if_pressed, held, pressed
     include Drawing    # screen, pixel, fill_rect, clear_screen, dma_fill_rect, draw_rect_at
-    include Variables  # set/var, add, sub, negate/flip, copy, abs, negate_abs, clamp, var_address, variables
+    include Variables  # set/var, add, sub, negate/flip, copy, abs, negate_abs, clamp, variables
     include ControlFlow # game_loop, wait_vblank, repeat, every, after, halt, debug_halt, if_eq..if_le
     include Scenes     # func, call, scene, case_var, dump_func
     include Collision  # box (overlaps? lives on the shape — Box/Sprite via Bounds)
@@ -108,14 +106,13 @@ module RubyGBA
       @has_paced_loop = false  # set once a game_loop is pacing the program
       @dropped_syncs = 0       # `wait_vblank` calls the game loop already covers
       @estimate_lines = []     # where an `estimate:` was given, which nothing reads (see #record_estimate_line)
-      @variables = {}          # name → { address:, initial: } — introspection metadata
+      @variables = Set.new     # every variable's name, in the order the game first named it
       @fraction_vars = {}      # name → fraction bits, for variables that hold a fraction (see Fraction)
       @fraction_lists = {}     # ...and the same for lists, from what `holds:` showed
       @name_vars = {}          # name → the NameSet, for variables that hold one of a set of names
       @var_declarations = {}   # name → what its first `var` started it at, and where (see Variables#var)
       @name_dispatches = []    # [dispatch node, NameSet] — filled in at finalize, once every name is known
       @scene_name_sets = []    # the NameSet of each `call` that picks a scene, checked once every name is known
-      @next_var_addr = IWRAM_START
       @functions = {}          # name → deferred body block (evaluated at emit time)
       @tile_runs = []          # runs of tiles painted from a list, in declaration order (see TileRuns)
       @painted_colors = {}     # picture painted from a list → the colours its places pick (see TileRuns)
@@ -1411,26 +1408,15 @@ module RubyGBA
       replacement.parent = node.parent
     end
 
-    # Look up a variable's IWRAM address, raising if not declared.
-    def var_address!(name)
-      entry = @variables[name]
-      raise ArgumentError, "The variable :#{name} is not defined. Use `set! :#{name}, value` first." unless entry
-      entry[:address]
-    end
-
-    # Allocate a variable on first mention, tracking its name and address for
-    # introspection (var_address / variables). Only a Symbol names a variable, so
-    # any other operand — a literal, an expression — is ignored: callers can pass a
-    # value operand straight through without guarding, and a non-name never
-    # allocates a phantom entry. (Operand types are already validated upstream at
-    # the Value.node_for coercion boundary, so ensure_var needn't gate them.)
+    # Note a variable on first mention, for the checks that ask which variables a game has
+    # (and #variables). Where it is kept is each lowering's business, since each console has
+    # memory of its own. Only a Symbol names a variable, so any other operand — a literal, an
+    # expression — is ignored: callers can pass a value operand straight through without
+    # guarding, and a non-name never notes a phantom entry. (Operand types are already
+    # validated upstream at the Value.node_for coercion boundary, so ensure_var needn't gate
+    # them.)
     def ensure_var(name)
-      return unless name.is_a?(Symbol)
-      return if @variables.key?(name)
-
-      addr = @next_var_addr
-      @next_var_addr += 4
-      @variables[name] = { address: addr }
+      @variables << name if name.is_a?(Symbol)
     end
 
     # --- Importing art from image files ---

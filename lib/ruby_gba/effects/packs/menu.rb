@@ -537,11 +537,11 @@ module RubyGBA
         # a bigger question than this verb. Caught at the call site, where the labels are,
         # rather than at lowering, where the message could only count anonymous sprites.
         def refuse_menu_over_sprite_limit!(name, spent)
-          return if spent <= Console::Hardware::MAX_SPRITES
+          return if spent <= console.sprites
 
           raise ArgumentError,
-                "menu :#{name} needs #{spent} sprites for its rows, and the console draws at " \
-                "most #{Console::Hardware::MAX_SPRITES} at once. On a tiled screen the console draws " \
+                "menu :#{name} needs #{spent} sprites for its rows, and a #{console.title} draws at " \
+                "most #{console.sprites} at once. On a tiled screen the console draws " \
                 "each character as its own little sprite. To fix this, use shorter labels or " \
                 "fewer rows. Or put the menu on a `screen :bitmap`, where text costs no " \
                 "sprites at all."

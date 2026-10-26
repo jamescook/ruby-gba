@@ -212,12 +212,6 @@ module RubyGBA
       PALETTES = 8
       PALETTE_COLORS = 4
       MAP_CELLS = 32
-
-      # One frame is 70,224 cycles of the 4,194,304 a second clock (154 lines of 456), about 59.7
-      # frames a second — the Advance's rate exactly, since its clock is four times this one and
-      # its frame four times as many cycles. Double speed doubles the cycles, not the frames.
-      CLOCK_HZ = 4_194_304
-      CYCLES_PER_FRAME = 70_224
     end
   end
 end

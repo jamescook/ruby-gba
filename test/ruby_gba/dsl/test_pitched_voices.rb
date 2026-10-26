@@ -79,7 +79,7 @@ class TestPitchedVoices < Minitest::Test
     assert_operator ratio, :<, 2.3, "...and not more than ~2x (#{high.position} vs #{base.position})"
 
     # A step is how fast the recording is read, so it carries the pitch AND the resampling:
-    # the mix runs at a rate the sound hardware can sustain (Timers.sample_clock), which is
+    # the mix runs at a rate the sound hardware can sustain (Console::SampleClock), which is
     # rarely the rate the recording was made at. The pitch on its own is the two steps' ratio.
     assert_in_delta 523.0 / 262, high.step.to_f / base.step, 0.01, "an octave apart, whatever the mix rate"
     expected = (523.0 / 262 * (8000.0 / v.sample_clock.rate) * GBA::Mixer::STEP_ONE).round

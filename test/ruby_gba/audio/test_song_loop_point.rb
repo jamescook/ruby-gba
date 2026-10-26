@@ -48,11 +48,11 @@ class TestSongLoopPoint < Minitest::Test
 
   # What a note's step comes out as. It carries two things: the note's pitch against the one
   # the organ was recorded at, and the resampling — the mix runs at a rate the sound hardware
-  # can sustain rather than at the rate of the recording (GBA::Timers.sample_clock), so a note
+  # can sustain rather than at the rate of the recording (Console::SampleClock), so a note
   # at the recorded pitch is not a step of 1.0. Asked of the same function the build asks.
   RECORDED_AT = 8000
   private def step(key)
-    resample = RECORDED_AT.to_f / GBA::Timers.sample_clock(RECORDED_AT).rate
+    resample = RECORDED_AT.to_f / RubyGBA::Console::ADVANCE.sample_clock(RECORDED_AT).rate
     (NOTES[key].to_f / NOTES[:C4] * resample * STEP_ONE).round
   end
 
