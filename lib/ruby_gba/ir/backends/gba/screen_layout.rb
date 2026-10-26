@@ -1945,7 +1945,7 @@ module RubyGBA
           # told which sprites are spending several, since that is the part nobody wrote.
           def check_sprite_count_fits!(nodes)
             spent = @sprite_rows.count
-            most = Guardrails::Checks::TooManySprites::MOST
+            most = Console::ADVANCE.sprite_places
             return if spent <= most
 
             raise LoweringError,
@@ -2612,7 +2612,7 @@ module RubyGBA
             # and what they are counted against is what a game can keep.
             held = sprite_table_rows > MAX_SPRITES
             RubyGBA::Diagnostics::VideoMemory::Objects.new(used: @sprite_rows.count + twins,
-                                                           capacity: held ? Guardrails::Checks::TooManySprites::MOST : MAX_SPRITES,
+                                                           capacity: held ? Console::ADVANCE.sprite_places : MAX_SPRITES,
                                                            big: big, twins: twins, held: held)
           end
 

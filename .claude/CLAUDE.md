@@ -242,7 +242,7 @@ happens to touch:
 | `dsl/` | `RubyGBA::DSL` | a game names it directly (a `Value`, a `Sprite`, a `List`), or it is a kind of thing one of those holds (`Whole`, `Fraction`, `NameSet`) |
 | `audio/` | `RubyGBA::Audio` | it is the sound and music model behind the verbs (`Score`, `Envelope`, `Music`) |
 | `graphics/` | `RubyGBA::Graphics` | it is what a picture is made of — colours, letters, images |
-| `console/` | `RubyGBA::Console` | it names the console's hardware — where its memory is, its register addresses and flags (`Hardware`) |
+| `console/` | `RubyGBA::Console` | it names a console — its hardware, where its memory is, its register addresses and flags (`Hardware`), what a game can tell about it (`Description`), and which of the library's parts serve it (`Kit`), named and never run |
 | `cartridge/` | `RubyGBA::Cartridge` | it turns a checked program into cartridge bytes (`ROM`, `Header`, `GameCode`) |
 | `diagnostics/` | `RubyGBA::Diagnostics` | it reads a built or running cartridge back (`Verifier`, `Profiler`, `BuildReport`) |
 | `playthroughs/` | `RubyGBA::Playthroughs` | it plays a finished cartridge with nobody at the controls, or two side by side to find where they differ (`Playthrough`, `Tape`, `Comparison`, `CommandLine`) |

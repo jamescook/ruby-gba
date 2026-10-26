@@ -3,6 +3,7 @@
 require "rake"
 require "rake/tasklib"
 require_relative "../console/description"
+require_relative "../console/kit" # which names its parts and loads none of them
 require_relative "lowering"
 require_relative "test_task"
 

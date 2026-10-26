@@ -14,7 +14,10 @@ module RubyGBA
     #
     # +name+ is how a game and the command line name it (:gba), +title+ how a person does.
     # +screen_width+ and +screen_height+ are in pixels. +buttons+ are the ones it has, in the
-    # order IR::Buttons names them. +sprites+ is how many it can show at once.
+    # order IR::Buttons names them. +sprites+ is how many it can show at once, and +sprite_places+
+    # how many a game can keep places for: more than it shows where a cartridge keeps a bigger
+    # copy of its table and puts the sprites showing into the console's each frame, as the
+    # Advance's does (Backends::GBA::SpriteDrawing::HeldTable), and the same where it does not.
     # +backgrounds+ is how many tiled layers it stacks, and +turning_backgrounds+ how many of
     # them can turn and resize. +blends+ says whether its display can mix colours as it draws —
     # fade the finished picture, mix one layer into another — rather than only change the colours
@@ -24,7 +27,7 @@ module RubyGBA
     # whether the clock chip its cartridges carry holds the date and time, or only counts the days
     # and the time of day since it started (IR::Clock). +extension+ ends the name of a cartridge
     # file for it.
-    Description = Data.define(:name, :title, :screen_width, :screen_height, :buttons, :sprites,
+    Description = Data.define(:name, :title, :screen_width, :screen_height, :buttons, :sprites, :sprite_places,
                               :backgrounds, :turning_backgrounds, :blends, :list_colors, :painted_pages,
                               :clock_keeps_date, :extension) do
       def screen_size = [screen_width, screen_height]
@@ -36,6 +39,8 @@ module RubyGBA
     # The Game Boy Advance, which every game is built for unless it says otherwise.
     ADVANCE = Description.new(name: :gba, title: "Game Boy Advance", screen_width: 240, screen_height: 160,
                               buttons: %i[a b select start right left up down r l].freeze, sprites: 128,
+                              # The most the desktop and web builds draw in one frame, too.
+                              sprite_places: 512,
                               backgrounds: 4, turning_backgrounds: 1, blends: true, list_colors: 16,
                               painted_pages: 2, clock_keeps_date: true, extension: ".gba")
 
@@ -43,25 +48,14 @@ module RubyGBA
     # four colours, and a clock that counts days. What each verb does on it is
     # Console::GBCFeatures's to say.
     COLOR = Description.new(name: :gbc, title: "Game Boy Color", screen_width: 160, screen_height: 144,
-                            buttons: %i[a b select start right left up down].freeze, sprites: 40,
+                            buttons: %i[a b select start right left up down].freeze, sprites: 40, sprite_places: 40,
                             backgrounds: 1, turning_backgrounds: 0, blends: false, list_colors: 4,
                             painted_pages: 1, clock_keeps_date: false, extension: ".gbc")
-
-    DESCRIPTIONS = Ractor.make_shareable({ gba: ADVANCE, gbc: COLOR })
 
     # The console a game is built for when it does not say.
     DEFAULT = :gba
 
-    # The console named +name+ (a Symbol), the Advance for nil. A name no console has is refused
-    # with the names there are.
-    def self.described(name)
-      return ADVANCE if name.nil?
-
-      DESCRIPTIONS.fetch(name.to_sym) do
-        raise ArgumentError, "there is no console named #{name.inspect}. The consoles are " \
-                             "#{DESCRIPTIONS.keys.map(&:inspect).join(' and ')}."
-      end
-    end
+    # Each console's description is reached through its kit (Console::Kit, Console.described).
 
     # The consoles a game says it is for, as a frozen list of names: one name or a list of them.
     # A name no console has, or no name at all, is refused. +setting+ is what the game wrote them

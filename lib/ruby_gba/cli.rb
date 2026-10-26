@@ -682,9 +682,9 @@ module RubyGBA
       path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename(console: console))
       rom.write(path)
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
-      # What asset packing and the quick memory did is the Advance's to say: the Color's build
-      # packs nothing and has no quick memory to choose for.
-      if options[:stats] && console == :gba
+      # What asset packing and the quick memory did is said for a console whose build does them:
+      # the Color's packs nothing and has no quick memory to choose for.
+      if options[:stats] && RubyGBA::Console.for(console).measured_builds?
         say rom.compression.summary_line if rom.compression&.any?
         say placement_line(rom) if rom.placement&.funcs&.any?
       end

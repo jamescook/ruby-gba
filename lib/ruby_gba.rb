@@ -106,9 +106,9 @@ module RubyGBA
     out = output.out
     err = output.err
 
-    # Measuring is the Advance's: it is what chooses the Advance's quick memory, which a Game Boy
-    # Color does not have.
-    profile = false unless options.console == Console::DEFAULT
+    # Measuring chooses what goes in a quick memory, which only some consoles have.
+    kit = Console.for(options.console)
+    profile = false unless kit.measured_builds?
     if profile == true
       return build_measured(title, code: code, maker: maker, validate: validate, out: out, err: err,
                             progress: progress, settings: settings, **options.to_h, &block)
@@ -166,51 +166,16 @@ module RubyGBA
       end
     end
 
-    # A cartridge for another console is made by that console's lowering, from the same checked
-    # tree (see IR::Backends::GBC).
-    return build_for_console(program, title, options, progress, evaluated.dump_requests) unless options.console == Console::DEFAULT
-
-    # The DSL built an IR tree as the block ran. Turn it into a ROM in two steps,
-    # both behind this single call so building stays one operation: lower the tree
-    # to machine code, then assemble that code into a cartridge. Lowering names its
-    # own phases rather than being named from here — most of the time a build spends
-    # is in there, and it is three phases, not one (see Placement#choose_fast_funcs).
-    measured = load_routine_profile(profile, program, err)
-    backend = IR::Backends::GBA.new(**options.lowering, progress: progress, routine_profile: measured)
-    machine_code = backend.lower(program)
-    record = backend.build_record(program)
-
-    # The guardrail that reads a decision the build made runs here instead of above, because
-    # the decision does not exist until the build has made it. Its findings join the ones from
-    # the first pass and print together at the end.
-    unless evaluated.debug_halted?
-      progress.step("the guardrails that need the build")
-      checks = IR::Guardrails.build_checks(record.placement)
-      priced = IR::Guardrails::Validator.new(checks: checks, progress: progress)
-                                        .run(program, autofix: false)
-      findings = findings.with(findings: findings.findings + priced.findings)
-    end
-    # The findings ride on the record too, so a report asked for as data carries them.
-    record = record.with(findings: findings.findings) if findings
-
-    progress.step("assembling the cartridge")
-    # The cartridge carries what the build worked out about it — the program it came from,
-    # which routines went in the console's quick memory, where the variables landed, and so
-    # on — so that a finished ROM can report on itself (see BuildRecord and rom.profile).
-    # None of it is in the bytes, and nothing can recover it by reading them back.
-    rom = Cartridge::ROM.assemble(machine_code, title: title, code: code, maker: maker,
-                                     validate: evaluated.debug_halted? ? false : validate,
-                                     built: record)
-
-    # Every phase is over; a disassembly dump is a debugging aid, not a phase.
-    progress.done
-    unless evaluated.dump_requests.empty?
-      Diagnostics::FuncDumper.new(rom, backend.func_ranges, tables: backend.number_tables, out: out, err: err)
-                             .dump(evaluated.dump_requests)
-    end
-    rom
+    # The cartridge is made by the build the console's kit names, from the same checked tree. The
+    # findings travel with the request, so what that build adds to them is printed below however
+    # it ends.
+    request = Cartridge::BuildRequest.new(program: program, evaluated: evaluated, findings: findings, title: title,
+                                          code: code, maker: maker, validate: validate, options: options,
+                                          profile: profile, progress: progress, out: out, err: err)
+    kit.builder.build(request)
   ensure
-    # HOWEVER THE BUILD ENDED: close the line, then say what the guardrails found.
+    # HOWEVER THE BUILD ENDED: close the line, then say what the guardrails found — with what the
+    # console's build added to them, once it was handed them.
     #
     # In that order, and both here rather than where they happen. A live progress line is held
     # open and rewritten in place, so anything printed while one is open lands in the middle of
@@ -220,28 +185,12 @@ module RubyGBA
     # finished telling you what it did. On the way out of an error this still runs first, so a
     # reader sees the explanation and then the line saying the build stopped.
     progress.done
+    findings = request.findings if request
     findings&.print_findings(to: err)
     # Last of all, because the line above is the last thing anybody prints: hand back any
     # file this build opened for itself. A stream the caller opened is left alone.
     output&.close
   end
-
-  # THE CARTRIDGE FOR A CONSOLE OTHER THAN THE ADVANCE: the Game Boy Color's, today, made from the
-  # checked tree by IR::Backends::GBC. Measuring, quick memory and the ROM validation are the
-  # Advance's and are not asked for. A routine asked to be listed (`dump_func`) is listed as the ARM
-  # it was made into, which only the Advance has, so it is refused (Console::GBCFeatures).
-  def self.build_for_console(program, title, options, progress, dumps)
-    console = Console.described(options.console)
-    unless dumps.empty?
-      raise ROMError, "This game lists a routine's ARM (`dump_func #{dumps.first.inspect}`), and a #{console.title} " \
-                      "cannot: #{Console::GBCFeatures.answer(:dump_func).words} Take out `dump_func`, or build for " \
-                      "the Game Boy Advance alone to see it."
-    end
-
-    progress.step("lowering for the #{console.title}")
-    IR::Backends::GBC.new.build(program, title: title)
-  end
-  private_class_method :build_for_console
 
   # BUILD IT, RUN IT, BUILD IT AGAIN — which is how the build knows what a game spends its
   # frames on instead of guessing.
@@ -377,35 +326,5 @@ module RubyGBA
   # shows, since every frame after it fits.
   def self.warn_of_late_hand_overs(survey, err)
     survey.late_hand_overs.each { |late| err.puts("\n#{Diagnostics::HandOvers.message(late)}") }
-  end
-
-  # A PROFILE THAT HAS DRIFTED FROM ITS GAME still decides what goes in the quick memory, and
-  # would go on doing it, quietly and increasingly wrongly, as the game moved on. So a routine
-  # the profile names that the program no longer has is said out loud.
-  #
-  # It is a warning and not an error on purpose: renaming one routine should not stop a build,
-  # and the profile is still right about everything else it names. What it means is that the
-  # game has been measured less recently than it has been changed.
-  # What the caller handed over, read into a {RoutineProfile} — or nothing, which means the
-  # choice is made from the shape of the program.
-  def self.load_routine_profile(profile, program, err)
-    measured = profile.is_a?(Diagnostics::RoutineProfile) ? profile : Diagnostics::RoutineProfile.read(profile || nil)
-    warn_of_stale_profile(measured, program, err)
-    measured
-  end
-
-  def self.warn_of_stale_profile(measured, program, err)
-    return unless measured
-
-    known = program.walk.filter_map { |node| node.name if node.kind == :func }.to_set
-    known << IR::Backends::GBA::Placement::FRAME_ROUTINE
-    known << IR::Backends::GBA::Placement::IRQ_ROUTINE
-    gone = measured.stale_routines(known)
-    return if gone.empty?
-
-    err.puts("This game was measured when it had #{gone.map { |name| "`#{name}`" }.join(', ')}, " \
-             "and it does not now. The measurement decides which routines stay in the console's " \
-             "quick memory, so it is out of date. To fix this, measure the game again and save " \
-             "the result.")
   end
 end

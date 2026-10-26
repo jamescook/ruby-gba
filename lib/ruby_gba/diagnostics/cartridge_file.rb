@@ -16,9 +16,8 @@ module RubyGBA
     # where a build record would be. What a cartridge can only say of itself with a record
     # (its size by routine, its profile) it does not answer at all.
     class CartridgeFile
-      # The kinds of cartridge a file can be, each knowing its own header.
-      KINDS = [Cartridge::ROM, Cartridge::GBCROM].freeze
-      private_constant :KINDS
+      # The kinds of cartridge a file can be, one a console, each knowing its own header.
+      def self.kinds = Console.kits.map(&:cartridge)
 
       attr_reader :path, :buffer
 
@@ -27,7 +26,7 @@ module RubyGBA
 
         @path = path.to_s
         @buffer = File.binread(path).freeze
-        @kind = KINDS.find { |kind| kind.header?(@buffer) }
+        @kind = self.class.kinds.find { |kind| kind.header?(@buffer) }
         refuse_non_cartridge!
       end
 

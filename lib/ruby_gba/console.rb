@@ -2,11 +2,13 @@
 
 # THE CONSOLES THEMSELVES, NAMED: what a game can tell about each one (its screen, its buttons, how
 # many sprites it shows, what it does with each verb), and for each the addresses of the registers
-# that drive its display, sound, copying engines and timers, and the flags written into them.
-# Nothing here does anything; it is the table every part that talks to the hardware reads its
-# numbers from, so it needs nothing loaded before it.
+# that drive its display, sound, copying engines and timers, and the flags written into them; and
+# which of the library's parts serve each one (Console::Kit). Nothing here does anything; it
+# is the table every part that talks to the hardware reads its numbers from, and the parts it
+# names are only asked for once everything is loaded, so it needs nothing loaded before it.
 
 require_relative "console/hardware" # the register addresses, flags and memory map
 require_relative "console/description" # what a game can tell about a console: its screen, buttons, sprites
 require_relative "console/gbc_hardware" # the Game Boy Color's register addresses, flags and memory map
 require_relative "console/gbc_features" # what each verb does on a Game Boy Color: works or refused
+require_relative "console/kit" # ...and which parts of the library serve each console

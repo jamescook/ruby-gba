@@ -18,12 +18,11 @@ module RubyGBA
         # what has to fit is the busiest screen: one scene's sprites with the ones every
         # scene shows.
         #
-        # A GAME CAN KEEP MORE ROWS THAN ITS CONSOLE DRAWS ON ONE FRAME, up to MOST: a pool keeps
-        # a row for every thing it can hold, and a room shows a handful of them, so what has to
-        # fit the console's table is one frame's sprites, and how a backend keeps the rest is
-        # its own business. MOST is the most any backend draws in a frame; a game over that has
-        # a sprite with nowhere to go. A console that keeps no more rows than it draws answers
-        # with its own count (see #most_places).
+        # A GAME CAN KEEP MORE ROWS THAN ITS CONSOLE DRAWS ON ONE FRAME: a pool keeps a row for
+        # every thing it can hold, and a room shows a handful of them, so what has to fit the
+        # console's table is one frame's sprites, and how a backend keeps the rest is its own
+        # business. How many places a game can keep is the console's to say
+        # (Console::Description#sprite_places); a game over that has a sprite with nowhere to go.
         #
         # This used to be a number an author counted, until tiled text: the console draws
         # every character of a tiled `draw_text` as a sprite of its own, and a menu is two
@@ -40,10 +39,8 @@ module RubyGBA
           NAME = :too_many_sprites
           PLAIN_NAME = "more sprites than a game can keep places for"
 
-          MOST = 512
-
           def detect(program)
-            most = most_places(program)
+            most = program.described_console.sprite_places
             plan = SpriteRows.plan(program) { 1 }
             return [] if plan.count <= most
 
@@ -59,14 +56,6 @@ module RubyGBA
           end
 
           private
-
-          # How many places a game built for +program+'s console can keep: MOST on the Advance,
-          # whose cartridge keeps a bigger table than its 128 rows; the forty of a Game Boy Color,
-          # which keeps none.
-          def most_places(program)
-            console = program.described_console
-            console.name == Console::DEFAULT ? MOST : console.sprites
-          end
 
           # The busiest screen is over by itself: say how its places were spent.
           def busiest_message(plan, sprites, most)

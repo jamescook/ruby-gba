@@ -38,10 +38,11 @@ module RubyGBA
     class Verifier
       include Console::Hardware
 
-      # The reader for +rom+'s console: a GBCVerifier for a Game Boy Color cartridge, which reads
-      # what the Color keeps its own way, and a Verifier for an Advance one. Takes what new takes.
+      # The reader for +rom+'s console, which its kit names (Console::Kit): a
+      # GBCVerifier for a Game Boy Color cartridge, which reads what the Color keeps its own way,
+      # and a Verifier for an Advance one. Takes what new takes.
       def self.for(rom, **)
-        (rom.console == :gbc ? GBCVerifier : self).new(rom, **)
+        Console.for(rom.console).reader.new(rom, **)
       end
 
       # How many bytes of a clock's own state mGBA keeps after the save chip in its save file

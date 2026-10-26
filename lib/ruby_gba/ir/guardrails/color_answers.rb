@@ -22,25 +22,26 @@ module RubyGBA
           # The most sprites the Color draws on one row of the screen.
           SPRITES_A_ROW = Console::GBCHardware::SPRITES_ON_A_LINE
 
+          # Asked of a program whose console's kit has answers (Console::Kit#answers), which is the
+          # Color's alone; the rows and the second background below are the Color's hardware too.
           def detect(program)
-            return [] unless program.kind == :program && program.described_console.name == :gbc
+            return [] unless program.kind == :program
 
+            answers = Console.for(program.described_console.name).answers or return []
             nodes = program.walk.to_a
-            refused(nodes) + second_backgrounds(program) + crowded_rows(program, nodes)
+            refused(nodes, answers) + second_backgrounds(program, answers) + crowded_rows(program, nodes)
           end
 
           private
 
-          def answer(verb) = Console::GBCFeatures.answer(verb)
-
-          # What the Color cannot do, at every line that asks for it.
-          def refused(nodes)
+          # What the Color cannot do, at every line that asks for it, in +answers+' words.
+          def refused(nodes, answers)
             nodes.filter_map do |node|
               verb, what = refusal_of(node)
               next unless verb
 
               Finding.new(check: NAME, severity: :error, node: node,
-                          message: "#{what}, and a Game Boy Color cannot: #{answer(verb).words}")
+                          message: "#{what}, and a Game Boy Color cannot: #{answers.answer(verb).words}")
             end
           end
 
@@ -78,13 +79,13 @@ module RubyGBA
           # (IR::SceneHandover#showing), and a background declared in no scene — in the game loop or
           # a plain routine — is up on every screen. Each background past the first that shows with
           # another is refused at its line, once.
-          def second_backgrounds(program)
+          def second_backgrounds(program, answers)
             scenery = Stacking.picture(program).scenery
             handover = SceneHandover.of(program)
             [nil, *scenery.filter_map(&:scene)].uniq.flat_map { |scene| handover.showing(scene).drop(1) }.uniq.map do |bg|
               Finding.new(check: NAME, severity: :error, node: bg,
                           message: "This line shows a second background while another is showing, and a Game Boy " \
-                                   "Color cannot: #{answer(:background).words}")
+                                   "Color cannot: #{answers.answer(:background).words}")
             end
           end
 

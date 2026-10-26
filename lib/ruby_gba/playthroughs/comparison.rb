@@ -230,7 +230,7 @@ module RubyGBA
       private def starts
         @starts ||= begin
           pair = @handed_over.map { |given| Playthrough.cartridge_from(given) }
-          refuse_color_cartridges!(pair)
+          refuse_cartridges_not_compared!(pair)
           @readings.refuse_unreadable_on!(pair)
           pair.zip(%w[first second], @lead_ins).map do |cartridge, which, lead_in|
             Start.new(which: which, cartridge: cartridge, save: save_fitted_to(cartridge, which), lead_in: lead_in)
@@ -351,12 +351,17 @@ module RubyGBA
       private def what_any_report_has(settings) = { cartridges: cartridges, settings: settings + starting_sentences }
 
       # A comparison lines two screens up, and frames rectangles on them, at the Advance's size.
-      # A Color screen is another size, so a Color cartridge is refused rather than compared wrong.
-      private def refuse_color_cartridges!(pair)
-        which = %w[first second].zip(pair).find { |_, cartridge| cartridge.console == :gbc }&.first or return
+      # Another console's screen is another size, so its cartridge is refused rather than compared
+      # wrong (Console::Kit#compared_side_by_side?).
+      private def refuse_cartridges_not_compared!(pair)
+        which, cartridge = %w[first second].zip(pair).find do |_, each|
+          !Console.for(each.console).compared_side_by_side?
+        end
+        return unless which
 
-        raise ArgumentError, "The #{which} cartridge is for a Game Boy Color. A comparison compares Game Boy " \
-                             "Advance cartridges only. To play a Color cartridge, use `play`."
+        compared = Console.kits.select(&:compared_side_by_side?).map(&:title).join(" and ")
+        raise ArgumentError, "The #{which} cartridge is for a #{Console.for(cartridge.console).title}. A comparison " \
+                             "compares #{compared} cartridges only. To play that cartridge, use `play`."
       end
 
       private def refuse_malformed_lead_ins!(given)

@@ -110,6 +110,13 @@ A consumer of a program, named for the platform it targets. `GBA` lowers to a ca
 web page; `Reference` runs the program in Ruby.
 _Avoid_: compiler, emitter, target (the CPU is not the target — the platform is)
 
+**Console kit**:
+The parts of the library that serve one console, named in one place (`Console.for(:gbc)`): what a
+game can tell about it, what each verb does on it, the build that makes its cartridge, the kind of
+cartridge, the reader that plays one back. A part that needs to know which console it is serving
+asks the kit and never compares the console's name.
+_Avoid_: platform (that is what a lowering targets), adapter, driver
+
 **Lowering**:
 Turning a program into code for one platform. Everything machine-specific lives here and
 never in the IR. There are three: the GBA lowering, the native lowering and the JavaScript

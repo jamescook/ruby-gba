@@ -221,7 +221,7 @@ module RubyGBA
       # and +twins+ is what the windows that hold a placed fade off a sprite cost, since
       # each of those shadows a sprite object for object. +held+ is a game with more than the
       # console's 128, which keeps them in a bigger copy and draws 128 of them on a frame (see
-      # IR::Guardrails::Checks::TooManySprites); its +capacity+ is what a game can keep.
+      # Console::Description#sprite_places); its +capacity+ is what a game can keep.
       Objects = Data.define(:used, :capacity, :big, :twins, :held) do
         def initialize(big: [], twins: 0, held: false, **rest) = super
 

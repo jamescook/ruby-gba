@@ -45,6 +45,12 @@ a console of its own needs beyond a lowering:
   is generated from the same table (`tools/gbc_answers.rb`), so the docs cannot drift from it.
 - **Its own cartridge, emulator reading and profiler** (`Cartridge::GBCROM`,
   `Diagnostics::GBCProfiler`): the Advance's never learn about it.
+- **A kit naming all of it** (`Console::Kit`, `Console.for(:gbc)`, in `console/kit.rb`): its
+  description, its answers, the build that makes its cartridge (`Cartridge::ColorBuild`, handed a
+  `Cartridge::BuildRequest`), the cartridge kind, its reader, and whether its builds are measured.
+  The build, the reader chooser, the cartridge-file reader and the command line ask the kit, so a
+  console is added by describing it and giving it a kit. Nothing outside a console's own code
+  compares console names (`test/ruby_gba/console/test_kit.rb` fails the build if something does).
 
 `GBC::Lowering` is a peer of the GBA lowering, not of the native one: it walks the IR and emits
 SM83 machine code itself (its picture and sound in `GBC::Lowering::Picture` and

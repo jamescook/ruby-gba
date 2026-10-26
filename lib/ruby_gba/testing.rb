@@ -42,10 +42,10 @@ module RubyGBA
     def self.javascript? = LOWERING == :js
     def self.gbc? = LOWERING == :gbc
 
-    # The console this run plays a game built for: the Game Boy Color on its run, the Advance on
-    # every other. A game for both builds its tree for the run's (`game.program(console:
-    # game_console)`), so its tests play on the Color too.
-    def self.console = gbc? ? :gbc : Console::DEFAULT
+    # The console this run plays a game built for (Lowering::CONSOLES): the Game Boy Color on its
+    # run, the Advance on every other. A game for both builds its tree for the run's
+    # (`game.program(console: game_console)`), so its tests play on the Color too.
+    def self.console = Lowering::CONSOLES.fetch(LOWERING)
     def game_console = Testing.console
 
     # THE EMULATOR, IF THE GAME HAS IT, LOADED NOW rather than by the first test that wants it.
