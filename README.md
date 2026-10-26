@@ -2,7 +2,7 @@
 
 **A Ruby DSL that compiles to real Game Boy Advance ROMs — built as a teaching tool, and written end-to-end by AI.**
 
-You write plain Ruby. `ruby-gba` turns it into an ARM7 cartridge that boots on a real GBA or any emulator. The guiding rule is simple: **you should need to know Ruby, not the hardware.** No VRAM, no DISPCNT, no ARM assembly, no "why is my screen black" — the framework manages the machine and turns the classic footguns into friendly, plain-language errors.
+You write plain Ruby. `vblank` turns it into an ARM7 cartridge that boots on a real GBA or any emulator. The guiding rule is simple: **you should need to know Ruby, not the hardware.** No VRAM, no DISPCNT, no ARM assembly, no "why is my screen black" — the framework manages the machine and turns the classic footguns into friendly, plain-language errors.
 
 It is also an experiment in **AI-native tooling**: every line here was written by an AI agent, and the whole toolchain is shaped around giving an agent (and a human) fast, mechanical, readable feedback while building a game.
 
@@ -76,7 +76,7 @@ Every game says which consoles it is for — `consoles: %i[gba]` for the Game Bo
 
 ```bash
 ruby examples/snake.rb             # => writes snake.gba
-ruby-gba build examples/snake.rb   # the same, via the CLI (adds -o / --console / --profile / --stats)
+vblank build examples/snake.rb   # the same, via the CLI (adds -o / --console / --profile / --stats)
 rake test                          # unit + emulator integration tests (builds the emulator first)
 ```
 
@@ -167,9 +167,9 @@ This framework used to ship a cost *estimator* instead: a frame priced in scanli
 A game can also be built as a program for a computer, with a window, the keyboard as the console's buttons, and its sound — one file that needs nothing installed beside it:
 
 ```bash
-ruby-gba build examples/pong.rb --format=native                   # for this computer
-ruby-gba build examples/pong.rb --format=native --target windows  # 64-bit Windows (pong-windows.exe)
-ruby-gba build examples/pong.rb --format=native --target linux    # 64-bit Linux; also linux-arm
+vblank build examples/pong.rb --format=native                   # for this computer
+vblank build examples/pong.rb --format=native --target windows  # 64-bit Windows (pong-windows.exe)
+vblank build examples/pong.rb --format=native --target linux    # 64-bit Linux; also linux-arm
 ```
 
 The game is written out as C and compiled with [zig](https://ziglang.org) (installed through mise), which carries the C library of every system it builds for and compiles [SDL3](https://libsdl.org) and [Dear ImGui](https://github.com/ocornut/imgui) from source for each, so a Mac builds the Windows and Linux programs with nothing else installed. The first build takes a while because it compiles SDL; every build after reuses it.
@@ -185,8 +185,8 @@ The game is written out as C and compiled with [zig](https://ziglang.org) (insta
 A game can also be built as one web page that plays it in a browser — the keyboard, a controller or buttons on a phone's screen as the console's buttons, sound, and saves kept between visits. The page holds everything it needs, so it opens from a disk or any web server:
 
 ```bash
-ruby-gba build examples/pong.rb --format=web   # pong.html, beside the game
-ruby-gba preview examples/pong.rb              # serve it; every reload builds it again from the file
+vblank build examples/pong.rb --format=web   # pong.html, beside the game
+vblank preview examples/pong.rb              # serve it; every reload builds it again from the file
 ```
 
 `preview` is the quick loop while you work: edit the game, reload the page. It shows the game as the framework understands it, so check the cartridge too before shipping.
@@ -207,9 +207,9 @@ end
 ```
 
 ```bash
-ruby-gba build examples/pacman.rb                 # pacman.gba and pacman.gbc, beside the game
-ruby-gba build examples/pacman.rb --console gbc   # pacman.gbc alone
-ruby-gba play examples/pacman.rb --console gbc --script walk.rb   # play, profile and compare need --console for a game of two
+vblank build examples/pacman.rb                 # pacman.gba and pacman.gbc, beside the game
+vblank build examples/pacman.rb --console gbc   # pacman.gbc alone
+vblank play examples/pacman.rb --console gbc --script walk.rb   # play, profile and compare need --console for a game of two
 ```
 
 When the Color cannot play a game that names it, `build` still writes the Advance's cartridge, says why the Color's was not made, and ends as a failure; take `:gbc` out of `consoles:` if the game is not for the Color.
@@ -336,8 +336,8 @@ A rough map of the GBA surface. Checked = working today; unchecked = planned (tr
 - [x] Playthroughs — play a cartridge from a script with nobody at the controls, record what was pressed as a tape, and compare two cartridges frame by frame to find where they drift
 - [x] IR + four backends (GBA lowering, reference interpreter in pure Ruby, C for a desktop program, JavaScript for a browser) with a conformance fixture + portability tagging
 - [x] A program for a computer — `--format=native`, for this Mac or built for Windows and Linux (see [Playing on a computer](#playing-on-a-computer))
-- [x] A page for a browser — `--format=web`, and `ruby-gba preview` to play a game in a tab that rebuilds on every reload (see [Playing in a browser](#playing-in-a-browser))
-- [x] CLI — `ruby-gba build / preview / profile / play / compare / inspect / new` (Thor): per-command help, typed options, friendly errors
+- [x] A page for a browser — `--format=web`, and `vblank preview` to play a game in a tab that rebuilds on every reload (see [Playing in a browser](#playing-in-a-browser))
+- [x] CLI — `vblank build / preview / profile / play / compare / inspect / new` (Thor): per-command help, typed options, friendly errors
 
 **Planned / Ideas**
 
@@ -357,7 +357,7 @@ Every example under [`examples/`](examples/) is a complete, runnable game or dem
 that teaches **one pattern** — the code *is* the documentation. Each file's header
 comment explains the hardware it touches and, where there's a choice, *why it took
 its approach over the alternatives*. Build any of them with `ruby examples/<name>.rb`
-(or `ruby-gba build examples/<name>.rb`).
+(or `vblank build examples/<name>.rb`).
 
 | Example | Teaches | How it draws |
 |---|---|---|
@@ -491,7 +491,7 @@ Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites
 |---|---|
 | build a cartridge (`.gba`) | Ruby only |
 | run a game on the interpreter (headless tests) | Ruby only |
-| build a web page, or `ruby-gba preview` | Ruby to build it, a browser to play it |
+| build a web page, or `vblank preview` | Ruby to build it, a browser to play it |
 | build a program for a computer | zig 0.17, which compiles the C and SDL3 |
 | import a picture from a PNG | ImageMagick (`.aseprite` files are read in Ruby) |
 | test a game as JavaScript | node 18 or later |

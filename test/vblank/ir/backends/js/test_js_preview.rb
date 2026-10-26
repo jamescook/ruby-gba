@@ -5,7 +5,7 @@ require "net/http"
 require "stringio"
 require "tmpdir"
 
-# `ruby-gba preview`: the game as a page served on this computer, built again from its file each
+# `vblank preview`: the game as a page served on this computer, built again from its file each
 # time the page is asked for, so an edit shows on the next reload — and a build that stops says
 # why in the page instead.
 class TestJSPreview < Minitest::Test

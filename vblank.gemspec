@@ -16,7 +16,7 @@ Gem::Specification.new do |spec|
   spec.files         = Dir.glob("{lib,test,bin}/**/*").select { |f| File.file?(f) && !File.basename(f).start_with?("compile_flags.txt") } +
                        %w[vblank.gemspec Rakefile]
   spec.bindir        = "bin"
-  spec.executables   = ["ruby-gba"]
+  spec.executables   = ["vblank"]
   spec.require_paths = ["lib"]
   spec.required_ruby_version = ">= 4.0"
 

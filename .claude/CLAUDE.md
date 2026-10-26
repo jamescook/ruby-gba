@@ -265,7 +265,7 @@ while there is no cartridge yet — so a file that names the emulator can never 
 kind of line. `diagnostics/` READS one back: the reader over a running cartridge, the sound it
 recorded, a cartridge that is only its file. `playthroughs/` DRIVES one, through that reader:
 what to press, on which frames, and what two cartridges made of the same presses. What
-`ruby-gba play` and `ruby-gba compare` do with their options is there too (`CommandLine`), so
+`vblank play` and `vblank compare` do with their options is there too (`CommandLine`), so
 their tests sit with the rest of the module's and `rake test:playthroughs` is one folder.
 
 The directory and the module always match: a file in `audio/` defines its classes inside
@@ -280,7 +280,7 @@ only: a line for each, and that is the whole library. The order of those lines i
 the comment above them says which steps are real dependencies between modules and why.
 
 What stays at the top besides the front doors: `version.rb`, `root.rb`, and `cli.rb` and
-`pager.rb`, the command-line program, which `bin/ruby-gba` requires and the library never does.
+`pager.rb`, the command-line program, which `bin/vblank` requires and the library never does.
 `VBlank.game` and the library's error classes stay on `VBlank` itself: `BuildError`, which every
 build failure is one of (each lowering's own error included), `ROMError` and `ProfileError`.
 
@@ -342,7 +342,7 @@ this design allows for but doesn't have yet — see the register-convention comm
 
 Keep the IR **target-agnostic**: `IR::Node` describes *what the program does*, not how one machine runs it. ARM/GBA is the current lowering backend, but nothing in the node model assumes it — another backend (e.g. JavaScript) could lower the same tree. Put target-specific detail in the lowering pass, never in the IR core — and that includes code comments: don't frame the IR around GBA/ARM.
 
-**Backends** consume the IR and live under `IR::Backends`, named for the platform they target (the ROM backend is `GBA`, not `Arm` — the target is the whole platform, not just the CPU). `Backends::Reference` runs the IR in Ruby (the headless test oracle — named for its role as the answer key, not for the language, since every backend here happens to be written in Ruby); `Backends::GBA` lowers it to a ROM; `Backends::Native` writes it as C; `Backends::JS` prints the native lowering's statements as JavaScript, for a web page (`ruby-gba build --format=web`, `ruby-gba preview`) and for node in the tests; `Backends::GBC` lowers it to SM83 code and a Game Boy Color cartridge (`ruby-gba build`, which makes a cartridge for each console a game names, or `--console gbc`), for a game that says it is for that console too (`consoles: %i[gba gbc]`; every game names its consoles). What each console does with each verb — works, or refused naming the hardware it lacks — is its answers table (`Console::AdvanceAnswers`, `Console::ColorAnswers`), written out for the reader in `.claude/dsl/game-boy-advance.md` and `.claude/dsl/game-boy-color.md`. All honor `IR::Int32`'s signed-32-bit semantics — that shared contract is what keeps them agreeing.
+**Backends** consume the IR and live under `IR::Backends`, named for the platform they target (the ROM backend is `GBA`, not `Arm` — the target is the whole platform, not just the CPU). `Backends::Reference` runs the IR in Ruby (the headless test oracle — named for its role as the answer key, not for the language, since every backend here happens to be written in Ruby); `Backends::GBA` lowers it to a ROM; `Backends::Native` writes it as C; `Backends::JS` prints the native lowering's statements as JavaScript, for a web page (`vblank build --format=web`, `vblank preview`) and for node in the tests; `Backends::GBC` lowers it to SM83 code and a Game Boy Color cartridge (`vblank build`, which makes a cartridge for each console a game names, or `--console gbc`), for a game that says it is for that console too (`consoles: %i[gba gbc]`; every game names its consoles). What each console does with each verb — works, or refused naming the hardware it lacks — is its answers table (`Console::AdvanceAnswers`, `Console::ColorAnswers`), written out for the reader in `.claude/dsl/game-boy-advance.md` and `.claude/dsl/game-boy-color.md`. All honor `IR::Int32`'s signed-32-bit semantics — that shared contract is what keeps them agreeing.
 
 **Cross-backend rule:** a hardware feature (sound, tiles, sprites, paged modes…) isn't *done* until it works on every backend — the GBA lowering, the native lowering (`Backends::Native`, the game as C, built by zig into a desktop program), the JavaScript lowering (`Backends::JS`, whose runtime is the native one's written again in JavaScript), the Game Boy Color lowering (`Backends::GBC`, where "works" may also be a stated answer from `Console::ColorAnswers`: or refused in plain words naming the hardware it lacks) **and** the Ruby interpreter. `rake test` holds it to that: every test plays on every lowering, so a feature one of them lacks fails the run (see the comment atop `IR::Backends`). The moment a feature is on the radar, write down each backend's slice as its own piece of work — even before the details are known — so it can't be forgotten while you're heads-down on the feature elsewhere. Don't lean on this principle to remember; record it.
 

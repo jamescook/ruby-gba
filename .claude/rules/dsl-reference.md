@@ -25,7 +25,7 @@ Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`,
 
 ## Build / screen — `.claude/dsl/screen.md`
 
-- `VBlank.game "NAME", consoles: %i[gba]` — the game and the consoles it is for (`%i[gba gbc]` for the Color too); `ruby-gba build` makes a cartridge for each. Its code is worked out from the name. `stack_room:`.
+- `VBlank.game "NAME", consoles: %i[gba]` — the game and the consoles it is for (`%i[gba gbc]` for the Color too); `vblank build` makes a cartridge for each. Its code is worked out from the name. `stack_room:`.
 - `screen :bitmap` / `:tiled` / `:rotozoom` (`tear_free:`, `colors:`, `late:`, `pace:`) — the display, per scene; `:bitmap` by default.
 - `screen_width` / `screen_height` — the screen the game is being built for, to lay it out from.
 - `setting :floors, 60` — a value handed to one build (`settings:`, `--set`).
@@ -132,11 +132,11 @@ Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`,
 
 ## Measuring a finished game — `.claude/dsl/measuring.md`
 
-- `rom.profile` / `ruby-gba profile game.rb` — where the frames went; `rom.sprite_memory`.
+- `rom.profile` / `vblank profile game.rb` — where the frames went; `rom.sprite_memory`.
 
 ## Playing a finished game with nobody at the controls — `.claude/dsl/playthroughs.md`
 
-- `VBlank.playthrough "name" do … end` — scripted presses on a cartridge; `ruby-gba play`, `ruby-gba compare`.
+- `VBlank.playthrough "name" do … end` — scripted presses on a cartridge; `vblank play`, `vblank compare`.
 
 ## The Game Boy Advance — `.claude/dsl/game-boy-advance.md`
 
@@ -144,7 +144,7 @@ Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`,
 
 ## The Game Boy Color — `.claude/dsl/game-boy-color.md`
 
-- `consoles: %i[gba gbc]`, `ruby-gba build --console gbc` — the game on a Color too; what every verb does there (works or refused).
+- `consoles: %i[gba gbc]`, `vblank build --console gbc` — the game on a Color too; what every verb does there (works or refused).
 
 ## Effects a game writes — `.claude/dsl/effects.md`
 

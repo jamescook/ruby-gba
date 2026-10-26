@@ -4,7 +4,7 @@ require "test_helper"
 require "tmpdir"
 require "cli_playing"
 
-# `ruby-gba compare`: two cartridges played side by side from the command line. It says
+# `vblank compare`: two cartridges played side by side from the command line. It says
 # whether they drift and where, and ends in a way another program can act on: 0 when they
 # agree, 1 when they drift, 2 when they could not be compared. Every setting a comparison
 # takes from Ruby is the flag of the same name.

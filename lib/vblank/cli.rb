@@ -4,7 +4,7 @@ require "thor"
 require_relative "../vblank"
 
 module VBlank
-  # Thor is required here and in bin/ruby-gba only — never by the library — so
+  # Thor is required here and in bin/vblank only — never by the library — so
   # building a ROM in code or in a test does not depend on it.
   #
   # THE HELP IS WRITTEN OUT BY HAND, one page a command, beside the options it explains. Thor can
@@ -54,8 +54,8 @@ module VBlank
       exit(given_args.first == "compare" ? NOT_COMPARED : 1)
     end
 
-    # `ruby-gba`, `ruby-gba --help` and `ruby-gba build --help` become `ruby-gba help` and
-    # `ruby-gba help build`. Thor would take the --help after a command for an argument, and
+    # `vblank`, `vblank --help` and `vblank build --help` become `vblank help` and
+    # `vblank help build`. Thor would take the --help after a command for an argument, and
     # build would go looking for a game file of that name. A word after `--` is never a flag.
     def self.route_help_flags(args)
       asked = args.take_while { |word| word != "--" }
@@ -65,12 +65,12 @@ module VBlank
       args
     end
 
-    # The list of commands: `ruby-gba help`, and `ruby-gba help help`.
+    # The list of commands: `vblank help`, and `vblank help help`.
     def self.help(_shell, _subcommand = false)
       $stdout.print COMMAND_LIST
     end
 
-    # One command's page: `ruby-gba help build`.
+    # One command's page: `vblank help build`.
     def self.command_help(_shell, name)
       return help(nil) if name == "help"
       raise Thor::Error, no_command_message(name) unless HELP_PAGES.key?(name)
@@ -81,7 +81,7 @@ module VBlank
     def self.no_command_message(name)
       meant = DidYouMean::SpellChecker.new(dictionary: HELP_PAGES.keys).correct(name).first
       "There is no command \"#{name}\".#{" Did you mean #{meant}?" if meant} The commands are: " \
-        "#{HELP_PAGES.keys.join(', ')}. Run ruby-gba --help to see what each one does."
+        "#{HELP_PAGES.keys.join(', ')}. Run vblank --help to see what each one does."
     end
 
     # What a command and its options say, checked before Thor sees them, and given back with each
@@ -119,7 +119,7 @@ module VBlank
         given = words.first
         if given.nil? || options.key?(given.split("=", 2).first)
           raise Thor::Error, "#{switch} needs a value. Write it as: #{switch} #{option.banner}. " \
-                             "Run ruby-gba #{name} --help to see the options."
+                             "Run vblank #{name} --help to see the options."
         end
         checked << "#{option.switch_name}=#{words.shift}"
       end
@@ -156,17 +156,17 @@ module VBlank
 
     def self.refuse_unknown_option!(args, word, switch, known)
       name = args.first
-      said = "ruby-gba #{name} has no option #{switch}."
+      said = "vblank #{name} has no option #{switch}."
       if name == "build" && FORMAT_FLAGS.key?(switch)
         option, what = FORMAT_FLAGS.fetch(switch)
-        line = ["ruby-gba", *args].filter_map { |part| part == word ? option : part }.join(" ")
+        line = ["vblank", *args].filter_map { |part| part == word ? option : part }.join(" ")
         raise Thor::Error, "#{said} To build #{what}, write:\n  #{line}"
       end
 
       meant = DidYouMean::SpellChecker.new(dictionary: known).correct(switch).first
       said += " Did you mean #{meant}?" if meant
       said += " To choose what is built, use --format game, native or web." if name == "build"
-      raise Thor::Error, "#{said} Run ruby-gba #{name} --help to see the options."
+      raise Thor::Error, "#{said} Run vblank #{name} --help to see the options."
     end
 
     # A command given too few words, or too many: how it is written, in place of Thor's
@@ -178,14 +178,14 @@ module VBlank
       command = all_commands.fetch(name)
       wanted = command.usage.split.drop(1)
       plain = wanted.size == 1 ? "one #{wanted.first}" : wanted.join(" and ")
-      said = "ruby-gba #{name} takes #{plain}. Write it as: ruby-gba #{command.usage} [options]."
+      said = "vblank #{name} takes #{plain}. Write it as: vblank #{command.usage} [options]."
       taken = words_taken_by_lists(args, command, wanted.size)
       if taken
         list, words = taken
-        line = ["ruby-gba", name, *words, *(args.drop(1) - words)].join(" ")
+        line = ["vblank", name, *words, *(args.drop(1) - words)].join(" ")
         said = "#{list} took #{words.join(' ')}, since it takes every word after it. Put #{plain} first:\n  #{line}"
       end
-      "#{said}\nRun ruby-gba #{name} --help to see more."
+      "#{said}\nRun vblank #{name} --help to see more."
     end
 
     # The option that takes several words and the words it took that were meant for the command,
@@ -209,7 +209,7 @@ module VBlank
         missing = all_commands.fetch(name).options.values.map(&:switch_name).reject do |switch|
           page.match?(/(?<![\w-])#{Regexp.escape(switch)}(?![\w-])/)
         end
-        raise "The help page for ruby-gba #{name} does not explain #{missing.join(', ')}." unless missing.empty?
+        raise "The help page for vblank #{name} does not explain #{missing.join(', ')}." unless missing.empty?
       end
       # help and tree are Thor's own: help prints these pages, and tree is refused as a command
       # that is not there.
@@ -218,23 +218,23 @@ module VBlank
     end
 
     COMMAND_LIST = <<~TEXT
-      Usage: ruby-gba COMMAND [options]
+      Usage: vblank COMMAND [options]
 
       Make a game:
-        ruby-gba new NAME              Write a starter game to NAME.rb.
-        ruby-gba build GAME_FILE       Build a cartridge for each console, a
+        vblank new NAME              Write a starter game to NAME.rb.
+        vblank build GAME_FILE       Build a cartridge for each console, a
                                        program for this computer, or a web page.
-        ruby-gba preview GAME_FILE     Play the game in a browser. Reload the page
+        vblank preview GAME_FILE     Play the game in a browser. Reload the page
                                        to build it again.
 
       Check a game:
-        ruby-gba profile GAME_FILE     Run the game and report what it costs.
-        ruby-gba play CARTRIDGE        Play a script of button presses on a game.
-        ruby-gba compare FIRST SECOND  Play two games on the same presses and say
+        vblank profile GAME_FILE     Run the game and report what it costs.
+        vblank play CARTRIDGE        Play a script of button presses on a game.
+        vblank compare FIRST SECOND  Play two games on the same presses and say
                                        where their screens differ.
-        ruby-gba inspect ROM_FILE      Print a .gba's header and first instructions.
+        vblank inspect ROM_FILE      Print a .gba's header and first instructions.
 
-      Run ruby-gba COMMAND --help to see a command's options.
+      Run vblank COMMAND --help to see a command's options.
     TEXT
 
     # The words for --set, the same on every command that takes it.
@@ -252,7 +252,7 @@ module VBlank
 
     desc "build GAME_FILE", "Build a cartridge for each console, a program for this computer, or a web page"
     help_page "build", <<~TEXT
-      Usage: ruby-gba build GAME_FILE [--format game|native|web] [options]
+      Usage: vblank build GAME_FILE [--format game|native|web] [options]
 
       Build the game in GAME_FILE, a Ruby file with this in it:
 
@@ -271,13 +271,13 @@ module VBlank
       the Color shows differently and what it cannot do.
 
       Examples:
-        ruby-gba build game.rb                    a .gba cartridge, and a .gbc if
+        vblank build game.rb                    a .gba cartridge, and a .gbc if
                                                   the game is for the Color too
-        ruby-gba build game.rb --console gbc      the Game Boy Color cartridge alone
-        ruby-gba build game.rb --format=native    a program for this computer
-        ruby-gba build game.rb --format=web       a web page that plays the game
-        ruby-gba build game.rb -o roms/pong.gba   a cartridge, written to roms/
-        ruby-gba build game.rb --set floors=3     with `setting :floors` as 3
+        vblank build game.rb --console gbc      the Game Boy Color cartridge alone
+        vblank build game.rb --format=native    a program for this computer
+        vblank build game.rb --format=web       a web page that plays the game
+        vblank build game.rb -o roms/pong.gba   a cartridge, written to roms/
+        vblank build game.rb --set floors=3     with `setting :floors` as 3
 
       Put GAME_FILE before --set and --keys: they take every word after them.
 
@@ -290,7 +290,7 @@ module VBlank
                                  names.
         #{SET}
 
-      Measuring (see ruby-gba profile --help):
+      Measuring (see vblank profile --help):
         --stats                  Say how far packing shrank the pictures and
                                  sounds, and what is kept in quick memory. The
                                  Advance's cartridge only.
@@ -363,7 +363,7 @@ module VBlank
 
     desc "profile GAME_FILE", "Run the game and report what it costs"
     help_page "profile", <<~TEXT
-      Usage: ruby-gba profile GAME_FILE [options]
+      Usage: vblank profile GAME_FILE [options]
 
       Build the game in GAME_FILE, run the cartridge in an emulator, and report
       two things: what the build made (how big each routine is, and which ones
@@ -375,11 +375,11 @@ module VBlank
       routine, the frame rate it played at, and how much of the time it slept.
 
       Examples:
-        ruby-gba profile game.rb
-        ruby-gba profile game.rb --keys right a     with right and A held
-        ruby-gba profile game.rb --scene level      in the scene named :level
-        ruby-gba profile game.rb --from boss.ss1    from an emulator save state
-        ruby-gba profile game.rb --console gbc      its Game Boy Color cartridge
+        vblank profile game.rb
+        vblank profile game.rb --keys right a     with right and A held
+        vblank profile game.rb --scene level      in the scene named :level
+        vblank profile game.rb --from boss.ss1    from an emulator save state
+        vblank profile game.rb --console gbc      its Game Boy Color cartridge
 
       Options:
         --console NAME           gba or gbc: which console's cartridge to run.
@@ -431,7 +431,7 @@ module VBlank
 
     desc "play CARTRIDGE", "Play a script of button presses on a game"
     help_page "play", <<~TEXT
-      Usage: ruby-gba play CARTRIDGE [options]
+      Usage: vblank play CARTRIDGE [options]
 
       Play CARTRIDGE with nobody at the controls, and print how many frames went
       by and the frame each named moment fell on. CARTRIDGE is a game file (a
@@ -450,9 +450,9 @@ module VBlank
       plays the same presses on the same frames on any cartridge.
 
       Examples:
-        ruby-gba play game.rb --script walk.rb
-        ruby-gba play game.gba --tape walk.tape --pictures-in shots
-        ruby-gba play game.rb --console gbc --script walk.rb
+        vblank play game.rb --script walk.rb
+        vblank play game.gba --tape walk.tape --pictures-in shots
+        vblank play game.rb --console gbc --script walk.rb
 
       Options:
         #{PRESSES.gsub("\n", "\n  ")}
@@ -480,7 +480,7 @@ module VBlank
 
     desc "compare FIRST SECOND", "Play two games on the same presses and say where they differ"
     help_page "compare", <<~TEXT
-      Usage: ruby-gba compare FIRST SECOND [options]
+      Usage: vblank compare FIRST SECOND [options]
 
       Play two cartridges on the same presses, and say the first frame on which
       their screens differ. Each is a game file (a .rb, built first) or a .gba.
@@ -491,11 +491,11 @@ module VBlank
       there, a script that gave up).
 
       Examples:
-        ruby-gba compare old.gba new.gba --tape walk.tape
-        ruby-gba compare game.rb theirs.gba --script walk.rb --carrying-on
-        ruby-gba compare a.gba b.gba --tape walk.tape --ignoring-frames 1..120
+        vblank compare old.gba new.gba --tape walk.tape
+        vblank compare game.rb theirs.gba --script walk.rb --carrying-on
+        vblank compare a.gba b.gba --tape walk.tape --ignoring-frames 1..120
 
-      What to press, as for ruby-gba play:
+      What to press, as for vblank play:
         #{PRESSES.gsub("\n", "\n  ")}
         --console gba            Build a game file for both consoles as its .gba.
         --same WHICH             tape or script. Default: tape.
@@ -558,7 +558,7 @@ module VBlank
 
     desc "preview GAME_FILE", "Play the game in a browser, built again on every reload"
     help_page "preview", <<~TEXT
-      Usage: ruby-gba preview GAME_FILE [options]
+      Usage: vblank preview GAME_FILE [options]
 
       Serve the game in GAME_FILE as a web page on this computer, and print its
       address. Open it in a browser to play. Change the game file and reload the
@@ -590,7 +590,7 @@ module VBlank
 
     desc "inspect ROM_FILE", "Print a .gba's header and first instructions"
     help_page "inspect", <<~TEXT
-      Usage: ruby-gba inspect ROM_FILE
+      Usage: vblank inspect ROM_FILE
 
       Print the header of a .gba (its title, game code, maker and checksum, and
       whether the checksum is right), then its first instructions, disassembled.
@@ -600,7 +600,7 @@ module VBlank
       # The inspector reads the Advance's header and disassembles ARM, so another console's
       # cartridge would come out as numbers that look like an answer and mean nothing.
       unless VBlank::Cartridge::ROM.header?(File.binread(rom_file))
-        raise Thor::Error, "#{rom_file} is not a Game Boy Advance cartridge. `ruby-gba inspect` reads only the " \
+        raise Thor::Error, "#{rom_file} is not a Game Boy Advance cartridge. `vblank inspect` reads only the " \
                            "header and the code of an Advance cartridge. Give it a .gba file."
       end
 
@@ -609,14 +609,14 @@ module VBlank
 
     desc "new NAME", "Write a starter game to NAME.rb"
     help_page "new", <<~TEXT
-      Usage: ruby-gba new NAME [options]
+      Usage: vblank new NAME [options]
 
       Write NAME.rb: a game that builds and runs, to start from. It is for the
-      Game Boy Advance and the Game Boy Color, so ruby-gba build NAME.rb makes
+      Game Boy Advance and the Game Boy Color, so vblank build NAME.rb makes
       NAME.gba and NAME.gbc.
 
       Example:
-        ruby-gba new pong        writes pong.rb. Then: ruby-gba build pong.rb
+        vblank new pong        writes pong.rb. Then: vblank build pong.rb
 
       Options:
         --force                  Write over NAME.rb if it is there already.
@@ -629,7 +629,7 @@ module VBlank
       end
 
       File.write(file, starter_source(name))
-      say "Wrote #{file}. Run it with `ruby #{file}` or `ruby-gba build #{file}`."
+      say "Wrote #{file}. Run it with `ruby #{file}` or `vblank build #{file}`."
     end
 
     refuse_undocumented_options!
@@ -915,7 +915,7 @@ module VBlank
         # frozen_string_literal: true
         #
         # #{title} — a starter game. Run it with `ruby #{name}.rb`, or build it with
-        # `ruby-gba build #{name}.rb`, which makes a cartridge for each console it names:
+        # `vblank build #{name}.rb`, which makes a cartridge for each console it names:
         # #{name}.gba for the Game Boy Advance and #{name}.gbc for the Game Boy Color.
 
         require "vblank"

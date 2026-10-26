@@ -6,7 +6,7 @@ require "stringio"
 
 # VBlank.game declares a game (title + codes + DSL block) without building or
 # writing it, and hands back a handle. The handle is what the reference interpreter
-# and the ROM build run against (#program / #build_rom), and what the `ruby-gba`
+# and the ROM build run against (#program / #build_rom), and what the `vblank`
 # command loads. These assert the handle behaves, and that just declaring a game is
 # side-effect free (no cartridge written) so tests and the CLI stay in control.
 class TestGame < Minitest::Test
@@ -160,7 +160,7 @@ class TestGame < Minitest::Test
 
   # Declaring a game writes nothing on its own — building/writing is the caller's
   # choice. write_if_main only acts when the calling file is the script Ruby was run
-  # with, so a required/loaded file (a test, or the `ruby-gba` command) stays silent.
+  # with, so a required/loaded file (a test, or the `vblank` command) stays silent.
   def test_declaring_a_game_writes_nothing
     out, = capture_io do
       VBlank.game("QUIET", consoles: %i[gba], code: "BQUI", maker: "01") do

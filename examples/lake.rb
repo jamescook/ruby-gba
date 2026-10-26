@@ -40,7 +40,7 @@
 # the framework hands the finished table to one of the console's copying engines, which feeds
 # the display by itself with the CPU untouched. There are three engines to lend out, so a
 # fourth bending layer would go back to being answered per line, which is several times
-# dearer. Run `ruby-gba profile examples/lake.rb` to see where the frame really goes.
+# dearer. Run `vblank profile examples/lake.rb` to see where the frame really goes.
 #
 # Working the rows out in that gap is also what keeps the jellyfish honest. A sprite's
 # position is settled in the same gap, so the water and the things floating on it are

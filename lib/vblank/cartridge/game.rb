@@ -7,7 +7,7 @@ module VBlank
     # `VBlank.game "NAME", consoles: %i[gba] do ...dsl... end` records the title, the consoles, the cartridge codes if
     # the game bothered to write any, and the DSL block, and hands back this handle — WITHOUT building
     # or writing anything. That separation is the point: a game file only declares the
-    # game, so the tool that drives the build (the `ruby-gba` command) owns the output
+    # game, so the tool that drives the build (the `vblank` command) owns the output
     # path and how much it prints. The same handle also carries the two methods tests
     # build against — #program (the op-tree the reference interpreter runs) and
     # #build_rom (the finished cartridge) — so an example is one `VBlank.game` call
@@ -106,7 +106,7 @@ module VBlank
       # THIS ONE MEASURES THE GAME, which {VBlank.build} does not do by default.
       #
       # The split is by who is asking. This is the method that makes a cartridge somebody is
-      # going to play — it is what `ruby game.rb` and the `ruby-gba` command call — so it is
+      # going to play — it is what `ruby game.rb` and the `vblank` command call — so it is
       # worth building twice to get the placement right: build, run, measure, build again
       # knowing (see {VBlank.build_measured}). VBlank.build is the primitive the suite calls
       # thousands of times to check pixels and guardrails, where none of that matters.
@@ -140,10 +140,10 @@ module VBlank
       end
 
       # Build this game and write a cartridge for each console it names beside the file that
-      # calls this, as `ruby-gba build` does — but only when that file is the script Ruby was
+      # calls this, as `vblank build` does — but only when that file is the script Ruby was
       # run with (`ruby game.rb`). Put it as the last line of a game file so a plain run
       # produces its cartridges, while requiring the file (a test) or loading it (the
-      # `ruby-gba` command) stays silent and writes nothing. Returns self. Unlike the command, it
+      # `vblank` command) stays silent and writes nothing. Returns self. Unlike the command, it
       # stops at the first console whose build fails, with Ruby's own report of the error; the
       # cartridges built before it are written.
       #
@@ -210,7 +210,7 @@ module VBlank
   end
 
   class << self
-    # Every game declared here, in declaration order (usually one per file). The `ruby-gba`
+    # Every game declared here, in declaration order (usually one per file). The `vblank`
     # command loads a game file and reads the game it declared from here.
     #
     # KEPT PER RACTOR rather than for the whole process. A declared game holds the author's
@@ -222,7 +222,7 @@ module VBlank
     # back. The command-line tool declares and reads on the main one.
     def registered_games = Ractor.current[:vblank_registered_games] || EMPTY
 
-    # Forget every game declared so far. The `ruby-gba` command does this before loading a
+    # Forget every game declared so far. The `vblank` command does this before loading a
     # game file, so that whatever the file adds is the game it asked for.
     def forget_registered_games!
       Ractor.current[:vblank_registered_games] = nil

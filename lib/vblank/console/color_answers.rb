@@ -220,7 +220,7 @@ module VBlank
           # The Game Boy Color — what every verb does there
 
           A game built for the Color too (`VBlank.game "NAME", consoles: %i[gba gbc]`, then
-          `ruby-gba build`, which makes both cartridges, or `--console gbc` for the Color's alone) is
+          `vblank build`, which makes both cartridges, or `--console gbc` for the Color's alone) is
           the same game on a smaller machine: a 160×144 screen (`screen_width`, `screen_height`),
           eight buttons, one background, forty sprites (ten on a row of the screen), and lists of
           four colours. Every verb has one of two answers there, decided once in

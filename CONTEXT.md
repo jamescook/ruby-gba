@@ -188,7 +188,7 @@ _Avoid_: output, logging, reporting
 What a frame costs is measured by running the game, never worked out from the program.
 
 **Profile**:
-The report a finished cartridge gives about itself (`ruby-gba profile`, `rom.profile`): the
+The report a finished cartridge gives about itself (`vblank profile`, `rom.profile`): the
 build report, then what the game cost when it ran.
 _Avoid_: explain, stats, analysis
 

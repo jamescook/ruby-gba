@@ -20,4 +20,4 @@ require_relative "playthroughs/comparison_picture_request" # ......one of which 
 require_relative "playthroughs/comparison_report" # ...and the folder it writes for a drift it finds
 require_relative "playthroughs/comparison_drift_report" # ......of a drift on a frame, on the same tape
 require_relative "playthroughs/comparison_moment_report" # ......and of a drift at a moment, on the same script
-require_relative "playthroughs/command_line" # what `ruby-gba play` and `ruby-gba compare` do with their options
+require_relative "playthroughs/command_line" # what `vblank play` and `vblank compare` do with their options

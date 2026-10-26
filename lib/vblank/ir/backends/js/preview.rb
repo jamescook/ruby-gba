@@ -10,7 +10,7 @@ module VBlank
   module IR
     module Backends
       class JS
-        # THE GAME IN A BROWSER TAB, BUILT AGAIN ON EVERY RELOAD: `ruby-gba preview game.rb`. Edit
+        # THE GAME IN A BROWSER TAB, BUILT AGAIN ON EVERY RELOAD: `vblank preview game.rb`. Edit
         # the game, reload the page, and the game starts again as the file now says — no cartridge
         # built, no emulator started.
         #
@@ -21,7 +21,7 @@ module VBlank
         # cartridge's to find. So a fault that shows here is in the game, and one that shows only
         # on the console is in the build of it.
         #
-        # Each page is built by a run of `ruby-gba build --format=web` of its own, so the game's
+        # Each page is built by a run of `vblank build --format=web` of its own, so the game's
         # files are read afresh every time, and a build that stops — a guardrail's error, a Ruby
         # mistake — is shown in the page in its own words instead of a game.
         class Preview
@@ -81,7 +81,7 @@ module VBlank
           def page
             Dir.mktmpdir("ruby-gba-preview") do |dir|
               path = File.join(dir, "game.html")
-              said, status = Open3.capture2e(RbConfig.ruby, VBlank.root.join("bin", "ruby-gba").to_s, "build", @game_file,
+              said, status = Open3.capture2e(RbConfig.ruby, VBlank.root.join("bin", "vblank").to_s, "build", @game_file,
                                              "--format", "web", "-o", path, *(["--template", @template] if @template),
                                              *settings_arguments)
               built = status.success? && File.exist?(path)

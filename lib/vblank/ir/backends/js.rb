@@ -18,7 +18,7 @@ module VBlank
       # The game as JavaScript: a page that plays it in a browser, drawing to a <canvas>, and the
       # same program with no page at all, which node plays for the tests.
       #
-      # PUTTING A GAME ON THE WEB. `ruby-gba build game.rb --format=web` writes it in one of three
+      # PUTTING A GAME ON THE WEB. `vblank build game.rb --format=web` writes it in one of three
       # forms, and each is described where it is written:
       #
       #   --js=page     (the default) one HTML file, game.html, that plays the game when opened;
@@ -38,7 +38,7 @@ module VBlank
       # pictures, maps and sound in a file beside the code, which then has to be served rather
       # than opened from a disk (see "where a game's big tables go", below).
       #
-      # `ruby-gba preview game.rb` serves the page and builds it again from the file on every
+      # `vblank preview game.rb` serves the page and builds it again from the file on every
       # reload (Preview). It plays the game as the framework understands it, so a mistake only
       # the console makes does not show there: check the cartridge before shipping one. A step
       # only the console can run (raw instructions given with `entry`) cannot be built for the
@@ -141,7 +141,7 @@ module VBlank
         # :separate writes them to a data file beside it (game.data, named for the output), which
         # the game fetches before its first frame — so a hosted game's code is small and its data
         # is cached apart from it. A browser will not fetch a file beside a page opened from a
-        # disk, so a game with its data separate has to be served (`ruby-gba preview`, any web
+        # disk, so a game with its data separate has to be served (`vblank preview`, any web
         # server). See runtime/rg_page.js for how a page can say where the data file is instead.
 
         # +game+ as ONE web page, written to +path+: the game checked as a cartridge build checks it,

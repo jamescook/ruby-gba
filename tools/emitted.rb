@@ -17,7 +17,7 @@ require_relative "../lib/vblank/root"
 #
 # It compares two versions of the LIBRARY, so it only means anything while working
 # on ruby-gba itself — hence a contributor's rake task and not part of the
-# `ruby-gba` command a game author runs. Every example by default: the question is
+# `vblank` command a game author runs. Every example by default: the question is
 # "did anything move anywhere", and a corpus of real programs answers that far
 # better than one does.
 #

@@ -5,7 +5,7 @@ require "tmpdir"
 require "cli_playing"
 require "png_reading"
 
-# `ruby-gba play`: a game played from the command line with nobody at the controls, by a
+# `vblank play`: a game played from the command line with nobody at the controls, by a
 # script or by a tape, saying how many frames went by and where each moment fell, and
 # writing what was asked for: pictures, the tape, the save memory.
 class TestCommandLinePlay < Minitest::Test

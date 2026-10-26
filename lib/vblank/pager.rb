@@ -3,7 +3,7 @@
 module VBlank
   # Show long text a screenful at a time, the way `git diff` or `man` does — or
   # print it straight through when there's nothing to page onto (output piped to a
-  # file or another command, or captured in a test). `ruby-gba build --format=ir`
+  # file or another command, or captured in a test). `vblank build --format=ir`
   # is the one caller today: the IR it prints can run to hundreds of lines.
   #
   # +runner+ is the part that actually shells out to a pager; it is a plain

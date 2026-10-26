@@ -13,7 +13,7 @@ module VBlank
         # size of the console's screen, enlarged without smoothing so a pixel stays a square; the
         # keyboard and any controller are the gamepad (runtime/rg_page.js says which is which).
         #
-        # THE PAGE IS A TEMPLATE, page.html.erb unless the build names another (`ruby-gba build
+        # THE PAGE IS A TEMPLATE, page.html.erb unless the build names another (`vblank build
         # --format=web --template FILE`). A template is ERB, and it is handed these, each a piece of
         # finished HTML:
         #

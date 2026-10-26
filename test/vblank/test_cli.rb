@@ -8,8 +8,8 @@ require "rbconfig"
 require "json"
 require "stringio"
 
-# End-to-end tests for the `ruby-gba` command. These are the only tests that touch
-# Thor: they run bin/ruby-gba in a subprocess, the way a user does, so the CLI (and
+# End-to-end tests for the `vblank` command. These are the only tests that touch
+# Thor: they run bin/vblank in a subprocess, the way a user does, so the CLI (and
 # its dependency) stays out of every other test. Everything else builds ROMs through
 # the library (VBlank.game / VBlank.build) with no CLI involved.
 class TestCLI < Minitest::Test
@@ -17,7 +17,7 @@ class TestCLI < Minitest::Test
   # built, which is not something a worker may touch — and these tests run in a pool.
   RUBY = RbConfig.ruby.freeze
 
-  BIN = VBlank.root.join("bin/ruby-gba").to_s
+  BIN = VBlank.root.join("bin/vblank").to_s
   LIB = VBlank.root.join("lib").to_s
 
   # Run the CLI in +dir+ and return [combined_output, Process::Status].
@@ -48,7 +48,7 @@ class TestCLI < Minitest::Test
     end
   end
 
-  # `ruby demo.rb` builds what `ruby-gba build demo.rb` builds: a cartridge for each console.
+  # `ruby demo.rb` builds what `vblank build demo.rb` builds: a cartridge for each console.
   def test_running_the_starter_with_ruby_writes_a_cartridge_for_each_console
     Dir.mktmpdir do |dir|
       cli("new", "demo", dir: dir)
@@ -253,7 +253,7 @@ class TestCLI < Minitest::Test
   def test_profile_appears_in_the_command_list
     out, status = cli("help", dir: Dir.tmpdir)
     assert status.success?, out
-    assert_match(/ruby-gba profile GAME_FILE/, out)
+    assert_match(/vblank profile GAME_FILE/, out)
   end
 
   # ...and the command it replaced is gone rather than quietly still working, since the

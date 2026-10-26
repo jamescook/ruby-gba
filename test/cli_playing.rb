@@ -3,7 +3,7 @@
 require "open3"
 require "rbconfig"
 
-# WHAT THE TESTS OF `ruby-gba play` AND `ruby-gba compare` SHARE: the command run the way a
+# WHAT THE TESTS OF `vblank play` AND `vblank compare` SHARE: the command run the way a
 # person runs it, in a process of its own, and the files it is pointed at — a game, and
 # scripts that play it.
 #
@@ -12,7 +12,7 @@ module CLIPlaying
   # Which Ruby to launch, asked once here. Asking reads Ruby's own table of how it was
   # built, which is not something a worker may touch — and these tests run in a pool.
   RUBY = RbConfig.ruby.freeze
-  BIN = VBlank.root.join("bin/ruby-gba").to_s.freeze
+  BIN = VBlank.root.join("bin/vblank").to_s.freeze
 
   # A white box on a blue ground, that walks while RIGHT is down and keeps the furthest it
   # has been in save memory. Two settings make a second game of it that differs in one

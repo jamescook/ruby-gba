@@ -22,7 +22,7 @@ coverage/
 zig-pkg/
 zig-out/
 
-# Desktop programs built by hand (ruby-gba build game.rb --format=native -o build/game).
+# Desktop programs built by hand (vblank build game.rb --format=native -o build/game).
 /build/
 
 # How the native runtime is built, for an editor's C checker. Every native build keeps it

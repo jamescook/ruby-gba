@@ -138,7 +138,7 @@ module Preview
     out ||= "#{File.basename(name, '.rb')}.html"
     held = keys.empty? ? nil : proc { keys }
     shots = capture(mod.program, frames: frames, max_steps: max_steps, &held)
-    write(out, shots, title: "#{mod} — ruby-gba preview", scale: scale, fps: fps)
+    write(out, shots, title: "#{mod} — vblank preview", scale: scale, fps: fps)
     out
   end
 end

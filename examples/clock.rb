@@ -17,7 +17,7 @@
 # mGBA says NO CLOCK until it is told this game has one: it switches the clock on by itself only
 # for the retail games it knows, and its Game Overrides window cannot do it for a game of your
 # own. Its settings file can. With mGBA closed, add these two lines to the end of its config.ini
-# (~/.config/mgba/config.ini on a Mac or Linux), where HE6F is the game code `ruby-gba inspect
+# (~/.config/mgba/config.ini on a Mac or Linux), where HE6F is the game code `vblank inspect
 # clock.gba` prints and 1 means "this cartridge has a clock":
 #
 #   [override.HE6F]

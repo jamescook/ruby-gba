@@ -2,14 +2,14 @@
 
 module VBlank
   module Playthroughs
-    # WHAT `ruby-gba play` AND `ruby-gba compare` DO, once the command line has been taken
+    # WHAT `vblank play` AND `vblank compare` DO, once the command line has been taken
     # apart into options: find the cartridges and what to press, read the settings a command
     # line can only give as text, play or compare, and say what came of it.
     #
     # It is here and not in the command-line program so that it sits with what it drives, and
     # so that nothing in it knows which library read the command line. +options+ answers
     # `options[:tape]` for each flag by its name, +out+ is where it prints, and +build+ turns
-    # the path of a game file into a cartridge the way `ruby-gba build` would.
+    # the path of a game file into a cartridge the way `vblank build` would.
     #
     # What it cannot do it refuses in a sentence, with a Refused, before a game file is built
     # wherever that can be known: building takes a while, and the mistake is as often in the

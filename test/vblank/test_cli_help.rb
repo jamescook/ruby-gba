@@ -6,7 +6,7 @@ require "open3"
 require "tmpdir"
 require "rbconfig"
 
-# What `ruby-gba` says when somebody asks it how to use it, or uses it wrong: the help for each
+# What `vblank` says when somebody asks it how to use it, or uses it wrong: the help for each
 # command, the list of commands, and what an option it does not know gets back. Run as a person
 # runs it, in a process of its own.
 class TestCLIHelp < Minitest::Test
@@ -15,7 +15,7 @@ class TestCLIHelp < Minitest::Test
 
   # Which Ruby to launch, asked once here: a worker may not read Ruby's own build table.
   RUBY = RbConfig.ruby.freeze
-  BIN = VBlank.root.join("bin/ruby-gba").to_s
+  BIN = VBlank.root.join("bin/vblank").to_s
 
   COMMANDS = %w[build profile play compare preview inspect new].freeze
   HELP_FLAGS = %w[--help -h].freeze
@@ -34,13 +34,13 @@ class TestCLIHelp < Minitest::Test
     COMMANDS.each do |command|
       asked, status = cli("help", command)
       assert status.success?, asked
-      assert_match(/\AUsage: ruby-gba #{command} /, asked, "#{command}'s help starts with how to write it")
-      assert_fits asked, "ruby-gba help #{command}"
+      assert_match(/\AUsage: vblank #{command} /, asked, "#{command}'s help starts with how to write it")
+      assert_fits asked, "vblank help #{command}"
 
       HELP_FLAGS.each do |flag|
         out, status = cli(command, flag)
-        assert status.success?, "ruby-gba #{command} #{flag} failed:\n#{out}"
-        assert_equal asked, out, "ruby-gba #{command} #{flag} prints the same help as ruby-gba help #{command}"
+        assert status.success?, "vblank #{command} #{flag} failed:\n#{out}"
+        assert_equal asked, out, "vblank #{command} #{flag} prints the same help as vblank help #{command}"
       end
     end
   end
@@ -58,21 +58,21 @@ class TestCLIHelp < Minitest::Test
   # option that takes several words, since those take every word after them.
   def test_build_help_starts_with_the_builds_people_want
     out, = cli("help", "build")
-    examples = out.index("ruby-gba build game.rb --format=native")
+    examples = out.index("vblank build game.rb --format=native")
 
     refute_nil examples, "a desktop build is one of the examples:\n#{out}"
     assert_operator examples, :<, out.index("Options"), "the examples come before the options"
-    assert_match(/^  ruby-gba build game.rb +a .gba cartridge/, out)
-    assert_includes out, "ruby-gba build game.rb --format=web"
-    assert_includes out, "ruby-gba build game.rb -o "
-    assert_match(/\AUsage: ruby-gba build GAME_FILE \[--format game\|native\|web\]/, out, "the usage line names the formats")
+    assert_match(/^  vblank build game.rb +a .gba cartridge/, out)
+    assert_includes out, "vblank build game.rb --format=web"
+    assert_includes out, "vblank build game.rb -o "
+    assert_match(/\AUsage: vblank build GAME_FILE \[--format game\|native\|web\]/, out, "the usage line names the formats")
   end
 
   def test_a_command_that_is_not_there_names_the_ones_that_are
     [%w[biuld], %w[biuld --help], %w[help biuld], %w[tree]].each do |args|
       out, status = cli(*args)
 
-      refute status.success?, "ruby-gba #{args.join(' ')}"
+      refute status.success?, "vblank #{args.join(' ')}"
       assert_match(/There is no command "#{args.last == '--help' ? args.first : args.last}"/, out)
       assert_includes out, "build", "and it lists the commands"
     end
@@ -105,7 +105,7 @@ class TestCLIHelp < Minitest::Test
     out, status = cli("build", "one.rb", "two.rb")
 
     refute status.success?
-    assert_includes out, "ruby-gba build takes one GAME_FILE"
+    assert_includes out, "vblank build takes one GAME_FILE"
   end
 
   # An option that takes several words takes the game file too, when the file comes after it.
@@ -114,7 +114,7 @@ class TestCLIHelp < Minitest::Test
 
     refute status.success?
     assert_includes out, "--set took game.rb"
-    assert_includes out, "ruby-gba build game.rb --set floors=3"
+    assert_includes out, "vblank build game.rb --set floors=3"
   end
 
   def test_an_unknown_build_option_names_the_formats
@@ -126,13 +126,13 @@ class TestCLIHelp < Minitest::Test
   def test_the_command_list_names_every_command_and_cuts_no_words
     listed, status = cli("help")
     assert status.success?, listed
-    assert_fits listed, "ruby-gba help"
+    assert_fits listed, "vblank help"
     refute_includes listed, "...", "no description is cut short"
-    COMMANDS.each { |command| assert_match(/^  ruby-gba #{command}\b/, listed) }
+    COMMANDS.each { |command| assert_match(/^  vblank #{command}\b/, listed) }
 
     [[], ["--help"], ["-h"]].each do |args|
       out, = cli(*args)
-      assert_equal listed, out, "ruby-gba #{args.join(' ')} prints the same list"
+      assert_equal listed, out, "vblank #{args.join(' ')} prints the same list"
     end
   end
 
@@ -144,7 +144,7 @@ class TestCLIHelp < Minitest::Test
     refute status.success?
     assert_includes out, "--fromat"
     assert_includes out, "--format", "it says which option was meant"
-    assert_includes out, "ruby-gba build --help"
+    assert_includes out, "vblank build --help"
     refute_match(/\.rb:\d+:in/, out, "no backtrace")
   end
 
@@ -152,16 +152,16 @@ class TestCLIHelp < Minitest::Test
     out, status = cli("build")
 
     refute status.success?
-    assert_includes out, "ruby-gba build GAME_FILE"
-    assert_includes out, "ruby-gba build --help"
+    assert_includes out, "vblank build GAME_FILE"
+    assert_includes out, "vblank build --help"
     refute_includes out, "was called with", "not Thor's own words"
   end
 
   def test_native_desktop_and_web_say_how_they_are_written
     {
-      "--native" => "ruby-gba build game.rb --format=native",
-      "--desktop" => "ruby-gba build game.rb --format=native",
-      "--web" => "ruby-gba build game.rb --format=web"
+      "--native" => "vblank build game.rb --format=native",
+      "--desktop" => "vblank build game.rb --format=native",
+      "--web" => "vblank build game.rb --format=web"
     }.each do |given, meant|
       out, status = cli("build", "game.rb", given)
 
