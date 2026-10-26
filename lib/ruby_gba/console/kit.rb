@@ -18,8 +18,9 @@ module RubyGBA
     # What every kit answers:
     #
     #   description             what a game can tell about the console (Console::Description)
-    #   answers                 what each verb does on it (Console::GBCFeatures, say), or nil for
-    #                           a console where every verb works as the Advance's does
+    #   answers                 what each verb does on it (Console::Answers): works, or refused
+    #   answers_page            those answers written out for the reader, with anything the page
+    #                           says of the console's build (what the Color's does not make yet)
     #   builder                 what makes its cartridge (Cartridge::AdvanceBuild, say). It answers
     #                           build(request), the cartridge from a checked program and a
     #                           Cartridge::BuildRequest; console_settings, the names of the CONSOLE
@@ -63,7 +64,6 @@ module RubyGBA
 
       def name = description.name
       def title = description.title
-      def answers = nil
       def measured_builds? = false
       def compared_side_by_side? = false
       def drawn_by_runtimes? = false
@@ -75,6 +75,8 @@ module RubyGBA
 
     # The Game Boy Advance's.
     class AdvanceKit < Kit
+      def answers = AdvanceAnswers
+      def answers_page = answers.reference
       def builder = Cartridge::AdvanceBuild
       def cartridge = Cartridge::ROM
       def reader = Diagnostics::Verifier
@@ -85,7 +87,8 @@ module RubyGBA
 
     # The Game Boy Color's.
     class ColorKit < Kit
-      def answers = GBCFeatures
+      def answers = ColorAnswers
+      def answers_page = answers.reference(not_yet: IR::Backends::GBC::Lowering::NOT_LOWERED_YET)
       def builder = Cartridge::ColorBuild
       def cartridge = Cartridge::GBCROM
       def reader = Diagnostics::GBCVerifier

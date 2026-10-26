@@ -75,7 +75,7 @@ module RubyGBA
           NOT_LOWERED_YET = Ractor.make_shareable({})
 
           # The kinds the Color's hardware cannot do at all, refused in the words its answers have
-          # (#refuse_color_answer_errors!): a layer seen through another, a light, a mosaic, a turned
+          # (#refuse_what_color_lacks!): a layer seen through another, a light, a mosaic, a turned
           # or resized background, a recording.
           REFUSED = %i[see_through shade_outside pixelate affine_background play_sample stop_sample].freeze
 
@@ -202,7 +202,7 @@ module RubyGBA
           # the program itself.
           def sections
             refuse_unlowered_kinds!
-            refuse_color_answer_errors!
+            refuse_what_color_lacks!
             refuse_unsupported_save_memory!
             refuse_unfit_paint_squares!
             refuse_lists_in_use_past_eight!
@@ -259,14 +259,15 @@ module RubyGBA
                                  "cannot make yet (#{missing.keys.join(', ')})."
           end
 
-          # What a Color cannot do at all, refused as a game's build refuses it (Checks::ColorAnswers).
-          # A program handed straight to a lowering, as a test's is, never passes the build's checks;
-          # and one that names no console, or another, is asked about as the Color's, which the
-          # check otherwise leaves alone.
-          def refuse_color_answer_errors!
+          # What a Color cannot do at all, and a second background showing at once, refused as a
+          # game's build refuses them (Checks::ConsoleAnswers, Checks::TooManyBackgroundLayers). A
+          # program handed straight to a lowering, as a test's is, never passes the build's checks;
+          # and one that names no console, or another, is asked about as the Color's.
+          def refuse_what_color_lacks!
             asked = @program.console == :gbc ? @program : @program.copy.tap { |copy| copy.console = :gbc }
-            refused = Guardrails::Checks::ColorAnswers.new.detect(asked).find { |finding| finding.severity == :error }
-            raise LoweringError, refused.message if refused
+            refused = Guardrails::Checks::ConsoleAnswers.new.detect(asked).find { |finding| finding.severity == :error }
+            refusal = refused&.message || Guardrails::Checks::TooManyBackgroundLayers.new.refusal_message(asked)
+            raise LoweringError, refusal if refusal
           end
 
           # A Game Boy Color cartridge saves in 32K of battery-backed memory (Runtime::Saving): a game

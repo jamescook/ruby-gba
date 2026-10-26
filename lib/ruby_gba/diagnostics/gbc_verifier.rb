@@ -62,7 +62,7 @@ module RubyGBA
         [var_at(@rom.built.waits_counted_at) - 1, 0].max
       end
 
-      # A Color game plays no recordings — Console::GBCFeatures refuses them — so the Advance's
+      # A Color game plays no recordings — Console::ColorAnswers refuses them — so the Advance's
       # mixer of recordings is answered here as it is for an Advance game that plays none.
       def voices = []
       def sounding = []

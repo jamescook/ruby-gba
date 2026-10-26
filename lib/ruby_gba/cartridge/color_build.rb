@@ -19,7 +19,7 @@ module RubyGBA
         dumps = request.evaluated.dump_requests
         unless dumps.empty?
           raise ROMError, "This game lists a routine's ARM (`dump_func #{dumps.first.inspect}`), and a " \
-                          "#{Console::COLOR.title} cannot: #{Console::GBCFeatures.answer(:dump_func).words} Take out " \
+                          "#{Console::COLOR.title} cannot: #{Console::ColorAnswers.answer(:dump_func).words} Take out " \
                           "`dump_func`, or build for the Game Boy Advance alone to see it."
         end
 

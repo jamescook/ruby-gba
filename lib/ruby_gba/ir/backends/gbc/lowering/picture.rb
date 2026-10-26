@@ -205,7 +205,7 @@ module RubyGBA
             # --- the screen ---
 
             # A screen drawn from tiles is what a Color has. A turning screen is shown as one that
-            # does not turn (Console::GBCFeatures), which the interpreter shows the same way when it
+            # does not turn (Console::ColorAnswers), which the interpreter shows the same way when it
             # plays the game for a Color. A painted screen is 360 tiles of the background's
             # (Runtime::Paint). A change between the two replaces the display (rt_screen), and
             # what every tiled screen shows is put up again then (Reference#put_up_always_up). A

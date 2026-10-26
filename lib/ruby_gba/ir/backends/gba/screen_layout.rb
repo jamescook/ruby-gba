@@ -696,18 +696,14 @@ module RubyGBA
           end
 
           # The slots a screenful has to hand out — the same counts the check above refuses
-          # against, read from the same place so the two cannot drift apart.
+          # against, read from the same place (the Advance's description) so the two cannot
+          # drift apart.
           #
           # A screen holding a background that TURNS has fewer, and they are not the same
           # ones: the console gives its rotate hardware to a particular layer (AFFINE_BG) and
           # the arrangement that provides it leaves only the two below that one scrolling.
           def scrolling_slots(screenful)
-            check = Guardrails::Checks::TooManyBackgroundLayers
-            most = if screenful.turning_on_tiled_screen(@modes).any?
-                     check::MAX_SCROLLING_LAYERS_BESIDE_TURNING
-                   else
-                     check::MAX_SCROLLING_LAYERS
-                   end
+            most = Console::ADVANCE.scrolling_backgrounds(turning: screenful.turning_on_tiled_screen(@modes).any?)
             (0...most).to_a
           end
 

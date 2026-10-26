@@ -25,11 +25,17 @@ module RubyGBA
         # is a screen, and what is declared outside every scene is on all of them — so this
         # is a check of the finished program. The interpreter and the cartridge lowering ask
         # it too, so all three refuse the same programs in the same words.
+        #
+        # A console that blends nothing (Console::Description#blends) has no see-through
+        # layer to count: the build refuses the first one (Checks::ConsoleAnswers), and the
+        # interpreter, which does not ask that check, refuses none there.
         class SeeThroughPerScreen
           NAME = :see_through_per_screen
           PLAIN_NAME = "two see-through layers on one screen"
 
           def detect(program)
+            return [] unless program.described_console.blends
+
             layers = SeeThrough.layers(program)
             return [] if layers.size < 2
 

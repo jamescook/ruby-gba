@@ -47,7 +47,7 @@ module RubyGBA
       #
       # What the picture is made of is the Color's, not the Advance's: a background of tiles of
       # four colours, forty sprites, eight lists of colours of each kind. What a game asks for is
-      # answered by Console::GBCFeatures — it works, or it is refused, naming the hardware the
+      # answered by Console::ColorAnswers — it works, or it is refused, naming the hardware the
       # Color lacks — before anything is lowered.
       #
       # A game is checked by playing the cartridge in the emulator and the program on the

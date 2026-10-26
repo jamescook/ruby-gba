@@ -20,6 +20,9 @@ module RubyGBA
         # told what to mix afresh every frame, and a game is in one scene at a time, so the
         # light is off in such a scene and on in the rest (see IR::LightScenes). What is
         # refused is one scene with both, or a game with no scenes, which is one screen.
+        #
+        # A console that blends nothing (Console::Description#blends) has no light to share:
+        # Checks::ConsoleAnswers refuses the light itself.
         class LightCannotShare
           NAME = :light_cannot_share
           PLAIN_NAME = "a light beside something that needs the same part of the display"
@@ -29,6 +32,8 @@ module RubyGBA
           LIGHT = "a light (a `spotlight` or an `iris_out`)"
 
           def detect(program)
+            return [] unless program.described_console.blends
+
             light = LightScenes.light_of(program)
             return [] unless light
 

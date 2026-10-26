@@ -39,10 +39,15 @@ a console of its own needs beyond a lowering:
   writing 240 and 160. The interpreter plays the game as that console, so the answer key and the
   cartridge agree about what the console cannot do (a fade the Color does not blend is walked
   colour by colour, `IR::Fading`).
-- **An answer for every verb** (`Console::GBCFeatures`): it works, or it is refused in plain words
-  naming the hardware the console lacks. Nothing is shown differently. The guardrail check
-  (`Checks::ColorAnswers`) gives those answers at build time, and `.claude/dsl/game-boy-color.md`
-  is generated from the same table (`tools/gbc_answers.rb`), so the docs cannot drift from it.
+- **An answer for every verb** (`Console::ColorAnswers`; every console has one, the Advance's
+  `Console::AdvanceAnswers` included, and `Console::Answers` says what an answer is): it works, or
+  it is refused in plain words naming the hardware the console lacks. Nothing is shown differently.
+  The guardrail check (`Checks::ConsoleAnswers`) gives those answers at build time for whichever
+  console the build is for, working out which part of a verb a line asks for from the console's
+  description (its buttons, whether it blends, turns a background or turns a sprite). Each
+  console's page under `.claude/dsl/` is generated from its table (`tools/console_answers.rb`),
+  so the docs cannot drift from it. The checks that count something the console has — layers,
+  sprites, sprites on a row — read the number from its description.
 - **Its own cartridge, emulator reading and profiler** (`Cartridge::GBCROM`,
   `Diagnostics::GBCProfiler`): the Advance's never learn about it.
 - **A kit naming all of it** (`Console::Kit`, `Console.for(:gbc)`, in `console/kit.rb`): its

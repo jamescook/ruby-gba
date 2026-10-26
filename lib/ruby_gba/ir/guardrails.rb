@@ -323,7 +323,7 @@ require_relative "guardrails/sprite_in_blocks_kept_from_fade"
 require_relative "guardrails/light_cannot_share"
 require_relative "guardrails/held_fade_cannot_share"
 require_relative "guardrails/routine_never_called"
-require_relative "guardrails/color_answers"
+require_relative "guardrails/console_answers"
 require_relative "guardrails/clock_never_asked"
 require_relative "guardrails/web_portability" # not always on: the web build runs it, and a game may register it
 
@@ -370,7 +370,7 @@ module RubyGBA
         Checks::ScreenInsideScene.new,
         Checks::PaintedPictureWithOtherPoses.new,
         Checks::RoutineNeverCalled.new,
-        Checks::ColorAnswers.new,
+        Checks::ConsoleAnswers.new,
         Checks::ClockNeverAsked.new,
       ])
     end

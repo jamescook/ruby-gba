@@ -335,9 +335,11 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
 
   # THE GAP THIS CLOSES. The interpreter is the answer key a game's own tests run
   # against, and it has no layers of its own — only a picture — so it drew five happily
-  # while the cartridge refused them. Now it refuses in the same sentence.
+  # while the cartridge refused them. Now it refuses in the same sentence. (The interpreter
+  # by name: a run that plays the program as another console's refuses it in that console's
+  # numbers, which the Color tests below say.)
   def test_the_interpreter_refuses_what_the_console_could_not_show
-    error = assert_raises(Reference::ProgramError) { game_player.run(five_scrolling_layers) }
+    error = assert_raises(Reference::ProgramError) { Reference.new.run(five_scrolling_layers) }
     assert_equal validator.run(five_scrolling_layers, autofix: false).errors.first.message,
                  error.message
   end
@@ -365,5 +367,48 @@ class TestIRGuardrailBackgroundLayers < Minitest::Test
     end
     assert_match(/shows 5 scrolling backgrounds at one time/, err.string)
     assert_match(/4 scrolling backgrounds/, err.string, "and says how many the console stacks")
+  end
+
+  # The Color stacks one background, so the second showing at once — the sky every screen
+  # shows, and the town in the scene that runs — is refused at the town's line, in the
+  # Color's numbers.
+  TWO_UP = RubyGBA.game("TWOUP", consoles: %i[gba gbc]) do
+    screen :tiled
+    image(:dark, "#" => :black) { "########\n" * 8 }
+    tiles :floor, "#" => :dark
+    background :sky, tiles: :floor, map: ["#" * 4] * 4
+    var :state, 0
+    scene(:town) { background :town, tiles: :floor, map: ["#" * 4] * 4 }
+    game_loop { case_var(:state) { when_val 0, :town } }
+  end
+
+  # A second scene with a background of its own takes turns with the first, and is not refused.
+  TURNS = RubyGBA.game("TURNS", consoles: %i[gba gbc]) do
+    screen :tiled
+    image(:dark, "#" => :black) { "########\n" * 8 }
+    tiles :floor, "#" => :dark
+    state = var :state, 0
+    scene(:town) { background :town, tiles: :floor, map: ["#" * 4] * 4 }
+    scene(:cave) { background :cave, tiles: :floor, map: ["#" * 4] * 4 }
+    game_loop do
+      case_var :state do
+        when_val 0, :town
+        when_val 1, :cave
+      end
+      state.set! 1 - state
+    end
+  end
+
+  def test_a_second_background_showing_at_once_on_the_color_is_refused_at_its_line
+    found = validator.run(TWO_UP.program(console: :gbc), autofix: false).errors
+
+    assert_equal 1, found.size
+    assert_match(/Game Boy Color shows 1 background at one time/, found.first.message)
+    assert_equal :town, found.first.node.name
+  end
+
+  def test_backgrounds_that_take_turns_scene_by_scene_fit_on_the_color
+    assert validator.run(TURNS.program(console: :gbc), autofix: false).ok?
+    assert validator.run(TWO_UP.program(console: :gba), autofix: false).ok?
   end
 end

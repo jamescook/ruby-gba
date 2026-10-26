@@ -16,11 +16,16 @@ module RubyGBA
         #
         # A plain fade and a tint are NOT among them: in a game that holds a fade, each of those
         # says it reaches the whole screen, and the last one said is the one in force.
+        #
+        # A console that blends nothing (Console::Description#blends) holds no fade to a
+        # rectangle: Checks::ConsoleAnswers refuses the held fade itself.
         class HeldFadeCannotShare
           NAME = :held_fade_cannot_share
           PLAIN_NAME = "a fade held to a rectangle beside something that needs the same part of the display"
 
           def detect(program)
+            return [] unless program.described_console.blends
+
             held = program.walk.find { |node| node.kind == :fade && node.reaches } or return []
 
             words = "fades `#{held.reaches}:` a rectangle"

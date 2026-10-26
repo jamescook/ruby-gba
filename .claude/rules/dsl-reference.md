@@ -138,6 +138,10 @@ Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`,
 
 - `RubyGBA.playthrough "name" do … end` — scripted presses on a cartridge; `ruby-gba play`, `ruby-gba compare`.
 
+## The Game Boy Advance — `.claude/dsl/game-boy-advance.md`
+
+- `consoles: %i[gba]` — every verb works on the Advance; the page says where it has more to say.
+
 ## The Game Boy Color — `.claude/dsl/game-boy-color.md`
 
 - `consoles: %i[gba gbc]`, `ruby-gba build --console gbc` — the game on a Color too; what every verb does there (works or refused).

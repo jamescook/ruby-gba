@@ -5,7 +5,7 @@ A game built for the Color too (`RubyGBA.game "NAME", consoles: %i[gba gbc]`, th
 the same game on a smaller machine: a 160×144 screen (`screen_width`, `screen_height`),
 eight buttons, one background, forty sprites (ten on a row of the screen), and lists of
 four colours. Every verb has one of two answers there, decided once in
-`Console::GBCFeatures`:
+`Console::ColorAnswers`:
 
 - **works** — the same game, played the same way. The Game Boy Color lowering's run of
   `rake test` holds the cartridge to the interpreter on every frame.
@@ -13,8 +13,9 @@ four colours. Every verb has one of two answers there, decided once in
   lacks and what to use instead. Nothing is shown differently: a game either plays the
   same on the Color or is refused there.
 
-This file is `Console::GBCFeatures.reference` written out (`ruby tools/gbc_answers.rb`), and a
-test fails when the two differ.
+This file is `Console::ColorAnswers.reference` written out (`ruby tools/console_answers.rb`),
+and a test fails when the two differ. The Advance's answers are in
+`.claude/dsl/game-boy-advance.md`.
 
 - `screen` — works: `screen :tiled` and `screen :bitmap` work. A painted (bitmap) screen is made of tiles internally. Each 8×8 square of the screen holds four colours. The screen holds eight sets of four colours. The build gives each square one set for each scene. If a game paints a colour at a place that it calculates as it runs, that colour can be in every square. If a scene does not clear the screen, its squares also keep the colours of the scene before it. The build refuses a game that can paint a fifth colour into a square, and names the square. It also refuses a game that needs more than eight sets, or whose colours cannot each keep one place in every set. `tear_free: true` keeps one picture, because a Game Boy Color always shows a painted picture whole. `screen :rotozoom` is refused: a Game Boy Color cannot turn or resize a background.
 - `setting` — works: the same as on the Advance.

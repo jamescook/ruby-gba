@@ -2,7 +2,7 @@
 
 # EVERY VERB A GAME CAN WRITE, worked out from what is mixed into Builder right now, for the tests
 # that hold something to every verb: the DSL reference (test_dsl_reference.rb) and each
-# console's answer for every verb (test_gbc_features.rb).
+# console's answer for every verb (test_answers.rb).
 module DslVerbs
   # The DSL verbs are the public methods the concern modules mix into Builder…
   CONCERNS = RubyGBA::Builder.included_modules.select { |m| m.name&.start_with?("RubyGBA::Builder::") }.freeze

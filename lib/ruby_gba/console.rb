@@ -10,5 +10,7 @@
 require_relative "console/hardware" # the register addresses, flags and memory map
 require_relative "console/description" # what a game can tell about a console: its screen, buttons, sprites
 require_relative "console/gbc_hardware" # the Game Boy Color's register addresses, flags and memory map
-require_relative "console/gbc_features" # what each verb does on a Game Boy Color: works or refused
+require_relative "console/answers" # what an answer to "what does this verb do here?" is
+require_relative "console/advance_answers" # ...the Game Boy Advance's: every verb works
+require_relative "console/color_answers" # ...and the Game Boy Color's: works or refused
 require_relative "console/kit" # ...and which parts of the library serve each console

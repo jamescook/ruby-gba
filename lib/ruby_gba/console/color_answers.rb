@@ -2,24 +2,13 @@
 
 module RubyGBA
   module Console
-    # WHAT EVERY VERB DOES ON A GAME BOY COLOR, decided once and written down here, where the build
-    # checks and the reference both read it.
+    # WHAT EVERY VERB DOES ON A GAME BOY COLOR (Console::Answers says what an answer is).
     #
     # The Game Boy Color is a much smaller machine than the Advance: a 160×144 screen, one background
     # layer, forty sprites (ten to a line) of four colours each, no way to turn or resize a layer,
     # to see one layer through another, or to play a recording. A game written for the Advance is
     # mostly made of things it CAN do — tiles, sprites, the square, wave and noise voices, which the
-    # Advance inherited from it — and every verb gets one of two answers:
-    #
-    # - :works — the same game, played the same way. The checked run holds the cartridge to the
-    #   interpreter on every frame, so this is a promise the test suite keeps.
-    # - :refused — the build stops before anything is made, naming the hardware the Color lacks and
-    #   what to use instead.
-    #
-    # NOTHING IS SHOWN DIFFERENTLY. A turned layer shown unturned, a mosaic left sharp: each is a
-    # game that looks right on one console and quietly wrong on the other, which a teaching tool
-    # must not ship. The Color build is limited and does not pretend, so what its hardware cannot
-    # do, the author hears about while building, not while playing.
+    # Advance inherited from it — and the Color build is limited and does not pretend.
     #
     # A GAME SAYS WHICH CONSOLES IT IS FOR (`RubyGBA.game "PONG", consoles: %i[gba gbc]`), and is
     # built for the Color only when it names it. A game written for a 240×160 screen that is
@@ -28,19 +17,13 @@ module RubyGBA
     # first line, having read the screen's size from the builder (`screen_width`, `screen_height`)
     # rather than writing 240 and 160.
     #
-    # Every verb a game can write is in ANSWERS, which a test holds against the builder: a new verb
-    # has no Game Boy Color answer until somebody decides one. The words are what the build says,
-    # and what the reference shows beside the verb.
-    module GBCFeatures
-      Answer = Data.define(:verdict, :words) do
-        def works? = verdict == :works
-        def refused? = verdict == :refused
-      end
+    # The words are what the build says, and what the reference shows beside the verb.
+    module ColorAnswers
+      extend Answers
 
-      VERDICTS = %i[works refused].freeze
+      PAGE = ".claude/dsl/game-boy-color.md"
 
-      def self.works(words = "the same as on the Advance.") = Answer.new(:works, words)
-      def self.refused(words) = Answer.new(:refused, words)
+      PLAIN = "the same as on the Advance."
 
       ANSWERS = Ractor.make_shareable({
         # --- building, the screen and settings ---
@@ -228,22 +211,11 @@ module RubyGBA
                             "`sample`). Write the part for the square or wave voice.")
       })
 
-      # How the reference names each verdict.
-      VERDICT_WORDS = { works: "works", refused: "**refused**" }.freeze
-
-      # The answer for +verb+, or nil for a verb nobody has decided yet.
-      def self.answer(verb) = ANSWERS[verb.to_sym]
-
       # WHAT .claude/dsl/game-boy-color.md SAYS: every answer, in the order ANSWERS gives them, and
       # what the Color's build does not make yet — +not_yet+, the lowering's own list of the
-      # program's kinds it refuses for now, by what they are part of. The file is this, written
-      # out, and a test holds the two to each other, so the reference cannot say one thing while
-      # the build does another. `ruby tools/gbc_answers.rb` writes it again.
+      # program's kinds it refuses for now, by what they are part of, which the Color's kit hands
+      # in (Kit#answers_page).
       def self.reference(not_yet: {})
-        lines = ANSWERS.map do |verb, answer|
-          verdict = VERDICT_WORDS.fetch(answer.verdict)
-          "- `#{verb}` — #{verdict}: #{answer.words}"
-        end
         <<~MARKDOWN
           # The Game Boy Color — what every verb does there
 
@@ -252,7 +224,7 @@ module RubyGBA
           the same game on a smaller machine: a 160×144 screen (`screen_width`, `screen_height`),
           eight buttons, one background, forty sprites (ten on a row of the screen), and lists of
           four colours. Every verb has one of two answers there, decided once in
-          `Console::GBCFeatures`:
+          `Console::ColorAnswers`:
 
           - **works** — the same game, played the same way. The Game Boy Color lowering's run of
             `rake test` holds the cartridge to the interpreter on every frame.
@@ -260,10 +232,11 @@ module RubyGBA
             lacks and what to use instead. Nothing is shown differently: a game either plays the
             same on the Color or is refused there.
 
-          This file is `Console::GBCFeatures.reference` written out (`ruby tools/gbc_answers.rb`), and a
-          test fails when the two differ.
+          This file is `Console::ColorAnswers.reference` written out (`ruby tools/console_answers.rb`),
+          and a test fails when the two differ. The Advance's answers are in
+          `.claude/dsl/game-boy-advance.md`.
 
-          #{lines.join("\n")}
+          #{answer_lines.join("\n")}
 
           ## Not made yet
 

@@ -3,7 +3,7 @@
 require "test_helper"
 
 # What a Game Boy Color cannot do at all is refused when a cartridge is made for it, in the words
-# the Color's answers have (Console::GBCFeatures, through Guardrails::Checks::ColorAnswers) — by
+# the Color's answers have (Console::ColorAnswers, through Guardrails::Checks::ConsoleAnswers) — by
 # the lowering itself, so a program handed straight to it, as every test's is, hears the same
 # refusal a game's build does rather than playing on without what it asked for.
 class TestGBCRefusals < Minitest::Test

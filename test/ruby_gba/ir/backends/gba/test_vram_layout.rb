@@ -20,9 +20,9 @@ require "test_helper"
 class TestVramLayout < Minitest::Test
   include RubyGBA::IR::Build
 
-  # How many background layers the console stacks. The count and the rule that reads it
-  # live with the guardrail that explains them.
-  MOST_LAYERS = RubyGBA::IR::Guardrails::Checks::TooManyBackgroundLayers::MAX_SCROLLING_LAYERS
+  # How many background layers the console stacks: the Advance's description holds the count,
+  # and the guardrail that explains it and the lowering both read it there.
+  MOST_LAYERS = RubyGBA::Console::ADVANCE.backgrounds
 
   # --- The layout itself ---
 
