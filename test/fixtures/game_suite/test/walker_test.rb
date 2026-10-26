@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # A game's own test, as a game in a repository of its own writes it: one require for the
-# library's test helper, and nothing from ruby-gba's own test folder.
+# library's test helper, and nothing from VBlank's own test folder.
 require "vblank/testing"
 require_relative "one_pixel_off"
 

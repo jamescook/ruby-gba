@@ -296,7 +296,7 @@ module VBlank
             return unless @emitting_interrupt && set_holding(name)
 
             raise LoweringError, "the routine that answers the display calls #{name.inspect}, which is " \
-                                 "copied in only while its scene is up. This is a fault in ruby-gba, not " \
+                                 "copied in only while its scene is up. This is a fault in VBlank, not " \
                                  "in the game. To build the game now, build with `fast_code: false`."
           end
 
@@ -317,7 +317,7 @@ module VBlank
             return if addresses.each_cons(2).all? { |a, b| b == a + WHERE_WORD_BYTES }
 
             raise LoweringError, "the words that say where each scene's routines are did not land side by " \
-                                 "side. This is a fault in ruby-gba, not in the game. To build the game now, " \
+                                 "side. This is a fault in VBlank, not in the game. To build the game now, " \
                                  "build with `fast_code: false`."
           end
 

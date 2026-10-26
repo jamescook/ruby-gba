@@ -3,7 +3,7 @@
 require "minitest/autorun"
 require "tempfile"
 
-# These tests build real GBA ROMs with ruby-gba (which lives one level up in
+# These tests build real GBA ROMs with VBlank (which lives one level up in
 # this repo) and run them through the headless core. That doubles as an
 # end-to-end smoke test of the whole stack: DSL → ROM → libmgba → probe.
 require_relative "../../lib/vblank"
@@ -14,7 +14,7 @@ module RubyGBAEmulatorTestSupport
   # the Probe that loads it (and never gets GC'd out from under a running test).
   ROM_TEMPFILES = []
 
-  # Build a ROM from a ruby-gba DSL block and return the path to it on disk.
+  # Build a ROM from a VBlank DSL block and return the path to it on disk.
   #
   #   path = build_rom("RED") { screen :bitmap; clear_screen :red; game_loop {} }
   #   probe = RubyGBAEmulator.open(path)

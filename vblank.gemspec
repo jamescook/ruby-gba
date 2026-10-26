@@ -8,7 +8,7 @@ Gem::Specification.new do |spec|
 
   spec.summary       = "Ruby DSL for building GBA ROMs"
   spec.description   = "A Ruby DSL that generates valid Game Boy Advance ROM files"
-  spec.homepage      = "https://github.com/jamescook/ruby-gba"
+  spec.homepage      = "https://github.com/jamescook/vblank"
   spec.licenses      = ["MIT"]
 
   # compile_flags.txt is written for an editor on the machine it names folders on (see

@@ -2,14 +2,14 @@
 
 ```bash
 rake test                                                       # the suite, on every lowering
-rake test TEST=test/vblank/dsl/test_thing.rb                  # one file, on each lowering that plays it
+rake test TEST=test/vblank/dsl/test_thing.rb                    # one file, on each lowering that plays it
 rake test TEST=test/vblank/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test; -n /pat/ trips shell quoting
 rake test:lowering:gba                                          # the GBA lowering's run alone (TEST= too)
 rake test:lowering:native                                       # the native lowering's run alone (TEST= too)
 rake test:lowering:js                                           # the JavaScript lowering's run alone (TEST= too)
 rake test:lowering:gbc                                          # the Game Boy Color lowering's run alone (TEST= too)
 rake test:playthroughs                                          # every test in test/vblank/playthroughs/
-bundle exec ruby -Itest test/vblank/dsl/test_thing.rb         # one file, plain minitest (needs bundle exec)
+bundle exec ruby -Itest test/vblank/dsl/test_thing.rb           # one file, plain minitest (needs bundle exec)
 ```
 
 | what changed | what to run |
@@ -29,7 +29,7 @@ the GBA run, 531 for the native and 199 for the JavaScript.
 ## One whole run on the machine at a time
 
 `rake test`, and each lowering's run alone, take one machine-wide lock (`tools/suite_lock.rb`,
-the file `~/.cache/ruby-gba/test-suites.lock`) before starting — `rake test` once for all its
+the file `~/.cache/vblank/test-suites.lock`) before starting — `rake test` once for all its
 runs — so a second run waits and says which run, in which checkout, it waits for. A `TEST=` run
 does not take it.
 

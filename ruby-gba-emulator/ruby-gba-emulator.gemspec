@@ -10,10 +10,10 @@ Gem::Specification.new do |spec|
   spec.description  = <<~DESC
     A lean, headless binding to libmgba's mCore: boot a GBA ROM and step it one
     frame at a time, reading back video, audio, and memory as plain Ruby data.
-    No SDL2 or Tk. ruby-gba uses it to verify and profile the cartridges it
+    No SDL2 or Tk. VBlank uses it to verify and profile the cartridges it
     builds; building one needs none of this.
   DESC
-  spec.homepage    = "https://github.com/jamescook/ruby-gba"
+  spec.homepage    = "https://github.com/jamescook/vblank"
   spec.license     = "MIT" # our binding code; libmgba is linked separately (MPL-2.0)
   spec.required_ruby_version = ">= 4.0"
 

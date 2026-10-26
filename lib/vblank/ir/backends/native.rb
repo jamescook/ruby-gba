@@ -90,7 +90,7 @@ module VBlank
 
         # The program written out as C, as one file's text. A program from a game should come
         # through #checked_program first. +title+ is the game's name, for the window.
-        def lower(program, title: "ruby-gba")
+        def lower(program, title: "VBlank")
           Lowering.new(program, title: title).source
         end
 
@@ -123,7 +123,7 @@ module VBlank
           refuse_unknown_target!(target)
 
           source = lower(checked_program(game, settings: settings, err: err), title: game.title)
-          Dir.mktmpdir("ruby-gba-native") do |dir|
+          Dir.mktmpdir("vblank-native") do |dir|
             src = File.join(dir, "src")
             FileUtils.mkdir_p(src)
             File.write(File.join(src, "game.c"), source)
@@ -150,7 +150,7 @@ module VBlank
         # renamed into place, so two threads building the same game at once — tests run side by
         # side — each put down a whole file and never read half of the other's.
         def write_source(text)
-          dir = File.join(Dir.tmpdir, "ruby-gba-native", "src-#{Digest::SHA256.hexdigest(text)[0, 24]}")
+          dir = File.join(Dir.tmpdir, "vblank-native", "src-#{Digest::SHA256.hexdigest(text)[0, 24]}")
           path = File.join(dir, "game.c")
           return path if File.exist?(path)
 

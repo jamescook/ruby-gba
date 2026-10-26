@@ -320,7 +320,7 @@ module VBlank
           # picture, written over the one before and read when it is asked for (#screen), and
           # the sound, for a run asked to record it, read back when the program has finished.
           def play(exe, frames)
-            Dir.mktmpdir("ruby-gba-run") do |dir|
+            Dir.mktmpdir("vblank-run") do |dir|
               File.open(File.join(dir, "picture"), "w+b") do |pictures|
                 @pictures = pictures
                 play_frames(exe, frames, ["--picture-out", pictures.path, *sound_options(dir), *save_options(dir),

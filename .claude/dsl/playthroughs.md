@@ -22,7 +22,7 @@ Not verbs either — these drive a built cartridge.
 - `tape = played.tape` → a **tape**: the presses of that playing, written down — which buttons were down on each frame, and the frame each named moment fell on. **A script says what to do; a tape says what was done.** The difference shows the moment a script watches the game: `hold_until("the door", :right)` is as many frames as *this* game took to reach the door, and the tape holds that number, so it needs nothing to watch. That makes a tape the same presses on the same frames whatever it is played on, which is what lets two cartridges be handed exactly the same game. `tape.play(cartridge) { |moment, game| … }` plays it, and gives back what playing a script gives back, pictures included (and `pictures_in:` writes them the same way). `tape.frames` and `tape.moments` read it without playing it. `tape.up_to(46)` is the same tape ending on that frame: a hold the frame falls inside is cut short, a moment is kept when the frame it names is still on the tape, and a frame past the end is the whole tape — play it and the cartridge is on that frame. `tape.presses_within(1..60)` says what was down on those frames, as a list of stretches each with its `frames` (a range) and its `buttons`. `tape.write("walk.tape")` writes it to a file and `VBlank::Playthroughs::Tape.read("walk.tape")` reads one back, the same tape. **The file is plain text**, a line for each stretch of frames with the same buttons down, so a person can read one, write one by hand, and see a change to one as a change to a few lines:
 
   ```
-  ruby-gba tape 1
+  vblank tape 1
   recorded on: HERO 0x5C0FFEE5
   starts from: power-on
 

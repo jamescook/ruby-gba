@@ -4,7 +4,7 @@ require "tmpdir"
 
 module VBlank
   module Diagnostics
-    # The single seam between ruby-gba and the emulator it verifies ROMs on.
+    # The single seam between VBlank and the emulator it verifies ROMs on.
     #
     # Everything that needs a real emulator core — the {Verifier}, the standalone
     # debug/run scripts, the emulator-backed tests — goes through here, so the
@@ -114,7 +114,7 @@ module VBlank
           An emulator is required to run a ROM, and ruby-gba-emulator will not load.
           Put this in your Gemfile, then run bundle install:
 
-              git "https://github.com/jamescook/ruby-gba.git",
+              git "https://github.com/jamescook/vblank.git",
                   glob: "{,ruby-gba-emulator/}*.gemspec" do
                 gem "vblank"
                 gem "ruby-gba-emulator"
@@ -155,7 +155,7 @@ module VBlank
       # play left there comes back into the same image once the core is shut — the emulator writes
       # the file as it shuts — so one image handed to two plays is a power cycle.
       def with_cartridge(rom, file_name:, save: nil)
-        Dir.mktmpdir("ruby-gba-play") do |dir|
+        Dir.mktmpdir("vblank-play") do |dir|
           path = File.join(dir, file_name)
           sav = path.sub(/\.\w+\z/, "") + ".sav"
           rom.write(path)

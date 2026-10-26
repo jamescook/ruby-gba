@@ -107,7 +107,7 @@ class TestJSCreateGame < Minitest::Test
     lines = played_page(["play 3", "js games[0].stop()", "down ArrowRight", "down KeyF", "state", 'js kept.join(",")'], html: html)
 
     assert_includes lines, "state audio=none fullscreen=none kept=0"
-    assert_includes lines, "js ruby-gba-save:KEEPER"
+    assert_includes lines, "js vblank-save:KEEPER"
   end
 
   # The handle reads the save memory as it stands and writes it — a page's own "export my save" and
@@ -230,6 +230,6 @@ class TestJSCreateGame < Minitest::Test
       window.games = [createGame({ canvas: #{canvas('one')}, storage })];
     JS
 
-    assert_includes played_page(["play 3", 'js kept.join(",")'], html: html), "js ruby-gba-save:SAVER"
+    assert_includes played_page(["play 3", 'js kept.join(",")'], html: html), "js vblank-save:SAVER"
   end
 end

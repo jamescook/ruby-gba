@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Quick sanity check: build ROMs with ruby-gba, run them in the emulator
+# Quick sanity check: build ROMs with VBlank, run them in the emulator
 # in-process for 100 frames, and confirm they don't crash.
 #
 # Usage:

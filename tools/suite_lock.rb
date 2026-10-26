@@ -22,7 +22,7 @@ require "fileutils"
 # takes about twice as long as it would alone. Two runs in the same checkout still wait for each
 # other. VBLANK_SUITE_LOCK=machine, or nothing, is the shared lock.
 module SuiteLock
-  FOLDER = Ractor.make_shareable(File.join(Dir.home, ".cache", "ruby-gba"))
+  FOLDER = Ractor.make_shareable(File.join(Dir.home, ".cache", "vblank"))
   PATH = Ractor.make_shareable(File.join(FOLDER, "test-suites.lock"))
 
   module_function

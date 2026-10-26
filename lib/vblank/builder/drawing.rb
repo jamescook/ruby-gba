@@ -746,7 +746,7 @@ module VBlank
           written = IR::LightScenes.written_var(node)
           if written == Randomness::RNG_STATE
             raise ArgumentError, "The light's shape picks a number at random. The random numbers are one stream " \
-                                 "ruby-gba keeps for the whole game, and a shape cannot move it. To fix this, pick " \
+                                 "that the whole game shares, and a shape cannot move it. To fix this, pick " \
                                  "the number outside the shape into a variable, and read that variable in the shape."
           end
           unless (node.value? ? LIGHT_SHAPE_VALUES : LIGHT_SHAPE_STATEMENTS).include?(node.kind)

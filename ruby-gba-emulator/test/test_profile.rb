@@ -224,7 +224,7 @@ class TestRubyGBAEmulatorProfile < Minitest::Test
     end
   end
 
-  # THE CROSS-CHECK, and the reason to trust the reading above. ruby-gba already
+  # THE CROSS-CHECK, and the reason to trust the reading above. VBlank already
   # measures this a completely different way — it rebuilds the program with a
   # hidden counter ticking once per pass and reads the counter. That needs the
   # source and a second build; this needs neither and asks the console instead.

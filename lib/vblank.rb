@@ -147,7 +147,7 @@ module VBlank
 
     # First prove the tree is well-formed — every value operand is a value node,
     # nothing structural is out of place. This checks the *library's* own
-    # consistency, not the developer's game, so a failure is a ruby-gba bug and
+    # consistency, not the developer's game, so a failure is a VBlank bug and
     # raises loudly rather than joining the friendly guardrail report below. It
     # runs before the guardrails and the backend so a malformed tree can't reach
     # them and fail cryptically two passes downstream.

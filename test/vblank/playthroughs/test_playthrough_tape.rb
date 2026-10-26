@@ -118,7 +118,7 @@ class TestPlaythroughTape < Minitest::Test
       Zlib.crc32(File.binread(File.join(dir, "ticking.gba")))
     end
 
-    assert_equal ["ruby-gba tape 1", format("recorded on: TICKING 0x%08X", checksum), "starts from: power-on", ""],
+    assert_equal ["vblank tape 1", format("recorded on: TICKING 0x%08X", checksum), "starts from: power-on", ""],
                  text.lines(chomp: true).first(4)
     assert_equal ["10 -", "1 a", "1 -", "20 right up", "moment walked", "3 -"], text.lines(chomp: true).drop(4)
   end
@@ -193,7 +193,7 @@ class TestPlaythroughTape < Minitest::Test
   # in from the edge, and two lines that say the same buttons run together as one.
   def test_a_tape_written_by_hand_can_be_played
     tape = Tape.parse(<<~TAPE)
-      ruby-gba tape 1
+      vblank tape 1
       recorded on: ANYTHING 0x00000000
       starts from: power-on
 
@@ -222,7 +222,7 @@ class TestPlaythroughTape < Minitest::Test
   # included — and dropped when it is not.
   def test_a_tape_cut_at_a_frame_ends_on_it_and_keeps_the_moments_before
     tape = Tape.parse(<<~TAPE)
-      ruby-gba tape 1
+      vblank tape 1
       recorded on: ANYTHING 0x00000000
       starts from: power-on
 
@@ -259,7 +259,7 @@ class TestPlaythroughTape < Minitest::Test
   # run; and a run that starts before the range or ends after it is cut to the range.
   def test_a_tape_says_what_was_down_on_a_range_of_frames
     tape = Tape.parse(<<~TAPE)
-      ruby-gba tape 1
+      vblank tape 1
       recorded on: ANYTHING 0x00000000
       starts from: power-on
 
@@ -316,7 +316,7 @@ class TestPlaythroughTape < Minitest::Test
 
   # --- a file that cannot be read says which line, and what a line there looks like ---
 
-  private def unreadable(body, heading: "ruby-gba tape 1\nrecorded on: X 0x00000000\nstarts from: power-on\n")
+  private def unreadable(body, heading: "vblank tape 1\nrecorded on: X 0x00000000\nstarts from: power-on\n")
     assert_raises(ArgumentError) { Tape.parse("#{heading}#{body}", from: "walk.tape") }.message
   end
 
@@ -351,9 +351,9 @@ class TestPlaythroughTape < Minitest::Test
   def test_a_file_that_is_not_a_tape_or_has_no_heading_is_refused
     not_a_tape = unreadable("", heading: "#!/bin/sh\n")
     empty = unreadable("", heading: "")
-    no_cartridge = unreadable("", heading: "ruby-gba tape 1\n10 -\n")
-    no_start = unreadable("", heading: "ruby-gba tape 1\nrecorded on: X 0x00000000\n10 -\n")
-    odd_start = unreadable("", heading: "ruby-gba tape 1\nrecorded on: X 0x00000000\nstarts from: the moon\n")
+    no_cartridge = unreadable("", heading: "vblank tape 1\n10 -\n")
+    no_start = unreadable("", heading: "vblank tape 1\nrecorded on: X 0x00000000\n10 -\n")
+    odd_start = unreadable("", heading: "vblank tape 1\nrecorded on: X 0x00000000\nstarts from: the moon\n")
 
     assert_match(%r{walk\.tape is not a tape.*Line 1 is "#!/bin/sh"}m, not_a_tape)
     assert_match(/walk\.tape is not a tape.*The file is empty/m, empty)

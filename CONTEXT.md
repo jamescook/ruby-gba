@@ -1,4 +1,4 @@
-# ruby-gba
+# VBlank
 
 A Ruby DSL for building Game Boy Advance cartridges, aimed at someone who knows Ruby
 and is not assumed to know the hardware. So the language here has two halves — the

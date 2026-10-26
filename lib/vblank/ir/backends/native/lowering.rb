@@ -113,7 +113,7 @@ module VBlank
           SLOT_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4, nil => 4 })
 
           # +title+ is the game's name, for the window.
-          def initialize(program, title: "ruby-gba")
+          def initialize(program, title: "VBlank")
             @program = program
             @title = title
             @names = Names.new
@@ -179,7 +179,7 @@ module VBlank
             routines = @called.map { |name| C::Function.new(name: routine(name), body: body_of(@funcs.fetch(name))) }
             answers = [see_through_amounts, bend_offsets, work_out_bends, shade_span, shade_amount, timer_ticks]
             main = C::Function.new(name: @names.own("main"), body: [*power_on, *lower(@program)], exported: true)
-            [C::Comment.new("Written by ruby-gba's native backend. Do not edit; build the game again."),
+            [C::Comment.new("Written by VBlank's native backend. Do not edit; build the game again."),
              C::Include.new("rg_int32.h"), C::Include.new("rg_runtime.h"), C::Include.new("rg_list.h"),
              C::Include.new("rg_screen.h"), C::Include.new("rg_sound.h"), C::Include.new("rg_mix.h"),
              C::Include.new("rg_save.h"),

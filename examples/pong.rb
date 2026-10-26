@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Pong — single-player game built entirely with ruby-gba DSL.
+# Pong — single-player game built entirely with VBlank DSL.
 #
 # Rules:
 #   - Player (left paddle) vs CPU (right paddle)

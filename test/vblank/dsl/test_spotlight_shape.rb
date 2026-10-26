@@ -73,7 +73,7 @@ class TestSpotlightShape < Minitest::Test
   def test_a_shape_that_picks_a_random_number_is_refused
     error = assert_raises(ArgumentError) { lit_room { |light| light.shape { |_row| rand(10..20) } } }
 
-    assert_match(/ruby-gba keeps/, error.message)
+    assert_match(/the whole game shares/, error.message)
   end
 
   def test_a_shape_that_reads_a_list_is_refused

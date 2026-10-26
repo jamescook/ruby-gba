@@ -3,7 +3,7 @@
 require_relative "test_helper"
 
 # Tests for the cost/timing probe — measuring the CPU cycles a ROM actually
-# burns per frame, the signal used to calibrate ruby-gba's cost model against
+# burns per frame, the signal used to calibrate VBlank's cost model against
 # real emitted code. These assert the behavioral contract (positive, monotonic
 # with workload, bounded by a frame) rather than exact cycle counts, which are
 # emulator-specific.

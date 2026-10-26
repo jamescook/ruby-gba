@@ -20,7 +20,7 @@ module VBlank
     # IT IS PLAIN TEXT, a line for each stretch of frames with the same buttons down, so a
     # person can read one and a change to one shows as a change to a few lines:
     #
-    #   ruby-gba tape 1
+    #   vblank tape 1
     #   recorded on: HERO 0x5C0FFEE5
     #   starts from: power-on
     #
@@ -50,7 +50,7 @@ module VBlank
 
     class Tape
       # What a tape's file opens with: what it is, and which way of writing one this is.
-      FIRST_LINE = "ruby-gba tape 1"
+      FIRST_LINE = "vblank tape 1"
 
       # How a stretch of frames with no button down is written.
       NOTHING_DOWN = "-"

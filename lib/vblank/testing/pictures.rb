@@ -45,7 +45,7 @@ module VBlank
       #
       # These are measured, not derived — sweep both frame counts on an animated program and see
       # which pairing makes the frames identical. Two programs in each mode agree on the number,
-      # and ruby-gba's test_console_line_up.rb re-measures it, so a change in boot cost shows up as
+      # and VBlank's test_console_line_up.rb re-measures it, so a change in boot cost shows up as
       # a failure there instead of as mysterious drift in every comparison.
       BOOT_FRAMES = {
         bitmap: 2, # same buffered (`tear_free: true`) or not

@@ -80,7 +80,7 @@ module VBlank
         RUNTIME = %w[rg_int32.js rg_runtime.js rg_list.js rg_screen.js rg_sound.js rg_mix.js rg_save.js].freeze
 
         # The first line of everything the backend writes.
-        WRITTEN_BY = "// Written by ruby-gba's JavaScript backend. Do not edit; build the game again.\n"
+        WRITTEN_BY = "// Written by VBlank's JavaScript backend. Do not edit; build the game again.\n"
 
         # A game's program, checked exactly the way a cartridge build checks it, as the native
         # lowering checks one (Native#checked_program), so nothing the console would refuse is
@@ -105,7 +105,7 @@ module VBlank
         end
 
         # The program written out as JavaScript: the game alone, with no runtime.
-        def lower(program, title: "ruby-gba")
+        def lower(program, title: "VBlank")
           Lowering.new(program, title: title).source
         end
 
@@ -116,12 +116,12 @@ module VBlank
         # (the page's mount, runtime/rg_mount.js), and the module and the classic script hand it
         # out. The text is the function's declaration alone; whatever wraps it says strict mode.
         # Its big tables are in it (see #factory_and_data_file for them in a file of their own).
-        def factory(program, title: "ruby-gba") = factory_and_data_file(program, title: title).first
+        def factory(program, title: "VBlank") = factory_and_data_file(program, title: title).first
 
         # createGame's text and, with +data+ :separate, the data file its big tables are in (nil
         # with them :inline). A game whose data is separate fetches it from +rg_data_beside+, which
         # whatever wraps the text declares (see #data_beside_declaration).
-        def factory_and_data_file(program, title: "ruby-gba", data: :inline)
+        def factory_and_data_file(program, title: "VBlank", data: :inline)
           text, data_file = Lowering.new(program, title: title).text_and_data_file(data: data)
           [["function createGame(host) {\n", *runtime_text(RUNTIME + ["rg_page.js"]), text,
             "return page_create(host || {});\n}\n"].join, data_file]
@@ -230,8 +230,8 @@ module VBlank
         # each other, written under a name of its own and then renamed into place, so two tests
         # building the same game at once each put down a whole file and never run half of the other's.
         def write_program(text)
-          dir = File.join(Dir.tmpdir, "ruby-gba-js", Digest::SHA256.hexdigest(text)[0, 24])
-          path = File.join(dir, "ruby-gba-headless.js")
+          dir = File.join(Dir.tmpdir, "vblank-js", Digest::SHA256.hexdigest(text)[0, 24])
+          path = File.join(dir, "vblank-headless.js")
           return path if File.exist?(path)
 
           FileUtils.mkdir_p(dir)

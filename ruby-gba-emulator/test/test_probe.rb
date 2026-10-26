@@ -5,7 +5,7 @@ require "tmpdir"
 
 # Tests for RubyGBAEmulator::Probe — the dev-facing wrapper that returns plain data
 # (pixels as [r,g,b], memory as ints, audio as an energy number, a snapshot
-# Hash). Each test builds a ruby-gba ROM whose output is known, so a wrong
+# Hash). Each test builds a VBlank ROM whose output is known, so a wrong
 # read shows up as a wrong number, not a skip.
 class TestRubyGBAEmulatorProbe < Minitest::Test
   include RubyGBAEmulatorTestSupport

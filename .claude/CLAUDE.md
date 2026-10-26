@@ -1,4 +1,4 @@
-# ruby-gba
+# VBlank
 
 Ruby DSL for building Game Boy Advance ROM files. Pure Ruby, no C extensions — the
 framework itself never leaves Ruby. (The emulator used to verify ROMs, ruby-gba-emulator, is
@@ -53,11 +53,11 @@ is reached through the one seam, `VBlank::Diagnostics::Emulator` (`lib/vblank/di
 else names the backend directly.
 
 **Why a separate gem:** building a cartridge is pure Ruby and running one is not. It is
-deliberately NOT a dependency of ruby-gba's gemspec, so somebody who only builds cartridges
+deliberately NOT a dependency of VBlank's gemspec, so somebody who only builds cartridges
 needs no C compiler. A game that wants to verify or profile adds it to its own Gemfile:
 
 ```ruby
-git "https://github.com/jamescook/ruby-gba.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
+git "https://github.com/jamescook/vblank.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
   gem "vblank"
   gem "ruby-gba-emulator"
 end
@@ -114,14 +114,14 @@ with a line for each and fails if any did. It needs zig 0.17 (`mise use zig@0.17
 
 ```bash
 rake test                                                       # the suite, on every lowering
-rake test TEST=test/vblank/dsl/test_thing.rb                  # one file, on every lowering that plays it
+rake test TEST=test/vblank/dsl/test_thing.rb                    # one file, on every lowering that plays it
 rake test TEST=test/vblank/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test
 rake test:lowering:gba                                          # the GBA lowering's run alone (takes TEST= too)
 rake test:lowering:native                                       # the native lowering's run alone (takes TEST= too)
 rake test:lowering:js                                           # the JavaScript lowering's run alone (takes TEST= too)
 rake test:lowering:gbc                                          # the Game Boy Color lowering's run alone (takes TEST= too)
 rake test:playthroughs                                          # one module's tests: every file in test/vblank/playthroughs/
-VBLANK_SUITE_LOCK=checkout rake test                          # in a worktree: go ahead beside another checkout's run
+VBLANK_SUITE_LOCK=checkout rake test                            # in a worktree: go ahead beside another checkout's run
 ```
 
 **One whole run at a time on the machine**, across every checkout: a second waits for the first and

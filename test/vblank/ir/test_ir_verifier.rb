@@ -7,7 +7,7 @@ require "conformance_fixture"
 # The IR verifier: a well-formedness pass that mechanically enforces the value
 # model. It proves the library built a consistent tree — every value slot holds a
 # value node, no run-time value leaked into an author-time structural slot — and
-# raises IR::InvariantError (a ruby-gba bug) when it didn't. These tests build
+# raises IR::InvariantError (a VBlank bug) when it didn't. These tests build
 # deliberately malformed nodes with Node.new (bypassing Build's wrapping, the way
 # a buggy verb would) and assert the verifier catches each shape, and that real
 # well-formed trees pass.

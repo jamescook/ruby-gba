@@ -319,7 +319,7 @@ module VBlank
                                  separate: the game's big tables go in a .data
                                  file beside the page, which must be served.
 
-      --format ir prints the game's IR as Ruby, for work on ruby-gba itself.
+      --format ir prints the game's IR as Ruby, for work on VBlank itself.
 
       A program, a web page and the IR are made from the game as the Advance
       plays it. So for them, the game must name gba in consoles:.

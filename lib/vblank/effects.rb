@@ -186,13 +186,13 @@ module VBlank
                              "write the verbs as methods in a `module`, and give `#{verb}` that module."
       end
 
-      # A name ruby-gba already has is refused: the pack would quietly change what a verb the
+      # A name VBlank already has is refused: the pack would quietly change what a verb the
       # game writes means.
       def refuse_built_in_name!(name)
         return unless Builder.method_defined?(name) || Builder.private_method_defined?(name)
 
         raise DuplicateVerb,
-              "The name `#{name}` is already used by ruby-gba. A pack cannot replace " \
+              "The name `#{name}` is already used by VBlank. A pack cannot replace " \
               "a built-in verb. To fix this, use a different name in your pack."
       end
 
@@ -230,7 +230,7 @@ module VBlank
     @helpers = {}.freeze
     @packs = [].freeze
 
-    # The packs that ship with ruby-gba and are on in every build — the same idea
+    # The packs that ship with VBlank and are on in every build — the same idea
     # as Guardrails::BUILTIN_CHECKS, and visible data for the same reason. A game
     # gets these verbs without asking for them; anything else it registers itself.
     DEFAULT_PACKS = [

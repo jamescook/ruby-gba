@@ -2,7 +2,7 @@
 
 module VBlank
   module IR
-    # Raised when the IR itself is malformed — a ruby-gba bug, never a mistake the
+    # Raised when the IR itself is malformed — a VBlank bug, never a mistake the
     # game developer made. Distinct from Guardrails::ValidationError, which reports
     # a *developer's* footgun in friendly language. See {Verifier}.
     class InvariantError < StandardError; end

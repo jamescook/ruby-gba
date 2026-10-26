@@ -79,7 +79,7 @@ module VBlank
 
           # The page as the game file says now, or what stopped the build.
           def page
-            Dir.mktmpdir("ruby-gba-preview") do |dir|
+            Dir.mktmpdir("vblank-preview") do |dir|
               path = File.join(dir, "game.html")
               said, status = Open3.capture2e(RbConfig.ruby, VBlank.root.join("bin", "vblank").to_s, "build", @game_file,
                                              "--format", "web", "-o", path, *(["--template", @template] if @template),

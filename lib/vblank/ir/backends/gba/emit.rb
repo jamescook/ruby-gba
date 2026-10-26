@@ -216,7 +216,7 @@ module VBlank
 
             raise LoweringError,
                   "#{what} is copied on its own, so it cannot be emitted inside a routine that keeps " \
-                  "a number table. This is a fault in ruby-gba, not in the game. To build the game now, " \
+                  "a number table. This is a fault in VBlank, not in the game. To build the game now, " \
                   "build with `fast_code: false`."
           end
 
@@ -443,7 +443,7 @@ module VBlank
                   "The routine #{table.routine.inspect} reads a number that is #{ahead} bytes ahead of the " \
                   "instruction that reads it. The furthest a read can reach is #{NumberTable::FURTHEST} bytes. " \
                   "The routine came out bigger than the size it was measured at. This is a fault in " \
-                  "ruby-gba, not in the game. To build the game now, build with `fast_code: false`."
+                  "VBlank, not in the game. To build the game now, build with `fast_code: false`."
           end
         end
       end

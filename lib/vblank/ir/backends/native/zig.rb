@@ -61,7 +61,7 @@ module VBlank
             flags = WARNINGS + OPTIMISE.fetch(mode) + folders.flat_map { |dir| ["-I", dir] }
             # Named for what it is rather than "program", so a person watching what is running on
             # the machine can tell these apart from everything else there.
-            exe = File.join(compiled_programs_dir, cache_key(sources, folders, flags), "ruby-gba-headless")
+            exe = File.join(compiled_programs_dir, cache_key(sources, folders, flags), "vblank-headless")
             return exe if File.exist?(exe)
 
             FileUtils.mkdir_p(File.dirname(exe))
@@ -93,7 +93,7 @@ module VBlank
           end
 
           # Where the desktop builds keep what zig compiled — SDL above all — between builds.
-          def sdl_build_cache_dir = File.join(Dir.home, ".cache", "ruby-gba", "native")
+          def sdl_build_cache_dir = File.join(Dir.home, ".cache", "vblank", "native")
 
           # --- for an editor's C checker ---
           #
@@ -191,7 +191,7 @@ module VBlank
           # program that ends in a second took minutes that way, and +seconds+ ran out on a
           # program that was only waiting to be read. Through files its run is its own.
           def run_program(exe, args: [], input: "", env: {}, seconds: 60)
-            Dir.mktmpdir("ruby-gba-run") do |dir|
+            Dir.mktmpdir("vblank-run") do |dir|
               fed, printed, complained = %w[fed printed complained].map { |name| File.join(dir, name) }
               File.binwrite(fed, input)
               pid = Process.spawn(env, exe, *args.map(&:to_s), in: fed, out: printed, err: complained,
@@ -258,7 +258,7 @@ module VBlank
           end
 
           # Where programs compiled without SDL are kept, by the hash of what made them.
-          def compiled_programs_dir = File.join(Dir.tmpdir, "ruby-gba-native")
+          def compiled_programs_dir = File.join(Dir.tmpdir, "vblank-native")
 
           # Runs a command to the end and gives back what it printed; a failure raises with
           # what it printed to say why.

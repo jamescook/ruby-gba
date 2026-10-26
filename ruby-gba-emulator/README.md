@@ -4,15 +4,15 @@ A lean, **headless** binding to [libmgba](https://mgba.io)'s `mCore` — boot a 
 ROM, step it a frame at a time, and read back video, audio, and memory as plain
 Ruby data. No UI of any kind.
 
-It is a gem of its own rather than part of ruby-gba, because building a cartridge is pure Ruby
+It is a gem of its own rather than part of VBlank, because building a cartridge is pure Ruby
 and running one is not: this half needs a C compiler and a system libmgba, and only somebody
-verifying or profiling a ROM needs it at all. It lives in the ruby-gba repository for now, and
+verifying or profiling a ROM needs it at all. It lives in the VBlank repository for now, and
 is taken as a gem from git.
 
 ## What it's for
 
 Answering *"what is this ROM actually doing, frame by frame?"* — the same
-question the ruby-gba `Verifier` answers, but through a minimal dependency you
+question the VBlank `Verifier` answers, but through a minimal dependency you
 can build in seconds.
 
 ```ruby
@@ -98,7 +98,7 @@ at the wrong place by accident. `registers[:pc]` is the address of the instructi
 next, which is where `run_until` stopped. The picture is not refreshed by it: `pixel` still
 shows the last whole frame `step` ran.
 
-From ruby-gba, `VBlank::Diagnostics::Verifier` does the same by routine name, so nobody counts bytes —
+From VBlank, `VBlank::Diagnostics::Verifier` does the same by routine name, so nobody counts bytes —
 where a routine landed is in the build record, including the ones copied into the console's
 quick memory at boot:
 
@@ -110,11 +110,11 @@ v.registers[:r14]             # where it will return to
 
 ## Using it from a game
 
-Add it beside ruby-gba. It carries a C extension, so bundler builds it — per Ruby ABI, which
+Add it beside VBlank. It carries a C extension, so bundler builds it — per Ruby ABI, which
 means changing Ruby version rebuilds rather than leaving a library that will not load:
 
 ```ruby
-git "https://github.com/jamescook/ruby-gba.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
+git "https://github.com/jamescook/vblank.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
   gem "vblank"
   gem "ruby-gba-emulator"
 end
@@ -140,8 +140,8 @@ rake test           # compile, then run this gem's own tests
 rake clean          # throw the build away — what to run after changing Ruby version
 ```
 
-Or `rake test:emulator` from the ruby-gba repo root, which delegates here. These tests are kept
-out of ruby-gba's main suite; its `rake test` does not run them.
+Or `rake test:emulator` from the VBlank repo root, which delegates here. These tests are kept
+out of VBlank's main suite; its `rake test` does not run them.
 
 A build in a checkout records the C source it came from. If you pull new code and do not
 rebuild, loading the gem stops with `RubyGBAEmulator::OutOfDate`, which says to run

@@ -474,8 +474,8 @@ class TestNativeDesktop < Minitest::Test
     # A Mac keeps a program's files under Library/Application Support in the person's folder; Linux
     # keeps them straight in the folder it is told.
     programs = RUBY_PLATFORM.include?("darwin") ? File.join(home, "Library", "Application Support") : home
-    everyones = File.join(programs, "ruby-gba", "(all games)", "settings.txt")
-    games = File.join(programs, "ruby-gba", "WINDOWED", "settings.txt")
+    everyones = File.join(programs, "vblank", "(all games)", "settings.txt")
+    games = File.join(programs, "vblank", "WINDOWED", "settings.txt")
     env = { "XDG_DATA_HOME" => home, "CFFIXED_USER_HOME" => home }
     use = ->(lines = [], **more) { picture_of_window(exe, dir, lines, frames: 5, options: ["--usual-settings"], env: env, **more) }
 
@@ -615,7 +615,7 @@ class TestNativeDesktop < Minitest::Test
     found = Dir.glob(File.join(home, "**", "save.sav"))
 
     assert_equal 1, found.length, "one save file should be under #{home}: #{Dir.glob(File.join(home, '**', '*')).inspect}"
-    assert found.first.end_with?(File.join("ruby-gba", "KEEPER", "save.sav")), "the folder should be the game's: #{found.first}"
+    assert found.first.end_with?(File.join("vblank", "KEEPER", "save.sav")), "the folder should be the game's: #{found.first}"
     assert_equal saved.to_sav, File.binread(found.first)
   end
 

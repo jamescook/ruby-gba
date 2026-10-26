@@ -20,7 +20,7 @@ class TestUses < Minitest::Test
     def paint_it = clear_screen(:blue)
   end
 
-  # A pack whose name is one ruby-gba already has.
+  # A pack whose name is one VBlank already has.
   module TakesFillRect
     def fill_rect(*) = nil
   end
@@ -100,7 +100,7 @@ class TestUses < Minitest::Test
       error = assert_raises(VBlank::Effects::DuplicateVerb) { game { uses pack } }
 
       assert_match(/`fill_rect`/, error.message, pack.name)
-      assert_match(/ruby-gba/, error.message, pack.name)
+      assert_match(/VBlank/, error.message, pack.name)
     end
   end
 

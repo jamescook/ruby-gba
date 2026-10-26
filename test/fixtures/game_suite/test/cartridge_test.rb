@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # A game's own test of its cartridge, as a game in a repository of its own writes it: the
-# library's test helper, its picture check, and nothing from ruby-gba's own test folder. The
+# library's test helper, its picture check, and nothing from VBlank's own test folder. The
 # emulator comes from the ruby-gba-emulator gem.
 require "vblank/testing"
 require_relative "one_pixel_off"

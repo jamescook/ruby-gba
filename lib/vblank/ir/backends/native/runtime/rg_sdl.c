@@ -379,7 +379,7 @@ static void choose_save_file(const char *asked) {
   } else {
     char game[64];
     name_save_folder(game, sizeof game);
-    char *folder = SDL_GetPrefPath("ruby-gba", game);
+    char *folder = SDL_GetPrefPath("vblank", game);
     if (!folder) refuse_to_start("the folder for its save cannot be made");
     if (SDL_asprintf(&save_path, "%ssave.sav", folder) < 0) save_path = NULL;
     SDL_free(folder);
@@ -444,7 +444,7 @@ static void read_settings_file(const char *path, char *said, size_t room) {
 /* The settings file inside the folder the operating system keeps for +folder+ (a game's name, or
  * the one folder every game shares), or NULL when the folder cannot be made. */
 static char *settings_file_in(const char *folder) {
-  char *base = SDL_GetPrefPath("ruby-gba", folder);
+  char *base = SDL_GetPrefPath("vblank", folder);
   if (!base) return NULL;
   char *path = NULL;
   if (SDL_asprintf(&path, "%ssettings.txt", base) < 0) path = NULL;
@@ -1118,7 +1118,7 @@ static void print_usage(const char *program) {
   rg_window_use_defaults();
 
   printf("Usage: %s [options]\n\n", name);
-  printf("Play %s, a game built with ruby-gba.\n\n", rg_game_title);
+  printf("Play %s, a game built with VBlank.\n\n", rg_game_title);
   printf("Keys:\n");
   for (int button = 0; button < RG_WINDOW_BUTTONS; button++) {
     printf("  %-18s", rg_window_button_name(button));

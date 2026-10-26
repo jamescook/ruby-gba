@@ -6,7 +6,7 @@ module VBlank
     #
     # A pack is a module of verbs written in the game's own verbs (see {Effects} for the rule a
     # pack keeps): an iris the way one game draws it, a menu with one game's cursor. The packs
-    # ruby-gba ships are every game's, registered once for the whole process. A game's own pack
+    # VBlank ships are every game's, registered once for the whole process. A game's own pack
     # is that game's alone: `uses` gives this build the pack's verbs and nothing else does, so two
     # games built side by side can each have a verb of the same name, and a game built in a
     # Ractor can call one — a module's methods are written in the module, not made from a block
@@ -49,7 +49,7 @@ module VBlank
 
       def game_packs = @game_packs || []
 
-      # A name a pack of this game already has, or one ruby-gba has, cannot be taken: the pack
+      # A name a pack of this game already has, or one VBlank has, cannot be taken: the pack
       # would quietly change what a verb the game writes means. Two packs that both include one
       # module have its methods both, and that is one method, not two of the same name.
       def refuse_taken_pack_name!(pack, name)

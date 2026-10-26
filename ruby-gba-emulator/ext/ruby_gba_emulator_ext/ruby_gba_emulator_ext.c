@@ -1344,7 +1344,7 @@ mgba_core_frame_blending_p(VALUE self)
 /* A ring of whole save states: push one per frame, and pop   */
 /* to go back to the oldest one the ring still holds. It is   */
 /* reached from Ruby as Core#rewind_init / _push / _pop /     */
-/* _count, and ruby-gba does not call any of them — the probe */
+/* _count, and VBlank does not call any of them — the probe */
 /* has no wrapper over them and nothing in the framework asks */
 /* for one. It is here for a caller that wants to step back   */
 /* through a run, which is a thing a game's own tests want    */

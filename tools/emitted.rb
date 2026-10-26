@@ -16,7 +16,7 @@ require_relative "../lib/vblank/root"
 #   rake emitted ONLY=pong    one example (or a few: ONLY=pong,snake)
 #
 # It compares two versions of the LIBRARY, so it only means anything while working
-# on ruby-gba itself — hence a contributor's rake task and not part of the
+# on VBlank itself — hence a contributor's rake task and not part of the
 # `vblank` command a game author runs. Every example by default: the question is
 # "did anything move anywhere", and a corpus of real programs answers that far
 # better than one does.
@@ -204,7 +204,7 @@ module Emitted
   # tree, which is the point: a checkout would bring that commit's examples along
   # too, and then an edited game would score as a compiler change.
   def with_lib_at(commit)
-    Dir.mktmpdir("ruby-gba-emitted") do |dir|
+    Dir.mktmpdir("vblank-emitted") do |dir|
       statuses = Open3.pipeline(["git", "-C", ROOT, "archive", commit, "lib"], ["tar", "-x", "-C", dir])
       abort "Could not read lib/ at #{commit}." unless statuses.all?(&:success?)
 

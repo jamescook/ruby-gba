@@ -2,7 +2,7 @@
 # frozen_string_literal: true
 
 # Breakout — knock out a wall of bricks with a ball, don't let it fall past your
-# paddle. Built entirely with the ruby-gba DSL.
+# paddle. Built entirely with the VBlank DSL.
 #
 # Rules:
 #   - D-pad LEFT / RIGHT slides your paddle along the bottom.

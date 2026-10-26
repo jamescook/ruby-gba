@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Snake — the classic, built entirely with the ruby-gba DSL.
+# Snake — the classic, built entirely with the VBlank DSL.
 #
 # Rules:
 #   - The d-pad steers; the snake moves one cell on a steady beat.

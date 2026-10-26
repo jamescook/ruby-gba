@@ -28,7 +28,7 @@ module VBlank
       #   draw_text "HELLO"      # ← never recorded
       #   game_loop { ... }      # ← never recorded
       def debug_halt
-        warn "[ruby-gba] debug_halt stops the build here. The code after debug_halt is not in the ROM. Remove debug_halt when you are done."
+        warn "[VBlank] debug_halt stops the build here. The code after debug_halt is not in the ROM. Remove debug_halt when you are done."
         record(Build.halt) # the lowered ROM stops (branches to self) at this point
         @debug_halted = true
         throw :debug_halt

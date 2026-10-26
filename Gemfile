@@ -7,7 +7,7 @@ gemspec
 # THE EMULATOR, FOR DEVELOPING THIS LIBRARY — not for using it.
 #
 # Here rather than in the gemspec on purpose. Building and shipping a cartridge is pure Ruby;
-# putting it in the gemspec would make everyone who installs ruby-gba need a C compiler and
+# putting it in the gemspec would make everyone who installs VBlank need a C compiler and
 # libmgba whether or not they ever run a ROM. Working ON this library does need one, because
 # the suite reads real pixels off a real emulator.
 #
@@ -29,7 +29,7 @@ gemspec
 # one repository — two `gem ... github:` lines are two sources cloning into one directory,
 # which races and fails:
 #
-#   git "https://github.com/jamescook/ruby-gba.git",
+#   git "https://github.com/jamescook/vblank.git",
 #       glob: "{,ruby-gba-emulator/}*.gemspec" do
 #     gem "vblank"
 #     gem "ruby-gba-emulator"

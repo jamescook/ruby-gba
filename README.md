@@ -1,12 +1,14 @@
-# ruby-gba
+# VBlank
 
 **A Ruby DSL that compiles to real Game Boy Advance ROMs — built as a teaching tool, and written end-to-end by AI.**
+
+The name is the pause after every frame, when the screen has finished drawing and it is safe to change the picture. Every machine a game here runs on has one — the Game Boy Advance, the Game Boy Color, a desktop window, a browser tab — so the name fits whichever of them a game is built for.
 
 You write plain Ruby. `vblank` turns it into an ARM7 cartridge that boots on a real GBA or any emulator. The guiding rule is simple: **you should need to know Ruby, not the hardware.** No VRAM, no DISPCNT, no ARM assembly, no "why is my screen black" — the framework manages the machine and turns the classic footguns into friendly, plain-language errors.
 
 It is also an experiment in **AI-native tooling**: every line here was written by an AI agent, and the whole toolchain is shaped around giving an agent (and a human) fast, mechanical, readable feedback while building a game.
 
-![Snake, built entirely with the ruby-gba DSL, running in an emulator](assets/snake.gif)
+![Snake, built entirely with the VBlank DSL, running in an emulator](assets/snake.gif)
 
 > The game above is a complete Snake — growing body, random food, scoring, game-over — written in the DSL. Full source: [`examples/snake.rb`](examples/snake.rb).
 
@@ -76,7 +78,7 @@ Every game says which consoles it is for — `consoles: %i[gba]` for the Game Bo
 
 ```bash
 ruby examples/snake.rb             # => writes snake.gba
-vblank build examples/snake.rb   # the same, via the CLI (adds -o / --console / --profile / --stats)
+vblank build examples/snake.rb     # the same, via the CLI (adds -o / --console / --profile / --stats)
 rake test                          # unit + emulator integration tests (builds the emulator first)
 ```
 
@@ -500,7 +502,7 @@ Pre-1.0. Full games work end-to-end on both bitmap and tiled screens — sprites
 Anything that reads what a ROM *actually did* runs it in an emulator through **`ruby-gba-emulator`**, a separate gem (in this repository, under `ruby-gba-emulator/`) binding libmgba. It is deliberately not a dependency of this gem, so somebody who only builds cartridges installs no compiler; add it to your Gemfile when you want to verify or profile one:
 
 ```ruby
-git "https://github.com/jamescook/ruby-gba.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
+git "https://github.com/jamescook/vblank.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
   gem "vblank"
   gem "ruby-gba-emulator"
 end
