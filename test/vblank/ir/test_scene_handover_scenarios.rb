@@ -135,6 +135,10 @@ class TestSceneHandoverScenarios < Minitest::Test
     Scenario.new(name: :always_up_recolored_list_across_a_bitmap_screen, program: :always_up_recolored_sprite,
                  frames: LOOK_BACK_FROM_BITMAP, probe: [120, 80], color: :blue,
                  console_frames: LOOK_BACK_FROM_BITMAP + 1),
+    Scenario.new(name: :scrolled_room_back_with_a_sprite_shows_from_its_corner, program: :scrolled_room_with_a_sprite,
+                 frames: SCENE_BACK + 1, probe: [0, 0], color: :red),
+    Scenario.new(name: :scrolled_room_back_with_a_sprite_scrolls_again, program: :scrolled_room_with_a_sprite,
+                 frames: SCENE_BACK + 2, probe: [0, 0], color: :blue),
   ].freeze
 
   SCENARIOS.each_with_index do |scenario, i|
@@ -557,6 +561,28 @@ class TestSceneHandoverScenarios < Minitest::Test
       across_a_bitmap_screen(tiled: -> { sprite(:slot_box, at: [112, 72]).draw_with :slot }) do |tick|
         (tick == 2).then { recolor :slot, :sea }
       end
+    end
+  end
+
+  # A room scrolled three pixels a pass under a blue sprite, its first column of tiles red and
+  # the rest blue, away to a bare scene and back. The console shows a background it puts up from
+  # its top-left corner until the frame after, so the room comes back red at the corner and is
+  # scrolled again, blue there, the frame after.
+  private def scrolled_room_with_a_sprite
+    built do
+      screen :tiled
+      red_and_blue_art
+      tiles :set, "r" => :red_art, "b" => :blue_art
+      state = var :state, 0
+      tick = var :tick, 0
+      scene(:room) do
+        field = background :field, tiles: :set, map: Array.new(20) { "r" + ("b" * 29) }
+        sprite :blue_box, at: [112, 72]
+        field.scroll_by 3, 0
+        (tick == SCENE_AWAY).then { state.set! 1 }
+      end
+      scene(:walk) { (tick == SCENE_BACK).then { state.set! 0 } }
+      two_scene_loop(tick, :room, :walk)
     end
   end
 

@@ -201,6 +201,8 @@ module VBlank
           @repaints = false        # must the whole view be rebuilt every frame? (decided in collect_definitions)
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
           @bg_maps = {}            # ...and this run's own copy of its cells, once any of them has changed
+          @bg_from_corner = Set.new # backgrounds put up this pass, shown unscrolled (see #put_up_background)
+          @bg_corners_expired = false # ...once their pass has ended, until its picture is painted
           @row_bends = {}          # background name -> :scroll_rows node giving each row its own offset
           @bend_rows = {}          # background name -> every row's offset, worked out once a pass
           @shade = nil             # the :shade_outside node of the game's light, if it has one
@@ -1083,6 +1085,12 @@ module VBlank
           # GBA::Raster#emit_light_leaving). A game whose light never takes turns has no switch.
           @screen.light_off = @vars.fetch(IR::LightScenes::ON, 1).zero?
 
+          # The pass that put a background up ends here, and its picture shows the background
+          # from the corner (see #put_up_background). A repaint it still owes is painted as
+          # repaints are, when the picture is next wanted, so its corners go when that is done
+          # or when the next pass changes the picture again (#forget_expired_corners).
+          @bg_corners_expired = true unless @bg_from_corner.empty?
+
           # A frame boundary is the one safe moment to swap the pages of a tear-free
           # screen, so it happens FIRST — before either stop below. The frame whose
           # drawing just finished is the one being published, and a run that stops here
@@ -1414,6 +1422,13 @@ module VBlank
           # order they were declared, which is every program that names no layers.
           over = @bg_shown.select { |bg| behind?(node, bg) }
           @bg_shown << node
+          # PUT UP, IT SHOWS FROM ITS TOP-LEFT CORNER until the pass ends, wherever the game has
+          # scrolled it. The place on the map the console's display starts reading a layer
+          # from is set to the map's corner as the layer is switched on, and the game's own
+          # place for the view is written there only at the frame boundary. So everything
+          # painted of it before then — a repaint a sprite asks for — paints it unscrolled,
+          # while the game's own place (@bg_scroll) stays as the game set it.
+          mark_from_corner(node)
           # The scenery sprites are repainted over has changed, so the copy of it kept for
           # that is out of date — left, a sprite over a scene's own backdrop would carry the
           # scenery from before the backdrop went up around it.
@@ -1632,6 +1647,8 @@ module VBlank
         def exec_scroll_background(node)
           @bg_by_name.fetch(node.name) { raise ProgramError, "scroll of undeclared background #{node.name.inspect}" }
           @bg_scroll[node.name] = [eval_value(node.x), eval_value(node.y)]
+          # ...and a scroll written after it was put up is the place the display reads from.
+          @bg_from_corner.delete(node.name)
           request_repaint
         end
 
@@ -1651,6 +1668,10 @@ module VBlank
                                            pivot_x: node.around_x, pivot_y: node.around_y)
           request_repaint
         end
+
+        # Where +bg+'s window sits on the display now: where the game scrolled it, but at the
+        # corner for the rest of a pass that put it up (see #put_up_background).
+        def scroll_shown(bg) = @bg_from_corner.include?(bg.name) ? [0, 0] : (@bg_scroll[bg.name] || [0, 0])
 
         # Repaint one background's visible window at its current scroll offset. The map
         # is a torus, so an offset past an edge wraps around — the same thing tile
@@ -1683,7 +1704,7 @@ module VBlank
           cols, rows_of_cells = IR::TileMap.grid(map)
           map_w = cols * tile_w
           map_h = rows_of_cells * tile_h
-          base_x, off_y = @bg_scroll[bg.name] || [0, 0]
+          base_x, off_y = scroll_shown(bg)
           off_y %= map_h
           width = @screen.width
 
@@ -1727,7 +1748,7 @@ module VBlank
           swapped = background_swap(bg)
           map_w = (map.map(&:length).max || 0) * tile_w
           map_h = map.length * tile_h
-          base_x, off_y = @bg_scroll[bg.name] || [0, 0]
+          base_x, off_y = scroll_shown(bg)
           width = @screen.width
 
           @screen.height.times do |py|
@@ -1773,6 +1794,7 @@ module VBlank
           cols, rows_of_cells = IR::TileMap.grid(map)
           map_w = cols * tile_w
           map_h = rows_of_cells * tile_h
+          # A turned layer is placed by its turn, which putting it up leaves as it is.
           base_x, base_y = @bg_scroll[bg.name] || [0, 0]
           swapped = background_swap(bg)
           pivot_x = turn.pivot_x
@@ -1903,16 +1925,33 @@ module VBlank
         def request_repaint
           return if @screen_mode == :bitmap && @changes_screen_kind
 
+          forget_expired_corners
           @picture_owed = true
           @owed_weights = capture_see_through_weights
         end
 
         def paint_owed_repaint
-          return unless @picture_owed
+          return forget_expired_corners unless @picture_owed
 
           @picture_owed = false
           repaint_view
           @owed_weights = nil
+          forget_expired_corners
+        end
+
+        def mark_from_corner(node)
+          forget_expired_corners
+          @bg_from_corner << node.name
+        end
+
+        # The corners of the backgrounds put up in a pass that has ended (#advance_frame): gone
+        # once that pass's picture is painted, or once a later pass changes what the picture is
+        # made of — the game's own place for the view shows from the frame after.
+        def forget_expired_corners
+          return unless @bg_corners_expired
+
+          @bg_corners_expired = false
+          @bg_from_corner.clear
         end
 
         # The amounts of each see-through layer the game works out and that has something in it

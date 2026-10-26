@@ -149,6 +149,12 @@ static background_cells cells_now[RG_MAX_BACKGROUNDS];
 typedef struct { int32_t x, y; } background_scroll;
 static background_scroll scrolls[RG_MAX_BACKGROUNDS];
 
+/* The backgrounds put up this pass, shown from their top-left corner whatever their scroll
+ * (Reference @bg_from_corner), whether there are any, and whether their pass has ended
+ * (Reference @bg_corners_expired). */
+static uint8_t from_corner[RG_MAX_BACKGROUNDS];
+static int32_t any_from_corner, corners_expired;
+
 /* Which set of its tiles a background is drawn from now (Reference @bg_colors): 0 for the
  * colors they were drawn in, which is where every background starts and what a number naming no
  * step means, or one more than the step the game last named. */
@@ -685,6 +691,27 @@ int32_t rg_fade_steps(int32_t amount, int32_t fraction_bits, int32_t walked) {
  * unless another scene declared a background by the same name after it. */
 static int32_t keeper_of(int32_t background) { return background_field(background, RG_BG_KEPT_BY); }
 
+/* Reference#scroll_shown: where a background's window sits on the display now. */
+static background_scroll scroll_shown(int32_t background) {
+  int32_t keeper = keeper_of(background);
+  return from_corner[keeper] ? (background_scroll){0, 0} : scrolls[keeper];
+}
+
+/* Reference#forget_expired_corners */
+static void forget_expired_corners(void) {
+  if (!corners_expired) return;
+  corners_expired = 0;
+  memset(from_corner, 0, sizeof from_corner);
+  any_from_corner = 0;
+}
+
+/* Reference#mark_from_corner */
+static void mark_from_corner(int32_t background) {
+  forget_expired_corners();
+  from_corner[keeper_of(background)] = 1;
+  any_from_corner = 1;
+}
+
 /* Map number +which+ of a background's own maps, as its entry of rg_game_maps. */
 static const int32_t *map_entry(int32_t background, int32_t which) {
   return rg_game_maps + RG_MAP_FIELDS * (background_field(background, RG_BG_FIRST_MAP) + which);
@@ -800,6 +827,7 @@ void rg_background_stamp(int32_t background) {
  * whichever is showing. */
 static void request_repaint(void) {
   if (kind == RG_BITMAP && rg_game_picture_sizes[RG_SIZE_SCREEN_KINDS_CHANGE]) return;
+  forget_expired_corners();
   owed = 1;
   keep_shares_for_owed_rebuild();
 }
@@ -922,6 +950,7 @@ static void stamp_in_stack_order(int32_t over) {
 void rg_background_put_up(int32_t background) {
   if (background_field(background, RG_BG_ON_ARRIVAL)) forget_own_cells(background);
   remember_put_up(background);
+  mark_from_corner(background);
   scenery_kept = 0;
   if (turns[keeper_of(background)].turned) {
     request_repaint();
@@ -946,6 +975,7 @@ static int32_t showing(int32_t background) {
 /* Reference#exec_scroll_background */
 void rg_background_scroll(int32_t background, int32_t x, int32_t y) {
   scrolls[keeper_of(background)] = (background_scroll){x, y};
+  from_corner[keeper_of(background)] = 0;
   request_repaint();
 }
 
@@ -1055,10 +1085,11 @@ static int64_t bend_at(int32_t background, int64_t py) {
  * whose lines are worked out as they are painted, is asked only about the rows its map reaches. */
 static void paint_window_without_wrapping(int32_t background) {
   int64_t map_h = (int64_t)map_rows(background) * background_field(background, RG_BG_TILE_H);
+  background_scroll scroll = scroll_shown(background);
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
-    int64_t my = (int64_t)scrolls[keeper_of(background)].y + row_drawn_from(py);
+    int64_t my = (int64_t)scroll.y + row_drawn_from(py);
     if (my < 0 || my >= map_h) continue;
-    int64_t off_x = (int64_t)scrolls[keeper_of(background)].x + bend_at(background, py);
+    int64_t off_x = (int64_t)scroll.x + bend_at(background, py);
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
       int64_t mx = off_x + px;
       if (mx >= 0) paint_map_pixel(background, mx, my, px, py);
@@ -1077,9 +1108,10 @@ static void paint_window(int32_t background) {
   int64_t map_w = (int64_t)map_now(background)[RG_MAP_GRID_COLS] * background_field(background, RG_BG_TILE_W);
   int64_t map_h = (int64_t)map_now(background)[RG_MAP_GRID_ROWS] * background_field(background, RG_BG_TILE_H);
   if (map_w == 0 || map_h == 0) return;
-  int64_t off_y = floor_mod(scrolls[keeper_of(background)].y, map_h);
+  background_scroll scroll = scroll_shown(background);
+  int64_t off_y = floor_mod(scroll.y, map_h);
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
-    int64_t off_x = floor_mod((int64_t)scrolls[keeper_of(background)].x + bend_at(background, py), map_w);
+    int64_t off_x = floor_mod((int64_t)scroll.x + bend_at(background, py), map_w);
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++)
       paint_map_pixel(background, (off_x + px) % map_w, (off_y + row_drawn_from(py)) % map_h, px, py);
   }
@@ -1109,12 +1141,14 @@ static void paint_turned_window(int32_t background) {
   int64_t pivot_x = turn->pivot_x, pivot_y = turn->pivot_y, one_th = rg_game_turn_rules[1];
   int64_t turn_cos, turn_sin;
   affine_matrix(turn->angle, turn->size, &turn_cos, &turn_sin);
+  /* A turned layer is placed by its turn, which putting it up leaves as it is. */
+  background_scroll scroll = scrolls[keeper_of(background)];
   for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
     int64_t dy = row_drawn_from(py) - pivot_y;
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
       int64_t dx = px - pivot_x;
-      int64_t mx = floor_mod(scrolls[keeper_of(background)].x + pivot_x + floor_div(turn_cos * dx + turn_sin * dy, one_th), map_w);
-      int64_t my = floor_mod(scrolls[keeper_of(background)].y + pivot_y + floor_div(-turn_sin * dx + turn_cos * dy, one_th), map_h);
+      int64_t mx = floor_mod(scroll.x + pivot_x + floor_div(turn_cos * dx + turn_sin * dy, one_th), map_w);
+      int64_t my = floor_mod(scroll.y + pivot_y + floor_div(-turn_sin * dx + turn_cos * dy, one_th), map_h);
       int32_t cell = map_cell(background, my / tile_h, mx / tile_w);
       if (cell < 0) continue;
       uint16_t color = tile_pixel(background, cell, mx % tile_w, my % tile_h);
@@ -1674,10 +1708,14 @@ static void repaint_view(void) {
 
 /* Reference#paint_owed_repaint */
 void rg_screen_paint_owed_rebuild(void) {
-  if (!owed) return;
+  if (!owed) {
+    forget_expired_corners();
+    return;
+  }
   owed = 0;
   repaint_view();
   forget_kept_shares();
+  forget_expired_corners();
 }
 
 /* --- screens and scenes --- */
@@ -1688,11 +1726,13 @@ void rg_screen_frame_started(void) {
   frames_begun = 1;
 }
 
-/* The top of Reference#advance_frame: a frame boundary is the one safe moment to trade the two
- * pages of a tear-free screen, so the page just drawn is shown and the game is handed the other
- * — before anything can stop the run there, so a run that stops on a boundary stops with the
- * frame it finished on screen. */
+/* The top of Reference#advance_frame: the corners of the backgrounds this pass put up go once its
+ * picture is painted (Reference#forget_expired_corners). And a frame boundary is the one safe
+ * moment to trade the two pages of a tear-free screen, so the page just drawn is shown and the
+ * game is handed the other — before anything can stop the run there, so a run that stops on a
+ * boundary stops with the frame it finished on screen. */
 void rg_screen_frame_ended(void) {
+  if (any_from_corner) corners_expired = 1;
   if (pixels == viewed) return;
   rg_screen_paint_owed_rebuild();
   uint16_t *finished = pixels;
