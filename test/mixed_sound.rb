@@ -23,7 +23,7 @@ module MixedSound
     require_emulator!
     gba = RubyGBA::IR::Backends::GBA.new
     rom = RubyGBA::Cartridge::ROM.assemble(gba.lower(program), title: "MIXBYTES", built: gba.build_record(program))
-    keys = ->(frame) { presses.fetch(frame, []).sum { |button| RubyGBA::Diagnostics::Verifier.const_get(:"KEY_#{button.upcase}") } }
+    keys = ->(frame) { RubyGBA::IR::Buttons.mask(presses.fetch(frame, [])) }
     console = RubyGBA::Diagnostics::Verifier.new(rom, frames: 1, keys: keys, vars: gba.var_addresses)
     slice = console.sample_clock.samples_a_frame
     Array.new(frames) do
