@@ -119,6 +119,50 @@ class TestBackgroundTileSetsOnTheAdvance < Minitest::Test
     assert_backends_agree(two_colorful_areas(1, tint: [:red, 50]), frames: 4, name: "COLT")
   end
 
+  # --- an area that needs every group, beside a background every area shows ---
+
+  UNSHOWN = Color.rgb(31, 0, 31) # each list's see-through entry: a colour no pixel is drawn in
+
+  # A sign every area shows takes a group of its own, so a town of fifteen tiles that share no
+  # colours needs every group the scenery's table has, the first one included. Each tile brings
+  # its own list, whose see-through entry is a colour of its own. The first group's first entry is
+  # the backdrop, which shows along the bottom row where the ground has no tiles: it stays black.
+  private def town_of(count)
+    keys = ("a"..).first(count)
+    lists = keys.each_index.map { |t| (0...15).map { |c| ((t * 15) + c + 1) * 97 } }
+    program do
+      screen :tiled
+      lists.each_with_index do |colors, t|
+        image(:"town_#{keys[t]}", width: 8, height: 8, data: (0...64).map { |at| colors[at % 15] },
+                                  colors: [UNSHOWN, *colors])
+      end
+      image(:field_grass, "#" => :green) { (["#" * 8] * 8).join("\n") }
+      image(:board, "#" => :white) { (["#" * 8] * 8).join("\n") }
+      tiles :town, keys.to_h { |key| [key, :"town_#{key}"] }
+      tiles :field, "#" => :field_grass
+      tiles :signs, "#" => :board
+      streets = (0...20).map { |row| row == 19 ? " " * 30 : (0...30).map { |col| keys[(row + col) % count] }.join }
+      ground = background :ground, tiles: { town: :town, field: :field },
+                                   map: { town: { square: streets }, field: { meadow: ["#" * 30] * 20 } }
+      background :sign, tiles: :signs, map: ["#"]
+      game_loop { ground.show_map 0 }
+    end
+  end
+
+  def test_both_backends_draw_a_town_that_needs_every_group
+    assert_backends_agree(town_of(15), frames: 4, name: "GRP15")
+  end
+
+  # One tile more and the groups run out. Every tile is drawn from fifteen colours, so the error
+  # names the groups and the area, not a tile's colours.
+  def test_a_town_that_needs_more_groups_than_there_are_is_a_friendly_error
+    error = assert_raises(VBlank::BuildError) { GBA.new.lower(town_of(16)) }
+
+    assert_match(/:town/, error.message)
+    assert_match(/groups/, error.message)
+    refute_match(/more than 15 colors/, error.message)
+  end
+
   # --- sets that fit one at a time and not together ---
 
   BIG_SET = 1000

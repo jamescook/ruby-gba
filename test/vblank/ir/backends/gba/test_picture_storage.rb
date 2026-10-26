@@ -481,6 +481,68 @@ class TestPictureStorage < Minitest::Test
     assert_operator banks.entries.length, :<=, 256
   end
 
+  # The scenery's first entry is the backdrop, the colour behind every layer, so the first group
+  # of its table is the last one handed out: only once every other group is full. A bank laid
+  # there never draws its own first slot, so the backdrop stays the colour it was.
+  def test_a_sixteenth_bank_of_scenery_takes_the_first_group_and_keeps_the_backdrop
+    banks = VBlank::IR::Backends::GBA::PaletteBanks.new((0...16).map { |i| picture_of_unshared_colors(:"p#{i}", i) })
+
+    assert_equal 16, banks.narrow_count, "every picture gets a bank of its own"
+    assert_equal (0...16).to_a, (0...16).map { |i| banks.placement(:"p#{i}").bank }.sort
+    assert_equal 0x0000, banks.entries[0], "the backdrop is still black"
+    assert_colors_read_back(banks, 16)
+  end
+
+  def test_scenery_that_fits_fifteen_banks_leaves_the_first_group_alone
+    banks = VBlank::IR::Backends::GBA::PaletteBanks.new((0...15).map { |i| picture_of_unshared_colors(:"p#{i}", i) })
+
+    assert_equal (1...16).to_a, (0...15).map { |i| banks.placement(:"p#{i}").bank }.sort
+  end
+
+  # A picture the game recolours as it runs has its bank written while the game plays, and that
+  # write would land on the backdrop if the bank sat in the first group.
+  def test_a_picture_the_game_recolors_never_takes_the_first_group
+    pictures = (0...15).map { |i| picture_of_unshared_colors(:"p#{i}", i) } +
+               [VBlank::IR::Backends::GBA::PaletteBanks::Picture.new(
+                 key: :recolored, colors: picture_of_unshared_colors(:x, 15).colors.first(4), keeps_to: :recolored
+               )]
+    banks = VBlank::IR::Backends::GBA::PaletteBanks.new(pictures)
+
+    refute banks.placement(:recolored).narrow?, "it reads across the whole table instead"
+    assert_equal (1...16).to_a, (0...15).map { |i| banks.placement(:"p#{i}").bank }.sort
+  end
+
+  # A table that goes on from one whose first group already holds colours (here a picture that
+  # reads across the table, in four slots of that group) has no first group to hand out: what
+  # misses a bank reads across the table instead, and the four colours stay where they were.
+  def test_a_table_going_on_from_one_using_the_first_group_leaves_it_alone
+    four = FIFTEEN.first(4)
+    base = VBlank::IR::Backends::GBA::PaletteBanks.new(
+      [VBlank::IR::Backends::GBA::PaletteBanks::Picture.new(key: :wide, colors: four, wide: true)]
+    )
+    banks = VBlank::IR::Backends::GBA::PaletteBanks.new((0...16).map { |i| picture_of_unshared_colors(:"p#{i}", i) },
+                                                        after: base)
+
+    refute_includes (0...16).map { |i| banks.placement(:"p#{i}").bank }, 0
+    assert_equal four, banks.entries[1, 4]
+  end
+
+  # Fifteen colours no other picture uses, so no two can share a bank.
+  private def picture_of_unshared_colors(key, i)
+    VBlank::IR::Backends::GBA::PaletteBanks::Picture.new(
+      key: key, colors: (1..15).map { |c| VBlank::Graphics::Color.rgb(c, i + 1, 0) }
+    )
+  end
+
+  private def assert_colors_read_back(banks, count)
+    (0...count).each do |i|
+      place = banks.placement(:"p#{i}")
+      place.indices.each do |color, slot|
+        assert_equal color, banks.entries[(place.bank * 16) + slot], "p#{i} reads its colour #{color} from the table"
+      end
+    end
+  end
+
   # --- friendly errors ---
 
   def test_a_list_longer_than_a_bank_is_a_friendly_error

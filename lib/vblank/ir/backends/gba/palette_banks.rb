@@ -43,8 +43,9 @@ module VBlank
         # sixteen. So the wide colours are packed from slot 1 up, and the banks are
         # handed out from the first whole group of sixteen above them. A game whose
         # sprite pictures are all narrow puts nothing in the way and gets all sixteen
-        # banks. Its scenery gets fifteen, because the first entry of that table is the
-        # backdrop and no bank may sit on it (see +first_entry_shown+ on #initialize).
+        # banks. Its scenery gets sixteen too, but the first group of that table goes
+        # last, because its first entry is the backdrop (see +first_entry_shown+ on
+        # #initialize).
         #
         # ---------------------------------------------------------------------------
         # IF YOU ALREADY KNOW THIS CONSOLE, here is the same thing in its own words. The
@@ -134,10 +135,12 @@ module VBlank
           # display SHOWS, which is true of one of the console's two tables and not the other.
           # The scenery's table keeps the backdrop there, the colour behind every layer. The
           # sprites' table keeps nothing there that is ever drawn. A bank laid in the first
-          # group puts its own see-through slot on that entry, and a list written into the
+          # group has its own see-through slot on that entry, and a list written into the
           # bank as the game runs writes its first colour there — harmless for sprites, and a
-          # change of backdrop for scenery. So only a table whose first entry is not shown
-          # hands its first group out as a bank (see #first_free_bank). A table that goes on
+          # change of backdrop for scenery. So a table whose first entry is shown hands its
+          # first group out last, once every other group is full, and only to a bank nothing
+          # writes while the game plays; the backdrop stays in its first entry, since a bank
+          # never draws its see-through slot anyway (see #next_group). A table that goes on
           # from another is the same table, and takes the answer from it.
           def initialize(pictures, after: nil, first_entry_shown: true)
             @pictures = pictures
@@ -145,7 +148,7 @@ module VBlank
             @entries = [0x0000] # slot 0: the see-through slot every picture shares
             @wide_slots = {}    # a wide colour -> the slot it sits in
             @laid = []          # the banks, as laid, for a table that goes on from this one
-            @bank_base = 0      # ...and the group the first of them sits in
+            @first_group_spare = false # can one last bank take the first group? Each attempt says (see #next_group)
             @first_entry_shown = after ? after.first_entry_shown : first_entry_shown
             after ? allocate_after(after) : allocate
           end
@@ -173,7 +176,7 @@ module VBlank
           protected
 
           # What a table going on from this one needs to know about it.
-          attr_reader :placements, :wide_slots, :laid, :bank_base, :first_entry_shown
+          attr_reader :placements, :wide_slots, :laid, :first_entry_shown
 
           # The first whole group of sixteen above everything laid out so far — the first one
           # nothing here uses. Protected rather than private, because #allocate_after asks it
@@ -183,8 +186,8 @@ module VBlank
           # the first one of the first group. Whether the rest of that group can be a bank is
           # the one place the two tables differ: where the first entry is never drawn, it can,
           # and a game with no wide pictures gets all sixteen banks. Where the first entry is
-          # the backdrop, the banks start at the second group and there are fifteen, and the
-          # first group is left for wide colours, which never touch its first entry.
+          # the backdrop, the banks start at the second group, and the first is left for wide
+          # colours, which never touch its first entry, or for one last bank (see #next_group).
           def first_free_bank
             return 0 if @entries.size == 1 && !@first_entry_shown
 
@@ -223,22 +226,23 @@ module VBlank
             @entries = base.entries
             wide_banks = place_wide_after(base, wide)
             room = BANKS - wide_banks
+            @first_group_spare = @first_entry_shown && !base.banks_used.include?(0)
 
             banks = []
             spilled = []
             first_own = base.first_free_bank
             (@pictures - wide).sort_by { |picture| -picture.colors.size }.each do |picture|
-              shared = base.laid.index { |bank| fits_existing_bank?(bank, picture) }
-              next place_in_existing_bank(picture, base.laid[shared], base.bank_base + shared) if shared
+              shared = base.laid.find { |bank| fits_existing_bank?(bank, picture) }
+              next place_in_existing_bank(picture, shared, shared[:group]) if shared
 
               bank = bank_for(picture, banks, first: first_own, room: room)
               next spilled << picture if bank.nil?
 
-              place_narrow(picture, bank, banks, first: first_own)
+              place_narrow(picture, bank, banks)
             end
             return spilled unless spilled.empty?
 
-            write_banks(banks, first: first_own)
+            write_banks(banks)
             []
           end
 
@@ -296,8 +300,9 @@ module VBlank
             @placements = {}
             @entries = [0x0000]
             place_wide(wide)
+            @first_group_spare = @first_entry_shown && @entries.size == 1
 
-            banks = [] # each: { colors: [15-bit, ...], fixed: bool }
+            banks = [] # each: { colors: [15-bit, ...], fixed: bool, keeps_to:, group: }
             narrow = @pictures - wide
             spilled = []
             # Biggest first: a picture with many colours has the fewest banks it could
@@ -342,10 +347,30 @@ module VBlank
           def bank_for(picture, banks, first: first_free_bank, room: BANKS)
             found = banks.index { |bank| bank_takes?(bank, picture) }
             return found if found
-            return nil if first + banks.size >= room
 
-            banks << { colors: [], fixed: false, keeps_to: picture.keeps_to }
+            group = next_group(picture, banks, first, room)
+            return nil if group.nil?
+
+            banks << { colors: [], fixed: false, keeps_to: picture.keeps_to, group: group }
             banks.size - 1
+          end
+
+          # The group a new bank goes in: the one above the last bank laid, or, once those run
+          # out, the first group of a table whose first entry is the backdrop and holds nothing
+          # else yet (+@first_group_spare+).
+          #
+          # A bank there leaves the backdrop alone, because the console never draws a bank's
+          # see-through slot, so the layout keeps the backdrop in that entry rather than the
+          # bank's own first colour. What it cannot survive is a list written into the bank as
+          # the game runs, which writes that entry too: a picture kept to its own bank so the
+          # game can recolour it (+keeps_to+) never goes there.
+          def next_group(picture, banks, first, room)
+            group = first + banks.size
+            return group if group < room
+            return nil unless @first_group_spare && picture.keeps_to.nil?
+            return nil if banks.any? { |bank| bank[:group].zero? }
+
+            0
           end
 
           def bank_takes?(bank, picture)
@@ -356,7 +381,7 @@ module VBlank
             (bank[:colors] | picture.colors).size <= BANK_COLORS
           end
 
-          def place_narrow(picture, index, banks, first: first_free_bank)
+          def place_narrow(picture, index, banks)
             bank = banks[index]
             if picture.authored?
               bank[:colors] = picture.authored
@@ -365,9 +390,8 @@ module VBlank
               bank[:colors] |= picture.colors
             end
 
-            slot = first + index
             indices = picture.colors.to_h { |color| [color, slot_in(bank, color)] }
-            @placements[picture.key] = Placement.new(bank: slot, indices: indices)
+            @placements[picture.key] = Placement.new(bank: bank[:group], indices: indices)
           end
 
           # An authored bank is the author's list as given, see-through slot included,
@@ -394,19 +418,20 @@ module VBlank
 
           # Lay the banks into the table. Each starts on its own group of sixteen, so
           # anything between the wide colours and the first bank is padding nobody
-          # draws.
-          def write_banks(banks, first: first_free_bank)
+          # draws. A bank in the first group of a table whose first entry is the
+          # backdrop leaves that entry as it is (see #next_group).
+          def write_banks(banks)
             @laid = banks
-            @bank_base = first
-            base = first
-            banks.each_with_index do |bank, index|
-              start = (base + index) * BANK_SIZE
+            backdrop = @entries[0]
+            banks.each do |bank|
+              start = bank[:group] * BANK_SIZE
               @entries[start, BANK_SIZE] = Array.new(BANK_SIZE, 0x0000)
               bank[:colors].each_with_index do |color, offset|
                 # An automatic bank keeps slot 0 for see-through; an authored one put
                 # its own see-through entry there.
                 @entries[start + offset + (bank[:fixed] ? 0 : 1)] = color
               end
+              @entries[0] = backdrop if start.zero? && @first_entry_shown
             end
             @entries.map! { |entry| entry || 0x0000 }
           end

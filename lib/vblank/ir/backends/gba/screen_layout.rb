@@ -907,20 +907,24 @@ module VBlank
                           area_of_key: walking.flat_map { |node| area_keys(node) }.to_h)
           end
 
+          # Every tile here fits a group (#refuse_walking_layers_stored_big! saw to that), so a tile
+          # that got none, or a table that overflowed once such tiles were spread across it, both
+          # mean one thing: the area's tiles need more groups than are left.
           def area_palette_banks(area, pictures, fixed)
             banks = PaletteBanks.new(pictures, after: fixed)
-            spilled = pictures.reject { |picture| banks.placement(picture.key).narrow? }
-            return banks if spilled.empty?
+            return banks if pictures.all? { |picture| banks.placement(picture.key).narrow? }
 
-            raise LoweringError,
-                  "The area :#{area} draws some tiles from more than 15 colors. A tile of a background that walks " \
-                  "between areas reads one group of 16 colors, the first of them see-through. Draw each tile " \
-                  "from 15 colors or fewer."
+            refuse_area_out_of_groups!(area)
           rescue PaletteBanks::Overflow
+            refuse_area_out_of_groups!(area)
+          end
+
+          def refuse_area_out_of_groups!(area)
             raise LoweringError,
-                  "The area :#{area} uses more colors than the console's background table has room for beside " \
-                  "the backgrounds that every area shows (#{PaletteBanks::CAPACITY} colors in all). Draw its " \
-                  "tiles from fewer different colors."
+                  "The area :#{area} needs more groups of colors than the console has room for. A tile of a " \
+                  "background that walks between areas reads one group of 16 colors. Tiles drawn from the same " \
+                  "colors share a group. The backgrounds that every area shows use some of the groups too. " \
+                  "To fix this, draw more of the area's tiles from the same colors."
           end
 
           # Each tile of a walking background, by the key its placement is kept under, and the area it is in.
