@@ -409,6 +409,7 @@ module VBlank
             when Runtime::Frame::SAVE_READ_OUTSIDE then Faults.save_outside("read", first, second)
             when Runtime::Frame::SAVE_WRITE_OUTSIDE then Faults.save_outside("wrote to", first, second)
             when Runtime::Frame::PICTURE_NOT_UP then picture_not_up_message(@places.picture_checks.fetch(first), second)
+            when Runtime::Frame::GROUPS_NOT_TOGETHER then groups_not_together_message(@places.together_checks.fetch(first))
             else "the game went wrong (#{code})"
             end
           end
@@ -416,9 +417,18 @@ module VBlank
           # Reference#picture_not_up_message, from what the check that stopped the game asked, the
           # pose the sprite showed, and the numbers the game said in the set's slots as it stopped.
           def picture_not_up_message(check, pose)
-            up = check.said_at.map { |at| word(at) }.select { |number| check.group_numbers.include?(number) }.uniq
             Faults.picture_not_up(sprite: check.sprite, picture: check.poses.fetch(pose), groups: check.groups,
-                                  holding: check.holdings.fetch(pose), up: up)
+                                  holding: check.holdings.fetch(pose), up: groups_said_up(check))
+          end
+
+          # Reference#groups_not_together_message, from the set the check asked of and the numbers
+          # the game said in its slots as it stopped.
+          def groups_not_together_message(check) = Faults.groups_not_together(groups: check.groups, up: groups_said_up(check))
+
+          # Reference#up_numbers: the groups the game said are up in a set's slots, in slot order,
+          # each once, and only the numbers that name a group.
+          def groups_said_up(check)
+            check.said_at.map { |at| word(at) }.select { |number| check.group_numbers.include?(number) }.uniq
           end
         end
       end

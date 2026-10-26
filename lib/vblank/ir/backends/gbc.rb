@@ -62,11 +62,12 @@ module VBlank
         # the sound routines are handed is to the interpreter, for a run to read back what the
         # cartridge played (GBC::SoundLog): what each table of sound writes plays, by its label, the
         # songs' notes (GBC::Music#notes), whether the music follows a level the game sets, and the
-        # sound effects' names, by their numbers. And what each of the cartridge's checks for a
-        # sprite showing a picture whose group is not up asks (PictureCheck), by its number, so a
-        # run it stops says what stopped it in the interpreter's words.
+        # sound effects' names, by their numbers. And what each of the cartridge's checks of its
+        # picture groups asks — a sprite showing a picture whose group is not up (PictureCheck), and
+        # groups up together that up_together does not allow (TogetherCheck) — by its number, so a
+        # run one stops says what stopped it in the interpreter's words.
         Places = Data.define(:variables, :lists, :runtime, :source_program, :code, :routines, :sound_tables, :notes,
-                             :music_follows_level, :sound_effects, :picture_checks) do
+                             :music_follows_level, :sound_effects, :picture_checks, :together_checks) do
           # THE SPRITES THE GAME PLACED IN ITS LAST PASS, as the interpreter says them
           # (Reference#sprites): who each is, which picture it shows and where, back to front. The
           # runtime keeps them in a table of its own (Runtime::Picture::DRAWN), front-most first as
@@ -99,6 +100,11 @@ module VBlank
         # group, and where the number the game said is kept for each of the groups' slots.
         PictureCheck = Data.define(:sprite, :groups, :poses, :holdings, :group_numbers, :said_at)
 
+        # One of the cartridge's checks that a set's groups up can be up together (Lowering::Picture
+        # #emit_refuse_groups_not_together): the picture groups, the numbers that name a group, and
+        # where the number the game said is kept for each of their slots.
+        TogetherCheck = Data.define(:groups, :group_numbers, :said_at)
+
         # One routine of the game's in the cartridge: its bank, the addresses its code takes there,
         # and what it is to the author (Lowering#section_routines).
         GameRoutine = Data.define(:bank, :addresses, :routine)
@@ -118,13 +124,13 @@ module VBlank
           memory = Memory.new
           lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends)
           # The runtime's places first, so they are in the half of work memory always in view.
-          Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects)
+          Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?)
           game = lowering.sections
           runs = lowering.run_uploads
           runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art, frame_begins: lowering.frame_begins,
                                              music_level: lowering.music_level, songs: lowering.music.any?,
                                              music: lowering.music, runs: runs, drawn_palettes: lowering.drawn_palettes,
-                                             big_maps: lowering.big_map_places)
+                                             big_maps: lowering.big_map_places, together: lowering.groups_up_together?)
           data = [*lowering.art.sections, *(lowering.music.any? ? [lowering.music.section] : [])]
           linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END,
                                                      clock: lowering.clock?).link
@@ -136,7 +142,8 @@ module VBlank
                              source_program: program, code: linked.places, routines: routines,
                              sound_tables: lowering.sound_tables, notes: lowering.music.notes,
                              music_follows_level: !lowering.music_level.nil?,
-                             sound_effects: lowering.music.effects.map(&:name), picture_checks: lowering.picture_checks)
+                             sound_effects: lowering.music.effects.map(&:name), picture_checks: lowering.picture_checks,
+                             together_checks: lowering.together_checks)
           save_bytes = SaveLayout.named_by?(program) ? Runtime::Saving::SIZE : 0
           Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: save_bytes, clock: lowering.clock?, built: built)
         end

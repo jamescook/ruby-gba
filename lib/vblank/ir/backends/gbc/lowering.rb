@@ -326,6 +326,7 @@ module VBlank
             end
             @drawing_tables.reject(&:banked).each { |table| emit_drawing_table(asm, table) }
             emit_group_slots(asm)
+            emit_together_records(asm)
             @routine_tables.each do |targets, label|
               asm.label(label)
               targets.each do |name|

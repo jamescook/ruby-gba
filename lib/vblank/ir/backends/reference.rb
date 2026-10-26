@@ -2508,11 +2508,7 @@ module VBlank
           raise ProgramError, groups_not_together_message(groups, up) unless groups.together?(up)
         end
 
-        def groups_not_together_message(groups, up)
-          "The groups #{up.join(' and ')} of :#{groups.name} are up together, and up_together: does not say " \
-            "they can be. So on the console their pictures can be in the same place in sprite memory. To fix " \
-            "this, add #{up.inspect} to up_together: of :#{groups.name}."
-        end
+        def groups_not_together_message(groups, up) = Faults.groups_not_together(groups: groups.name, up: up)
 
         def picture_not_up_message(on, groups, holding)
           Faults.picture_not_up(sprite: on[:object].declared || on[:object].name, picture: on[:picture],

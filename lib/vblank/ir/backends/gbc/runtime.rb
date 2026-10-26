@@ -32,9 +32,10 @@ module VBlank
           # The runtime's own places in work memory, asked for before the game's, so they are in
           # the half always in view (a painted screen puts its banks in the other half while it
           # works). +art+ is what the game's pictures were made into (GBC::Art), +effects+ its sound
-          # effects (GBC::Music#effects).
-          def reserve(memory, art:, effects: [])
-            Frame.reserve(memory)
+          # effects (GBC::Music#effects). +together+ says it has picture groups with more than one
+          # slot (Frame#emit_groups_together).
+          def reserve(memory, art:, effects: [], together: false)
+            Frame.reserve(memory, together: together)
             Picture.reserve(memory, lends: art.lends?, groups: art.groups?)
             BigMaps.reserve(memory)
             Paint.reserve(memory, painting: art.painting?)
@@ -51,16 +52,16 @@ module VBlank
           # lists (Lowering::TileRuns#run_uploads), and +drawn_palettes+ where it keeps the colours its
           # pictures are drawn in now, for a game that draws a background in others (nil for none).
           # +big_maps+ is where a game with a map bigger than the grid keeps its copy of the grid and
-          # the list of cells for the blank (Runtime::BigMaps), or nil.
+          # the list of cells for the blank (Runtime::BigMaps), or nil. +together+ is as for #reserve.
           def sections(memory, main:, art:, music_level: nil, songs: false, music: nil, frame_begins: nil, runs: [],
-                       drawn_palettes: nil, big_maps: nil)
+                       drawn_palettes: nil, big_maps: nil, together: false)
             asm = SM83.new("runtime", home: :fixed)
             Boot.emit(asm, main: "rt_main")
             Boot.emit_display_off(asm)
             Boot.emit_clear(asm)
             Int32.emit(asm, memory)
             Calls.emit(asm, memory)
-            Frame.emit(asm, memory)
+            Frame.emit(asm, memory, together: together)
             Lists.emit(asm, memory)
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length,
                                       runs: runs, drawn_palettes: drawn_palettes, lends: art.lends?,

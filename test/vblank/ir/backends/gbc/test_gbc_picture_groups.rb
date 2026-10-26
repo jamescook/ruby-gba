@@ -181,6 +181,57 @@ class TestGBCPictureGroups < Minitest::Test
                                                               front: [names, PICTURES_A_ROOM + 2] }))
   end
 
+  # Three rooms in a row, the first beside the second and the second beside the third, with two
+  # slots: the first room up from power-on, and from CHANGE_PASS +beside+ in the second slot.
+  private def rooms_in_a_row(beside:)
+    names = TestGBCPictureGroups.names(3)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      names.each_with_index do |name, n|
+        image(name, "#" => :white, "r" => :red, "g" => :green, "." => :transparent) { TestGBCPictureGroups.art(n) }
+      end
+      groups = (0...3).to_h { |room| [room, names[room * PICTURES_A_ROOM, PICTURES_A_ROOM]] }
+      shelf = picture_groups(:rooms, groups, up_together: [[0, 1], [1, 2]])
+      sprite :thing, facing: { thing_0: :thing_0 }, at: [16, 40]
+      passes = var :passes, 0
+      shelf.show 0, 0
+      game_loop do
+        passes.add! 1
+        (passes >= CHANGE_PASS).then { shelf.show 0, beside }
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # The first and third rooms were never said to be up together, so the console may have put their
+  # pictures in the same place in sprite memory: the cartridge stops, in the interpreter's words.
+  def test_two_groups_up_together_unsaid_stop_the_cartridge_as_the_interpreter_does
+    game = rooms_in_a_row(beside: 2)
+    first = (1..(CHANGE_PASS + 3)).find { |frames| stops?(Reference.new, game, frames) }
+
+    assert_equal [false, true], [first - 1, first].map { |frames| stops?(GBC::HeadlessRun.new, game, frames) },
+                 "the cartridge stops on the frame the interpreter stops on (#{first}), and not before"
+    assert_stops_as_the_interpreter_does(game)
+  end
+
+  private def stops?(player, game, frames)
+    player.run(game, frames: frames)
+    false
+  rescue VBlank::IR::ProgramError
+    true
+  end
+
+  # ...and the first beside the second, which up_together says can be, plays on; so does a slot
+  # saying a number that names no group, which is no group up.
+  def test_two_groups_said_to_be_up_together_play_on_the_cartridge
+    besides = [1, 7, -1]
+    passes = besides.map { |beside| GBC::HeadlessRun.new.run(rooms_in_a_row(beside: beside), frames: CHANGE_PASS + 3)[:passes] }
+
+    assert_equal [CHANGE_PASS + 3] * besides.length, passes
+  end
+
   def test_the_same_pictures_without_groups_are_refused
     error = assert_raises(GBC::LoweringError) { GBC.new.build(rooms(grouped: false)) }
 

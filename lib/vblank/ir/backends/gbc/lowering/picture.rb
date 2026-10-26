@@ -58,6 +58,17 @@ module VBlank
             # cells for the blank, [copy, list] (Runtime::BigMaps), or nil for a game with none.
             attr_reader :big_map_places
 
+            # Has the game a set of picture groups with more than one slot, whose groups up together
+            # the runtime asks about (Runtime::Frame#emit_groups_together)?
+            def groups_up_together? = sets_of_many_slots.any?
+
+            # Each set #emit_refuse_groups_not_together asks of, by its number (GBC::TogetherCheck).
+            def together_checks
+              @together_checks.map do |groups, named, slots|
+                TogetherCheck.new(groups: groups, group_numbers: named, said_at: slots.map { |slot| place_of(slot) })
+              end
+            end
+
             # What each check of #emit_refuse_pictures_not_up asks, by its number (GBC::PictureCheck).
             def picture_checks
               @picture_checks.map do |sprite, groups, poses, holdings, named, slots|
@@ -84,6 +95,7 @@ module VBlank
               @column_routines = {} # a picture drawn a column at a time -> its routine's label
               @drawing_tables = [] # DrawingTable each, for the data
               @picture_checks = [] # what each check asks, by its number (#picture_checks)
+              @together_checks = [] # [set, the numbers naming a group, the slots] each (#together_checks)
             end
 
             # Each colour list's own number, saying which of its sets it holds now (Reference
@@ -211,7 +223,7 @@ module VBlank
                 next if holdings.all?(&:empty?)
 
                 slots = @group_slots.fetch(set.name).map(&:shown)
-                named = set.groups.each_index.select { |number| set.names_group?(number) }
+                named = group_numbers(set)
                 check = Build.int(register_picture_check([obj.declared || obj.name, set.name, obj.poses, holdings, named, slots]))
                 ints = ->(groups) { groups.map { |group| Build.int(group) } }
                 if said
@@ -255,6 +267,61 @@ module VBlank
               @asm.jump(asked)
               @asm.label(fine)
             end
+
+            # TWO GROUPS UP TOGETHER THAT up_together DOES NOT SAY CAN BE stop the game, asked of
+            # every set of a scene up, or of every screen, as the sprites are about to be placed —
+            # before any sprite's picture is asked about, as the interpreter asks
+            # (Reference#refuse_pictures_not_up!). A set of one slot can have only one group up.
+            #
+            # Each set's record for rt_groups_together lists the lists of groups that can be up at
+            # once: up_together's, and on its own each group no list of up_together's holds, so a
+            # slot holding the same group as another is fine. A number naming no group — none the
+            # set has, or a gap in its numbering — is no group up to the interpreter, so every list
+            # holds the gaps.
+            def emit_refuse_groups_not_together
+              sets_of_many_slots.each do |set|
+                asked = fresh("groups_together_asked")
+                jump_unless(Build.binop(:==, Build.var_ref(@scene), Build.int(@scenes.fetch(set.scene))), asked) if set.scene && @scene
+                runtime_call("rt_groups_together", [Address.new(together_label(set)), Build.int(register_together_check(set))])
+                @asm.label(asked)
+              end
+            end
+
+            # Each set's record, once, with the game's data (Lowering#data_section), however many
+            # places the sprites are presented from.
+            def emit_together_records(asm)
+              sets_of_many_slots.each do |set|
+                asm.label(together_label(set))
+                asm.data_bytes(together_record(set))
+              end
+            end
+
+            def together_label(set) = "game_groups_together_#{set.name}"
+
+            # A list holds fewer groups than a byte counts, since a set has fewer than MOST_GROUPS
+            # (#refuse_too_many_groups!); how many lists there are takes two bytes.
+            def together_record(set)
+              gaps = set.groups.each_index.to_a - group_numbers(set)
+              alone = group_numbers(set).reject { |number| set.together.any? { |list| list.include?(number) } }
+              lists = (set.together + alone.map { |number| [number] }).map { |list| list | gaps }
+              slots = @group_slots.fetch(set.name).flat_map { |slot| little_endian(place_of(slot.wanted), 2) }
+              [@group_slots.fetch(set.name).length, *slots, *little_endian(lists.length, 2),
+               *lists.flat_map { |list| [list.length, *list] }]
+            end
+
+            # The number of +set+'s check, for the reader of a run it stops (GBC::Places#together_checks).
+            def register_together_check(set)
+              check = [set.name, group_numbers(set), @group_slots.fetch(set.name).map(&:shown)]
+              @together_checks.index(check) || (@together_checks << check).length - 1
+            end
+
+            # The numbers of +set+'s groups: every number from nought up to its last, but a gap in its
+            # numbering (IR::Nodes::PictureGroups#names_group?).
+            def group_numbers(set) = set.groups.each_index.select { |number| set.names_group?(number) }
+
+            # The sets that can have more than one group up at once, which are the ones whose groups
+            # up together are asked about.
+            def sets_of_many_slots = @picture_sets.each_value.select { |set| set.slots > 1 }
 
             # The number of the check +check+ asks, a new one if no other check asks it yet:
             # [sprite, set, its poses, the groups holding each, the numbers naming a group, the slots].
@@ -1002,6 +1069,7 @@ module VBlank
               front_first = items.each_with_index.sort_by { |item, at| [item_level(item, object), at] }.map(&:first).reverse
               placings = {}
               emit_groups_wanted
+              emit_refuse_groups_not_together
               @asm.call("rt_sprites_begin")
               unless_sprites_hidden do
                 front_first.each do |item|
@@ -1036,6 +1104,7 @@ module VBlank
               end
 
               emit_groups_wanted
+              emit_refuse_groups_not_together
               @asm.call("rt_sprites_begin")
               unless_sprites_hidden do
                 objects.flat_map { |obj| Stacking.levels_of(@stacking.depths, obj) }.uniq.sort.reverse_each do |level|

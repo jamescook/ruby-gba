@@ -37,6 +37,7 @@ module VBlank
             SAVE_READ_OUTSIDE = 7
             SAVE_WRITE_OUTSIDE = 8
             PICTURE_NOT_UP = 9 # the numbers: which check stopped it (GBC::Places#picture_checks), and the pose
+            GROUPS_NOT_TOGETHER = 10 # the number: which set of picture groups (GBC::Places#together_checks)
 
             # Where the reader finds each of them: the place in work memory each was given.
             STATE = "rt state" # RUNNING, HALTED or WENT_WRONG
@@ -77,10 +78,22 @@ module VBlank
             MUSIC_OWED = "rt music owed"
             # 1 once a sprite placed in this pass was found showing a picture not up (rt_picture_not_up).
             PICTURE_NOT_UP_NOTED = "rt picture not up"
+            # rt_groups_together's own: where the record's slots start, how many slots, how many of its
+            # lists of groups are left to try (two bytes), the list being tried (where its groups
+            # start, how many) and where the next list starts.
+            TOGETHER = "rt groups together"
+            TOGETHER_SLOTS = 0
+            TOGETHER_COUNT = 2
+            TOGETHER_LISTS_LEFT = 3
+            TOGETHER_LIST = 5
+            TOGETHER_LENGTH = 7
+            TOGETHER_NEXT = 8
+            TOGETHER_BYTES = 10
 
             module_function
 
-            def reserve(memory)
+            def reserve(memory, together: false)
+              memory.reserve(TOGETHER, TOGETHER_BYTES) if together
               memory.reserve(STATE, 1)
               memory.reserve(WAITING, 1)
               memory.reserve(PASSES, 4)
@@ -102,7 +115,9 @@ module VBlank
               memory.reserve(PICTURE_NOT_UP_NOTED, 1)
             end
 
-            def emit(asm, memory)
+            # +together+ says the game has picture groups with more than one slot, which
+            # rt_groups_together asks of.
+            def emit(asm, memory, together: false)
               h = Console::GBCHardware
               vblank = memory.quick(1)
 
@@ -232,6 +247,7 @@ module VBlank
               emit_increment(asm)
               emit_buttons(asm, memory)
               emit_stopping(asm, memory)
+              emit_groups_together(asm, memory) if together
             end
 
             # The 32-bit number at HL, one more: each byte goes round to nought only when the one
@@ -429,6 +445,134 @@ module VBlank
               asm.and_a(:a)
               asm.ret(:z)
               asm.load(:a, PICTURE_NOT_UP)
+              asm.jump("rt_fault")
+            end
+
+            # TWO PICTURE GROUPS UP TOGETHER THAT up_together DOES NOT SAY CAN BE stop the game, as
+            # the interpreter stops it (Reference#refuse_groups_not_together!): the console may have
+            # put their pictures in the same place in sprite memory (IR::PictureGroupPlaces), so one
+            # copied in writes over the other's.
+            #
+            # rt_groups_together(record, check): the record (Lowering::Picture#emit_refuse_groups_not_together)
+            # is the set's slots, the place of each one's group as the sprites want it (a byte,
+            # Runtime::PictureGroups::NONE for none), then every list of groups that can be up
+            # together, as the lowering says them. The groups up are fine when one list holds every
+            # one of them; when none does, the game stops, with +check+, which of the build's sets
+            # it was (GBC::Places#together_checks).
+            #
+            # The record: how many slots, each slot's place (two bytes), how many lists (two bytes),
+            # and each list as how many groups and then the groups.
+            def emit_groups_together(asm, memory)
+              at = ->(offset) { memory[TOGETHER] + offset }
+              asm.label("rt_groups_together")
+              asm.load_hl_sp(2)
+              asm.load(:b, 8)
+              asm.call("rt_take_args")
+              asm.load_high(:a, Calls.arg(memory, 0, 2))
+              asm.load(:l, :a)
+              asm.load_high(:a, Calls.arg(memory, 0, 2) + 1)
+              asm.load(:h, :a)
+              asm.load(:a, [:hli]) # how many slots
+              asm.load([at.call(TOGETHER_COUNT)], :a)
+              asm.load(:a, :l)
+              asm.load([at.call(TOGETHER_SLOTS)], :a)
+              asm.load(:a, :h)
+              asm.load([at.call(TOGETHER_SLOTS + 1)], :a)
+              asm.load(:a, [at.call(TOGETHER_COUNT)]) # past the slots' places, two bytes each
+              asm.load(:e, :a)
+              asm.load(:d, 0)
+              asm.add_hl(:de)
+              asm.add_hl(:de)
+              2.times do |i| # how many lists
+                asm.load(:a, [:hli])
+                asm.load([at.call(TOGETHER_LISTS_LEFT + i)], :a)
+              end
+
+              # The next list, at HL: where its groups start and how many, and where the one after it
+              # starts.
+              asm.label("rt_groups_together_list")
+              asm.load(:a, [at.call(TOGETHER_LISTS_LEFT)])
+              asm.load(:e, :a)
+              asm.load(:a, [at.call(TOGETHER_LISTS_LEFT + 1)])
+              asm.load(:d, :a)
+              asm.or_a(:e)
+              asm.jump(:z, "rt_groups_together_not")
+              asm.dec(:de)
+              asm.load(:a, :e)
+              asm.load([at.call(TOGETHER_LISTS_LEFT)], :a)
+              asm.load(:a, :d)
+              asm.load([at.call(TOGETHER_LISTS_LEFT + 1)], :a)
+              asm.load(:a, [:hli])
+              asm.load([at.call(TOGETHER_LENGTH)], :a)
+              asm.load(:a, :l)
+              asm.load([at.call(TOGETHER_LIST)], :a)
+              asm.load(:a, :h)
+              asm.load([at.call(TOGETHER_LIST + 1)], :a)
+              asm.load(:a, [at.call(TOGETHER_LENGTH)])
+              asm.load(:e, :a)
+              asm.load(:d, 0)
+              asm.add_hl(:de)
+              asm.load(:a, :l)
+              asm.load([at.call(TOGETHER_NEXT)], :a)
+              asm.load(:a, :h)
+              asm.load([at.call(TOGETHER_NEXT + 1)], :a)
+
+              # Every slot's group in the list, or wanting none: then the groups up are fine.
+              asm.load(:a, [at.call(TOGETHER_SLOTS)])
+              asm.load(:l, :a)
+              asm.load(:a, [at.call(TOGETHER_SLOTS + 1)])
+              asm.load(:h, :a)
+              asm.load(:a, [at.call(TOGETHER_COUNT)])
+              asm.load(:c, :a)
+              asm.label("rt_groups_together_slot")
+              asm.load(:a, :c)
+              asm.and_a(:a)
+              asm.ret(:z)
+              asm.dec(:c)
+              asm.load(:a, [:hli])
+              asm.load(:e, :a)
+              asm.load(:a, [:hli])
+              asm.load(:d, :a)
+              asm.load(:a, [:de]) # the group the slot wants: the low byte of its number
+              asm.cp_a(PictureGroups::NONE)
+              asm.jump(:z, "rt_groups_together_slot")
+              asm.push(:hl)
+              asm.push(:bc)
+              asm.load(:b, :a)
+              asm.load(:a, [at.call(TOGETHER_LIST)])
+              asm.load(:l, :a)
+              asm.load(:a, [at.call(TOGETHER_LIST + 1)])
+              asm.load(:h, :a)
+              asm.load(:a, [at.call(TOGETHER_LENGTH)])
+              asm.load(:c, :a)
+              asm.label("rt_groups_together_member")
+              asm.load(:a, :c)
+              asm.and_a(:a)
+              asm.jump(:z, "rt_groups_together_missing")
+              asm.dec(:c)
+              asm.load(:a, [:hli])
+              asm.cp_a(:b)
+              asm.jump(:nz, "rt_groups_together_member")
+              asm.pop(:bc)
+              asm.pop(:hl)
+              asm.jump("rt_groups_together_slot")
+              asm.label("rt_groups_together_missing") # not in this list: the next one
+              asm.pop(:bc)
+              asm.pop(:hl)
+              asm.load(:a, [at.call(TOGETHER_NEXT)])
+              asm.load(:l, :a)
+              asm.load(:a, [at.call(TOGETHER_NEXT + 1)])
+              asm.load(:h, :a)
+              asm.jump("rt_groups_together_list")
+
+              # No list holds them all.
+              asm.label("rt_groups_together_not")
+              asm.load(:hl, memory[FAULT] + 3)
+              4.times do |i|
+                asm.load_high(:a, Calls.arg(memory, 1, 2) + i)
+                asm.load([:hli], :a)
+              end
+              asm.load(:a, GROUPS_NOT_TOGETHER)
               asm.jump("rt_fault")
             end
           end

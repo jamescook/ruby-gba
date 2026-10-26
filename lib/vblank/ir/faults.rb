@@ -57,6 +57,15 @@ module VBlank
           ":#{sprite} shows :#{picture}."
       end
 
+      # The picture groups +groups+ have the groups numbered +up+ up together, which their
+      # up_together: does not say they can be. Said by the same backends as #picture_not_up, and
+      # for the same reason.
+      def groups_not_together(groups:, up:)
+        "The groups #{up.join(' and ')} of :#{groups} are up together, and up_together: does not say " \
+          "they can be. So on the console their pictures can be in the same place in sprite memory. To fix " \
+          "this, add #{up.inspect} to up_together: of :#{groups}."
+      end
+
       # +did+ is "read" or "wrote to"; +size+ is the save memory's bytes.
       def save_outside(did, at, size)
         format("The program %<did>s save memory at 0x%<at>X, and save memory is %<kb>dK, which ends at " \
