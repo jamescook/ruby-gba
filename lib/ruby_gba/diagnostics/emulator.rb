@@ -170,17 +170,10 @@ module RubyGBA
         end
       end
 
-      # A GAME BOY CARTRIDGE WITH A CLOCK CHIP has the emulator write the chip's counters, and the
-      # moment it last read them, after the save memory in its file: 48 bytes, the layout other Game
-      # Boy emulators write too. What the game saved is the memory before them, in whole banks.
-      CLOCK_IN_SAVE_FILE = 48
-
-      def save_memory_in(rom, file)
-        return file unless rom.respond_to?(:clock?) && rom.clock?
-        return file unless file.bytesize % Console::GBCHardware::SRAM_BANK_SIZE == CLOCK_IN_SAVE_FILE
-
-        file.byteslice(0, file.bytesize - CLOCK_IN_SAVE_FILE)
-      end
+      # A CARTRIDGE WITH A CLOCK CHIP has the emulator write the chip's own state after the save
+      # memory in its file, and how many bytes that is is the console's: its part of the reader says
+      # where the save memory ends (Console::Kit#reading).
+      def save_memory_in(rom, file) = Console.for(rom.console).reading::SAVE_FILE.memory_in(file)
       private_class_method :save_memory_in
 
       # Open a high-level probe on a ROM file path — the API that runs frames, reads

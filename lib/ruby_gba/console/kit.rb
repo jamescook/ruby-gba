@@ -30,7 +30,16 @@ module RubyGBA
     #                           cartridge_for(program, title:), the cartridge for a program alone,
     #                           which is what a test plays
     #   cartridge               the kind of cartridge that is (below)
-    #   reader                  the reader that plays one back (Diagnostics::Verifier, say)
+    #   reading                 the module that gives the one reader (Diagnostics::Verifier) the
+    #                           questions only its way of keeping things answers, when the reader
+    #                           is made over one of its cartridges (Diagnostics::AdvanceReading,
+    #                           say). Every one has PALETTE (a Verifier::PaletteLayout, how its
+    #                           colours are laid out) and SAVE_FILE (a Verifier::SaveFileLayout,
+    #                           where its save memory ends in the emulator's file), and gives
+    #                           passes and sprites(name), and a private watch_passes! the reader
+    #                           calls before the first frame. A question its cartridges cannot
+    #                           answer (the Advance's registers, say) is not in it, so a reader
+    #                           over one of them does not have it
     #   measured_builds?        whether its build is measured by running it, which is what chooses
     #                           what goes in a quick memory, and what its cartridge reports of
     #                           packing and placement
@@ -81,7 +90,7 @@ module RubyGBA
       def answers_page = answers.reference
       def builder = Cartridge::AdvanceBuild
       def cartridge = Cartridge::ROM
-      def reader = Diagnostics::Verifier
+      def reading = Diagnostics::AdvanceReading
       def measured_builds? = true
       def compared_side_by_side? = true
       def drawn_by_runtimes? = true
@@ -93,7 +102,7 @@ module RubyGBA
       def answers_page = answers.reference(not_yet: IR::Backends::GBC::Lowering::NOT_LOWERED_YET)
       def builder = Cartridge::ColorBuild
       def cartridge = Cartridge::GBCROM
-      def reader = Diagnostics::GBCVerifier
+      def reading = Diagnostics::ColorReading
     end
 
     KITS = Ractor.make_shareable({ gba: AdvanceKit.new(ADVANCE), gbc: ColorKit.new(COLOR) })

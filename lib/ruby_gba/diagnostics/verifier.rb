@@ -16,6 +16,16 @@ module RubyGBA
     # This is the definitive answer to "did my ROM actually draw anything?"
     # Instead of squinting at an emulator window, assert exact pixel values.
     #
+    # ONE READER FOR EVERY CONSOLE. The picture, memory by address, the variables, the save
+    # memory, the sound that came out, playing on, and leaving layers or voices out are read the
+    # same way whichever console a cartridge is for, and are read here. What a console keeps its
+    # own way — which sprite is whose, how its colours are laid out, how it counts its passes, its
+    # mixer of recordings, the processor — a reader is given when it is made, from the module its
+    # console's kit names (Console::Kit#reading: AdvanceReading, ColorReading). A reader over one
+    # console's cartridge has only the questions that console answers: a Color reader has no
+    # `registers`, rather than one that is asked and refuses, and no question is ever answered with
+    # another console's layout, which would come back as a number and a wrong one.
+    #
     # Requires ruby-gba-emulator to be available (loads RubyGBAEmulator::Core) — the headless
     # libmgba probe, a gem of its own in this repository.
     #
@@ -36,23 +46,31 @@ module RubyGBA
     #   v.all_black?                        # => false (we drew a pixel)
     #   v.region_color?(80, 50, 80, 60, :blue)  # all blue in rect?
     class Verifier
-      include Console::Hardware
-
-      # The reader for +rom+'s console, which its kit names (Console::Kit): a
-      # GBCVerifier for a Game Boy Color cartridge, which reads what the Color keeps its own way,
-      # and a Verifier for an Advance one. Takes what new takes.
-      def self.for(rom, **)
-        Console.for(rom.console).reader.new(rom, **)
+      # HOW A CONSOLE'S COLOURS ARE LAID OUT (see #palette): the backgrounds' half first, then the
+      # sprites', each +half+ colours long and in groups of +group+, the most one sprite or one
+      # square of background draws from. Each console's part of the reader says its own.
+      PaletteLayout = Data.define(:half, :group) do
+        def halves = { backgrounds: 0, sprites: half }
       end
 
-      # How many bytes of a clock's own state mGBA keeps after the save chip in its save file
-      # (see #save_image).
-      CLOCK_IN_SAVE_FILE = 16
+      # WHERE A CARTRIDGE'S SAVE MEMORY ENDS IN THE FILE THE EMULATOR KEEPS IT IN (see #save_image).
+      # A cartridge with a clock has the emulator write the clock's own state after the save
+      # memory, +clock_bytes+ of it. The save memory is a whole number of +whole+-byte pieces, so
+      # what is over is the clock's, and that alone says whether the cartridge had one. Each
+      # console's part of the reader says its own.
+      SaveFileLayout = Data.define(:whole, :clock_bytes) do
+        # The save memory in +file+ (the bytes of the emulator's file), without the clock's bytes.
+        def memory_in(file)
+          return file unless file.bytesize % whole == clock_bytes
 
-      # @param rom [RubyGBA::Cartridge::ROM] a finalized ROM
+          file.byteslice(0, file.bytesize - clock_bytes)
+        end
+      end
+
+      # @param rom [RubyGBA::Cartridge::ROM, RubyGBA::Cartridge::GBCROM] a finished cartridge
       # @param frames [Integer] how many frames to run before reading pixels (default: 2)
       # @param keys [Integer, #call, nil] held-button input for each frame — an
-      #   active-high bitmask (bit per button, matching KEY_*), or a callable given
+      #   active-high bitmask (bit per button, matching Console::Hardware::KEY_*), or a callable given
       #   the frame number returning one. nil means no buttons held.
       # @param vars [Hash{Symbol=>Integer}, nil] variable name → IWRAM address, from the
       #   backend that lowered the ROM (backend.var_addresses) — lets {#var} read a
@@ -82,13 +100,14 @@ module RubyGBA
         @keys = keys
         @var_addresses = vars
         @count_passes = count_passes
-        @passes_counted = false
+        # What only this cartridge's console answers, read its own way (see "what each console's
+        # cartridge is asked its own way" below).
+        @reading = Console.for(rom.console).reading
+        extend @reading
         @rendered = false
         @played = 0
         @pixels = nil
         @sound = sound
-        @width = SCREEN_WIDTH
-        @height = SCREEN_HEIGHT
         Emulator.load! # fail fast if the emulator backend isn't built
       end
 
@@ -109,7 +128,7 @@ module RubyGBA
       # is the one where the two readings look equally plausible: the console's own number is the
       # picture's corner for a sprite facing one way and out by up to a canvas facing the other.
       #
-      # +keys+ holds buttons while it runs — a KEY_* bitmask, or a callable given the frame
+      # +keys+ holds buttons while it runs — a Console::Hardware::KEY_* bitmask, or a callable given the frame
       # number. Left out, it keeps holding whatever the run was built with.
       #
       # @return [self]
@@ -338,15 +357,15 @@ module RubyGBA
       # emulator keeps it in, which holds all of it. A cartridge with no save chip has nothing
       # in that file, and nil is what it hands back.
       #
-      # A cartridge given a clock keeps that clock's own state in the same file, after the save
-      # chip: mGBA writes CLOCK_IN_SAVE_FILE bytes there (the chip's time and settings, and when
-      # it wrote them), which are the clock's and not the save chip's, so they are left out. A
-      # save chip is a whole number of kilobytes, so the clock's bytes are what is over.
+      # A cartridge with a clock keeps that clock's own state in the same file, after the save
+      # chip, and those bytes are the clock's and not the save chip's, so they are left out. How
+      # many there are is the console's (SaveFileLayout). A cartridge with a clock and no save
+      # chip has only the clock's bytes there, and hands back nil too.
       def save_image
-        bytes = save_bytes
-        clock_bytes = @clock && bytes && bytes.bytesize % 1024 == CLOCK_IN_SAVE_FILE
-        bytes = bytes.byteslice(0, bytes.bytesize - CLOCK_IN_SAVE_FILE) if clock_bytes
-        bytes && IR::SaveImage.from_sav(bytes, from: "The bytes of this cartridge's save memory")
+        memory = save_bytes&.then { |bytes| @reading::SAVE_FILE.memory_in(bytes) }
+        return nil if memory.nil? || memory.empty?
+
+        IR::SaveImage.from_sav(memory, from: "The bytes of this cartridge's save memory")
       end
 
       # The save chip as it is now, as the bytes of the file the emulator keeps it in, or nil
@@ -355,15 +374,6 @@ module RubyGBA
       def save_bytes
         ensure_rendered!
         File.binread(save_path) if File.size?(save_path)
-      end
-
-      # How many times the game read the pad while the console ran it — what the emulator saw,
-      # which is not the same as how many passes a game loop made (see Probe#pad_reads).
-      #
-      # @return [Integer]
-      def pad_reads
-        ensure_rendered!
-        @probe.pad_reads
       end
 
       # Read a program variable's value from IWRAM, by name. Needs the variable-address
@@ -400,97 +410,41 @@ module RubyGBA
       # own) reads it the same way a game's own variable is read.
       def var_at(address) = IR::Int32.wrap(mem32(address))
 
-      # THE SPRITES THE CONSOLE IS DRAWING, each knowing which one the game declared it for.
-      #
-      # One Hash per sprite being drawn, off the console's own table — +:name+, +:x+, +:y+,
-      # +:slot+, +:tile+, +:palette+, +:color_count+, +:colors+, +:priority+, +:shape+, +:size+,
-      # +:mirrored_across+, +:mirrored_down+, +:turned+, +:piece_x+, +:piece_y+. Name one and only
-      # that sprite's rows come back.
-      #
-      # +:colors+ IS THE COLOURS IT IS WEARING, ready to compare against — no group number and no
-      # arithmetic, and right for a picture stored either of the two ways (see #colors_drawn_from,
-      # and +:color_count+, which says which way).
-      #
-      # +:x+ AND +:y+ ARE WHERE THE PICTURE STARTS — the corner of the canvas the art was drawn
-      # on, which is where the game put the sprite. That is NOT the number the console carries,
-      # and the difference is worth saying because it is invisible: a pose is stored trimmed to
-      # what it actually draws and the sprite stands that much further along to compensate, and a
-      # pose drawn backwards is trimmed from the other side and stands a different amount further
-      # along again. So the console's own number is right for a sprite facing one way and out by
-      # up to a canvas for the same sprite facing the other — which reads as the animation being
-      # wrong rather than the position. The build did the moving, so it is undone here; +piece_x+
-      # and +piece_y+ still carry what the console was told, for a test that wants that instead.
-      # A row the build cannot name is left where it is, since there is nothing to look up.
-      #
-      # Worth having because the finished picture cannot answer several ordinary questions: it
-      # cannot tell a hidden sprite from one drawn in the backdrop colour, from one behind a
-      # background, or from one a pixel off the edge. A sprite the game has switched off is left
-      # out, which is the answer a test wants.
-      #
-      # WHAT THE NAME SAVES is the guessing. The console's table says which of its 128 places a
-      # sprite is in and nothing else, so a test with a cast otherwise picks its hero by a place
-      # number (which moves the day the game declares something earlier), by position (which
-      # needs the game to keep its own position in a variable, and is a pixel or two out exactly
-      # while the thing is moving), or by which colours it draws from (no use at all for a sprite
-      # whose colours are being swapped). The build gave out the places and the cartridge carries
-      # that, so the rows can say whose they are.
-      #
-      # A PICTURE TOO BIG for the console to draw in one go is several rows with the same name,
-      # not one merged row: which piece is which is the framework's business, and a test asking
-      # where something is wants all of it.
-      #
-      # Rows the build cannot name come back with a nil +:name+ — a glyph of tiled text, say.
-      #
-      # @param name [Symbol, nil] keep only this declared sprite's rows; nil for every row
-      # @return [Array<Hash>]
-      def sprites(name = nil)
-        rows = named_sprite_rows
-        return rows if name.nil?
-
-        known = sprite_slots!
-        unless known.key?(name)
-          raise ArgumentError, "This game has no sprite #{name.inspect}. " \
-                               "Its sprites are: #{known.keys.map(&:inspect).join(', ')}."
-        end
-        rows.select { |row| row.name == name }
-      end
-
-      # THE COLOURS THE CONSOLE IS DRAWING FROM — 512 of them, the backgrounds' first and then
-      # the sprites', each a 15-bit colour.
+      # THE COLOURS THE CONSOLE IS DRAWING FROM — the backgrounds' first and then the sprites',
+      # each a 15-bit colour: 512 on an Advance, in groups of sixteen, and 64 on a Color, in
+      # groups of four (see PaletteLayout).
       #
       # A game fades, tints, or recolours a character by changing these rather than by redrawing
       # anything, so "did the fade happen" or "is he wearing the hurt colours" asked of the
       # picture is a question about these numbers put the long way round, and one that whatever
       # else is on screen can confuse.
       #
-      # NAME THE HALF AND THE GROUP to get a usable answer. A sprite's row (see {#sprites}) says
-      # which GROUP OF SIXTEEN it draws from and nothing about where that group sits, so
+      # NAME THE HALF AND THE GROUP to get a usable answer. An Advance sprite's row (see
+      # {#sprites}) says which GROUP it draws from and nothing about where that group sits, so
       # `palette(:sprites, row.palette)` is the sixteen colours that row is wearing. Half on its
-      # own (`palette(:sprites)`) is that half's 256; nothing at all is the whole table.
+      # own (`palette(:sprites)`) is that half; nothing at all is the whole table.
       #
       # @param half [Symbol, nil] +:sprites+ or +:backgrounds+; nil for the whole table
-      # @param group [Integer, nil] which group of sixteen within that half
+      # @param group [Integer, nil] which group within that half
       # @return [Array<Integer>]
       def palette(half = nil, group = nil)
         ensure_rendered!
         whole = @probe.palette
         return whole if half.nil?
 
-        # The layout is the console's, so it is asked of the reader's own class (a Color's is
-        # another size: see GBCVerifier).
-        layout = self.class
-        from = layout::PALETTE_HALVES.fetch(half) do
+        layout = @reading::PALETTE
+        from = layout.halves.fetch(half) do
           raise ArgumentError, "There is no #{half.inspect} half of the colour table. " \
-                               "The halves are: #{layout::PALETTE_HALVES.keys.map(&:inspect).join(', ')}."
+                               "The halves are: #{layout.halves.keys.map(&:inspect).join(', ')}."
         end
-        return whole[from, layout::PALETTE_HALF] if group.nil?
+        return whole[from, layout.half] if group.nil?
 
-        groups = layout::PALETTE_HALF / layout::PALETTE_GROUP
+        groups = layout.half / layout.group
         unless group.is_a?(Integer) && group.between?(0, groups - 1)
-          raise ArgumentError, "Each half of the colour table has #{groups} groups of #{layout::PALETTE_GROUP}, " \
+          raise ArgumentError, "Each half of the colour table has #{groups} groups of #{layout.group}, " \
                                "numbered 0 to #{groups - 1}. #{group.inspect} is not one of them."
         end
-        whole[from + (group * layout::PALETTE_GROUP), layout::PALETTE_GROUP]
+        whole[from + (group * layout.group), layout.group]
       end
 
       # DRAW THE PICTURE WITHOUT SOME OF IT, so a test can ask which layer drew what.
@@ -558,129 +512,25 @@ module RubyGBA
         @probe.channels
       end
 
-      # The pitch the wave voice is playing at, as the rate a game writes for it. Ask this rather
-      # than reading the register back: the console makes those bits write-only, so {#mem16}
-      # there says 0 whatever note is playing. See Probe#wave_rate.
-      def wave_rate
-        ensure_rendered!
-        @probe.wave_rate
-      end
-
-      # HOW MANY TIMES ROUND THE GAME LOOP THE CONSOLE GOT, in the frames it ran. Build the
-      # Verifier with `count_passes: true` to ask for it.
+      # --- what each console's cartridge is asked its own way ---
       #
-      # This is not the frame count, and the difference is the reason it exists: the console
-      # runs the loop once per frame it has TIME for, so a game whose pass does not fit in a
-      # frame plays less game per frame than one that does. Anything lining this run up against
-      # a run somewhere else — the interpreter, an earlier build — has to line up on passes.
+      # A READER IS GIVEN ITS CONSOLE'S QUESTIONS WHEN IT IS MADE, from the console's kit
+      # (Console::Kit#reading). Every console's has +sprites+ and +passes+, each read the way that
+      # console keeps them; an Advance cartridge's has the processor as well (+registers+,
+      # +run_until+, +wave_rate+, +pad_reads+) and its mixer of recordings (+voices+, +sounding+,
+      # +sample_clock+, +sound_drops+). A reader over a Color cartridge has none of those, so it is
+      # never asked them. See AdvanceReading and ColorReading.
       #
-      # It is counted by watching for the loop's own first instruction, so the cartridge
-      # measured is the cartridge that ships. The alternative is adding a counter to the
-      # program, and one extra instruction can tip a routine out of the console's quick memory
-      # and change the timing being measured.
+      # +sprites+ ROWS ANSWER +name+, +x+ AND +y+ THE SAME ON EVERY CONSOLE: the sprite the game
+      # declared, and where the game put the corner of its picture. What else a row carries is the
+      # console's — an Advance cartridge's rows are SpriteRows, off its table of 128, and a Color
+      # cartridge's are DrawnSprites, the list its runtime keeps of what it placed.
       #
-      # PASSES FINISHED, not passes begun. A run stops at a frame boundary, where the game is
-      # part-way through a pass — it has asked for the next frame and is waiting for it — so
-      # the pass in flight is not counted. A program with no game loop has no passes and gets
-      # nil, which is a different answer from none.
-      #
-      # WHICH INSTRUCTION IS WATCHED depends on where the build put the loop, and the two
-      # answers are chosen so that neither has to guess where the game is when the run stops.
-      #
-      # A loop the build kept in the console's quick memory is a routine the loop CALLS, so its
-      # first instruction runs once at the START of every pass — the one in flight included, and
-      # there is always one in flight. Passes finished is then one fewer than the arrivals.
-      #
-      # A loop left in the cartridge is written out in place, and the instruction that makes it
-      # a loop is the branch back to the top. That runs once at the END of every pass that
-      # finished, and never for the one in flight, so the arrivals ARE the passes finished. Its
-      # first instruction cannot be used instead: for a loop that waits for the screen, that is
-      # the instruction asking the console to sleep, and the console's own startup can enter
-      # that one twice.
-      def passes
-        unless @count_passes
-          raise ArgumentError,
-                "this run did not count passes — build the Verifier with `count_passes: true` to count them"
-        end
-        ensure_rendered!
-        return nil unless @passes_counted
-
-        [@probe.arrivals - @pass_in_flight, 0].max
-      end
-
-      # --- the processor ---
-      #
-      # For debugging what the lowering emitted: stop the running cartridge at the first
-      # instruction of a routine, then read what the processor holds there. The frames run
-      # first, so the stop is the next time the routine is reached after them.
-
-      # How many instructions {#run_until} runs before it gives up: several frames of a game
-      # that never sleeps.
-      RUN_UNTIL_LIMIT = 2_000_000
-
-      # HOW THE CONSOLE'S 512 COLOURS ARE LAID OUT: the backgrounds' 256 first, then the
-      # sprites'. Each half is sixteen groups of sixteen, and a sprite is told which group it
-      # draws from — so these are what turns "group 4" into a place in the table.
-      PALETTE_HALF = 256
-      PALETTE_GROUP = 16
-      PALETTE_HALVES = { backgrounds: 0, sprites: PALETTE_HALF }.freeze
-
-      # Run on until the routine named +routine+ is about to run its first instruction. The
-      # name is the one the program gave it (`func(:count_up)`), or BuildRecord::FRAME_ROUTINE
-      # for the game loop's own body. Raises when the routine is never reached, rather than
-      # leaving the processor somewhere else to be read as if it were there.
-      def run_until(routine, limit: RUN_UNTIL_LIMIT)
-        ensure_rendered!
-        address = routine_start!(routine)
-        @probe.run_until(address, limit: limit)
-        self
-      rescue RuntimeError
-        # The emulator says which ADDRESS it failed to reach, which is the only thing it knows.
-        # Only the build can turn that back into the name the program gave the routine, and the
-        # name is the whole reason anybody asked for it here.
-        raise RuntimeError, format("The routine %p (at 0x%08X) did not run within %d instructions.",
-                                   routine, address, limit)
-      end
-
-      # What the processor holds right now: +:r0+ through +:r14+, +:pc+ (the instruction that
-      # runs next) and +:cpsr+.
-      def registers
-        ensure_rendered!
-        @probe.registers
-      end
-
-      # WHAT THE CONSOLE IS PLAYING, as values — one per sounding voice, in the order the
-      # mixer holds them (see IR::Backends::GBA::Mixer::Voice for what each carries). Read off
-      # the running console at the final frame boundary, so it is what the lowering really did
-      # rather than what anything says it should have.
-      #
-      # Needs the cartridge to know where its voices are kept, which it does when it was
-      # assembled with its build record. A program that plays no samples has no voices, and
-      # this is empty for it.
-      def voices
-        table = voice_table!
-        table ? table.read { |address| mem32(address) } : []
-      end
-
-      # Just the names of the samples sounding, in the mixer's order — directly comparable with
-      # the interpreter's Reference#active_samples, which is what lets a test check the two
-      # backends agree about sound with one equality.
-      def sounding = voices.map(&:sample)
-
-      # The sample clock this cartridge was built with — the rate the mix runs at and how many
-      # samples that is a frame. A voice's step is a ratio against this rate, so anything asking
-      # what pitch a voice is playing at needs it. Nil for a program that plays no samples.
-      def sample_clock = voice_table!&.clock
-
-      # WHAT THE CONSOLE COULD NOT PLAY: how many plays found every voice busy and were dropped,
-      # and how the voices were being split at the worst of them. Counted since the cartridge
-      # booted, so a test reads it at the end of a run. Directly comparable with the
-      # interpreter's Reference#sound_drops — the same shape, so the two backends' answers meet
-      # in one equality. Unmeasured for a program that plays no samples, which can lose none.
-      def sound_drops
-        table = sound_drop_counters!
-        table ? table.read { |address| mem32(address) } : SoundDrops::Reading.unmeasured
-      end
+      # +passes+ IS HOW MANY TIMES ROUND THE GAME LOOP THE CONSOLE GOT, in the frames it ran. This
+      # is not the frame count, and the difference is the reason it exists: the console runs the
+      # loop once per frame it has TIME for, so a game whose pass does not fit in a frame plays less
+      # game per frame than one that does. Anything lining this run up against a run somewhere
+      # else — the interpreter, an earlier build — has to line up on passes.
 
       # --- audio ---
       #
@@ -785,12 +635,23 @@ module RubyGBA
 
       private
 
-      # The cartridge's record of where it keeps its voices, or nil for a program that plays no
-      # samples. A cartridge with no build record cannot answer.
-      def voice_table!
-        refuse_missing_build_record!("where it keeps its voices")
-        @rom.built.voices
+      # A QUESTION ANOTHER CONSOLE'S CARTRIDGES ANSWER, asked of this one — the registers of a
+      # Color game, say. This reader does not have the question (it does not answer respond_to?
+      # for it), but a playthrough script written for one console and played on another is an
+      # ordinary slip, so it is told in plain words which consoles have the question and what to
+      # read instead, rather than handed Ruby's word that the method is undefined.
+      def method_missing(question, *, **, &)
+        answering = Console.kits.select { |kit| kit.reading.method_defined?(question) }.map(&:title)
+        return super if answering.empty?
+
+        raise NoMethodError.new("A #{Console.for(@rom.console).title} cartridge has no `#{question}`. Only a " \
+                                "cartridge for the #{answering.join(' or the ')} has it. Read the cartridge's memory " \
+                                "by address (`mem8`, `mem16`, `mem32`), its variables (`var`), its sprites " \
+                                "(`sprites`) or its screen instead.", question)
       end
+
+      # Only the questions this cartridge's console answers are this reader's (see #method_missing).
+      def respond_to_missing?(_question, _include_private = false) = false
 
       # WHAT A CARTRIDGE WITH NO BUILD RECORD SAYS WHEN ASKED FOR WHAT ONLY THE BUILD KNEW:
       # which variable is where, which sprite is which, where a routine or a voice is. All
@@ -813,113 +674,6 @@ module RubyGBA
         raise ArgumentError, "This cartridge was assembled without its build record, so nothing says #{what}. Assemble it " \
                              "with the record: `ROM.assemble(code, ..., built: backend.build_record(program))`" \
                              "#{", #{or_else}" if or_else}."
-      end
-
-      # Every row of the console's table, each with the name of the sprite the game declared it
-      # for. Read once per call, so a test that steps the cartridge on sees where things moved to.
-      def named_sprite_rows
-        ensure_rendered!
-        whose = sprite_slots!.each_with_object({}) do |(name, slots), by_slot|
-          slots.each { |slot| by_slot[slot] = name }
-        end
-        moved = @rom.built.sprite_offsets
-        rooms = @rom.built.streamed_sprite_pose_vars
-        # A run drawn in an order the game works out moves its sprites' rows about, so a row is
-        # taken back to the sprite's own place before anything is looked up by place.
-        own = (@rom.built.sprite_runs || []).reduce({}) { |found, run| found.merge(run.own_places(method(:mem8))) }
-        table = palette(:sprites) # read once for the lot, not once per row
-        turns = @rom.built.sprite_turns || {}
-        held = @rom.built.held_sprites
-        @probe.sprites.map do |row|
-          # A row of a game keeping more rows than the console's table is whichever of its own
-          # rows was copied there this frame.
-          slot = held ? held.row_in_copy(row[:slot], method(:mem16)) : row[:slot]
-          home = own.fetch(slot, slot)
-          name = whose[home]
-          dx, dy = moved.dig(home, pose_key(row, rooms, home)) || [0, 0]
-          # A place several scenes' sprites take turns at is the sprite of the scene the table
-          # was last written for.
-          if (turn = turns.fetch(home, []).find { |each_turn| var_at(each_turn.at) == each_turn.value })
-            name = turn.name
-            dx, dy = turn.offsets[turn_pose_key(row, turn)] || [0, 0]
-          end
-          # Back into the ranges the console keeps these in, so a sprite half off the left edge
-          # reads the way its own place reads rather than going negative.
-          SpriteRow.new(**row, name: name, piece_x: row[:x], piece_y: row[:y],
-                        x: (row[:x] - dx) & 0x1FF, y: (row[:y] - dy) & 0xFF,
-                        colors: colors_drawn_from(row, table))
-        end
-      end
-
-      # THE COLOURS A ROW IS DRAWING FROM, which is the question the row's +palette+ field looks
-      # like an answer to and is not.
-      #
-      # A picture is stored one of two ways, and the console picks by how many colours the art
-      # uses: half a byte a pixel, picking out of a GROUP of sixteen colours, or a whole byte
-      # picking out of all 256. +palette+ names the group, so it is the answer for the first kind
-      # and means nothing for the second — and the two look identical from outside, which is why
-      # handing over "the sixteen at that group" would be quietly wrong for a sprite drawn from
-      # more than fifteen colours rather than obviously wrong.
-      #
-      # +color_count+ says which kind, so this can simply take the right run: the group for a
-      # picture that has one, and the whole table for a picture that draws from all of it.
-      def colors_drawn_from(row, table)
-        from = row[:color_count] == PALETTE_GROUP ? row[:palette] * PALETTE_GROUP : 0
-        table[from, row[:color_count]]
-      end
-
-      # WHICH POSE A ROW IS HOLDING, said the way the build wrote that place's trims down (see
-      # IR::Backends::GBA#pose_key, the other end of this).
-      #
-      # Nearly every sprite keeps all its pictures in sprite memory at once, and then the row tells
-      # its own poses apart: the tiles it draws and whether it is drawn backwards differ for every
-      # pose, so those two are the answer.
-      #
-      # A sprite with more pictures than fit keeps ONE of them there at a time, and then the row
-      # cannot: every pose is copied into the same room, so it says that one place whichever pose
-      # is in it. The cartridge keeps the pose number in a variable of its own for exactly that
-      # reason — it is how it knows whether the frame already in the room is still the right one —
-      # and the build says where, so this reads it rather than guessing from a row that cannot
-      # know. A room nothing has been copied into yet holds no pose at all, and no pose finds no
-      # trim; a row being drawn always has one, because the frame goes in before the row is
-      # written.
-      def pose_key(row, rooms, home = row[:slot])
-        address = rooms[home] or return [row[:tile], row[:mirrored_across], row[:mirrored_down]]
-
-        var_at(address)
-      end
-
-      # ...the same, for a sprite taking its turn at a place (see BuildRecord#sprite_turns),
-      # which says itself where its pose is kept when it keeps one frame at a time.
-      def turn_pose_key(row, turn)
-        return [row[:tile], row[:mirrored_across], row[:mirrored_down]] if turn.pose_var.nil?
-
-        var_at(turn.pose_var)
-      end
-
-      # Which places the build gave each declared sprite. A cartridge with no build record
-      # cannot say.
-      def sprite_slots!
-        refuse_missing_build_record!("which of its sprites is which")
-        @rom.built.sprite_slots
-      end
-
-      # Where a routine's first instruction really is while the cartridge runs — which is not
-      # where it sits in the cartridge when it was copied into the console's quick memory, so
-      # only the build record can say.
-      def routine_start!(routine)
-        refuse_missing_build_record!("where its routines are")
-        span = @rom.built.routines[routine] or
-          raise ArgumentError, "This ROM has no routine #{routine.inspect}. " \
-                               "Its routines are: #{@rom.built.routines.keys.map(&:inspect).join(', ')}."
-        span.begin
-      end
-
-      # ...and where it counts what it could not play. Same rule: only the build knows, because
-      # the counters are hidden variables.
-      def sound_drop_counters!
-        refuse_missing_build_record!("where it counts the sounds it dropped")
-        @rom.built.sound_drops
       end
 
       # Where the cartridge's save memory goes: one directory for the whole process, made on
@@ -1006,7 +760,7 @@ module RubyGBA
         @height = @probe.height
         @probe.clock_at(@clock, set: @clock_set) if @clock
         @rendered = true
-        watch_game_loop_passes! if @count_passes
+        watch_passes! # the console's own; before any frame runs, or the first passes go uncounted
         play(@frames)
       end
 
@@ -1048,22 +802,6 @@ module RubyGBA
         raise ArgumentError, "`sound:` was #{given.inspect}. It must be a RecordedSound, which says how many frames " \
                              "of sound the reader holds in memory: " \
                              "`sound: RubyGBA::Diagnostics::RecordedSound.new(frames_in_memory: 600)`."
-      end
-
-      # Watch for arrivals at the game loop's first instruction, before any frame runs. A
-      # program with no game loop has no such routine, and that is an answer rather than an
-      # error — see {#passes}.
-      def watch_game_loop_passes!
-        refuse_missing_build_record!("where its game loop is, so its passes cannot be counted")
-        span = @rom.built.routines[Cartridge::BuildRecord::FRAME_ROUTINE]
-        return unless span
-
-        # The start of the pass, or the end of it — see {#passes} for why each shape gets the
-        # one it does, and what each means for the pass that is still running when we stop.
-        kept_fast = @rom.built.frame_in_quick_memory?
-        @pass_in_flight = kept_fast ? 1 : 0
-        @probe.watch_arrivals(kept_fast ? span.begin : span.end)
-        @passes_counted = true
       end
 
       # The held-button bitmask for a given frame: what a step was told to hold, else what the

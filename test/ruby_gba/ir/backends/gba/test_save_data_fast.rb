@@ -140,7 +140,7 @@ class TestSaveDataFast < Minitest::Test
 
   # --- what it is for, measured on the console ---
 
-  KEY_A = RubyGBA::Diagnostics::Verifier::KEY_A
+  KEY_A = RubyGBA::Console::Hardware::KEY_A
   PRESSED_ON = 20
   WATCHED = 30
 

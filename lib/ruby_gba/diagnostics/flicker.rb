@@ -44,6 +44,9 @@ module RubyGBA
     # deliberate alternation leaves the same value in each picture. That is rare — a blink
     # is usually counted in tens of frames, not one — and this reports rather than raises,
     # so the cost of being wrong is a line to ignore.
+    #
+    # AN ADVANCE CARTRIDGE'S ALONE. It reads what the Advance's build and hardware keep, and only
+    # Cartridge::ROM and the Advance's Profiler reach it; a Color cartridge's profile is GBCProfiler's.
     module Flicker
       # WHAT A RUN SAW. +pixels+ is how many are stuck disagreeing between the two
       # pictures with nothing coming to fix them — 0 for a game whose drawing all arrives.

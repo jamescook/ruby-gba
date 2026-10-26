@@ -596,6 +596,12 @@ module RubyGBA
     TEXT
     def inspect(rom_file)
       raise Thor::Error, "I cannot find the ROM file #{rom_file}." unless File.file?(rom_file)
+      # The inspector reads the Advance's header and disassembles ARM, so another console's
+      # cartridge would come out as numbers that look like an answer and mean nothing.
+      unless RubyGBA::Cartridge::ROM.header?(File.binread(rom_file))
+        raise Thor::Error, "#{rom_file} is not a Game Boy Advance cartridge. `ruby-gba inspect` reads only the " \
+                           "header and the code of an Advance cartridge. Give it a .gba file."
+      end
 
       RubyGBA::Diagnostics::Inspector.new(rom_file).report
     end

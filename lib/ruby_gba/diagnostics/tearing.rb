@@ -39,6 +39,9 @@ module RubyGBA
     # while a heavier version of the same program tears. Days went into treating one of those
     # as a lowering bug, on the belief that a tear could not reach the emulator at all. This
     # is the thing to ask instead.
+    #
+    # AN ADVANCE CARTRIDGE'S ALONE. It reads what the Advance's build and hardware keep, and only
+    # Cartridge::ROM and the Advance's Profiler reach it; a Color cartridge's profile is GBCProfiler's.
     module Tearing
       # Where the picture lives on a direct-color bitmap screen, and how big it is. Each
       # pixel is one 16-bit color, rows top to bottom, and the display shows exactly this.

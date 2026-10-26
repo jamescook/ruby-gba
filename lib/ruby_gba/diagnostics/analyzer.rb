@@ -23,6 +23,9 @@ module RubyGBA
     # another, and each test guards work of its own, so a frame with two buttons down runs
     # both bodies. Holding them singly finds the dearest single body, which is not the worst
     # frame — see #key_combinations for what that was costing.
+    #
+    # AN ADVANCE CARTRIDGE'S ALONE. It reads what the Advance's build and hardware keep, and only
+    # Cartridge::ROM and the Advance's Profiler reach it; a Color cartridge's profile is GBCProfiler's.
     module Analyzer
       module_function
 

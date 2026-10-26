@@ -142,21 +142,20 @@ class TestPlaythroughColor < Minitest::Test
   end
 
   # What only an Advance's reader can say — the processor's registers, the wave voice's pitch,
-  # where its routines start, how often the game read the pad — is refused by name on a Color
-  # game, never answered wrong or with a backtrace from inside. The layers and the sound
-  # channels are the Color's own, and are answered. A Color game plays no recordings at all, so
-  # what the Advance's mixer of recordings is asked is answered for one that plays none.
+  # where its routines start, how often the game read the pad, and the mixer of recordings a Color
+  # game cannot have — is not a Color reader's question at all, and asking it anyway is refused by
+  # name, never answered wrong or with a backtrace from inside. The layers and the sound channels
+  # are the Color's own, and are answered.
   def test_a_moment_is_refused_what_only_an_advance_answers
     refusals = {}
     answers = {}
     RubyGBA.playthrough("look") { wait frames: 20; moment :still }.play(color_cartridge) do |_, game|
-      %i[registers wave_rate pad_reads].each do |question|
-        refusals[question] = assert_raises(ArgumentError) { game.public_send(question) }.message
+      %i[registers wave_rate pad_reads voices sounding sample_clock sound_drops].each do |question|
+        refusals[question] = assert_raises(NoMethodError) { game.public_send(question) }.message
       end
-      refusals[:run_until] = assert_raises(ArgumentError) { game.run_until(:game) }.message
+      refusals[:run_until] = assert_raises(NoMethodError) { game.run_until(:game) }.message
       answers[:layers] = game.layers
       answers[:alone] = game.showing(only: :sprites) { game.step.only_color }
-      answers[:recordings] = [game.voices, game.sounding, game.sample_clock, game.sound_drops.measured?]
     end
 
     refusals.each do |question, words|
@@ -165,7 +164,6 @@ class TestPlaythroughColor < Minitest::Test
     end
     assert_includes answers[:layers], :sprites
     assert_nil answers[:alone], "the block is drawn on an empty screen, so the picture is not one colour"
-    assert_equal [[], [], nil, false], answers[:recordings]
     assert_match(/no sprite :nobody/, assert_raises(ArgumentError) { color_game_now.sprites(:nobody) }.message)
   end
 

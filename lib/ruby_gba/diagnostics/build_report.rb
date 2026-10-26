@@ -19,6 +19,9 @@ module RubyGBA
     # tears. It was a second statement of what the hardware costs, kept in step with the backend
     # by hand, and every mispricing was a bug. Time is measured now, by running the game, and
     # {Profiler} prints it directly under this.
+    #
+    # AN ADVANCE CARTRIDGE'S ALONE. It reads what the Advance's build and hardware keep, and only
+    # Cartridge::ROM and the Advance's Profiler reach it; a Color cartridge's profile is GBCProfiler's.
     module BuildReport
       # Code in the console's 32K of quick memory runs about this much faster than code fetched
       # from the cartridge. It is a property of the two memories — how wide each one is and how

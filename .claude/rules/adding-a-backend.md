@@ -53,14 +53,21 @@ a console of its own needs beyond a lowering:
   console's page under `.claude/dsl/` is generated from its table (`tools/console_answers.rb`),
   so the docs cannot drift from it. The checks that count something the console has — layers,
   sprites, sprites on a row — read the number from its description.
-- **Its own cartridge, emulator reading and profiler** (`Cartridge::GBCROM`,
-  `Diagnostics::GBCProfiler`): the Advance's never learn about it.
+- **Its own cartridge and profiler** (`Cartridge::GBCROM`, `Diagnostics::GBCProfiler`): the
+  Advance's never learn about it.
+- **Its questions for the one reader** (`Diagnostics::ColorReading`). `Diagnostics::Verifier` plays
+  every console's cartridge back and reads the picture, memory, variables, save memory and sound
+  the same way for each; what a console keeps its own way (whose each sprite is, how it counts its
+  passes, how its colours are laid out, where its save memory ends in the emulator's file) is a
+  module the reader takes on when it is made over that console's cartridge. A question a console's
+  cartridges cannot answer is not in its module, so a reader over one of them does not have it: a
+  Color reader has no `registers` at all. No reader subclasses another's.
 - **A kit naming all of it** (`Console::Kit`, `Console.for(:gbc)`, in `console/kit.rb`): its
   description, its answers, the build that makes its cartridge (`Cartridge::ColorBuild`, handed a
-  `Cartridge::BuildRequest`), the cartridge kind, its reader, whether its builds are measured, and
-  whether the desktop and web runtimes can draw it (`drawn_by_runtimes?`; they draw one screen
-  size today, the Advance's, so `Console.drawn_by_runtimes` picks the console those builds are made as).
-  The build, the reader chooser, the cartridge-file reader and the command line ask the kit, so a
+  `Cartridge::BuildRequest`), the cartridge kind, its part of the reader (`reading`), whether its
+  builds are measured, and whether the desktop and web runtimes can draw it (`drawn_by_runtimes?`;
+  they draw one screen size today, the Advance's, so `Console.drawn_by_runtimes` picks the console
+  those builds are made as). The build, the reader, the cartridge-file reader and the command line ask the kit, so a
   console is added by describing it and giving it a kit. Nothing outside a console's own code
   compares console names (`test/ruby_gba/console/test_kit.rb` fails the build if something does).
 - **No console by default.** A game names its consoles, a build (`RubyGBA.build(..., console:)`)
@@ -198,7 +205,7 @@ game's own suite uses:
   `skip_on_lowering(:name, why)` (`skip_on_native`, `skip_on_js` and `skip_on_gbc` are its
   three), and the lowering's test folder goes in `TestSuites::LOWERING_FOLDERS`.
 - **`Testing::Pictures` plays the cartridge of the program's console**, which that console's
-  kit builds (`builder.cartridge_for`) and reads back (`reader`), so a new console's programs
+  kit builds (`builder.cartridge_for`) and the one reader reads back, so a new console's programs
   are compared pixel for pixel once its kit names them.
 - **Reuse the native checked run.** `Native::HeadlessRun` reads a program that prints
   runtime/rg_headless.c's lines, and `Native::CheckedRun` compares it with the interpreter; a

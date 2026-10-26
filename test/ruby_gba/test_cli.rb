@@ -6,6 +6,7 @@ require "open3"
 require "tmpdir"
 require "rbconfig"
 require "json"
+require "stringio"
 
 # End-to-end tests for the `ruby-gba` command. These are the only tests that touch
 # Thor: they run bin/ruby-gba in a subprocess, the way a user does, so the CLI (and
@@ -117,6 +118,17 @@ class TestCLI < Minitest::Test
       assert status.success?, out
       assert_match(/GBA ROM Header/, out)
       assert_match(/Checksum:.*OK/, out)
+    end
+  end
+
+  def test_inspect_refuses_a_cartridge_that_is_not_the_advances
+    Dir.mktmpdir do |dir|
+      rom = RubyGBA.build("COLOR", console: :gbc, out: StringIO.new, err: StringIO.new) { game_loop {} }
+      rom.write(File.join(dir, "color.gbc"))
+      out, status = cli("inspect", "color.gbc", dir: dir)
+      refute status.success?
+      assert_match(/color\.gbc is not a Game Boy Advance cartridge/, out)
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
     end
   end
 

@@ -25,6 +25,19 @@ class TestKit < Minitest::Test
     end
   end
 
+  # What the one reader asks of every console's part of it (Console::Kit, "reading"), so a console
+  # added without one of them fails here rather than in the middle of a test that reads its cartridge.
+  READING_ANSWERS = %i[passes sprites].freeze
+
+  def test_every_consoles_part_of_the_reader_answers_what_the_reader_asks
+    Console.kits.each do |kit|
+      assert_kind_of RubyGBA::Diagnostics::Verifier::PaletteLayout, kit.reading::PALETTE, kit.title
+      assert_kind_of RubyGBA::Diagnostics::Verifier::SaveFileLayout, kit.reading::SAVE_FILE, kit.title
+      assert_empty READING_ANSWERS.reject { |question| kit.reading.method_defined?(question) }, kit.title
+      assert kit.reading.private_method_defined?(:watch_passes!), "#{kit.title}: set up before the first frame"
+    end
+  end
+
   # What any console's cartridge is asked (Console::Kit, "the cartridge"), answered the same way by
   # each. Its profile needs the emulator, so it is asked of in the tests of each profiler.
   def test_every_consoles_cartridge_answers_what_a_cartridge_is_asked

@@ -199,20 +199,20 @@ module RubyGBA
       # variable and an instruction to the game loop would mean the cartridge every pixel was
       # proved identical about was not the cartridge that ships — and one extra instruction can
       # tip a routine out of the console's quick memory, which changes the timing and therefore
-      # changes what is being compared. The emulator counts arrivals at the loop's own first
-      # instruction instead, so nothing is added to the program.
+      # changes what is being compared. So nothing is added to the program: on an Advance the
+      # emulator counts arrivals at the loop's own instructions, and a Color's runtime keeps a
+      # count of its waits for the screen that the reader reads (Verifier#passes).
       #
-      # THE CARTRIDGE IS THE PROGRAM'S CONSOLE'S, built and read by the parts its kit names
-      # (Console::Kit#builder and #reader): a program built for the Game Boy Color is played as a
-      # Color cartridge, and one that names no console as an Advance cartridge.
+      # THE CARTRIDGE IS THE PROGRAM'S CONSOLE'S, built by the part its kit names
+      # (Console::Kit#builder) and read back by the one reader: a program built for the Game Boy
+      # Color is played as a Color cartridge, and one that names no console as an Advance cartridge.
       #
       # A comparison with the console is a check of the cartridge, so a checked run never asks for
       # one: #backend_pictures hands it the lowered game's picture instead.
       def console_picture(program, console_frames, name, keys)
         Diagnostics::Emulator.load!
-        kit = console_kit(program)
-        rom = kit.builder.cartridge_for(program, title: name)
-        reader = kit.reader.new(rom, frames: console_frames, keys: IR::Buttons.mask(keys), count_passes: true)
+        rom = console_kit(program).builder.cartridge_for(program, title: name)
+        reader = Diagnostics::Verifier.new(rom, frames: console_frames, keys: IR::Buttons.mask(keys), count_passes: true)
         [reader.frame_gba, reader.passes]
       end
 

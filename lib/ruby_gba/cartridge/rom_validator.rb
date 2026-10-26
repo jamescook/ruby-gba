@@ -15,6 +15,9 @@ module RubyGBA
     # @example
     #   result = RubyGBA::Cartridge::ROMValidator.check(rom)
     #   result.ok? # => true if no errors
+    #
+    # AN ADVANCE CARTRIDGE'S ALONE. It reads what the Advance's build and hardware keep, and only
+    # Cartridge::ROM and the Advance's Profiler reach it; a Color cartridge's profile is GBCProfiler's.
     class ROMValidator
       include Console::Hardware
       include Header
