@@ -17,17 +17,21 @@ module RubyGBA
     # A test that checks a handful of pixels checks the ones whoever wrote it thought to look at.
     # That leaves the rest of the screen unwatched, so a lowering bug that draws in the wrong
     # place, or leaves something behind, or paints past an edge, can sit there green. This
-    # compares all 38,400 pixels, so the only way to pass is to draw the same picture the
-    # interpreter does.
+    # compares every pixel of the console's screen, so the only way to pass is to draw the same
+    # picture the interpreter does.
+    #
+    # The cartridge is the one for the console the program is built for: a Game Boy Color program
+    # is played as a Color cartridge, and a program that names no console as an Advance one.
     #
     # The interpreter is the answer key: it says what the program MEANS. Any disagreement is a bug
-    # in the cartridge the GBA lowering built (or, now and then, in the interpreter's model of the
-    # hardware — either way it is a real disagreement worth a look).
+    # in the cartridge the console's lowering built (or, now and then, in the interpreter's model
+    # of the hardware — either way it is a real disagreement worth a look).
     #
     # IT NEEDS THE EMULATOR, the ruby-gba-emulator gem, which a game that only builds cartridges
     # does without; a game's Gemfile names it in its test group. Without it the check stops with
-    # what to add to the Gemfile (see Diagnostics::Emulator). On the native lowering's run there is
-    # no cartridge, and the same lines ask whether the game as C draws what the interpreter draws.
+    # what to add to the Gemfile (see Diagnostics::Emulator). On a checked run (Testing.checked?)
+    # the same lines ask whether the lowered game — as C, as JavaScript, as a Color cartridge —
+    # draws what the interpreter draws.
     module Pictures
       SCREEN_W = 240
       SCREEN_H = 160
@@ -49,10 +53,22 @@ module RubyGBA
         rotozoom: 1, # the other tile screen, and it boots the same
       }.freeze
 
-      # A button name as the console's key bit, for holding buttons on both backends.
-      KEY_BITS = IR::Buttons::NAMES.to_h do |name|
-        [name, Console::Hardware.const_get(:"KEY_#{name.to_s.upcase}")]
-      end.freeze
+      # HOW EACH CONSOLE'S PICTURE LINES UP WITH THE INTERPRETER'S: the frames it takes to reach its
+      # first pass on each kind of screen (BOOT_FRAMES is the Advance's), and whether the picture
+      # showing is always the pass before the last one it finished.
+      #
+      # A Game Boy Color cartridge sets up for longer, and its picture is a pass later besides: the
+      # Color's runtime copies a pass's picture to the screen in the blank after the pass, whatever
+      # the screen, so what is showing is the pass before the last one finished. Its numbers were
+      # measured as the Advance's were, by sweeping the pairing on an animated program of each
+      # screen, and test_pictures_on_each_console.rb pins them: it fails if a Color program is
+      # compared at any other frame than the one asked for. The Color has no turning screen.
+      LineUp = Data.define(:boot_frames, :shows_pass_before_last)
+      LINE_UPS = Ractor.make_shareable({
+                                         gba: LineUp.new(boot_frames: BOOT_FRAMES, shows_pass_before_last: false),
+                                         gbc: LineUp.new(boot_frames: { bitmap: 9, tiled: 6 },
+                                                         shows_pass_before_last: true)
+                                       })
 
       class OverBudget < StandardError; end
 
@@ -93,7 +109,7 @@ module RubyGBA
           bad = mismatched_pixels(oracle, console)
           next if bad.empty?
 
-          flunk mismatch_message(bad, ran, console_frames || console_frames_for(program, frame))
+          flunk mismatch_message(bad, ran, console_frames || console_frames_for(program, frame), picture: oracle)
         end
       rescue OverBudget, LoadError => e
         flunk e.message
@@ -186,16 +202,18 @@ module RubyGBA
       # changes what is being compared. The emulator counts arrivals at the loop's own first
       # instruction instead, so nothing is added to the program.
       #
-      # A comparison with the console is a check of the cartridge, so a native or JavaScript run
-      # never asks for one: #backend_pictures hands it the lowered game's picture instead.
+      # THE CARTRIDGE IS THE PROGRAM'S CONSOLE'S, built and read by the parts its kit names
+      # (Console::Kit#builder and #reader): a program built for the Game Boy Color is played as a
+      # Color cartridge, and one that names no console as an Advance cartridge.
+      #
+      # A comparison with the console is a check of the cartridge, so a checked run never asks for
+      # one: #backend_pictures hands it the lowered game's picture instead.
       def console_picture(program, console_frames, name, keys)
         Diagnostics::Emulator.load!
-        mask = keys.sum { |key| KEY_BITS.fetch(key) }
-        backend = IR::Backends::GBA.new
-        rom = Cartridge::ROM.assemble(backend.lower(program), title: name, code: "TEST", maker: "01",
-                                                             built: backend.build_record(program))
-        verifier = Diagnostics::Verifier.new(rom, frames: console_frames, keys: mask, count_passes: true)
-        [verifier.frame_gba, verifier.passes]
+        kit = console_kit(program)
+        rom = kit.builder.cartridge_for(program, title: name)
+        reader = kit.reader.new(rom, frames: console_frames, keys: IR::Buttons.mask(keys), count_passes: true)
+        [reader.frame_gba, reader.passes]
       end
 
       # The interpreter's picture and the game as C's (or as JavaScript's) after +frames+ frames,
@@ -243,7 +261,12 @@ module RubyGBA
       # the frame count as it always was. BELOW the frame count a single-buffered program keeps
       # BOOT_SLACK's tolerance on purpose: a pass short there is either a late boot or a game over
       # budget caught mid-pass, and the count cannot tell the two apart.
+      #
+      # A CONSOLE WHOSE PICTURE IS ALWAYS THE PASS BEFORE ITS LAST (LineUp#shows_pass_before_last)
+      # is compared at that pass, however many it made: its picture is never half-drawn, and is
+      # never the last pass's either.
       def oracle_frames_for(program, frames, passes, console_frames)
+        return [passes - 1, 0].max if line_up(program).shows_pass_before_last
         return passes if passes > frames && !shows_finished_passes?(program)
         return passes if passes < frames && shows_finished_passes?(program)
         return frames if passes >= frames - BOOT_SLACK
@@ -284,30 +307,44 @@ module RubyGBA
                 "different number of frames to start, so the check cannot work out how long to run the " \
                 "console. Give the console's frame count with console_frames:."
         end
-        frames + BOOT_FRAMES.fetch(modes.first || :bitmap)
+        frames + line_up(program).boot_frames.fetch(modes.first || :bitmap)
       end
+
+      # How the picture of +program+'s console lines up with the interpreter's (LINE_UPS).
+      def line_up(program) = LINE_UPS.fetch(console_kit(program).name)
+
+      # The kit of the console +program+ is built for: the Advance's for one that names none.
+      def console_kit(program) = Console.for(program.described_console.name)
 
       # A failure that says WHERE they disagree, not just how many pixels. The map is the whole
       # screen squashed to a small grid, so a glance says "the sprite is in the wrong place" vs
-      # "the right edge is torn" vs "everything below the map".
-      def mismatch_message(bad, frames, console_frames)
-        lines = ["the backends drew different screens: #{bad.length} of #{PIXELS} pixels differ " \
+      # "the right edge is torn" vs "everything below the map". +picture+ is the interpreter's, which
+      # says how big the screen is; left out, it is the Advance's.
+      def mismatch_message(bad, frames, console_frames, picture: nil)
+        width = picture ? picture_width(picture) : SCREEN_W
+        height = picture ? picture.length / width : SCREEN_H
+        cell_w, cell_h = difference_cell(width, height)
+        lines = ["the backends drew different screens: #{bad.length} of #{width * height} pixels differ " \
                  "(interpreter ran #{frames} frames, console #{console_frames})"]
         lines << "  first differences (interpreter is the oracle — it says what the program means):"
         bad.first(8).each do |x, y, want, got|
           lines << format("    (%3d,%3d)  interpreter %-10s  console %s", x, y, color_label(want), color_label(got))
         end
         lines << "  ...and #{bad.length - 8} more" if bad.length > 8
-        lines << "  where they differ ( . = agree, # = differ; each cell is #{SCREEN_W / 40}x#{SCREEN_H / 20} pixels):"
-        lines.concat(difference_map(bad))
+        lines << "  where they differ ( . = agree, # = differ; each cell is #{cell_w}x#{cell_h} pixels):"
+        lines.concat(difference_map(bad, width, height))
         lines.join("\n")
       end
 
-      # The screen boiled down to a 40x20 grid: a cell is '#' if any pixel in it differs.
-      def difference_map(bad)
-        cell_w = SCREEN_W / 40
-        cell_h = SCREEN_H / 20
-        grid = Array.new(20) { Array.new(40, ".") }
+      # How many pixels across and down one cell of the difference map is: the screen in about
+      # 40 cells by 20, a cell taking in the ragged last few when the screen does not divide evenly
+      # (a Game Boy Color's 144 rows do not divide by 20).
+      def difference_cell(width, height) = [width.fdiv(40).ceil, height.fdiv(20).ceil]
+
+      # The screen boiled down to a grid of about 40x20: a cell is '#' if any pixel in it differs.
+      def difference_map(bad, width, height)
+        cell_w, cell_h = difference_cell(width, height)
+        grid = Array.new(height.fdiv(cell_h).ceil) { Array.new(width.fdiv(cell_w).ceil, ".") }
         bad.each { |x, y, _, _| grid[y / cell_h][x / cell_w] = "#" }
         grid.map { |row| "    #{row.join}" }
       end

@@ -25,8 +25,10 @@ module RubyGBA
     #                           build(request), the cartridge from a checked program and a
     #                           Cartridge::BuildRequest; console_settings, the names of the CONSOLE
     #                           SETTINGS it reads (build settings only some consoles have, such
-    #                           as the Advance's `stack_room:`); and refuse_unusable_settings!(said),
-    #                           which refuses a value of one of those it cannot use
+    #                           as the Advance's `stack_room:`); refuse_unusable_settings!(said),
+    #                           which refuses a value of one of those it cannot use; and
+    #                           cartridge_for(program, title:), the cartridge for a program alone,
+    #                           which is what a test plays
     #   cartridge               the kind of cartridge that is (below)
     #   reader                  the reader that plays one back (Diagnostics::Verifier, say)
     #   measured_builds?        whether its build is measured by running it, which is what chooses

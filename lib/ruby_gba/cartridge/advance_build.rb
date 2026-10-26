@@ -91,6 +91,15 @@ module RubyGBA
         rom
       end
 
+      # The cartridge for +program+ alone, titled +title+: lowered as the Advance does when nothing
+      # is said, with no guardrails and no validation. What a test that plays a cartridge builds
+      # (Testing::Pictures).
+      def cartridge_for(program, title:)
+        backend = IR::Backends::GBA.new
+        ROM.assemble(backend.lower(program), title: title, code: "TEST", maker: "01",
+                                             built: backend.build_record(program))
+      end
+
       # A PROFILE THAT HAS DRIFTED FROM ITS GAME still decides what goes in the quick memory, and
       # would go on doing it, quietly and increasingly wrongly, as the game moved on. So a routine
       # the profile names that the program no longer has is said out loud.

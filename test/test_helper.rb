@@ -105,10 +105,7 @@ module EmulatorSupport
   # build decided — what it is playing (Verifier#voices), where its variables are — without
   # holding on to the backend that lowered it.
   def assemble_rom(program, name: "TEST")
-    backend = RubyGBA::IR::Backends::GBA.new
-    code = backend.lower(program)
-    RubyGBA::Cartridge::ROM.assemble(code, title: name, code: "TEST", maker: "01",
-                                built: backend.build_record(program))
+    RubyGBA::Cartridge::AdvanceBuild.cartridge_for(program, title: name)
   end
 
   # Load +rom+ into the emulator and run it headless for +frames+ frames,

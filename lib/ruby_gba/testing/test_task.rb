@@ -79,16 +79,16 @@ module RubyGBA
       private
 
       # Rake's test task plays its run through here, so this is where the run is handed what
-      # it is for: the lowering, and on a native run the rest of how it is played.
+      # it is for: the lowering, and on a native run the rest of how it is played. The program the
+      # run needs (Lowering::Run#needs) is asked for first.
       def ruby(*args, **options, &block)
-        refuse_native_run_without_zig! if native?
-        refuse_js_run_without_node! if javascript?
+        needs = Lowering.run_named(lowering).needs
+        refuse_native_run_without_zig! if needs == "zig"
+        refuse_js_run_without_node! if needs == "node"
         sh(run_settings, "#{FileUtils::RUBY} #{args.join(' ')}", **options, &block)
       end
 
-      def native? = lowering == :native
-      def javascript? = lowering == :js
-      def checked? = Lowering::CHECKED.include?(lowering)
+      def checked? = Lowering.run_named(lowering).checked?
 
       def without_ractor(options) = (options.split - %w[--ractor]).join(" ")
 

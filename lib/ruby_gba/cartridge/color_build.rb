@@ -24,8 +24,12 @@ module RubyGBA
         end
 
         request.progress.step("lowering for the #{Console::COLOR.title}")
-        IR::Backends::GBC.new.build(request.program, title: request.title)
+        cartridge_for(request.program, title: request.title)
       end
+
+      # The cartridge for +program+ alone, titled +title+. What a test that plays a cartridge
+      # builds (Testing::Pictures).
+      def cartridge_for(program, title:) = IR::Backends::GBC.new.build(program, title: title)
     end
   end
 end

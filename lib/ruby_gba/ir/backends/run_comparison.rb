@@ -30,6 +30,10 @@ module RubyGBA
         # the lowering has a gap to fill, or that one test wants its lowering's skip.
         class CannotAnswer < StandardError; end
 
+        # Raised by a checked run whose lowered side and the interpreter disagreed. The message says
+        # the frame or the pass, and everything that differs there.
+        class Disagreement < StandardError; end
+
         # A picture as one number: the CRC-32 of its pixels, two bytes each with the low byte first.
         def self.picture_check(shown) = Zlib.crc32(shown.pack("v*"))
 

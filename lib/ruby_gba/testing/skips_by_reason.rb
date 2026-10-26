@@ -26,7 +26,7 @@ module RubyGBA
       def report
         return if @reasons.empty?
 
-        @io.puts "\nSkipped on this #{Lowering::TITLES.fetch(Testing.lowering)} run, by reason:"
+        @io.puts "\nSkipped on this #{Testing::RUN.title} run, by reason:"
         @reasons.sort_by { |reason, count| [-count, reason] }.each { |reason, count| @io.puts format("%5d  %s", count, reason) }
       end
     end

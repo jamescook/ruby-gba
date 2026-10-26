@@ -77,6 +77,14 @@ class TestSuitesSplit < Minitest::Test
     end
   end
 
+  # Each lowering's record names the class its run's game_player makes, and that class is one
+  # of the players held to the interpreter's words above.
+  def test_every_run_names_a_player_that_takes_the_interpreters_words
+    RubyGBA::Testing::Lowering::RUNS.each do |run|
+      assert_includes PLAYERS, run.player_class, run.name
+    end
+  end
+
   # The guard for a test native cannot play yet skips on the native lowering's run and does
   # nothing on the GBA lowering's.
   def test_the_native_guard_skips_on_the_native_run_alone

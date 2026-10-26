@@ -319,7 +319,7 @@ module SoundComparison
   # (`require_emulator!` skips on a native run, for a test that is about the cartridge).
   def console_samples(program, frames:, buttons: {}, only: nil)
     RubyGBA::Diagnostics::Emulator.load!
-    keys = ->(frame) { buttons.fetch(frame + 1, []).sum { |button| Differential::KEY_BITS.fetch(button) } }
+    keys = ->(frame) { RubyGBA::IR::Buttons.mask(buttons.fetch(frame + 1, [])) }
     verifier = RubyGBA::Diagnostics::Verifier.new(assemble_rom(program), frames: 0, keys: keys)
     verifier.hearing(only: only) if only
     verifier.step(frames)

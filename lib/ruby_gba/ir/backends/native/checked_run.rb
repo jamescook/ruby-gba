@@ -43,7 +43,7 @@ module RubyGBA
 
           # The game as C and the interpreter disagreed. The message says the frame and everything
           # that differs there.
-          class Disagreement < StandardError; end
+          Disagreement = RunComparison::Disagreement
 
           # Why a game the interpreter stops only by its step budget cannot be played as C.
           NO_STEP_COUNT = "the native lowering keeps no count of its steps"

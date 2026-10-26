@@ -106,10 +106,8 @@ end
 # itself as the answer key — the sound the desktop build makes, test/sound_comparison.rb, and the
 # jukebox's voices), and a run with COVERAGE=1 starts its report afresh.
 task test: :suite_lock
-task "test:lowering:gba" => %i[suite_lock compile_emulator clear_coverage]
-task "test:lowering:native" => %i[suite_lock compile_emulator]
-task "test:lowering:js" => %i[suite_lock compile_emulator]
-task "test:lowering:gbc" => %i[suite_lock compile_emulator]
+RubyGBA::Testing::Lowering::NAMES.each { |lowering| task "test:lowering:#{lowering}" => %i[suite_lock compile_emulator] }
+task "test:lowering:gba" => :clear_coverage
 
 namespace :test do
   # The emulator gem has its OWN test suite (its C extension + probe, tested in isolation) —

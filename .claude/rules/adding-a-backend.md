@@ -177,22 +177,29 @@ Each of these is what Reference does; check the line before relying on it.
 `RubyGBA::Testing` (lib/ruby_gba/testing/) is where that is decided, and it is the same code a
 game's own suite uses:
 
-- `Testing::Lowering::NAMES` lists the lowerings and `RUBY_GBA_LOWERING` picks one.
-- `RubyGBA::Testing#game_player` hands a test the player for the run: Reference on the GBA run,
-  the checked player on the native, JavaScript and Game Boy Color ones (`Testing.player_class`). A new lowering
-  adds its checked player there, and to `Lowering::CHECKED`.
+- **Each lowering's run is one record**, `Testing::Lowering::Run` in `Testing::Lowering::RUNS`:
+  its name (what `RUBY_GBA_LOWERING` picks), its title, the console it plays a game as, whether it
+  is checked, what `rake -T` says it does, the program it needs, and its player. A new lowering
+  is a record there.
+- `RubyGBA::Testing#game_player` hands a test the record's player: Reference on the GBA run,
+  the checked player on the native, JavaScript and Game Boy Color ones. A checked player raises
+  `IR::Backends::RunComparison::Disagreement` when it disagrees with the interpreter, which the
+  testing kit turns into a failed test.
 - `Testing::TestTask` says how a run is started (the native and JavaScript ones in several
   processes, never in Ractors, since they start programs); `Testing::RakeTasks` makes `rake test` and a
   `test:lowering:<name>` task for each.
 - `TestSuites::LOWERING_FOLDERS` (test/support/suites.rb) names the folders only one lowering's
   run loads: put the new backend's own tests in `test/ruby_gba/ir/backends/<name>/`.
 - **What a checked run does differently** is asked as `Testing.checked?`, which a new lowering
-  joins through `Lowering::CHECKED`: `require_emulator!` in `test/test_helper.rb` (a test of the
+  joins through its record's `checked`: `require_emulator!` in `test/test_helper.rb` (a test of the
   cartridge skips on every run but the GBA one), `Testing::Pictures` and `test/mixed_sound.rb`
   (on a checked run they compare the lowered game instead of the cartridge), and the process
-  runner `Testing::TestTask` starts such a run with. A lowering adds its own skip
-  (`skip_on_native`, `skip_on_js`, `skip_on_gbc`), and its test folder to
-  `TestSuites::LOWERING_FOLDERS`.
+  runner `Testing::TestTask` starts such a run with. A test skips on one run with
+  `skip_on_lowering(:name, why)` (`skip_on_native`, `skip_on_js` and `skip_on_gbc` are its
+  three), and the lowering's test folder goes in `TestSuites::LOWERING_FOLDERS`.
+- **`Testing::Pictures` plays the cartridge of the program's console**, which that console's
+  kit builds (`builder.cartridge_for`) and reads back (`reader`), so a new console's programs
+  are compared pixel for pixel once its kit names them.
 - **Reuse the native checked run.** `Native::HeadlessRun` reads a program that prints
   runtime/rg_headless.c's lines, and `Native::CheckedRun` compares it with the interpreter; a
   windowless program of the new lowering that prints the same lines is read and checked by

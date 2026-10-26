@@ -30,7 +30,7 @@ module RubyGBA
 
           # The cartridge and the interpreter disagreed. The message says the pass and everything
           # that differs there.
-          class Disagreement < StandardError; end
+          Disagreement = RunComparison::Disagreement
 
           def initialize(save: SaveImage.new)
             @save = save

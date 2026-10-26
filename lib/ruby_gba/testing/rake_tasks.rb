@@ -49,7 +49,7 @@ module RubyGBA
     # but the task it is asked for.
     class RakeTasks < Rake::TaskLib
       # What `rake test` calls each lowering's run in the lines it ends with, in the order it plays them.
-      LABELS = Lowering::TITLES.transform_values { |title| "#{title} lowering" }.freeze
+      LABELS = Lowering::RUNS.to_h { |run| [run.name, "#{run.title} lowering"] }.freeze
       OUTCOMES = { passed: "passed", failed: "FAILED", not_played: "does not play this file" }.freeze
 
       # The test files; the folders a test file can require from by bare name (the game's own code
@@ -107,19 +107,19 @@ module RubyGBA
       end
 
       # Each lowering's run is a TestTask, which says how a run for that lowering is played: one for
-      # each of Lowering::NAMES that plays the game's consoles, so a new lowering is a row there and
-      # not a task written here.
+      # each of Lowering::RUNS that plays the game's consoles, so a new lowering is a record there
+      # and not a task written here.
       def define_lowering_tasks
         namespace :test do
           namespace :lowering do
             @lowerings.each do |lowering|
+              run = Lowering.run_named(lowering)
               TestTask.new(lowering) do |t|
                 t.lowering = lowering
                 t.libs = libs.dup
                 t.test_files = files(lowering)
-                needs = Lowering::NEEDS[lowering]&.then { |tool| "needs #{tool}; " }
-                t.description = "Run the tests on the #{Lowering::TITLES.fetch(lowering)} lowering: " \
-                                "#{Lowering::RUNS.fetch(lowering)} (#{needs}one file with TEST=)"
+                needs = run.needs&.then { |tool| "needs #{tool}; " }
+                t.description = "Run the tests on the #{run.title} lowering: #{run.does} (#{needs}one file with TEST=)"
               end
             end
           end

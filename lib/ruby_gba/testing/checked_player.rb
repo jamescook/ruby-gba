@@ -7,7 +7,7 @@ module RubyGBA
     module DisagreementFailsTest
       def run(program, max_steps: nil, frames: nil)
         super
-      rescue IR::Backends::Native::CheckedRun::Disagreement, IR::Backends::GBC::CheckedRun::Disagreement => e
+      rescue IR::Backends::RunComparison::Disagreement => e
         raise Minitest::Assertion, e.message
       end
     end

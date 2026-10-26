@@ -34,18 +34,19 @@ require_relative "testing/pictures"
 
 module RubyGBA
   module Testing
-    # The lowering this run tests, read once when the suite loads.
+    # The lowering this run tests, read once when the suite loads, and its record (Lowering::Run).
     LOWERING = Lowering.from(ENV)
+    RUN = Lowering.run_named(LOWERING)
 
     def self.lowering = LOWERING
     def self.native? = LOWERING == :native
     def self.javascript? = LOWERING == :js
     def self.gbc? = LOWERING == :gbc
 
-    # The console this run plays a game built for (Lowering::CONSOLES): the Game Boy Color on its
-    # run, the Advance on every other. A game for both builds its tree for the run's
+    # The console this run plays a game built for (Lowering::Run#console): the Game Boy Color on
+    # its run, the Advance on every other. A game for both builds its tree for the run's
     # (`game.program(console: game_console)`), so its tests play on the Color too.
-    def self.console = Lowering::CONSOLES.fetch(LOWERING)
+    def self.console = RUN.console
     def game_console = Testing.console
 
     # THE EMULATOR, IF THE GAME HAS IT, LOADED NOW rather than by the first test that wants it.
@@ -54,10 +55,10 @@ module RubyGBA
     # only the tests that play the cartridge, which say so when they run.
     Diagnostics::Emulator.available?
 
-    # Whether this run plays the game built for another machine (as C, or as JavaScript) and
-    # checks it against the interpreter, rather than playing the interpreter alone. Such a run has
-    # no cartridge to check.
-    def self.checked? = Lowering::CHECKED.include?(LOWERING)
+    # Whether this run plays the game built for another machine (as C, as JavaScript, or as a Game
+    # Boy Color cartridge) and checks it against the interpreter, rather than playing the
+    # interpreter alone. Such a run has no Advance cartridge to check.
+    def self.checked? = RUN.checked?
 
     # What plays a game in this run: the interpreter on the GBA lowering's run; on the native
     # lowering's the game built as C, driven through the same calls and checked against the
@@ -77,28 +78,25 @@ module RubyGBA
       player.respond_to?(:program_played) ? player.program_played(program) : program
     end
 
-    # The class game_player makes one of, on each lowering's run.
-    PLAYERS = Ractor.make_shareable({ gba: IR::Backends::Reference, native: CheckedPlayer, js: JSCheckedPlayer,
-                                      gbc: GBCCheckedPlayer })
-
-    # The class game_player makes one of, for this run.
-    def self.player_class = PLAYERS.fetch(LOWERING)
+    # The class game_player makes one of, for this run (Lowering::Run#player).
+    def self.player_class = RUN.player_class
 
     # A test the native lowering cannot play yet skips itself on a native run, saying +why+ — and
     # a native run ends by counting its skips by reason, so these cannot pile up unseen. On the
     # GBA lowering's run it does nothing.
-    def skip_on_native(why)
-      skip "native cannot play this yet: #{why}" if Testing.native?
-    end
+    def skip_on_native(why) = skip_on_lowering(:native, why)
 
     # The same, for the JavaScript lowering's run.
-    def skip_on_js(why)
-      skip "JavaScript cannot play this yet: #{why}" if Testing.javascript?
-    end
+    def skip_on_js(why) = skip_on_lowering(:js, why)
 
     # The same, for the Game Boy Color lowering's run.
-    def skip_on_gbc(why)
-      skip "Game Boy Color cannot play this yet: #{why}" if Testing.gbc?
+    def skip_on_gbc(why) = skip_on_lowering(:gbc, why)
+
+    # The same, for the run of the lowering named +lowering+.
+    # A name no lowering has is refused on every run, so a misspelt one cannot quietly never skip.
+    def skip_on_lowering(lowering, why)
+      run = Lowering.run_named(lowering)
+      skip "#{run.title} cannot play this yet: #{why}" if Testing.lowering == lowering
     end
   end
 end

@@ -6,49 +6,73 @@ module RubyGBA
     # loads. Both the rake tasks (RakeTasks) and the tests themselves (Testing.lowering) read it
     # from here, so the two cannot answer differently.
     #
-    # A game is played three ways, or four when it is for the Game Boy Color too (see CONSOLES).
-    # The GBA lowering's run plays it on the interpreter
+    # A game is played three ways, or four when it is for the Game Boy Color too (see
+    # Run#console). The GBA lowering's run plays it on the interpreter
     # (Backends::Reference), which is what the cartridge is checked against; the native
     # lowering's run builds it as C and plays that, the JavaScript lowering's run builds it as
     # JavaScript and plays that under node, and the Game Boy Color lowering's builds it as a
     # Game Boy Color cartridge and plays that in the emulator, each checked against the
     # interpreter on every frame. A test written once plays on whichever the run is for.
+    #
+    # EACH LOWERING'S RUN IS ONE RECORD (RUNS), and everything in the testing kit that differs from
+    # one run to the next reads it from there: the rake tasks, the player a test is handed, the
+    # skips, what a run is started with. A lowering joins the kit as a record here.
     module Lowering
-      # The setting a run's lowering is read from. The native lowering's run sets it to
-      # "native" and the JavaScript lowering's to "js"; left alone it is the GBA lowering's run.
+      # What the testing kit knows of one lowering's run:
+      #
+      #   name     what RUBY_GBA_LOWERING and `rake test:lowering:<name>` call it
+      #   title    what a sentence calls it: "the GBA lowering", "this JavaScript run"
+      #   console  the console the run plays a game as (see Console::DESCRIPTIONS). The native and
+      #            JavaScript builds play an Advance game, laid out for the Advance's screen, so a
+      #            game for the Advance alone is played by the first three runs and a game for the
+      #            Color too by all four
+      #   checked  whether the run plays the game itself, built for another machine and checked
+      #            against the interpreter, rather than the interpreter alone. Such a run starts
+      #            programs, so it is played in processes rather than Ractors, and it has no
+      #            Advance cartridge to check
+      #   does     what `rake -T` says the run does
+      #   needs    the program it needs besides Ruby, or nil
+      #   player   the class `game_player` makes one of on the run, by its name inside RubyGBA:
+      #            the classes are loaded with the whole library, and a Rakefile reads these
+      #            records without it
+      Run = Data.define(:name, :title, :console, :checked, :does, :needs, :player) do
+        alias_method :checked?, :checked
+
+        # The class `game_player` makes one of on this run.
+        def player_class = RubyGBA.const_get(player)
+      end
+
+      # In the order `rake test` plays them.
+      RUNS = Ractor.make_shareable([
+                                     Run.new(name: :gba, title: "GBA", console: :gba, checked: false,
+                                             does: "the game on the interpreter", needs: nil,
+                                             player: "IR::Backends::Reference"),
+                                     Run.new(name: :native, title: "native", console: :gba, checked: true,
+                                             does: "the game built as C, checked against the interpreter",
+                                             needs: "zig", player: "Testing::CheckedPlayer"),
+                                     Run.new(name: :js, title: "JavaScript", console: :gba, checked: true,
+                                             does: "the game built as JavaScript, checked against the interpreter",
+                                             needs: "node", player: "Testing::JSCheckedPlayer"),
+                                     Run.new(name: :gbc, title: "Game Boy Color", console: :gbc, checked: true,
+                                             does: "the game built as a Game Boy Color cartridge, played in the " \
+                                                   "emulator and checked against the interpreter",
+                                             needs: nil, player: "Testing::GBCCheckedPlayer")
+                                   ])
+
+      # The setting a run's lowering is read from: each run but the GBA lowering's sets it to its
+      # name ("native", "js", "gbc"); left alone it is the GBA lowering's run.
       SETTING = "RUBY_GBA_LOWERING"
-      NAMES = %i[gba native js gbc].freeze
-
-      # What a sentence calls each lowering, in the order `rake test` plays them: "the GBA
-      # lowering", "this JavaScript run". Everything that says a lowering's name to a person reads
-      # it from here.
-      TITLES = { gba: "GBA", native: "native", js: "JavaScript", gbc: "Game Boy Color" }.freeze
-
-      # The lowerings whose run plays the game itself, built for another machine and checked
-      # against the interpreter, rather than the interpreter alone: a run of one of these starts
-      # programs, so it is played in processes rather than Ractors.
-      CHECKED = %i[native js gbc].freeze
-
-      # What `rake -T` says each lowering's run does, and what it needs besides Ruby.
-      RUNS = {
-        gba: "the game on the interpreter",
-        native: "the game built as C, checked against the interpreter",
-        js: "the game built as JavaScript, checked against the interpreter",
-        gbc: "the game built as a Game Boy Color cartridge, played in the emulator and checked against the interpreter"
-      }.freeze
-      NEEDS = { native: "zig", js: "node" }.freeze
-
-      # The console each lowering's run plays the game as (see Console::DESCRIPTIONS). The native
-      # and JavaScript builds play an Advance game, laid out for the Advance's screen, so a game for
-      # the Advance alone is played by the first three and a game for the Color too by all four.
-      CONSOLES = { gba: :gba, native: :gba, js: :gba, gbc: :gbc }.freeze
+      NAMES = Ractor.make_shareable(RUNS.map(&:name))
 
       module_function
+
+      # The record of the lowering named +name+, refusing a name no lowering has.
+      def run_named(name) = RUNS.find { |run| run.name == name } || refuse_unknown_lowering!(name)
 
       # The lowerings whose runs play a game for +consoles+ (Symbols), in the order `rake test`
       # plays them.
       def lowerings_for(consoles)
-        NAMES.select { |lowering| consoles.include?(CONSOLES.fetch(lowering)) }
+        RUNS.select { |run| consoles.include?(run.console) }.map(&:name)
       end
 
       # The lowering +env+ says, refusing one there is not.
@@ -57,6 +81,11 @@ module RubyGBA
         return lowering if NAMES.include?(lowering)
 
         raise ArgumentError, "#{SETTING} is #{lowering}. A run can test #{in_words(NAMES)}."
+      end
+
+      def refuse_unknown_lowering!(name)
+        raise ArgumentError, "There is no lowering named #{name.inspect}. Name " \
+                             "#{in_words(NAMES.map(&:inspect))}."
       end
 
       # A list said the way a sentence says one: "gba, native or js".
