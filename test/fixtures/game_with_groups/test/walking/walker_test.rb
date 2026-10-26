@@ -9,7 +9,7 @@ class WalkerTest < Minitest::Test
     note_lowering
     # The run's own copy of its test options reaches whatever this test starts, so it must not
     # hold an option for a test runner the game does not have.
-    refute_includes ENV.fetch("TESTOPTS", "").split, "--ractor" if RubyGBA::Testing.native?
+    refute_includes ENV.fetch("TESTOPTS", "").split, "--ractor" if VBlank::Testing.native?
 
     assert_equal 6, game_player.hold(:right).run(Walker::GAME.program, frames: 6)[:x]
   end

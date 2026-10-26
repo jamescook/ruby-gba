@@ -1,6 +1,6 @@
 # The Game Boy Advance — what every verb does there
 
-A game built for the Advance (`RubyGBA.game "NAME", consoles: %i[gba]`, then
+A game built for the Advance (`VBlank.game "NAME", consoles: %i[gba]`, then
 `ruby-gba build`) has a 240×160 screen (`screen_width`, `screen_height`), ten buttons,
 four backgrounds, 128 sprites and lists of sixteen colours. Every verb works there: the
 verbs were written for the Advance first. The answers are decided in

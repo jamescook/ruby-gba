@@ -4,15 +4,15 @@ require "open3"
 require "tmpdir"
 
 # A web build's page, played in node with a stand-in for the browser
-# (test/ruby_gba/ir/backends/js/page_harness.js, which says what each step does), and the two
+# (test/vblank/ir/backends/js/page_harness.js, which says what each step does), and the two
 # small games the page's tests play on it. `include WebPage` in a test of the page or of
 # createGame.
 module WebPage
-  HARNESS = RubyGBA.root.join("test", "ruby_gba", "ir", "backends", "js", "page_harness.js").to_s
+  HARNESS = VBlank.root.join("test", "vblank", "ir", "backends", "js", "page_harness.js").to_s
 
   # Right moves the square, a pixel a frame.
   private def walking_game
-    RubyGBA.game "PAGE <&>", consoles: %i[gba] do
+    VBlank.game "PAGE <&>", consoles: %i[gba] do
       screen :bitmap
       x = var :x, 0
       game_loop do
@@ -25,7 +25,7 @@ module WebPage
 
   # The square moves a pixel every frame, so the picture says how many frames were played.
   private def ticking_game
-    RubyGBA.game "TICKING", consoles: %i[gba] do
+    VBlank.game "TICKING", consoles: %i[gba] do
       screen :bitmap
       x = var :x, 0
       game_loop do
@@ -45,7 +45,7 @@ module WebPage
         options[:template] = File.join(dir, "page.html.erb")
         File.write(options[:template], template)
       end
-      RubyGBA::IR::Backends::JS.new.build_page(game, path, err: nil, **options)
+      VBlank::IR::Backends::JS.new.build_page(game, path, err: nil, **options)
       File.read(path, encoding: Encoding::UTF_8)
     end
   end
@@ -72,8 +72,8 @@ module WebPage
   # A square lit along the top of the screen for each of the console's buttons held, in
   # IR::Buttons::NAMES order, so one picture says which are held.
   private def buttons_game
-    buttons = RubyGBA::IR::Buttons::NAMES
-    RubyGBA.game "BUTTONS", consoles: %i[gba] do
+    buttons = VBlank::IR::Buttons::NAMES
+    VBlank.game "BUTTONS", consoles: %i[gba] do
       screen :bitmap
       game_loop do
         clear_screen :black

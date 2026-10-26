@@ -23,7 +23,7 @@
 # Run it to build examples/cave.gba:
 #   ruby examples/cave.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Cave
   # One screen of cave, 30 cells by 20, with its mouth in the right-hand wall.
@@ -84,7 +84,7 @@ module Cave
   LANTERN_REACH = 36
   CAVE_DARK = 85
 
-  GAME = RubyGBA.game("CAVE", consoles: %i[gba]) do
+  GAME = VBlank.game("CAVE", consoles: %i[gba]) do
     screen :tiled
 
     image :rock, "#" => rgb(12, 10, 9), "." => rgb(7, 6, 5) do

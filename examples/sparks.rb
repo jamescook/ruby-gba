@@ -13,14 +13,14 @@
 # Run it to build examples/sparks.gba:
 #   ruby examples/sparks.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Sparks
   SLOTS = 32 # sparks alive at once; a full pool recycles its oldest
 
   # The game as a block the builder runs, so a test can drive the exact program that
   # ships — the headless interpreter runs THIS, the console runs the ROM.
-  GAME = RubyGBA.game("SPARKS", consoles: %i[gba]) do
+  GAME = VBlank.game("SPARKS", consoles: %i[gba]) do
     screen :bitmap
     seed 0x5EED # a fixed stream, so every run is the same run
 

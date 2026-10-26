@@ -34,7 +34,7 @@
 # Run it to build examples/pacman.gba:
 #   ruby examples/pacman.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Pacman
   SPEED = 2
@@ -133,7 +133,7 @@ module Pacman
 
   # The game as a block the builder runs, so a test can drive the exact program that
   # ships — the headless interpreter runs THIS, the console runs the ROM.
-  GAME = RubyGBA.game("PACMAN", consoles: %i[gba gbc]) do
+  GAME = VBlank.game("PACMAN", consoles: %i[gba gbc]) do
     screen :tiled # tile mode: a background layer for the room + hardware sprites on top
     here = Layout.new(width: screen_width, height: screen_height)
 

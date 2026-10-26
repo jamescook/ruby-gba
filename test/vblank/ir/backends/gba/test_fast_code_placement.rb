@@ -1,0 +1,701 @@
+# frozen_string_literal: true
+
+require "test_helper"
+require "differential"
+
+# Keeping hot code in the console's quick memory. The build works out on its own which
+# routines a frame spends its time in and copies them there at boot, where the same
+# instructions run about two and a half times faster; the author can overrule it either
+# way, and `rom.explain` says what it chose.
+#
+# The strongest thing to assert here is that NOTHING CHANGES: the same program draws the
+# same pixels, on the interpreter and on the console, whether its code runs from the
+# cartridge or not. Everything else is the placement being visible and steerable.
+class TestFastCodePlacement < Minitest::Test
+  include Differential
+
+  Placement = VBlank::IR::Backends::GBA::Placement
+
+  # A program with a real inner loop — the shape this feature exists for. It walks a
+  # counter a few hundred times a frame and paints a bar whose width the loop works out,
+  # so there is something to see and something to time.
+  private def looping_program(passes: 40, fast: nil, halt_after: 3)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      total = var :total, 0
+      f = var :f, 0
+      func(:work, fast: fast) do
+        total.set! 0
+        repeat(passes) { |i| total.add! i }
+      end
+      game_loop do
+        wait_vblank
+        call :work
+        fill_rect 0, 0, 40, 8, :green
+        f.add! 1
+        (f >= halt_after).then { halt } if halt_after
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  private def placement_of(program, **opts)
+    backend = GBA.new(**opts)
+    backend.lower(program)
+    backend.iwram_report
+  end
+
+  # A cartridge that can report on itself, built the way VBlank.build builds one: the
+  # record of what the build worked out is handed over whole, at assembly.
+  private def rom_of(program, title:, code:, **opts)
+    backend = GBA.new(**opts)
+    machine_code = backend.lower(program)
+    VBlank::Cartridge::ROM.assemble(machine_code, title: title, code: code, maker: "01",
+                                        built: backend.build_record(program))
+  end
+
+  # --- it changes nothing ---
+
+  # The same program, both ways, every pixel compared — on the interpreter and on the
+  # real console. Where code lives is not allowed to change what it draws.
+  def test_the_console_draws_the_same_picture_whether_or_not_code_moves
+    program = looping_program
+    refute_empty placement_of(program).funcs, "the program has something worth moving"
+    assert_backends_agree(program, frames: 3)
+  end
+
+  # ...and the two builds agree with each other, which is the tighter statement: it is the
+  # SAME program lowered two ways, so any difference is the placement's fault and nothing
+  # else's.
+  def test_both_builds_draw_the_same_picture_on_the_console
+    program = looping_program
+    moved = console_pixels(program, fast_code: true)
+    left = console_pixels(program, fast_code: false)
+    differing = moved.each_index.count { |i| moved[i] != left[i] }
+    assert_equal 0, differing, "#{differing} pixels differ between the two builds"
+  end
+
+  private def console_pixels(program, **opts)
+    rom = VBlank::Cartridge::ROM.assemble(GBA.new(**opts).lower(program), title: "PLACE", code: "PLC1", maker: "01")
+    verifier = assert_emulator_loads_rom(rom, frames: 4)
+    height = VBlank::IR::Screen::HEIGHT
+    width = VBlank::IR::Screen::WIDTH
+    (0...height).flat_map { |y| (0...width).map { |x| verifier.pixel_gba(x, y) } }
+  end
+
+  # --- it is actually faster ---
+
+  # The whole point. A program whose loop moved does the same work in fewer cycles.
+  #
+  # Sized to stay well inside one frame either way: past ~228 scanlines the reading
+  # saturates and both builds come back at the ceiling, which would make a real speed-up
+  # look like none at all. It must not halt either — a halted console spins, which reads
+  # as a full frame of work whatever the program was doing before it stopped.
+  def test_moving_the_hot_code_makes_the_frame_cheaper
+    program = looping_program(passes: 60, halt_after: nil)
+    quick = frame_scanlines(program, fast_code: true)
+    cart = frame_scanlines(program, fast_code: false)
+    assert_operator cart / quick, :>, 1.5,
+                    "expected a real speed-up, got #{format('%.2fx', cart / quick)} (#{cart} -> #{quick})"
+  end
+
+  private def frame_scanlines(program, **opts)
+    rom = VBlank::Cartridge::ROM.assemble(GBA.new(**opts).lower(program), title: "SPEED", code: "SPD1", maker: "01")
+    require_emulator!
+    Tempfile.create(["place", ".gba"]) do |file|
+      file.binmode
+      rom.write(file.path)
+      file.flush
+      probe = RubyGBAEmulator.open(file.path)
+      reading = 3.times.map { probe.busy_scanlines(settle: 20) }.min
+      probe.close
+      return reading
+    end
+  end
+
+  # --- the author is in charge ---
+
+  # `fast_code: false` stops the framework choosing. Nothing moves.
+  def test_the_choosing_can_be_turned_off
+    assert_empty placement_of(looping_program, fast_code: false).funcs
+  end
+
+  # ...but a routine the author names still goes, which is the point of having both
+  # switches: turn the automatic choosing off, then say where you want it yourself.
+  def test_a_named_routine_still_moves_with_the_choosing_off
+    report = placement_of(looping_program(fast: true), fast_code: false)
+    assert_equal [:work], report.funcs
+  end
+
+  # And a routine marked `fast: false` is left alone even when the framework would have
+  # taken it.
+  def test_a_routine_can_be_kept_out
+    report = placement_of(looping_program(fast: false))
+    refute_includes report.funcs, :work
+  end
+
+  # The game loop's body has no name in the program, but it is where nearly all of a
+  # frame's time goes, so the framework treats it as a routine and moves it. Without this
+  # a game that puts everything in its loop — which is most of them — would get nothing.
+  def test_the_game_loops_own_body_can_move
+    assert_includes placement_of(looping_program).funcs, Placement::FRAME_ROUTINE
+  end
+
+  # --- it says what it did ---
+
+  def test_the_report_names_what_it_kept_in_quick_memory
+    rom = VBlank.build("FASTC", console: :gba, code: "FSTC", maker: "01", err: StringIO.new) do
+      screen :bitmap
+      clear_screen :black
+      t = var :t, 0
+      game_loop do
+        wait_vblank
+        repeat(50) { |i| t.add! i }
+        fill_rect 0, 0, 40, 8, :green
+      end
+    end
+    out = StringIO.new
+    VBlank::Diagnostics::BuildReport.render(rom, out: out)
+
+    assert_match(/kept in quick memory/, out.string)
+    assert_match(/the game loop/, out.string)
+    assert_match(/of 32K used/, out.string)
+  end
+
+  # The estimate has to follow the code. Moving a routine makes it genuinely cheaper, so
+  # an estimate that ignored the move would read nearly three times over for any game
+  # whose loop went — which is most of them.
+  #
+  # EVERYTHING THIS PROGRAM SPENDS ITS FRAME ON IS INSIDE :work, so :work is what has to
+  # move for the frame to get cheaper. Naming only the frame's own body would leave the
+  # routine in the cartridge, and a game whose loop moved while its routine did not is a
+  # real build rather than a hypothetical one — that is what quick memory running out
+  # looks like.
+  #
+  # The frame's own boundary comes off both readings first. Waiting for the screen is the
+  # console's own doing and takes the same time wherever our code lives, so it is the one
+  # part of a frame the move cannot make cheaper.
+  #
+  # MEASURED, which is the only way this claim was ever worth anything. It used to be checked
+  # against an estimate that had been told which routines moved — so it asserted that the
+  # estimate applied its own discount, not that the console ran anything faster. The same
+  # program is now built both ways and RUN, and the two frames are counted.
+  def test_the_code_really_runs_faster_in_quick_memory
+    require_emulator!
+    # It has to keep running to be measured: the fixture normally stops after three passes,
+    # and a halted game finishes no frames at all.
+    program = looping_program(passes: 200, halt_after: nil)
+    cart = profile_of(rom_of(program, title: "SLOW", code: "PSLW", fast_code: false))
+    quick = profile_of(rom_of(program, title: "FAST", code: "PFST", fast_code: true))
+
+    # HOW MUCH OF EACH FRAME IS LEFT, not the instruction count. The two run the same
+    # instructions; what differs is how long each takes to fetch. Counting instructions a
+    # frame would read backwards, because a pass too slow for one frame spills into the next
+    # and so runs FEWER of them per frame.
+    assert_operator quick.idle_share, :>, cart.idle_share,
+                    "moving the code has to leave more of each frame: " \
+                    "#{quick.idle_share} against #{cart.idle_share}"
+  end
+
+  # ...and the half of that which is easy to lose: moving the frame's own body does NOT carry
+  # the routine it calls along with it. A routine is emitted once and jumped to, so one left
+  # behind runs from the cartridge whoever called it. That is a placement fact, so the
+  # placement is what says it.
+  def test_moving_the_frame_body_does_not_move_the_routine_it_calls
+    placement = rom_of(looping_program(passes: 200), title: "SPLT", code: "PSPL",
+                       fast_code: false).placement
+
+    refute_includes placement.funcs, :work,
+                    "with the chooser off, nothing moves — including a routine the loop calls"
+  end
+
+  private def profile_of(rom)
+    VBlank::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
+  end
+
+  # --- a scene says it too ---
+
+  # A menu and a game, each with a sprite that moves, so each scene has code of its own and a
+  # routine the build makes to write its sprites. The menu is up first unless +up+ says the
+  # game; START goes from the menu to the game. Small enough that everything fits, so
+  # whatever stays out was kept out.
+  private def two_scenes(menu_fast: nil, up: 0)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      %i[cursor hero].each do |name|
+        image name, "#" => :white do
+          "########\n" * 8
+        end
+      end
+      state = var :state, up
+      scene :menu, fast: menu_fast do
+        cursor = sprite :cursor, at: [20, 20]
+        cursor.move :right
+        pressed(:start).then { state.set! 1 }
+      end
+      scene :playing do
+        hero = sprite :hero, at: [100, 60]
+        hero.move :down
+      end
+      game_loop do
+        case_var(:state) do
+          when_val 0, :menu
+          when_val 1, :playing
+        end
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  private def menu_sprites = VBlank::IR::Backends::GBA::SpriteDrawing.sprites_routine(:_scene_menu)
+
+  def test_both_scenes_and_their_sprites_move_when_nothing_is_said
+    funcs = placement_of(two_scenes).funcs
+    assert_includes funcs, :_scene_menu
+    assert_includes funcs, menu_sprites
+  end
+
+  # A menu the player sees for seconds is measured as long as the game they play, so it can
+  # take the quick memory ahead of the game. Saying so keeps it out, and its sprites with it.
+  def test_a_scene_kept_out_keeps_its_sprites_out_with_it
+    funcs = placement_of(two_scenes(menu_fast: false)).funcs
+    refute_includes funcs, :_scene_menu
+    refute_includes funcs, menu_sprites
+    assert_includes funcs, :_scene_playing
+  end
+
+  def test_a_scene_insisted_on_takes_its_sprites_with_it
+    funcs = placement_of(two_scenes(menu_fast: true), fast_code: false).funcs
+    assert_includes funcs, :_scene_menu
+    assert_includes funcs, menu_sprites
+  end
+
+  # Where its code sits is all that changes: the menu, and the game beside it, draw the same
+  # picture on the interpreter and on the console.
+  def test_a_scene_kept_out_still_draws_the_same_picture
+    assert_backends_agree(two_scenes(menu_fast: false), frames: 3)
+    assert_backends_agree(two_scenes(menu_fast: false, up: 1), frames: 3)
+  end
+
+  # --- the routine the console interrupts into ---
+
+  # A background bending row by row is answered after every line the display draws, 228
+  # times a frame, which makes the routine those answers run in the busiest thing in the
+  # program. It has no name the author wrote, like the game loop's body, and it is placed
+  # the same way.
+  #
+  # It bends FOUR layers, which is what puts it on the interrupt: three is as many copying
+  # engines as there are to lend out, so a fourth layer is one more than there is an engine
+  # for and the display has to be interrupted for all of them. Give the helper a block
+  # instead and it bends one layer, which an engine feeds and which lands there not at all
+  # (see BendForm, and the test below).
+  private def bending_program(&block)
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image(:bar, "." => :transparent, "#" => :red) { (["##......"] * 8).join("\n") }
+      tiles :stripes, "#" => :bar
+      map = Array.new(20) { "#" * 30 }
+      if block
+        instance_exec(background(:water, tiles: :stripes, map: map), &block)
+      else
+        4.times do |i|
+          background(:"water#{i}", tiles: :stripes, map: map).scroll_each_row { |row| (row + i) % 8 }
+        end
+      end
+      game_loop { }
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_the_routine_the_display_interrupts_into_moves_when_a_background_bends
+    assert_includes placement_of(bending_program).funcs, Placement::IRQ_ROUTINE
+  end
+
+  # ...and it is not placed at all for a bend a copying engine feeds, because nothing lands
+  # there: the display announces no lines, and the block runs in the frame with the rest of
+  # the code. The room goes to whatever else earns it.
+  def test_nothing_is_placed_there_for_a_bend_the_copier_feeds
+    program = bending_program { |water| water.scroll_each_row { |row| row % 8 } }
+    refute_includes placement_of(program).funcs, Placement::IRQ_ROUTINE
+  end
+
+  # ...and it does NOT move for a program that only sleeps until the next frame. That
+  # program enters it once a frame and leaves again immediately, so the room is better spent
+  # on anything else — the same "has to earn its place" rule every routine is held to.
+  def test_it_stays_in_the_cartridge_when_nothing_interrupts_often
+    refute_includes placement_of(looping_program).funcs, Placement::IRQ_ROUTINE
+  end
+
+  # A timer is the other thing that can make it busy: `per_second: 4000` runs its handler 67
+  # times a frame, off the timer rather than the frame loop. So it moves for that too, which
+  # is what "this helps every interrupt, not only bends" has to mean in practice.
+  private def ticking_program(per_second: 4000)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      n = var :n, 0
+      timer(:beat, per_second: per_second).on_tick { n.add! 1 }
+      game_loop { fill_rect 0, 0, 40, 8, :green }
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_the_routine_moves_for_a_busy_timer_too
+    assert_includes placement_of(ticking_program).funcs, Placement::IRQ_ROUTINE
+  end
+
+  # A timer that ticks a handful of times a second is not worth the room, the same as a
+  # program with no timer at all.
+  def test_a_slow_timer_does_not_earn_the_room
+    refute_includes placement_of(ticking_program(per_second: 2)).funcs, Placement::IRQ_ROUTINE
+  end
+
+  def test_a_busy_timers_frame_is_cheaper_once_that_routine_moves
+    quick = frame_scanlines(ticking_program, fast_code: true)
+    cart = frame_scanlines(ticking_program, fast_code: false)
+    assert_operator cart / quick.to_f, :>, 1.3,
+                    "expected a real saving, got #{format('%.2fx', cart / quick.to_f)} (#{cart} -> #{quick})"
+  end
+
+  def test_it_stays_in_the_cartridge_with_the_choosing_off
+    refute_includes placement_of(bending_program, fast_code: false).funcs, Placement::IRQ_ROUTINE
+  end
+
+  # The whole point of moving it, measured on the console: the same bend, the same picture,
+  # for about half the frame. This is the one assertion that cannot be argued with — the
+  # routine really is running from the quick memory, because nothing else would show here.
+  def test_a_bending_background_costs_much_less_once_that_routine_moves
+    quick = frame_scanlines(bending_program, fast_code: true)
+    cart = frame_scanlines(bending_program, fast_code: false)
+    assert_operator cart / quick.to_f, :>, 1.5,
+                    "expected a real saving, got #{format('%.2fx', cart / quick.to_f)} (#{cart} -> #{quick})"
+  end
+
+  # And it changes nothing about the picture. The handler is copied bytes running from a
+  # different address, so a branch inside it that did not survive the move, or a vector left
+  # pointing at the cartridge, would show up as rows bending by the wrong amount.
+  def test_the_console_bends_the_same_rows_whether_that_routine_moves
+    program = bending_program
+    moved = console_pixels(program, fast_code: true)
+    left = console_pixels(program, fast_code: false)
+    differing = moved.each_index.count { |i| moved[i] != left[i] }
+    assert_equal 0, differing, "#{differing} pixels differ between the two builds"
+  end
+
+  # A block that does more than work one number out — it sets a variable, calls a routine,
+  # and reads the result. Those statements run 160 times in the frame's own body, which is
+  # itself kept in the quick memory, and a call out of there to a routine still in the
+  # cartridge is four instructions instead of one — so this is the path that breaks if the
+  # crossing is not handled.
+  def test_a_block_that_calls_a_routine_still_bends_the_same_rows
+    program = bending_program do |water|
+      shift = var :shift, 0
+      func(:pick) { shift.set! 4 }
+      water.scroll_each_row do |row|
+        call :pick
+        shift.add! row % 2
+        shift
+      end
+    end
+    assert_includes placement_of(program).funcs, Placement::FRAME_ROUTINE
+    assert_backends_agree(program, frames: 3, name: "CBND")
+  end
+
+  # --- and it really is faster there ---
+
+  # Moving it makes bending genuinely cheaper, and it is measured rather than asserted about
+  # an estimate that had been TOLD the routine moved. Part of what an interrupt costs is the
+  # console's own — stopping the game, saving registers, handing control over — and that runs
+  # at the console's speed however fast ours is, so the gain is real but smaller than a plain
+  # routine's. What matters here is only that it is a gain.
+  def test_the_interrupt_really_runs_faster_in_quick_memory
+    require_emulator!
+    program = bending_program
+    cart = profile_of(rom_of(program, title: "BSLW", code: "BSLW", fast_code: false))
+    quick = profile_of(rom_of(program, title: "BFST", code: "BFST", fast_code: true))
+
+    assert_operator quick.idle_share, :>, cart.idle_share,
+                    "moving the routine the display interrupts into leaves more of each frame"
+  end
+
+  def test_the_report_names_the_routine_the_display_interrupts_into
+    rom = rom_of(bending_program, title: "BENDP", code: "BNDP")
+
+    out = StringIO.new
+    VBlank::Diagnostics::BuildReport.render(rom, out: out)
+    assert_match(/kept in quick memory/, out.string)
+    assert_match(/answers the display and the timers/, out.string)
+  end
+
+  # --- the memory is accounted for ---
+
+  # Whatever it chooses on its own, it can never overrun the memory: the choice is made
+  # afresh each build from where the variables actually reached. So a program that grows
+  # gets a smaller share rather than a broken build.
+  def test_the_automatic_choice_always_fits
+    report = placement_of(looping_program)
+    assert_operator report.used_bytes, :<=, report.total_bytes
+    assert_operator report.free_bytes, :>=, 0
+  end
+
+  # A game of scenes with a live score in it — the two shapes whose calls the author never
+  # wrote. A multi-way dispatch calls one scene per clause, and a run-time digit calls a
+  # shared glyph routine per digit place; neither is a `call` in the tree.
+  private def game_of_scenes
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      var :state, 0
+      score = var :score, 0
+      func(:tally) { score.add! 1 }
+      scene(:title) { clear_screen :black }
+      scene(:playing) do
+        clear_screen :blue
+        draw_number :score, 10, 20, :white, digits: 6
+        call :tally
+        repeat(300) { |i| score.add! i }
+      end
+      scene(:over) { draw_number :score, 10, 30, :white, digits: 6 }
+      game_loop do
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :playing
+          when_val 2, :over
+        end
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # WHAT A ROUTINE IS CHARGED HAS TO COVER WHAT IT COMES OUT AT, and this is the only place
+  # that can say so, because being short does not fail where it happens.
+  #
+  # The chooser adds up what each routine WILL come to once moved and takes routines while the
+  # total still fits. It works from a throwaway pass where nothing has moved, so it has to
+  # predict the one way a routine grows: a call that ends up crossing between the cartridge and
+  # the quick memory stops being a four-byte branch and becomes an address built in full, a
+  # move, and a jump through it. Charge less than that for any of them and nothing goes wrong
+  # until the very end of a build that FITS, where the block comes out bigger than the room it
+  # was given and the author is told to mark a routine `fast: false` — advice about a program
+  # that was never the problem.
+  def test_a_routine_is_charged_at_least_what_it_comes_out_at
+    assert_charged_at_least_emitted(game_of_scenes, moved: VBlank::IR::Backends::GBA::Placement::FRAME_ROUTINE)
+  end
+
+  # The same for calls no node of the tree shows: a save on 128K of flash reads and writes each
+  # byte through a routine that switches the chip to the right half of itself, and that call
+  # crosses too once the save's own routine moves. Short, a game with a big list on 128K
+  # stopped building where the same game on 64K built.
+  def test_a_routine_saving_on_128k_is_charged_at_least_what_it_comes_out_at
+    program = VBlank.game("CHARGE", consoles: %i[gba], save_memory: 128) do
+      screen :bitmap
+      hearts = var :hearts, 3
+      file = save_data(:file) { keep hearts }
+      game_loop { pressed(:a).then { hearts.set! 7; file[0].save } }
+    end.program
+
+    assert_charged_at_least_emitted(program, moved: :__save_file__step)
+  end
+
+  # ...and a digit drawn from a timer's tick, whose call to the font's digit routine is written
+  # in the routine the console interrupts into.
+  def test_a_digit_drawn_from_a_tick_is_charged_to_the_interrupt
+    program = VBlank.game("CHARGE", consoles: %i[gba]) do
+      screen :bitmap
+      shown = var :shown, 0
+      timer(:clock, per_second: 4000).on_tick { shown.add! 1; draw_number shown, 8, 8, :white, digits: 3 }
+      game_loop {}
+    end.program
+
+    assert_charged_at_least_emitted(program, moved: VBlank::IR::Backends::GBA::Placement::IRQ_ROUTINE)
+  end
+
+  # ...and NO MORE than that, for a routine with nothing in it that can grow: no call out and
+  # no big number. Every byte charged that is not emitted is room the chooser thinks is gone,
+  # and a routine that misses its place by a few bytes misses it entirely.
+  def test_a_routine_that_cannot_grow_is_charged_exactly_what_it_comes_out_at
+    backend = GBA.new
+    backend.lower(looping_program(fast: true))
+    charged, emitted = backend.charged_and_emitted_sizes.fetch(:work)
+
+    assert_equal emitted, charged
+  end
+
+  # A CALL BETWEEN TWO KEPT ROUTINES IS THE PLAIN CALL IT ALWAYS WAS, so it is not charged
+  # for. A routine is charged for every call it holds as though each crossed out to the
+  # cartridge, because when the charging starts nothing is chosen yet. Once the routine it
+  # calls is kept beside it, that growth never happens — and room still set aside for it is
+  # room the next routine is turned away from.
+  def test_a_call_to_a_routine_kept_beside_it_is_not_charged_as_crossing
+    backend = GBA.new
+    backend.lower(calling_program)
+    charged, emitted = backend.charged_and_emitted_sizes.fetch(:caller)
+
+    assert_includes backend.iwram_report.funcs, :leaf, "the routine it calls is kept too"
+    assert_equal emitted, charged
+  end
+
+  # ...which is the difference between fitting and not. The quick memory here has room for
+  # what the three routines really come to and sixteen bytes over; charged for ten calls
+  # that do not cross, the caller is turned away.
+  def test_routines_that_call_each_other_fit_in_the_room_they_really_take
+    loose = GBA.new
+    loose.lower(calling_program)
+    spare = loose.iwram_report.free_bytes - 16
+    tight = GBA.new
+    tight.lower(calling_program(filler: spare))
+
+    assert_equal %i[__frame caller leaf], tight.iwram_report.funcs.sort
+    assert_empty tight.iwram_report.passed_over
+  end
+
+  # A routine that calls another ten times, both small enough to keep. +filler+ takes that
+  # many bytes of the quick memory away first.
+  private def calling_program(filler: nil)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      total = var :total, 0
+      list :filler, capacity: filler, width: :byte, fast: true if filler
+      func(:leaf) { total.add! 1 }
+      func(:caller) { 10.times { call :leaf } }
+      game_loop { call :caller }
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # A VARIABLE A KEPT ROUTINE USES IS ONE THE BASE REGISTER REACHES. A variable within 4K of
+  # the start of the quick memory is read in one instruction, which is room for about a
+  # thousand of them; one past that needs its whole address first. Which ones land past the
+  # line used to be the order the program named them in. A game with more variables than fit
+  # now gives the near places to the routines it keeps in the quick memory, where a byte is
+  # room another routine wanted and an instruction is in the path the frame takes.
+  def test_a_variable_a_kept_routine_uses_is_within_reach_of_the_base
+    backend = GBA.new
+    backend.lower(crowded_program)
+    places = backend.var_addresses
+    reach = VBlank::IR::Backends::GBA::Primitives::FURTHEST_FROM_BASE
+    base = VBlank::Console::Hardware::IWRAM_START
+
+    assert_operator places.size, :>, 1024, "the program has more variables than the base register reaches"
+    assert_operator places.fetch(:last) - base, :<=, reach, "the kept routine's variable is one it reaches"
+    assert_operator places.fetch(:"v#{CROWD - 1}") - base, :>, reach, "and one nobody kept gave up its place"
+  end
+
+  # ...and what was measured is still what was built: the routines are measured again with
+  # the variables where they will be, so the charge is for that program and not the first.
+  def test_a_crowded_program_is_charged_for_the_layout_it_is_built_with
+    backend = GBA.new
+    backend.lower(crowded_program)
+    charged, emitted = backend.charged_and_emitted_sizes.fetch(:work)
+
+    assert_equal emitted, charged
+  end
+
+  def test_a_crowded_program_still_counts_right_on_the_console
+    program = crowded_program
+    backend = GBA.new
+    rom = ROM.assemble(backend.lower(program), title: "CROWD", maker: "01", built: backend.build_record(program))
+    console = assert_emulator_loads_rom(rom, frames: 8, vars: backend.var_addresses)
+    oracle = Reference.new.run(program, frames: 3)
+
+    assert_operator console.var(:last), :>, 0
+    assert_equal 7, console.var(:"v#{CROWD - 1}"), "a variable that moved out still holds what it was given"
+    assert_equal 7, oracle[:"v#{CROWD - 1}"]
+  end
+
+  CROWD = 1100
+
+  # More variables than the base register reaches, and a kept routine that uses the one
+  # declared last of all.
+  private def crowded_program
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      CROWD.times { |n| var :"v#{n}", 7 }
+      last = var :last, 0
+      func(:work, fast: true) { last.add! 1 }
+      game_loop { call :work }
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # THE MEASUREMENT HAS TO BE OF THE PROGRAM THAT IS BUILT. A variable gets its address the
+  # first time something names it, and the pass that measures emits the routines in the order
+  # they were written where the real one emits the kept ones last — so a variable the build
+  # made for itself inside a routine (here, each loop's counter) used to land somewhere else
+  # the second time. Where a variable lands decides how many instructions reaching it takes,
+  # so the routine measured was not quite the routine emitted.
+  def test_a_variable_is_at_the_same_address_in_the_measuring_pass_and_the_real_one
+    program = two_loops_program
+    real = GBA.new
+    real.lower(program)
+    measuring = GBA.new
+    measuring.lower(program, fast_funcs: Set.new)
+
+    assert_includes real.iwram_report.funcs, :kept
+    refute_includes real.iwram_report.funcs, :left, "one routine moved and the other did not"
+    assert_operator measuring.var_addresses.size, :>, 2, "the build made variables of its own"
+    assert_equal measuring.var_addresses, real.var_addresses
+  end
+
+  # A routine kept in the quick memory written BEFORE one left in the cartridge, each with a
+  # loop whose counter has to live in memory (two calls in the body take the registers).
+  private def two_loops_program
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      total = var :total, 0
+      func(:leaf, fast: false) { total.add! 1 }
+      func(:kept, fast: true) { repeat(3) { call :leaf; call :leaf } }
+      func(:left, fast: false) { repeat(3) { call :leaf; call :leaf } }
+      game_loop { call :kept; call :left }
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # Lower +program+ and check every routine moved to the quick memory was charged at least
+  # what it came out at — +moved+ among them, so the check cannot pass by moving nothing.
+  private def assert_charged_at_least_emitted(program, moved:)
+    backend = GBA.new
+    backend.lower(program)
+    charges = backend.charged_and_emitted_sizes
+    short = charges.select { |_name, (charged, emitted)| charged < emitted }
+
+    assert_includes charges.keys, moved, "the routine under test was moved"
+    assert_empty short, "these routines came out bigger than the chooser was told: " \
+                        "#{short.map { |name, (c, e)| "#{name} charged #{c}, emitted #{e}" }.join(', ')}"
+  end
+
+  # A routine the author insists on that will not fit is a plain error naming it — the one
+  # case where the memory can be overrun, because the author asked.
+  def test_a_named_routine_that_cannot_fit_is_a_friendly_error
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      list :big, capacity: 7000, fast: true # eats nearly all of the quick memory, and insists on it
+      big = var :b, 0
+      func(:work, fast: true) { 400.times { big.add! 1 } }
+      game_loop { wait_vblank; call :work }
+    end
+    builder.finalize_program
+
+    err = assert_raises(GBA::LoweringError) { GBA.new.lower(builder.program) }
+    assert_match(/fast: true/, err.message)
+    assert_match(/work/, err.message)
+  end
+end

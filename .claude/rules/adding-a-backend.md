@@ -1,7 +1,7 @@
 ---
 paths:
-  - "lib/ruby_gba/ir/backends/**"
-  - "test/ruby_gba/ir/backends/**"
+  - "lib/vblank/ir/backends/**"
+  - "test/vblank/ir/backends/**"
 ---
 
 # Adding a backend
@@ -69,8 +69,8 @@ a console of its own needs beyond a lowering:
   they draw one screen size today, the Advance's, so `Console.drawn_by_runtimes` picks the console
   those builds are made as). The build, the reader, the cartridge-file reader and the command line ask the kit, so a
   console is added by describing it and giving it a kit. Nothing outside a console's own code
-  compares console names (`test/ruby_gba/console/test_kit.rb` fails the build if something does).
-- **No console by default.** A game names its consoles, a build (`RubyGBA.build(..., console:)`)
+  compares console names (`test/vblank/console/test_kit.rb` fails the build if something does).
+- **No console by default.** A game names its consoles, a build (`VBlank.build(..., console:)`)
   and a Rakefile (`t.consoles`) name theirs, and a name is held as its Symbol however it was
   written (`Console.named`). Only an unbound program, a tree built for a test (a Builder told
   none, a hand-built `program(...)`), names none, and each run plays it as that run's console.
@@ -98,8 +98,8 @@ A new lowering for a machine that can run a runtime of that shape should start t
 only write a lowering of its own when the tree cannot say what its machine needs.
 
 A new backend is named for the platform it targets (`JS`, not `Canvas` or `V8`), lives in
-`lib/ruby_gba/ir/backends/<name>.rb` beside a folder of the same name, and is required from
-`lib/ruby_gba/ir/backends.rb`.
+`lib/vblank/ir/backends/<name>.rb` beside a folder of the same name, and is required from
+`lib/vblank/ir/backends.rb`.
 
 ## Checked by running, never by output
 
@@ -137,11 +137,11 @@ What a new lowering needs for this, following Native:
   (kind to method name); Native keeps the same two, so the two read side by side and a missing
   kind is one line to find. A new backend keeps them too. A kind it cannot do yet goes on a list
   of its own (Native has `NOT_LOWERED_YET`, empty now), held by a coverage test
-  (`test/ruby_gba/ir/backends/native/test_native_kind_coverage.rb`) so every kind is either done
-  or listed. `test/ruby_gba/ir/test_kind_coverage.rb` holds Reference and the GBA lowering to
+  (`test/vblank/ir/backends/native/test_native_kind_coverage.rb`) so every kind is either done
+  or listed. `test/vblank/ir/test_kind_coverage.rb` holds Reference and the GBA lowering to
   every kind the same way.
 - **The conformance fixture.** `test/conformance_fixture.rb` is one program that touches every
-  kind and every operator. `test/ruby_gba/ir/test_cross_backend_conformance.rb` plays it on the
+  kind and every operator. `test/vblank/ir/test_cross_backend_conformance.rb` plays it on the
   lowering under test (`test_the_lowering_under_test_plays_the_whole_fixture`); a new lowering
   joins that test rather than getting a copy of it.
 - **`Node#source`** is the DSL line that made a node (`"file.rb:12"`), where the builder knew it.
@@ -181,14 +181,14 @@ Each of these is what Reference does; check the line before relying on it.
 ## Joining the test runs
 
 `rake test` plays the suite once for each lowering; a new one is a fifth run.
-`RubyGBA::Testing` (lib/ruby_gba/testing/) is where that is decided, and it is the same code a
+`VBlank::Testing` (lib/vblank/testing/) is where that is decided, and it is the same code a
 game's own suite uses:
 
 - **Each lowering's run is one record**, `Testing::Lowering::Run` in `Testing::Lowering::RUNS`:
-  its name (what `RUBY_GBA_LOWERING` picks), its title, the console it plays a game as, whether it
+  its name (what `VBLANK_LOWERING` picks), its title, the console it plays a game as, whether it
   is checked, what `rake -T` says it does, the program it needs, and its player. A new lowering
   is a record there.
-- `RubyGBA::Testing#game_player` hands a test the record's player: Reference on the GBA run,
+- `VBlank::Testing#game_player` hands a test the record's player: Reference on the GBA run,
   the checked player on the native, JavaScript and Game Boy Color ones. A checked player raises
   `IR::Backends::RunComparison::Disagreement` when it disagrees with the interpreter, which the
   testing kit turns into a failed test.
@@ -196,7 +196,7 @@ game's own suite uses:
   processes, never in Ractors, since they start programs); `Testing::RakeTasks` makes `rake test` and a
   `test:lowering:<name>` task for each.
 - `TestSuites::LOWERING_FOLDERS` (test/support/suites.rb) names the folders only one lowering's
-  run loads: put the new backend's own tests in `test/ruby_gba/ir/backends/<name>/`.
+  run loads: put the new backend's own tests in `test/vblank/ir/backends/<name>/`.
 - **What a checked run does differently** is asked as `Testing.checked?`, which a new lowering
   joins through its record's `checked`: `require_emulator!` in `test/test_helper.rb` (a test of the
   cartridge skips on every run but the GBA one), `Testing::Pictures` and `test/mixed_sound.rb`

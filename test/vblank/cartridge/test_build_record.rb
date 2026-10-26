@@ -1,0 +1,94 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+require "stringio"
+
+# What the build worked out about a cartridge, and how it gets there. A ROM used to be
+# assembled and then filled in field by field from outside, so there was a moment when it
+# was a valid cartridge and half a report. These pin that a ROM is one or the other.
+class TestBuildRecord < Minitest::Test
+  private def a_built_rom
+    VBlank.build("RECORD", console: :gba, code: "ZREC", maker: "01", out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      clear_screen :black
+      t = var :t, 0
+      game_loop do
+        repeat(50) { |i| t.add! i }
+        fill_rect 0, 0, 40, 8, :green
+      end
+    end
+  end
+
+  # A cartridge and a report about how it was made are two different things, and only one
+  # of them is in the bytes. Assembling machine code from anywhere else gives the first.
+  def test_a_cartridge_assembled_from_machine_code_knows_nothing_about_how_it_was_built
+    program = VBlank::IR::Build.program(VBlank::IR::Build.screen(:bitmap),
+                                         VBlank::IR::Build.clear_screen(:black),
+                                         VBlank::IR::Build.halt)
+    rom = VBlank::Cartridge::ROM.assemble(GBA.new.lower(program), title: "RAW", code: "ZRAW", maker: "01")
+
+    assert_nil rom.built
+    assert_nil rom.source_program
+    assert_nil rom.placement
+  end
+
+  # ...and it says so rather than guessing. Every default the estimate would fall back on is
+  # the safe, dearer one, so a report built on them reads plausibly and is wrong by nearly
+  # the factor the quick memory is worth — with nothing on the page to say which it was.
+  def test_a_cartridge_that_cannot_report_on_itself_refuses_rather_than_guessing
+    rom = VBlank::Cartridge::ROM.new(title: "RAW", code: "ZRAW", maker: "01")
+
+    error = assert_raises(VBlank::ROMError) { rom.profile(out: StringIO.new) }
+    assert_match(/does not know how it was built/, error.message)
+    assert_match(/VBlank\.build/, error.message)
+  end
+
+  # A built one answers all of it, and there is no way to have some of it: the record is
+  # made whole by the backend and handed over at assembly.
+  def test_a_built_cartridge_carries_everything_the_build_worked_out
+    rom = a_built_rom
+
+    refute_nil rom.built
+    assert_equal rom.source_program, rom.built.source_program
+    refute_empty rom.placement.funcs, "this program has something worth keeping in quick memory"
+    assert_includes rom.var_addresses.keys, :t
+    refute_empty rom.loop_shapes
+    refute_nil rom.palette_entries
+    refute_nil rom.compression
+    assert_equal({ fast_cartridge: true, fast_code: true, stack_room: nil }, rom.build_options)
+  end
+
+  # ...including what it was TOLD, because measuring a cartridge means building it again the
+  # same way, and a ROM built with different settings has a frame rate the shipped one does not.
+  def test_a_built_cartridge_remembers_the_options_it_was_built_with
+    rom = VBlank.build("SLOW", console: :gba, code: "ZSLW", maker: "01", fast_code: false, fast_cartridge: false, stack_room: 512,
+                                out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      game_loop { fill_rect 0, 0, 40, 8, :green }
+    end
+
+    assert_equal({ fast_cartridge: false, fast_code: false, stack_room: 512 }, rom.build_options)
+  end
+
+  # The half that used to be settable is not any more. A ROM cannot be talked into being
+  # half a report after the fact.
+  def test_nothing_can_fill_a_cartridge_in_afterwards
+    rom = VBlank::Cartridge::ROM.new(title: "RAW", code: "ZRAW", maker: "01")
+
+    %i[source_program= placement= var_addresses= loop_shapes= palette_entries= compression=].each do |setter|
+      refute_respond_to rom, setter
+    end
+  end
+
+  # The record carries the build's own answers about where things went, and a reader takes
+  # them from it rather than from six separate fields threaded through by hand.
+  def test_the_record_carries_where_the_build_put_things
+    rom = a_built_rom
+
+    assert_predicate rom.built, :frame_in_quick_memory?, "the game loop's own body moved to quick memory"
+    assert_equal rom.placement, rom.built.placement
+    assert_equal rom.var_addresses, rom.built.var_addresses
+    assert_equal rom.loop_shapes, rom.built.loop_shapes
+  end
+end

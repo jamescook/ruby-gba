@@ -11,11 +11,11 @@ require "test_helper"
 # other side is test_native_suite.rb, test_js_suite.rb and test_gbc_suite.rb, in those lowerings'
 # folders, which fail if another run ever plays them.
 class TestSuitesSplit < Minitest::Test
-  PLAYERS = [Reference, CheckedPlayer, RubyGBA::IR::Backends::Native::CheckedRun,
-             RubyGBA::IR::Backends::Native::HeadlessRun, RubyGBA::Testing::JSCheckedPlayer,
-             RubyGBA::IR::Backends::JS::CheckedRun, RubyGBA::IR::Backends::JS::HeadlessRun,
-             RubyGBA::Testing::GBCCheckedPlayer, RubyGBA::IR::Backends::GBC::CheckedRun,
-             RubyGBA::IR::Backends::GBC::HeadlessRun].freeze
+  PLAYERS = [Reference, CheckedPlayer, VBlank::IR::Backends::Native::CheckedRun,
+             VBlank::IR::Backends::Native::HeadlessRun, VBlank::Testing::JSCheckedPlayer,
+             VBlank::IR::Backends::JS::CheckedRun, VBlank::IR::Backends::JS::HeadlessRun,
+             VBlank::Testing::GBCCheckedPlayer, VBlank::IR::Backends::GBC::CheckedRun,
+             VBlank::IR::Backends::GBC::HeadlessRun].freeze
 
   # A test of one lowering's own output — the ARM a cartridge is made of, the cartridge played in
   # the emulator, the C the native lowering writes — lives in a folder that lowering owns, and
@@ -24,13 +24,13 @@ class TestSuitesSplit < Minitest::Test
     native_run = files_for(:native)
     interpreter_run = files_for(:gba)
 
-    assert_includes native_run, "test/ruby_gba/ir/backends/native/test_native_picture.rb"
-    refute_includes native_run, "test/ruby_gba/ir/backends/gba/test_asm.rb"
-    refute_includes native_run, "test/ruby_gba/playthroughs/test_playthrough.rb"
-    refute_includes native_run, "test/ruby_gba/diagnostics/test_verifier.rb"
-    assert_includes interpreter_run, "test/ruby_gba/ir/backends/gba/test_asm.rb"
-    refute_includes interpreter_run, "test/ruby_gba/ir/backends/native/test_native_picture.rb"
-    shared = "test/ruby_gba/dsl/test_pool_walk_order.rb"
+    assert_includes native_run, "test/vblank/ir/backends/native/test_native_picture.rb"
+    refute_includes native_run, "test/vblank/ir/backends/gba/test_asm.rb"
+    refute_includes native_run, "test/vblank/playthroughs/test_playthrough.rb"
+    refute_includes native_run, "test/vblank/diagnostics/test_verifier.rb"
+    assert_includes interpreter_run, "test/vblank/ir/backends/gba/test_asm.rb"
+    refute_includes interpreter_run, "test/vblank/ir/backends/native/test_native_picture.rb"
+    shared = "test/vblank/dsl/test_pool_walk_order.rb"
     assert_includes native_run, shared
     assert_includes interpreter_run, shared
   end
@@ -38,22 +38,22 @@ class TestSuitesSplit < Minitest::Test
   def test_the_js_run_leaves_out_the_other_lowerings_folders_and_keeps_its_own
     js_run = files_for(:js)
 
-    assert_includes js_run, "test/ruby_gba/ir/backends/js/test_js_suite.rb"
-    assert_includes js_run, "test/ruby_gba/dsl/test_pool_walk_order.rb"
-    refute_includes js_run, "test/ruby_gba/ir/backends/native/test_native_picture.rb"
-    refute_includes js_run, "test/ruby_gba/ir/backends/gba/test_asm.rb"
-    refute_includes files_for(:native), "test/ruby_gba/ir/backends/js/test_js_suite.rb"
-    refute_includes files_for(:gba), "test/ruby_gba/ir/backends/js/test_js_suite.rb"
+    assert_includes js_run, "test/vblank/ir/backends/js/test_js_suite.rb"
+    assert_includes js_run, "test/vblank/dsl/test_pool_walk_order.rb"
+    refute_includes js_run, "test/vblank/ir/backends/native/test_native_picture.rb"
+    refute_includes js_run, "test/vblank/ir/backends/gba/test_asm.rb"
+    refute_includes files_for(:native), "test/vblank/ir/backends/js/test_js_suite.rb"
+    refute_includes files_for(:gba), "test/vblank/ir/backends/js/test_js_suite.rb"
   end
 
   def test_the_gbc_run_leaves_out_the_other_lowerings_folders_and_keeps_its_own
     gbc_run = files_for(:gbc)
 
-    assert_includes gbc_run, "test/ruby_gba/ir/backends/gbc/test_gbc_suite.rb"
-    assert_includes gbc_run, "test/ruby_gba/dsl/test_pool_walk_order.rb"
-    refute_includes gbc_run, "test/ruby_gba/ir/backends/js/test_js_suite.rb"
-    refute_includes gbc_run, "test/ruby_gba/ir/backends/gba/test_asm.rb"
-    %i[gba native js].each { |other| refute_includes files_for(other), "test/ruby_gba/ir/backends/gbc/test_gbc_suite.rb" }
+    assert_includes gbc_run, "test/vblank/ir/backends/gbc/test_gbc_suite.rb"
+    assert_includes gbc_run, "test/vblank/dsl/test_pool_walk_order.rb"
+    refute_includes gbc_run, "test/vblank/ir/backends/js/test_js_suite.rb"
+    refute_includes gbc_run, "test/vblank/ir/backends/gba/test_asm.rb"
+    %i[gba native js].each { |other| refute_includes files_for(other), "test/vblank/ir/backends/gbc/test_gbc_suite.rb" }
   end
 
   # A test of what only the Advance can do — fading part of the screen, a recording in a song —
@@ -80,7 +80,7 @@ class TestSuitesSplit < Minitest::Test
   # Each lowering's record names the class its run's game_player makes, and that class is one
   # of the players held to the interpreter's words above.
   def test_every_run_names_a_player_that_takes_the_interpreters_words
-    RubyGBA::Testing::Lowering::RUNS.each do |run|
+    VBlank::Testing::Lowering::RUNS.each do |run|
       assert_includes PLAYERS, run.player_class, run.name
     end
   end
@@ -88,7 +88,7 @@ class TestSuitesSplit < Minitest::Test
   # The guard for a test native cannot play yet skips on the native lowering's run and does
   # nothing on the GBA lowering's.
   def test_the_native_guard_skips_on_the_native_run_alone
-    if RubyGBA::Testing.native?
+    if VBlank::Testing.native?
       assert_raises(Minitest::Skip) { skip_on_native "only says something on a native run" }
     else
       skip_on_native "only says something on a native run"
@@ -97,7 +97,7 @@ class TestSuitesSplit < Minitest::Test
   end
 
   def test_the_js_guard_skips_on_the_js_run_alone
-    if RubyGBA::Testing.javascript?
+    if VBlank::Testing.javascript?
       assert_raises(Minitest::Skip) { skip_on_js "only says something on a JavaScript run" }
     else
       skip_on_js "only says something on a JavaScript run"
@@ -106,7 +106,7 @@ class TestSuitesSplit < Minitest::Test
   end
 
   def test_the_gbc_guard_skips_on_the_gbc_run_alone
-    if RubyGBA::Testing.gbc?
+    if VBlank::Testing.gbc?
       assert_raises(Minitest::Skip) { skip_on_gbc "only says something on a Game Boy Color run" }
     else
       skip_on_gbc "only says something on a Game Boy Color run"
@@ -118,7 +118,7 @@ class TestSuitesSplit < Minitest::Test
 
   # The files +lowering+'s run loads, worked out as the Rakefile has the library's rake tasks do it.
   def files_for(lowering)
-    RubyGBA::Testing::Lowering.files_for(lowering, files: TestSuites.all_files, folders: TestSuites::LOWERING_FOLDERS)
+    VBlank::Testing::Lowering.files_for(lowering, files: TestSuites.all_files, folders: TestSuites::LOWERING_FOLDERS)
   end
 
   def keywords_of(method) = method.parameters.filter_map { |kind, name| name if %i[key keyreq].include?(kind) }.sort

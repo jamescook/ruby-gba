@@ -3,7 +3,7 @@
 ## Every pixel — `test/differential.rb`
 
 Compares all 38,400 pixels instead of a handful. The check is the library's
-(`RubyGBA::Testing::Pictures`, `lib/ruby_gba/testing/pictures.rb`), shipped to games;
+(`VBlank::Testing::Pictures`, `lib/vblank/testing/pictures.rb`), shipped to games;
 `Differential` is this suite's name for it, so a change to it is a change for every game. Use it
 when a feature's whole picture should match, and keep hand-picked assertions for the values that
 document intent.

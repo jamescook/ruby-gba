@@ -19,14 +19,14 @@ part of the screen, a recording in a song, a save on flash, more colours in one 
 painted screen, more tiles or memory than it holds — is tested in `test/advance/`
 (`TestSuites::ADVANCE_DIR`), which every run of an Advance game loads (GBA, native, JavaScript) and
 the Color's never does; so is every example whose game says it is for the Advance alone. A new test
-of such a thing goes there, mirroring test/ (`test/advance/ruby_gba/builder/`), in a file of its own
+of such a thing goes there, mirroring test/ (`test/advance/vblank/builder/`), in a file of its own
 beside the shared one (`test_fade_held_to_area_on_the_advance.rb`), rather than skipping on the
 Color. Don't bend a test to make it play on both: one about the Advance's picture is the
 Advance's. What the Color could do and its build does not make yet (`GBC::Lowering::NOT_LOWERED_YET`)
 fails on the Color run until it is made — that failure is the work still owed. The one skip is a
 call its run cannot answer (`GBC::HeadlessRun::CannotAnswer`), counted by reason at the end;
 `skip_on_gbc` is there for a test the Color cannot play for a reason no folder says, and
-`test/ruby_gba/ir/backends/gbc/` is its own folder. A game built for both consoles
+`test/vblank/ir/backends/gbc/` is its own folder. A game built for both consoles
 (`consoles: %i[gba gbc]`) is played there as a Color game, as `examples/pacman.rb` and
 `examples/breakout.rb` are; `examples/pong_gbc.rb` is a game for the Color alone, a copy of
 `examples/pong.rb` changed for it, since the Advance's title zooms on a screen the Color cannot turn.
@@ -38,7 +38,7 @@ lowerings name in `TestSuites::LOWERING_FOLDERS` is loaded by each of them
 printed as JavaScript, its windowless program prints what the native one prints, and its player
 (`JSCheckedPlayer`, `JS::CheckedRun`) is the native checked run with that program swapped in. So
 all of this file holds for it too, with `skip_on_js` for its own skip and
-`test/ruby_gba/ir/backends/js/` for its own folder. The sound a speaker would make is compared
+`test/vblank/ir/backends/js/` for its own folder. The sound a speaker would make is compared
 with the cartridge's on the native run alone (`.claude/testing/native-sound.md`); the JavaScript
 runtime's voices are the native one's, function for function.
 
@@ -92,7 +92,7 @@ run (`native/examples/test_<example>_picture.rb`), or when a file in `test/examp
 examples all build still plays them by `Reference.new`. A file whose tests are all of the
 cartridge has nothing for the C to play.
 
-A whole example gets files under `test/ruby_gba/ir/backends/native/examples/`:
+A whole example gets files under `test/vblank/ir/backends/native/examples/`:
 `test_<game>_picture.rb` plays a recorded run of buttons and compares every variable, pixel and
 the sound log with the interpreter's on every frame, and `test_<game>_sounds.rb` compares the
 speaker with the cartridge's. `test_pong_*.rb` and `test_pacman_*.rb` are the worked examples. A
@@ -101,19 +101,19 @@ and never requires an example.
 
 ## It is the library's, so a game does the same
 
-This suite takes it from the library exactly as a game does. `require "ruby_gba/testing"`
-(`lib/ruby_gba/testing.rb`) is minitest, the library, the lowering the run is for
-(`RubyGBA::Testing.lowering`, read once from `RUBY_GBA_LOWERING`), and a module giving
+This suite takes it from the library exactly as a game does. `require "vblank/testing"`
+(`lib/vblank/testing.rb`) is minitest, the library, the lowering the run is for
+(`VBlank::Testing.lowering`, read once from `VBLANK_LOWERING`), and a module giving
 `game_player`, `skip_on_native` and `CheckedPlayer`. `CheckedPlayer` is
-`RubyGBA::IR::Backends::Native::CheckedRun` with a disagreement reported as a failed test; the
+`VBlank::IR::Backends::Native::CheckedRun` with a disagreement reported as a failed test; the
 comparisons are `Native::Differences`. The rake tasks are the library's
-(`RubyGBA::Testing::RakeTasks`): this Rakefile makes `rake test` and the `test:lowering:` tasks
+(`VBlank::Testing::RakeTasks`): this Rakefile makes `rake test` and the `test:lowering:` tasks
 with it, handing over the test files, the lowering folders and the consoles (`%i[gba gbc]`; a
 game's Rakefile that names none gets no Color run), and adds only the machine lock, the emulator
 build and coverage. Each `test:lowering:`
-task is a `RubyGBA::Testing::TestTask`, which holds how a native run starts (no Ractors, several
+task is a `VBlank::Testing::TestTask`, which holds how a native run starts (no Ractors, several
 processes, zig asked for first). The README's "Testing a game on every lowering" is the game's
-side; `test/ruby_gba/testing/test_game_suite.rb` runs the rake of a small game suite
+side; `test/vblank/testing/test_game_suite.rb` runs the rake of a small game suite
 (`test/fixtures/game_suite/`) that has the library as a gem and nothing from this folder.
 
 A native player needs zig and starts the game as a separate program, so it cannot run inside a

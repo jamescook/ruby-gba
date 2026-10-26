@@ -3,7 +3,7 @@
 # The player's ship and its single shot — one part of the shmup, in its own file.
 #
 # It's a plain Ruby object. The only thing that makes it "part of the game" is that it
-# takes the build (what RubyGBA.build hands your block as `self`) and calls the DSL
+# takes the build (what VBlank.build hands your block as `self`) and calls the DSL
 # verbs on it — build.sprite, build.held, build.var — the same verbs you'd write at the
 # top level, just spelled `build.` here because inside this object `self` is the Player,
 # not the build. No base class, no magic.

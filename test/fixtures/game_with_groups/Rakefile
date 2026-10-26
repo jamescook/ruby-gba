@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 # A game's own Rakefile that keeps its own rake test and a task for each group of its tests, and
-# asks the library only for a native twin of a group: RubyGBA::Testing::TestTask. Its game code is
-# not under lib/. test/ruby_gba/testing/test_game_suite.rb runs it.
-require "ruby_gba/testing/test_task" # rake's own test task comes with it
+# asks the library only for a native twin of a group: VBlank::Testing::TestTask. Its game code is
+# not under lib/. test/vblank/testing/test_game_suite.rb runs it.
+require "vblank/testing/test_task" # rake's own test task comes with it
 
 LIBS = %w[game/code test].freeze
 
@@ -19,7 +19,7 @@ namespace :test do
   end
 
   namespace :native do
-    RubyGBA::Testing::TestTask.new(:walking) do |t|
+    VBlank::Testing::TestTask.new(:walking) do |t|
       t.lowering = :native
       t.libs = LIBS
       t.test_files = FileList["test/walking/*_test.rb"]

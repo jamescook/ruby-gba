@@ -1,0 +1,638 @@
+# frozen_string_literal: true
+
+require "test_helper"
+require "stringio"
+require "tmpdir"
+
+# WHICH SHAPE A `repeat` GETS, and that both shapes count right.
+#
+# A loop has to keep two numbers: how many passes it has made and how many it will make. Kept
+# in memory, every pass loads both, compares, loads the counter again, adds one and stores it
+# back — sixteen instructions, twelve of them reaching memory. Kept in registers it is a
+# compare, a branch, an add and a branch.
+#
+# Registers are only safe when nothing in the body can land on them, so the build looks at the
+# body and decides. The author writes `repeat` either way.
+#
+# The first half of this file is about which shape a body earns. The second half is the half
+# that matters: a loop that got the fast shape has to produce exactly what the slow one would,
+# and that is asserted against the reference interpreter and against the console.
+class TestLoopForm < Minitest::Test
+  LoopForm = VBlank::IR::Backends::GBA::LoopForm
+
+  private def program_with(&block)
+    b = VBlank::Builder.new
+    b.instance_eval(&block)
+    b.finalize_program
+    b.program
+  end
+
+  private def shapes_of(&block)
+    rom = VBlank.build("LOOPS", console: :gba, err: StringIO.new,
+                                 out: StringIO.new, &block)
+    [rom, rom.loop_shapes]
+  end
+
+  # --- which shape a body earns ---
+
+  # Plain statements — arithmetic, list reads, a branch — leave the registers alone, and that
+  # is what most loop bodies are.
+  def test_a_plain_body_keeps_its_counter_in_a_register
+    _, shapes = shapes_of do
+      screen :bitmap
+      xs = list :xs, capacity: 8
+      8.times { |i| xs << i }
+      total = var :total, 0
+      b = self
+      game_loop { b.repeat(8) { |i| (xs[i] > 2).then { total.add! xs[i] } } }
+    end
+
+    assert_equal 1, shapes.length
+    assert shapes.values.first.counter_held?, "nothing in that body can touch a register the loop needs"
+  end
+
+  # A CALL is the plainest reason it cannot: the routine may use any register it likes, and
+  # this loop does not get to see inside it.
+  def test_a_body_that_calls_keeps_the_registers_by_saving_them_around_the_call
+    _, shapes = shapes_of do
+      screen :bitmap
+      moved = var :moved, 0
+      b = self
+      func(:bump) { moved.add! 1 }
+      game_loop { b.repeat(4) { b.call :bump } }
+    end
+    shape = shapes.values.first
+
+    assert_equal :spilled, shape.shape, "one statement to save around is worth saving around"
+    assert_equal 1, shape.spills
+    assert_equal "the body calls :bump", shape.blocked_by, "and it says which call"
+  end
+
+  # ...but only while saving is the cheaper of the two. Each save costs, so a body with enough
+  # of them to cost more than it saves goes through memory after all — the build works out
+  # which side of that line the loop is on, and the author writes the same `repeat` either way.
+  def test_a_body_with_too_much_to_save_around_goes_through_memory
+    _, shapes = shapes_of do
+      screen :bitmap
+      moved = var :moved, 0
+      b = self
+      func(:bump) { moved.add! 1 }
+      game_loop { b.repeat(4) { 3.times { b.call :bump } } }
+    end
+    shape = shapes.values.first
+
+    assert_equal :memory, shape.shape
+    refute shape.counter_held?
+    assert_equal "the body calls :bump", shape.blocked_by
+  end
+
+  # The other blockers, each for its own reason: a divide the game works out reaches the
+  # console's own routine, and a drawn image clips each row in the high registers.
+  def test_the_other_bodies_that_go_through_memory
+    _, shapes = shapes_of do
+      screen :bitmap
+      image(:dot, "#" => :red, "." => :blue) { "#.\n.#" }
+      n = var :n, 1
+      d = var :d, 3
+      out = var :out, 0
+      x = var :bx, 8
+      b = self
+      game_loop do
+        b.repeat(4) { out.set!(n / d) }
+        b.repeat(4) { b.blit :dot, x, 8 }
+        b.repeat(4) { b.draw_number :n, 0, 40, :white }
+      end
+    end
+    reasons = shapes.values.map(&:blocked_by)
+
+    assert_includes reasons, "a divide the game works out"
+    assert_includes reasons, "the body draws an image"
+    assert_includes reasons, "the body draws a live number"
+  end
+
+  # ...and blocking a drawn image is LOAD-BEARING, not caution. The row clipper works in the
+  # very registers a held loop counts in, so a loop that kept its counter around one would
+  # count in a number the clipper had just overwritten and run away entirely.
+  def test_a_loop_around_a_drawn_image_counts_right_on_the_console
+    rom = VBlank.build("LOOPBLIT", console: :gba, code: "BLBL", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      image(:dot, "#" => :red, "." => :blue) { "#.\n.#" }
+      x = var :bx, 2
+      passes = var :passes, 0
+      b = self
+      game_loop do
+        passes.set! 0
+        b.repeat(7) do
+          b.blit :dot, x, 60
+          passes.add! 1
+        end
+      end
+    end
+
+    assert_equal 7, read_var(rom, :passes)
+  end
+
+  # ...and a live number is the same shape: the shared glyph routine it calls (see
+  # Drawing#emit_digit_routines) holds its own x/y/color in the very registers a held loop
+  # counts in, so a loop drawing one inside itself has to give the registers up too.
+  def test_a_loop_around_a_live_number_counts_right_on_the_console
+    rom = VBlank.build("LOOPDGT", console: :gba, code: "BLDG", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      var :n, 4
+      passes = var :passes, 0
+      b = self
+      game_loop do
+        passes.set! 0
+        b.repeat(7) do
+          b.draw_number :n, 0, 40, :white
+          passes.add! 1
+        end
+      end
+    end
+
+    assert_equal 7, read_var(rom, :passes)
+  end
+
+  # A BLOCKER HIDDEN DOWN A BRANCH still blocks. The body of a loop is a tree, and a call can
+  # sit anywhere in it — under an `if`, or under its `else`, which an IR node keeps somewhere
+  # different from the rest of its body. Missing one is not a wrong price, it is a wrong
+  # answer: the call would land on the register the loop is counting in.
+  def test_a_blocker_buried_in_a_branch_is_still_found
+    _, shapes = shapes_of do
+      screen :bitmap
+      n = var :n, 0
+      b = self
+      func(:bump) { n.add! 1 }
+      game_loop do
+        b.repeat(4) { |i| (i > 2).then { n.add! 1 }.else { b.call :bump } }
+      end
+    end
+    shape = shapes.values.first
+
+    refute_equal :registers, shape.shape,
+                 "the call is in the else branch, and it still owns the registers while it runs"
+    assert_equal :spilled, shape.shape, "so the pair is saved around the branch holding it"
+    assert_equal "the body calls :bump", shape.blocked_by
+  end
+
+  # ...and the console proves what missing one costs. A loop down the else branch is the
+  # sharpest case, because a loop is the one thing that certainly does take those registers:
+  # the inner one would count in the outer one's counter, and the outer would never reach four.
+  def test_a_loop_down_an_else_branch_counts_right_on_the_console
+    rom = VBlank.build("LOOPELSE", console: :gba, code: "BLEL", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      total = var :total, 0
+      b = self
+      game_loop do
+        total.set! 0
+        b.repeat(4) { |i| (i > 1).then { total.add! 100 }.else { b.repeat(3) { total.add! 1 } } }
+      end
+    end
+
+    assert_equal 206, read_var(rom, :total), "i of 0 and 1 add three each, i of 2 and 3 add a hundred"
+  end
+
+  # The escape hatch is instructions the author wrote, which may use any register — so a loop
+  # around one keeps its counter where nothing can reach it.
+  def test_a_body_holding_raw_instructions_goes_through_memory
+    node = VBlank::IR::Build.repeat(VBlank::IR::Build.int(4), :i, VBlank::IR::Build.raw(""))
+
+    refute LoopForm.counter_in_registers?(node)
+  end
+
+  # THE INVARIANT THE WHOLE THING RESTS ON: every statement kind NOT named as a blocker really
+  # does leave the two registers alone. The blocker list is a claim about the rest of the
+  # lowering, and a claim like that rots the moment someone emits a new statement that happens
+  # to work in a high register — the loop around it would then count in a register somebody
+  # else is using, and nothing would say so.
+  #
+  # So each kind is run inside a held loop that counts its own passes. A statement that landed
+  # on the counter would leave a tally that is not seven. One ROM holds all of them, so the
+  # sweep is a single boot however many kinds it grows to.
+  SWEEP_PASSES = 7
+
+  def test_no_other_statement_kind_lands_on_the_registers_a_held_loop_uses
+    kinds = nil
+    rom = VBlank.build("LOOPSWEEP", console: :gba, code: "BLSW", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      enable_sound
+      define_sound :hit, frequency: 400, duty: :quarter, decay: :fast
+      xs = list :xs, capacity: 8
+      8.times { |i| xs << (i + 1) }
+      curve = table :curve, (0...8).map { |i| i * 3 }
+      n = var :n, 5
+      other = var :other, 2
+      b = self
+
+      bodies = {
+        set: ->(_i) { n.set! 3 },
+        add: ->(_i) { n.add! 1 },
+        sub: ->(_i) { n.sub! 1 },
+        copy: ->(_i) { b.copy! :n, :other },
+        negate: ->(_i) { n.flip! },
+        abs: ->(_i) { n.abs! },
+        clamp: ->(_i) { n.clamp! 0, 9 },
+        approach: ->(_i) { n.approach! 4, 1 },
+        branch: ->(_i) { (n > 2).then { n.set! 1 }.else { n.set! 8 } },
+        multiply: ->(_i) { n.set!(other * 3) },
+        divide_by_a_fixed_number: ->(_i) { n.set!(other / 3) },
+        divide_by_a_power_of_two: ->(_i) { n.set!(other / 4) },
+        list_read: ->(i) { n.set! xs[i] },
+        list_write: ->(i) { xs[i] = 2 },
+        list_fill: ->(_i) { b.record_statement(VBlank::IR::Build.list_fill(:xs, from: 1, count: 5, value: 2)) },
+        table_read: ->(i) { n.set! curve[i] },
+        pixel: ->(_i) { b.pixel 4, 4, :red },
+        fill_rect: ->(_i) { b.fill_rect 0, 0, 2, 2, :blue },
+        draw_rect_at: ->(_i) { b.draw_rect_at other, 20, 4, 4, :green },
+        random: ->(_i) { b.roll :n, 1..6 },
+        beep: ->(_i) { b.beep :hit },
+      }
+      kinds = bodies.keys
+
+      counts = kinds.to_h { |kind| [kind, b.var(:"count_#{kind}", 0)] }
+      game_loop do
+        bodies.each do |kind, body|
+          count = counts[kind]
+          count.set! 0
+          # The loop runs the statement and counts its own pass. A statement that landed on the
+          # counter leaves this reading something other than SWEEP_PASSES.
+          b.repeat(SWEEP_PASSES) do |i|
+            body.call(i)
+            count.add! 1
+          end
+        end
+      end
+    end
+
+    # Every loop in the sweep must have taken the fast shape, or it proves nothing about it.
+    through_memory = rom.loop_shapes.reject { |_, shape| shape.counter_held? }
+    assert_empty through_memory.transform_values(&:blocked_by),
+                 "a body in this sweep is a blocker — either it belongs in the blocked list, or " \
+                 "the sweep needs a different statement to stand for that kind"
+
+    wrong = kinds.reject { |kind| read_var(rom, :"count_#{kind}") == SWEEP_PASSES }
+    assert_empty wrong, "these statement kinds left the loop around them counting wrong"
+  end
+
+  # --- and both shapes count right, which is the half that matters ---
+
+  # The same program either way: one loop the build can hold, one it cannot, both summing a
+  # list. The reference interpreter says what the answers are; the lowering has to agree.
+  def test_a_held_loop_counts_exactly_what_a_memory_loop_would
+    program = program_with do
+      screen :bitmap
+      xs = list :xs, capacity: 8
+      8.times { |i| xs << (i + 1) }
+      held_total = var :held_total, 0
+      memory_total = var :memory_total, 0
+      b = self
+      func(:add_one) { memory_total.add! 1 }
+      game_loop do
+        b.repeat(8) { |i| held_total.add! xs[i] } # plain body — in registers
+        b.repeat(5) { b.call :add_one }          # calls out — through memory
+        b.halt
+      end
+    end
+
+    run = Reference.new.run(program)
+    assert_equal 36, run[:held_total], "1 through 8 summed, by the loop that kept its counter"
+    assert_equal 5, run[:memory_total]
+  end
+
+  # ...and the console agrees, which is the only place a clobbered register would show. Read
+  # back out of memory rather than off the screen: the number IS the answer here.
+  def test_the_console_agrees_about_both_shapes
+    rom = VBlank.build("LOOPSUM", console: :gba, code: "BLSM", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      xs = list :xs, capacity: 8
+      8.times { |i| xs << (i + 1) }
+      held_total = var :held_total, 0
+      memory_total = var :memory_total, 0
+      b = self
+      func(:add_one) { memory_total.add! 1 }
+      game_loop do
+        held_total.set! 0
+        memory_total.set! 0
+        b.repeat(8) { |i| held_total.add! xs[i] }
+        b.repeat(5) { b.call :add_one }
+      end
+    end
+
+    assert_equal 36, read_var(rom, :held_total)
+    assert_equal 5, read_var(rom, :memory_total)
+  end
+
+  # A loop nested inside another still counts right, which is the case where the outer loop
+  # cannot hold its counter and the inner one can.
+  def test_a_nested_loop_counts_right_on_the_console
+    rom = VBlank.build("LOOPNEST", console: :gba, code: "BLNS", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      total = var :total, 0
+      b = self
+      game_loop do
+        total.set! 0
+        b.repeat(4) { b.repeat(5) { total.add! 1 } }
+      end
+    end
+
+    assert_equal 20, read_var(rom, :total)
+  end
+
+  # THE READ THE SAVING EXISTS FOR. A spilled loop lends its counter register out for the
+  # length of one statement, so a body that reads the loop's index INSIDE that statement
+  # cannot read it from the register — the count is written out to its variable first and the
+  # read comes from there. Get it wrong and the index reads as whatever the borrower left in
+  # the register, which is a wrong answer rather than a slow one.
+  def test_a_spilled_loop_reads_its_index_inside_the_saved_statement
+    rom = VBlank.build("LOOPIDX", console: :gba, code: "BLIX", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      seen = var :seen, 0
+      hits = var :hits, 0
+      b = self
+      func(:bump) { hits.add! 1 }
+      game_loop do
+        seen.set! 0
+        hits.set! 0
+        b.repeat(10) do |i|
+          (i > 5).then do
+            seen.add! i     # read while the register is lent out
+            b.call :bump
+            seen.add! i     # and again before it comes back
+          end
+        end
+      end
+    end
+
+    assert_equal :spilled, rom.loop_shapes.values.first.shape
+    assert_equal 4, read_var(rom, :hits), "the loop still runs its ten passes"
+    assert_equal 60, read_var(rom, :seen), "6+7+8+9, read twice a pass"
+    assert_equal 60, VBlank::IR::Backends::Reference.new.run(rom.source_program)[:seen],
+                 "and the interpreter says the same"
+  end
+
+  # The saving is really in the emitted code, both halves of it. A loop that reported the fast
+  # shape without them would count in a register the call had already written. A loop that
+  # reads its index counts up against a limit and saves both; one that does not counts down and
+  # has only its counter to save.
+  def test_a_spilled_loop_emits_the_save_and_the_restore
+    rom = VBlank.build("LOOPSAVE", console: :gba, code: "BLSV", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      n = var :n, 0
+      b = self
+      func(:bump) { n.add! 1 }
+      game_loop do
+        b.repeat(4) do |i|
+          n.add! i
+          b.call :bump
+        end
+        b.repeat(4) { b.call :bump }
+      end
+    end
+    pair = [LoopForm::COUNTER, LoopForm::LIMIT]
+
+    assert_includes rom.buffer, VBlank::IR::Backends::GBA::ASM.push(*pair), "the pair is saved"
+    assert_includes rom.buffer, VBlank::IR::Backends::GBA::ASM.pop(*pair), "and put back"
+    assert_includes rom.buffer, VBlank::IR::Backends::GBA::ASM.push(LoopForm::COUNTER), "the counter alone is saved"
+    assert_includes rom.buffer, VBlank::IR::Backends::GBA::ASM.pop(LoopForm::COUNTER), "and put back"
+  end
+
+  # --- what a pass of the loop itself costs ---
+  #
+  # A body that never reads its index does not care which way the count runs, and counting
+  # DOWN is cheaper: taking one off a number already says whether it reached nought, so the
+  # test at the end of the pass is the subtract and a branch. Counting up has to compare against
+  # the limit as an instruction of its own.
+  #
+  # Measured on the console, as the instructions a loop of PASSES runs beyond the same body
+  # written out PASSES times with no loop at all — so what is left is the loop and nothing else.
+  PASSES = 200
+
+  # The third instruction is not the counting: the top of a pass can be reached from two places,
+  # so the body finds the base of the variable memory again there, where written out in a row it
+  # would still be sitting in its register from the statement before.
+  def test_a_held_pass_that_ignores_its_index_is_a_subtract_and_a_branch
+    overhead = loop_overhead { |_b, n| n.add! 1 }
+
+    assert_equal 3, overhead
+  end
+
+  # The same count down in a loop that lends its registers out around a call. The index is
+  # not read, so nothing has to be written out to its variable before the call — the bracket is
+  # the save and the restore.
+  def test_a_spilled_pass_that_ignores_its_index_is_the_save_the_restore_and_the_count
+    overhead = loop_overhead { |b, _n| b.call :bump }
+
+    assert_equal 4, overhead
+  end
+
+  # Through memory, the count is kept in the index's own variable, so there is no limit to
+  # load: load it, take one off, store it back, and branch while it is not yet nought. The load
+  # is two instructions, because the calls in the body have left the base of the variable
+  # memory somewhere else by then.
+  def test_a_pass_through_memory_that_ignores_its_index_loads_takes_one_off_and_stores
+    overhead = loop_overhead { |b, _n| 3.times { b.call :bump } }
+
+    assert_equal 5, overhead
+  end
+
+  # A BODY THAT READS ITS INDEX has to be handed 0, 1, 2, so its loop counts up — but it can
+  # still test at the end of a pass rather than the start. Tested first, a pass is a compare, a
+  # branch out, the body, an add and a branch back; tested last it is the body, an add, a compare
+  # and a branch back, which is one branch fewer. The fourth instruction is the body finding the
+  # variable memory again, as above.
+  #
+  # Written out with no loop, the body reads an ordinary variable instead of the index, which is
+  # the same one instruction as reading the index out of its register.
+  def test_a_held_pass_that_reads_its_index_is_an_add_a_compare_and_a_branch
+    overhead = loop_overhead { |_b, n, index| n.set! index }
+
+    assert_equal 4, overhead
+  end
+
+  # ...and the same around a call, where the index is also written out to its variable before
+  # the call, and the pair saved and restored around it.
+  def test_a_spilled_pass_that_reads_its_index_is_the_write_the_save_the_restore_and_the_count
+    overhead = loop_overhead do |b, n, index|
+      n.set! index
+      b.call :bump
+    end
+
+    assert_equal 6, overhead
+  end
+
+  # Through memory, tested at the end, a pass loads the index, adds one, stores it, loads the
+  # limit, compares and branches back. Tested first it loads the index twice — once to compare
+  # and once to add — and spends a branch out and a branch back.
+  def test_a_pass_through_memory_that_reads_its_index_loads_it_once
+    overhead = loop_overhead do |b, n, index|
+      n.set! index
+      3.times { b.call :bump }
+    end
+
+    assert_equal 7, overhead
+  end
+
+  # WHERE SAVING STOPS PAYING. Each statement saved around costs its own save and restore, and
+  # through memory a pass costs the same however many calls the body makes — so there is a
+  # number of calls past which memory is the cheaper shape, and the build has to pick the
+  # cheaper of the two there, whether the loop reads its index or not. Three calls is past
+  # any limit, so it stands for what memory costs.
+  def test_a_loop_gets_whichever_shape_is_cheaper_for_the_calls_in_its_body
+    [true, false].each do |reads|
+      costs = (1..3).to_h do |calls|
+        [calls, loop_overhead do |b, n, index|
+          n.set! index if reads
+          calls.times { b.call :bump }
+        end]
+      end
+
+      assert_operator costs[1], :<, costs[3], "saving around one call beats memory (reads its index: #{reads})"
+      assert_operator costs[2], :<=, costs[3], "two calls cost #{costs[2]} a pass where memory costs " \
+                                               "#{costs[3]} (reads its index: #{reads})"
+    end
+  end
+
+  # A count that runs no passes — nought, or below it — must still run none. A loop that tests
+  # at the END of a pass has to make its first test before the first pass instead.
+  def test_a_loop_counted_nought_or_below_runs_no_passes_on_the_console
+    rom = VBlank.build("LOOPNONE", console: :gba, code: "BLNO", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      none = var :none, 0
+      below = var :below, -3
+      hit = var :hit, 0
+      passes = var :passes, 0
+      b = self
+      func(:bump) { passes.add! 1 }
+      game_loop do
+        passes.set! 0
+        [none, below].each do |count|
+          b.repeat(count) { passes.add! 1 }                        # held
+          b.repeat(count) { b.call :bump }                         # spilled
+          b.repeat(count) { 3.times { b.call :bump } }             # through memory
+          b.repeat(count, stop_when: hit == 1) { passes.add! 1 }   # stops early
+          b.repeat(count) { |i| passes.add! i + 1 }                # ...and each reading its index
+          b.repeat(count) do |i|
+            passes.add! i + 1
+            b.call :bump
+          end
+          b.repeat(count) do |i|
+            passes.add! i + 1
+            3.times { b.call :bump }
+          end
+          b.repeat(count, stop_when: hit == 1) { |i| passes.add! i + 1 }
+        end
+        b.repeat(3, stop_when: hit == 1) { passes.add! 100 }
+      end
+    end
+
+    assert_equal 300, read_var(rom, :passes), "only the loop counted three ran, three times"
+  end
+
+  # A loop through memory that reads its index hands the body 0, 1, 2 and stops where it is
+  # told, on the console as in the interpreter — once running its whole count, once stopped
+  # partway by what the body read.
+  def test_a_loop_through_memory_reads_its_index_and_stops_where_told
+    rom = VBlank.build("LOOPMEMI", console: :gba, code: "BLMI", maker: "01", err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      whole = var :whole, 0
+      stopped = var :stopped, 0
+      calls = var :calls, 0
+      found = var :found, 0
+      b = self
+      func(:bump) { calls.add! 1 }
+      game_loop do
+        whole.set! 0
+        stopped.set! 0
+        found.set! 0
+        b.repeat(5) do |i|
+          whole.add! i * 10 + 1
+          2.times { b.call :bump }
+        end
+        b.repeat(9, stop_when: found == 1) do |i|
+          stopped.add! i * 10 + 1
+          (i == 3).then { found.set! 1 }
+          2.times { b.call :bump }
+        end
+      end
+    end
+    reference = VBlank::IR::Backends::Reference.new.run(rom.source_program)
+
+    assert(rom.loop_shapes.values.none?(&:counter_held?), "both loops go through memory")
+    assert_equal 105, reference[:whole], "passes 0 to 4, each adding ten times its number and one"
+    assert_equal 64, reference[:stopped], "passes 0 to 3, and the stop is seen before pass 4"
+    assert_equal 105, read_var(rom, :whole)
+    assert_equal 64, read_var(rom, :stopped)
+  end
+
+  # A body that never mentions its index can still have it read: a routine declared inside the
+  # block captures it, and the call to that routine is all the body says. Counting that loop
+  # down would hand the routine the passes left instead of the pass it is on.
+  def test_an_index_read_only_by_a_routine_the_body_calls_still_counts_up
+    rom = VBlank.build("LOOPCAPT", console: :gba, err: StringIO.new, out: StringIO.new) do
+      screen :bitmap
+      seen = var :seen, 0
+      b = self
+      game_loop do
+        seen.set! 0
+        b.repeat(4) do |i|
+          b.func(:look) { seen.add! i * 10 + 1 }
+          b.call :look
+        end
+      end
+    end
+
+    assert_equal 64, VBlank::IR::Backends::Reference.new.run(rom.source_program)[:seen],
+                 "passes 0 to 3, each adding ten times its number and one"
+    assert_equal 64, read_var(rom, :seen)
+  end
+
+  # The instructions a pass of the loop runs beyond its body. Each form is measured at PASSES
+  # and at twice that, so what either spends once — setting the loop up, or the first statement
+  # finding the variables — cancels out of the difference. The body is given the builder, a
+  # variable to count with, and something to read: the loop's index, or with no loop an
+  # ordinary variable.
+  private def loop_overhead(&body)
+    looped = [PASSES, PASSES * 2].map do |passes|
+      instructions_a_frame(pass_rom("LOOPED") { |b, n, _stand_in| b.repeat(passes) { |i| body.call(b, n, i) } })
+    end
+    inline = [PASSES, PASSES * 2].map do |passes|
+      instructions_a_frame(pass_rom("INLINE") { |b, n, stand_in| passes.times { body.call(b, n, stand_in) } })
+    end
+    ((looped.last - looped.first) - (inline.last - inline.first)) / PASSES
+  end
+
+  # Nothing is moved to the quick memory, which changes how a call is made depending on where
+  # the caller and the routine each landed — and a body written out four hundred times lands
+  # somewhere different from one written out two hundred.
+  private def pass_rom(name)
+    VBlank.build(name, console: :gba, err: StringIO.new, out: StringIO.new, fast_code: false) do
+      screen :bitmap
+      n = var :n, 0
+      stand_in = var :stand_in, 0
+      b = self
+      func(:bump) { n.add! 1 }
+      game_loop { yield b, n, stand_in }
+    end
+  end
+
+  private def instructions_a_frame(rom)
+    result = VBlank::Diagnostics::Profiler.run(rom, frames: 10, picture: false)
+    refute result.dropping_frames?, "a pass count is only exact while the game keeps up (#{result.fps} fps)"
+    result.samples_per_frame
+  end
+
+  SETTLE = 12
+
+  private def read_var(rom, name)
+    address = rom.var_addresses.fetch(name)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "loops.gba")
+      rom.write(path)
+      probe = VBlank::Diagnostics::Emulator.probe(path)
+      probe.step(SETTLE)
+      value = probe.read32(address)
+      probe.close
+      return value
+    end
+  end
+end

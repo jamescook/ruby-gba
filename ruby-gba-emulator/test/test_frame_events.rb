@@ -85,7 +85,7 @@ class TestFrameEvents < Minitest::Test
   # two are indistinguishable, so anything turning a row into the colours it wears would be
   # right for most sprites and arbitrary for the rest, looking identical either way.
   def test_a_sprite_says_how_many_colours_its_picture_draws_from
-    many = (0...20).map { |n| RubyGBA::Graphics::Color.rgb(n + 6, 31 - n, (n * 2) % 32) }
+    many = (0...20).map { |n| VBlank::Graphics::Color.rgb(n + 6, 31 - n, (n * 2) % 32) }
     path = build_rom("COLORS", code: "TCOL") do
       screen :tiled
       image(:few, "." => :transparent, "#" => :red) { (["########"] * 8).join("\n") }
@@ -175,7 +175,7 @@ class TestFrameEvents < Minitest::Test
   # inside the frame it moved, and cannot say what it moved from. For a port chasing "what
   # is knocking the player's health down", those are the whole question.
   def test_a_probe_reports_every_change_to_a_watched_address
-    rom = RubyGBA.build("WATCH", validate: false) do
+    rom = VBlank.build("WATCH", validate: false) do
       screen :bitmap
       hp = var :hp, 100
       game_loop { hp.sub! 7 }
@@ -198,7 +198,7 @@ class TestFrameEvents < Minitest::Test
 
   # The block form: what to do with a change sits next to the asking.
   def test_a_watcher_can_be_handed_a_block_to_run_on_each_change
-    rom = RubyGBA.build("WATCHBLK", validate: false) do
+    rom = VBlank.build("WATCHBLK", validate: false) do
       screen :bitmap
       hp = var :hp, 50
       game_loop { hp.sub! 5 }
@@ -218,7 +218,7 @@ class TestFrameEvents < Minitest::Test
   # spread over sixty frames fit easily. What does not fit is one frame that moves an address
   # thousands of times, and a truncated list that does not say so reads like the whole story.
   def test_a_single_frame_that_moves_an_address_too_often_says_what_was_missed
-    rom = RubyGBA.build("BUSY", validate: false) do
+    rom = VBlank.build("BUSY", validate: false) do
       screen :bitmap
       hp = var :hp, 0
       game_loop { repeat(6000) { hp.add! 1 } }
@@ -494,7 +494,7 @@ class TestFrameEvents < Minitest::Test
   # The framework's own build record is the answer key here: the search is told nothing but
   # the numbers, and has to arrive at the address the build already knows.
   def counting_rom
-    rom = RubyGBA.build("COUNTDOWN", validate: false) do
+    rom = VBlank.build("COUNTDOWN", validate: false) do
       screen :bitmap
       clear_screen :black
       hp = var :hp, 31_337
@@ -507,7 +507,7 @@ class TestFrameEvents < Minitest::Test
   # asking the build anything — which is the position somebody is in with a cartridge they
   # did not write: they can see the number, and nothing else.
   def jumping_rom
-    rom = RubyGBA.build("JUMPER", validate: false) do
+    rom = VBlank.build("JUMPER", validate: false) do
       screen :bitmap
       clear_screen :black
       hp = var :hp, 31_337
@@ -521,13 +521,13 @@ class TestFrameEvents < Minitest::Test
   # The framework has had to add a variable and an instruction to the loop and read that
   # back, so the cartridge it measured was not the cartridge it ships. An arrival at the
   # loop's own first instruction is the pass itself, and the build knows where that is.
-  FRAME_ROUTINE = RubyGBA::IR::Backends::GBA::Placement::FRAME_ROUTINE
+  FRAME_ROUTINE = VBlank::IR::Backends::GBA::Placement::FRAME_ROUTINE
 
   # A loop that counts its own passes, so the arrival count has something exact to be
   # checked against: the counter is the last thing in the body, so it says how many passes
   # FINISHED, while an arrival marks one beginning.
   def self_counting_rom
-    rom = RubyGBA.build("ARRIVE", code: "TARV", validate: false) do
+    rom = VBlank.build("ARRIVE", code: "TARV", validate: false) do
       screen :bitmap
       clear_screen :black
       passes = var :passes, 0
@@ -554,7 +554,7 @@ class TestFrameEvents < Minitest::Test
   # The trap the pad-read count falls into, which this does not: a loop that never asks for
   # input goes round just the same, and nothing about its passes reaches the pad.
   def test_a_loop_that_never_asks_for_buttons_is_counted_all_the_same
-    rom = RubyGBA.build("NOASK", code: "TNAS", validate: false) do
+    rom = VBlank.build("NOASK", code: "TNAS", validate: false) do
       screen :bitmap
       game_loop { clear_screen :blue }
     end

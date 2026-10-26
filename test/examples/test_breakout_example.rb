@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require RubyGBA.root.join("examples/breakout").to_s
+require VBlank.root.join("examples/breakout").to_s
 
 # The Breakout example (examples/breakout.rb): the second bitmap-engine POC. It
 # exercises the collision verb (overlaps?) against a whole grid of bricks, plus
@@ -15,7 +15,7 @@ require RubyGBA.root.join("examples/breakout").to_s
 # where the headless run is cut off; and the emulator for the *picture* (the title, the
 # brick wall, and the paddle really render), read from settled frames on hardware.
 class TestBreakoutExample < Minitest::Test
-  include RubyGBA::Console::Hardware
+  include VBlank::Console::Hardware
 
   NUM_BRICKS = Breakout::BRICKS.length
 
@@ -32,9 +32,9 @@ class TestBreakoutExample < Minitest::Test
   end
 
   # How wide the screen of this run's console is, which the game lays its wall and paddle out on.
-  private def screen_width = RubyGBA::Console.described(game_console).screen_width
+  private def screen_width = VBlank::Console.described(game_console).screen_width
 
-  # RubyGBA.build runs the guardrails and Doctor, so a clean, non-empty build is
+  # VBlank.build runs the guardrails and Doctor, so a clean, non-empty build is
   # itself the structural check.
   def test_the_example_builds_clean
     rom = Breakout.build_rom(err: StringIO.new)

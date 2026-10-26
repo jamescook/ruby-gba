@@ -1,0 +1,252 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+# Tiled-mode text & numbers: on a `screen :tiled` there's no framebuffer, so
+# draw_text / draw_number render each glyph as a little hardware sprite the console
+# composites over the game. The surface is the same as bitmap mode, with one rule —
+# declare it once, above the game loop, because (like a sprite) it's redrawn for you
+# every frame and a live number updates itself from its variable. These assert the
+# observable result: the right glyph lands in the right place, the number tracks its
+# variable, leading zeros blank out — on the interpreter oracle and on real hardware.
+class TestTiledText < Minitest::Test
+  include VBlank::Console::Hardware
+
+  Fonts = VBlank::Graphics::Fonts
+
+  WHITE = Color.resolve(:white)
+
+  # Build a tiled program that declares some HUD text once, then loops one frame and
+  # halts (long enough for the sprites to be composited).
+  private def hud_program(&declare)
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      instance_eval(&declare)
+      game_loop do
+        wait_vblank
+        halt
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  # Assert the glyph for +char+ of the default font is painted in +color+ at origin
+  # (gx, gy) on +screen+: every lit pixel of the glyph is that color. Reading the font
+  # itself keeps this independent of the exact glyph shape.
+  private def assert_glyph(screen, char, gx, gy, color)
+    lit = []
+    Fonts.get(:default).each_pixel(char) { |dx, dy| lit << [dx, dy] }
+    refute_empty lit, "the font should have a glyph for #{char.inspect}"
+    lit.each do |dx, dy|
+      assert_equal color, screen.pixel(gx + dx, gy + dy),
+                   "glyph #{char.inspect} pixel (#{dx},#{dy}) should be painted at (#{gx + dx},#{gy + dy})"
+    end
+  end
+
+  def test_draw_text_paints_its_glyphs_as_sprites
+    prog = hud_program { draw_text "AB", 100, 20, :white }
+    s = game_player.run(prog, max_steps: 500).screen
+    assert_glyph(s, "A", 100, 20, WHITE)
+    assert_glyph(s, "B", 100 + Fonts.get(:default).cell_w, 20, WHITE) # one cell over
+  end
+
+  def test_a_live_number_shows_its_variables_value
+    prog = hud_program do
+      var :score, 7
+      draw_number :score, 100, 20, :white, digits: 1
+    end
+    s = game_player.run(prog, max_steps: 500).screen
+    assert_glyph(s, "7", 100, 20, WHITE)
+  end
+
+  def test_a_two_digit_number_places_both_digits
+    prog = hud_program do
+      var :score, 42
+      draw_number :score, 100, 20, :white, digits: 2
+    end
+    s = game_player.run(prog, max_steps: 500).screen
+    cell = Fonts.get(:default).cell_w
+    assert_glyph(s, "4", 100, 20, WHITE)
+    assert_glyph(s, "2", 100 + cell, 20, WHITE)
+  end
+
+  def test_leading_zeros_are_blank_not_drawn
+    prog = hud_program do
+      var :score, 5
+      draw_number :score, 100, 20, :white, digits: 3 # shows "  5"
+    end
+    s = game_player.run(prog, max_steps: 500).screen
+    cell = Fonts.get(:default).cell_w
+    # The ones column (third) shows 5; the two leading columns are blank — no white
+    # pixel anywhere in their 8x8 boxes.
+    assert_glyph(s, "5", 100 + 2 * cell, 20, WHITE)
+    # A blank column draws nothing in its own advance width. (The 8x8 glyph sprites
+    # overlap the narrower advance, so we check only this column's own `cell` pixels —
+    # past that we'd be reading the neighbouring digit's sprite.)
+    [0, 1].each do |col|
+      box = (0...8).flat_map { |dy| (0...cell).map { |dx| s.pixel(100 + col * cell + dx, 20 + dy) } }
+      refute_includes box, WHITE, "leading column #{col} should be blank"
+    end
+  end
+
+  def test_a_live_number_updates_itself_each_frame
+    # No per-frame draw call: the number is declared once and its digit sprite reads
+    # the variable every frame. Increment past 9 and halt; the last composited frame
+    # must show the current value.
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      var :score, 0
+      draw_number :score, 100, 20, :white, digits: 1
+      game_loop do
+        wait_vblank            # composites the score's current digit
+        add! :score, 1
+        if_eq(:score, 6) { halt } # after this frame's present showed 6-1... see below
+      end
+    end
+    b.finalize_program
+    s = game_player.run(b.program, max_steps: 2_000).screen
+    # Frame N presents score, then adds 1; it halts the frame it presents 5 then makes 6.
+    assert_glyph(s, "5", 100, 20, WHITE)
+  end
+
+  # --- text declared under a condition: a blinking prompt ---
+  #
+  # A tiled glyph is not painted where the call sits — it is a sprite the console
+  # redraws every frame from a list settled at build time — so a `.then` around the
+  # call has to reach the glyph itself, or a prompt written to blink stands still.
+
+  # A prompt that flips on and off every frame: shown while `blink` is 1, gone while
+  # it's 0, with a second label beside it that named no condition and therefore never
+  # goes away (so "gone" reads as this glyph, not as a blank screen).
+  private def blinking_prompt_program
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      blink = var :blink, 1
+      draw_text "A", 100, 20, :white                       # always on: the control
+      (blink == 1).then { draw_text "B", 140, 20, :white }  # only while blink is 1
+      game_loop do
+        (blink == 1).then { blink.set! 0 }.else { blink.set! 1 }
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_text_under_a_condition_is_shown_only_while_it_holds
+    on = game_player.run(blinking_prompt_program, frames: 1).screen
+    off = game_player.run(blinking_prompt_program, frames: 2).screen
+
+    assert_glyph(on, "A", 100, 20, WHITE)
+    assert_glyph(on, "B", 140, 20, WHITE)
+    assert_glyph(off, "A", 100, 20, WHITE) # the unconditional label stays
+    refute_glyph(off, "B", 140, 20, WHITE) # ...the conditional one has gone
+  end
+
+  # The other side of the same test: a declaration in the `.else` shows when the
+  # condition is false.
+  def test_text_in_an_else_is_shown_while_the_condition_is_false
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      blink = var :blink, 1
+      (blink == 1).then { draw_text "A", 100, 20, :white }.else { draw_text "B", 140, 20, :white }
+      game_loop do
+        (blink == 1).then { blink.set! 0 }.else { blink.set! 1 }
+      end
+    end
+    b.finalize_program
+    prog = b.program
+
+    first = game_player.run(prog, frames: 1).screen
+    second = game_player.run(prog, frames: 2).screen
+
+    assert_glyph(first, "A", 100, 20, WHITE)
+    refute_glyph(first, "B", 140, 20, WHITE)
+    refute_glyph(second, "A", 100, 20, WHITE)
+    assert_glyph(second, "B", 140, 20, WHITE)
+  end
+
+  # ...and the console does the same thing with it. The emulator runs one boot frame
+  # before the loop a tiled program's first present happens in, so the console is a
+  # frame ahead of the interpreter's count (see Differential::BOOT_FRAMES).
+  def test_a_blinking_prompt_blinks_on_the_console
+    prog = blinking_prompt_program
+    rom = ROM.assemble(GBA.new.lower(prog), title: "BLINK", code: "BBLI", maker: "01")
+    on = assert_emulator_loads_rom(rom, frames: 2)
+    off = assert_emulator_loads_rom(rom, frames: 3)
+
+    assert lit_pixels(on, "A", 100, 20).all? { |x, y| on.white?(x, y) }, "the plain label shows"
+    assert lit_pixels(on, "B", 140, 20).all? { |x, y| on.white?(x, y) }, "the prompt shows while blink is 1"
+    assert lit_pixels(off, "A", 100, 20).all? { |x, y| off.white?(x, y) }, "the plain label still shows"
+    refute lit_pixels(off, "B", 140, 20).any? { |x, y| off.white?(x, y) }, "the prompt is gone while blink is 0"
+  end
+
+  # No lit pixel of +char+'s glyph is painted in +color+ at (gx, gy) — the negative of
+  # #assert_glyph, for a glyph that should not be on screen at all.
+  private def refute_glyph(screen, char, gx, gy, color)
+    Fonts.get(:default).each_pixel(char) do |dx, dy|
+      refute_equal color, screen.pixel(gx + dx, gy + dy),
+                   "glyph #{char.inspect} pixel (#{dx},#{dy}) should NOT be painted at (#{gx + dx},#{gy + dy})"
+    end
+  end
+
+  # The screen coordinates of every lit pixel of +char+'s glyph drawn at (gx, gy).
+  private def lit_pixels(_verifier, char, gx, gy)
+    pixels = []
+    Fonts.get(:default).each_pixel(char) { |dx, dy| pixels << [gx + dx, gy + dy] }
+    pixels
+  end
+
+  # --- friendly guardrails ---
+
+  def test_declaring_tiled_text_inside_the_loop_is_a_friendly_error
+    err = assert_raises(ArgumentError) do
+      b = Builder.new
+      b.instance_eval do
+        screen :tiled
+        game_loop do
+          wait_vblank
+          draw_text "HI", 10, 10, :white # wrong: inside the loop
+        end
+      end
+    end
+    assert_match(/once, above your game_loop/, err.message)
+  end
+
+  def test_a_live_number_needs_a_variable_not_an_expression
+    err = assert_raises(ArgumentError) do
+      b = Builder.new
+      b.instance_eval do
+        screen :tiled
+        hp = var :hp, 10
+        draw_number hp - 1, 10, 10, :white # an expression can't be tracked per frame
+      end
+    end
+    assert_match(/follows a variable/, err.message)
+  end
+
+  # --- hardware: the same HUD renders on the console ---
+
+  def test_the_hud_renders_on_the_console
+    prog = hud_program do
+      var :score, 42
+      draw_number :score, 100, 20, :white, digits: 2
+    end
+    rom = ROM.assemble(GBA.new.lower(prog), title: "HUD", code: "BHUD", maker: "01")
+    v = assert_emulator_loads_rom(rom, frames: 3)
+    cell = Fonts.get(:default).cell_w
+    # A lit pixel of "4" and of "2" should be white on the real framebuffer.
+    Fonts.get(:default).each_pixel("4") do |dx, dy|
+      assert v.white?(100 + dx, 20 + dy), "‘4’ pixel (#{dx},#{dy}) on hardware"
+      break
+    end
+    Fonts.get(:default).each_pixel("2") do |dx, dy|
+      assert v.white?(100 + cell + dx, 20 + dy), "‘2’ pixel (#{dx},#{dy}) on hardware"
+      break
+    end
+  end
+end

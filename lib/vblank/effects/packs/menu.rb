@@ -1,0 +1,643 @@
+# frozen_string_literal: true
+
+module VBlank
+  module Effects
+    module Packs
+      # A menu: a list of things to pick from, a selector that moves, and what each one
+      # does. Nearly every game has one — a title screen, a pause screen, a shop, a
+      # jukebox — and until now this framework had no word for it.
+      #
+      # WHAT A GAME WROTE INSTEAD, and it is the same thirty lines every time: a variable
+      # holding which row is picked, two button tests that add and subtract with the
+      # wrapping done by hand, a pass that draws every row in the dull colour, a second
+      # pass that redraws the picked one in the bright colour, a cursor drawn beside it,
+      # and a test for the button that acts. That is a lot of bookkeeping around three
+      # lines of intent, and every game gets a slightly different bit of it wrong.
+      #
+      # SAID ONCE, a menu is: an ordered list of items, one of them picked, up and down
+      # moving the pick and wrapping at both ends, and a button running the picked item's
+      # block. Everything else — which colour is which, what the cursor looks like, how
+      # far apart the rows are — is decoration the game SAYS rather than builds.
+      #
+      # This is a pack, so every line below is written in public DSL verbs — `var`,
+      # `held`, `pressed`, `.then`, `draw_text`. Nothing here is new capability, which is
+      # exactly why it is a pack and not part of the library proper (see {Effects}).
+      module Menus
+        # How long a held button waits before it walks to the next row. Copied from
+        # Wolfenstein 3D, which waits 20 tics: a tap always moves exactly one row, and
+        # holding walks at about three rows a second — fast enough to feel responsive,
+        # slow enough that you can stop where you meant to.
+        HELD_REPEAT_FRAMES = 20
+
+        # What is drawn beside the row the cursor is on.
+        CURSOR = ">"
+
+        # A row that cannot be picked. Dim enough to read as "not for you now", light
+        # enough to still be readable — the point of a greyed row is that you can see
+        # what you are missing.
+        DISABLED_COLOR = "#404040"
+
+        # The gap between the bottom of one row and the top of the next, when the game
+        # does not say. With the built-in 7px font that puts rows 13 pixels apart, which
+        # is what Wolfenstein's menus use.
+        ROW_GAP = 6
+
+        # One row of a menu: what it can say, whether it can be picked, the colours it
+        # overrides, and what it does when it is chosen. `labels` is always a list,
+        # because a settings row says a different thing depending on the setting, and
+        # `showing` is the value that says which of them is on screen.
+        Item = Data.define(:labels, :enabled, :color, :picked, :showing, :action)
+
+        # Collects the rows of one menu. Handed to the `menu` block as its argument
+        # rather than being the block's `self`, so a bare DSL verb written inside an
+        # item's own block still reaches the build it was written in — including in a
+        # game split across files, where `self` is a plain Ruby object of the game's own.
+        class Items
+          attr_reader :list
+
+          def initialize
+            @list = []
+          end
+
+          # Add one row.
+          #
+          #   m.item("NEW GAME")                  { state.set! PLAYING }
+          #   m.item("LOAD GAME", enabled: false) { }
+          #   m.item("ODE TO JOY", picked: :yellow)
+          #
+          # A SETTINGS ROW SAYS A DIFFERENT THING depending on the setting, so give it the
+          # list of things it can say and the variable that decides which:
+          #
+          #   m.item(["MUSIC: OFF", "MUSIC: ON"], showing: music) { music.set! 1 - music }
+          #
+          # The words the value points at are the ones on screen, and they are part of the
+          # row — so they light up with it, move with the cursor, and are what the block
+          # under them changes. Written the other way round, as a label plus a separate
+          # `draw_text` of the value beside it, the value would sit outside the row and
+          # stay whatever colour it was drawn in.
+          #
+          # A ROW THAT CAN BE PICKED ONLY SOME OF THE TIME — Continue while there is a save,
+          # Resume while a game is running — takes a test the game works out, or a variable
+          # that holds 0 or 1, instead of true or false:
+          #
+          #   m.item("CONTINUE", enabled: files[0].good?) { files[0].load }
+          #
+          # @param label [String, Array<String>] what the row says, or all it can say
+          # @param enabled [Boolean, Condition, Value] whether the row can be picked: always,
+          #   never, or while a test holds
+          # @param color [Symbol, String, Integer, nil] this row's own unpicked colour
+          # @param picked [Symbol, String, Integer, nil] this row's own picked colour
+          # @param showing [Value, Symbol, nil] which of several labels is on screen
+          def item(label, enabled: true, color: nil, picked: nil, showing: nil, &action)
+            labels = row_labels!(label, showing)
+            unless [true, false].include?(enabled) || enabled.is_a?(DSL::Condition) || enabled.is_a?(DSL::Value)
+              raise ArgumentError,
+                    "`enabled:` says whether a row can be picked: true, false, or a test the " \
+                    "game works out, like `enabled: files[0].good?`. A variable that holds 0 or " \
+                    "1 works too. Got #{enabled.inspect}."
+            end
+
+            @list << Item.new(labels: labels, enabled: enabled, color: color, picked: picked,
+                              showing: showing, action: action)
+            self
+          end
+
+          private
+
+          # What the row can say, always as a list. One thing needs nothing to choose
+          # between; several do, so a list without `showing:` is refused rather than
+          # drawn all at once on top of itself.
+          def row_labels!(label, showing)
+            if label.is_a?(String)
+              return [label] if showing.nil?
+
+              raise ArgumentError,
+                    "A menu row that says one thing does not need `showing:`. Give the row " \
+                    "the list of things it can say, like [\"MUSIC: OFF\", \"MUSIC: ON\"]. " \
+                    "Or drop `showing:`."
+            end
+            unless label.is_a?(Array) && label.length >= 2 && label.all?(String)
+              raise ArgumentError,
+                    "A menu row needs its words as a String. A row that changes needs two or " \
+                    "more Strings in a list. Got #{label.inspect}."
+            end
+            return label if showing
+
+            raise ArgumentError,
+                  "This menu row can say #{label.length} things, so it needs `showing:` to " \
+                  "say which one is on screen. Give it the variable that decides, like " \
+                  "`showing: music`."
+          end
+        end
+
+        # A menu the game can read back: which row is picked, and whether it just moved.
+        class Menu
+          def initialize(picked, moved, length)
+            @picked = picked
+            @moved = moved
+            @length = length
+          end
+
+          # How many rows it has (a build-time number).
+          attr_reader :length
+
+          # Which row the cursor is on, counting from 0 — a {Value}, so a game can read
+          # it, compare it, and draw from it. It is an ordinary variable underneath, so
+          # setting it jumps the cursor.
+          attr_reader :picked
+
+          # True on the frame the pick moved — for a sound, or a preview that reloads.
+          #
+          #   menu.moved.then { beep :blip }
+          def moved
+            @moved == 1
+          end
+        end
+
+        # Declare a menu: a list of rows, a cursor that moves between them, and a block
+        # per row saying what picking it does.
+        #
+        #   menu :main, at: [80, 60] do |m|
+        #     m.item("NEW GAME")                  { state.set! PLAYING }
+        #     m.item("LOAD GAME", enabled: false) { state.set! LOADING }
+        #     m.item("SOUND")                     { state.set! SOUND }
+        #   end
+        #
+        # Up and down move the cursor and WRAP at both ends. A row that cannot be picked
+        # is stepped over rather than landed on, and is drawn in its own dim colour.
+        # Holding a button walks the list instead of moving one row and stopping. The
+        # button named by `press:` runs the picked row's block.
+        #
+        # Call it where your frame's work goes — inside your `game_loop`, or inside a
+        # `scene`. A menu reads the buttons and draws itself again on every frame, so a
+        # menu written above the loop would run one time and then never again. That rule
+        # is the same on both screens, which is the whole point of it being a verb: the
+        # menu owns its own drawing, so nothing about where it goes changes with the
+        # screen the way a bare `draw_text` does.
+        #
+        # WHAT IT COSTS DEPENDS ON THE SCREEN, and it is worth knowing before you write a
+        # long one. On `screen :bitmap` the rows are painted into the picture, so they
+        # cost drawing time and no sprites. On `screen :tiled` the console composites the
+        # text for you, and every character is one little sprite of its own — out of the
+        # same table of 128 the game's own sprites come from. So reckon about ONE sprite
+        # for each character of a label, and none at all for a space. Eight rows of ten
+        # characters is about 72; twelve rows of twelve does not fit, and says so.
+        #
+        # A row lights up by CHANGING COLOUR rather than by being drawn twice, which is
+        # what keeps that number at one and not two — see draw_text's `showing:`. The
+        # cursor is the only per-row extra, because it is shown or not shown rather than
+        # recoloured.
+        #
+        # WHICH ROW IS PICKED SURVIVES leaving and coming back, so a submenu you back out
+        # of opens where you left it. That is free: the pick is a variable, and a
+        # variable's starting value is applied once, at power-on.
+        #
+        # WHERE THE CURSOR STARTS is the first row that can be picked, unless `starts_on:`
+        # names another. A difficulty screen is what wants it: its rows run from gentlest
+        # to hardest, and the one the game RECOMMENDS is usually not the first — so a
+        # player who presses the button straight through gets the game the author meant
+        # rather than the easiest one. That is a real difference in how hard the game is,
+        # not a cosmetic one, and it is a number the menu is given rather than an order
+        # the rows have to be written in. It applies at power-on only: the cursor moves
+        # from there like any other, and a menu you back out of still opens where you
+        # left it.
+        #
+        # THE COLOURS come in three, and any of them can be said per row:
+        #
+        #   color:     a row the cursor is not on
+        #   picked:    the row the cursor is on
+        #   disabled:  a row that cannot be picked
+        #
+        # @param name [Symbol] a name for this menu, so two menus keep their own pick
+        # @param at [Array(Integer, Integer)] where the first row's label starts
+        # @param spacing [Integer, nil] pixels from one row to the next
+        # @param color [Symbol, String, Integer] an unpicked row
+        # @param picked [Symbol, String, Integer] the picked row
+        # @param disabled [Symbol, String, Integer] a row that cannot be picked
+        # @param cursor [String] drawn to the left of the picked row ("" for none)
+        # @param font [Symbol] a font registered by {Builder::Text#font}
+        # @param press [Symbol] the button that runs the picked row's block
+        # @param repeat_every [Integer] frames between rows while a button is held
+        # @param starts_on [Integer, nil] which row the cursor is on at power-on
+        # @return [Menu] a handle: `.picked`, `.moved`, `.length`
+        def menu(name, at:, spacing: nil, color: :gray, picked: :white,
+                 disabled: DISABLED_COLOR, cursor: CURSOR, font: :default,
+                 press: :a, repeat_every: HELD_REPEAT_FRAMES, starts_on: nil, &block)
+          items = menu_items!(name, block)
+          refuse_menu_outside_frame!
+          check_button!(press)
+          if press == IR::Buttons::ANY
+            raise ArgumentError, "menu :#{name} chooses a row with press: :any. Then the up and down buttons that " \
+                                 "move the cursor also choose the row. To fix this, give press: one button, " \
+                                 "for example press: :a."
+          end
+          x, y = menu_origin!(at)
+          step = menu_spacing!(spacing || (text_height(font: font) + ROW_GAP))
+          refuse_bad_menu_repeat_every!(repeat_every)
+
+          pick = var :"__menu_#{name}", refuse_conflicting_starts_on!(name, menu_first_row!(name, items, starts_on))
+          wait = var :"__menu_#{name}_wait", 0
+          moved = var :"__menu_#{name}_moved", 0
+
+          menu_move(items, pick, wait, moved, repeat_every)
+          menu_choose(items, pick, press)
+          # The rows are the verb's own text, not text the author placed, so the rule
+          # about where an author writes draw_text does not reach them (see
+          # Builder::Text#with_text_owned_by). That is what lets one menu verb work the
+          # same way on a screen you paint and on a screen the console composes.
+          spent = menu_sprites_spent do
+            with_text_owned_by(:menu) do
+              menu_draw(items, pick, x: x, y: y, step: step, font: font, color: color,
+                                     picked: picked, disabled: disabled, cursor: cursor)
+            end
+          end
+          refuse_menu_over_sprite_limit!(name, spent)
+          Menu.new(pick, moved, items.length)
+        end
+
+        # The guardrail this pack brings with it — the same footgun the other effects
+        # have, for the same reason, so it reads the same way.
+        def self.checks = CHECKS
+
+        # A menu with no frames to happen on.
+        #
+        # A menu is a button read and a redraw made on every frame, so it only exists
+        # over time. With no game loop there are no frames: the rows are drawn once, the
+        # cursor never moves, and no button does anything.
+        class NeedsGameLoop
+          NAME = :menu_needs_game_loop
+          PLAIN_NAME = "a menu with no frames to run on"
+
+          MESSAGE =
+            "This game declares a menu, but it has no `game_loop`. A menu reads the " \
+            "buttons and draws itself again on every frame, so it needs frames to run " \
+            "on. With no game loop there are none: the rows are drawn one time, and the " \
+            "cursor never moves. To fix this, put the game in a `game_loop`."
+
+          # Every menu's pick variable is named for the menu it belongs to.
+          PICK_PREFIX = "__menu_"
+
+          def detect(program)
+            pick = menu_pick(program)
+            return [] if pick.nil? || has_loop?(program)
+
+            [IR::Guardrails::Finding.new(check: NAME, severity: :warning, message: MESSAGE,
+                                         node: pick)]
+          end
+
+          private
+
+          def menu_pick(program)
+            program.each.find { |node| node.kind == :set && node.var.to_s.start_with?(PICK_PREFIX) }
+          end
+
+          def has_loop?(program)
+            program.each.any? { |node| node.kind == :loop }
+          end
+        end
+
+        private
+
+        # Move the cursor. A tap moves exactly one row; holding waits and then walks,
+        # which is the whole of "held-button repeat" — the wait is cleared the moment
+        # neither button is down, so the next tap moves at once however long you held
+        # the last one.
+        def menu_move(items, pick, wait, moved, repeat_every)
+          moved.set! 0
+          (held(:up) | held(:down)).then do
+            (wait == 0).then do
+              wait.set! repeat_every
+              moved.set! 1
+              held(:down).then { menu_step(items, pick, 1) }
+                         .else { menu_step(items, pick, -1) }
+            end.else { wait.sub! 1 }
+          end.else { wait.set! 0 }
+        end
+
+        # One step of the cursor, wrapping at the end it walked off.
+        #
+        # A row that cannot be picked is stepped OVER rather than landed on. Which rows
+        # those are is settled as the program is built, so each one costs a single test:
+        # land on it, and go straight on to the next row that can be picked. A menu with
+        # nothing disabled emits none of these tests at all.
+        #
+        # A ROW THE GAME OPENS AND SHUTS cannot be settled that way, because which rows can
+        # be picked is only known as the game runs. Then the step is a walk: move one row,
+        # and keep moving while the row landed on cannot be picked — never more than once
+        # round the list, so a menu whose every row is shut right now leaves the cursor
+        # where the walk ends rather than hunting for ever. Only a menu with such a row pays
+        # for the walk.
+        def menu_step(items, pick, direction)
+          menu_wrap(items, pick, direction)
+          if items.any? { |item| menu_enabled_at_runtime?(item) }
+            repeat(items.length - 1, stop_when: menu_on_pickable_row(items, pick)) do
+              menu_wrap(items, pick, direction)
+            end
+            return
+          end
+
+          items.each_index do |i|
+            next if items[i].enabled
+
+            (pick == i).then { pick.set! menu_next_pickable(items, i, direction) }
+          end
+        end
+
+        # Move the cursor one row, wrapping at the end it walked off.
+        def menu_wrap(items, pick, direction)
+          last = items.length - 1
+          if direction.positive?
+            pick.add! 1
+            (pick > last).then { pick.set! 0 }
+          else
+            pick.sub! 1
+            (pick < 0).then { pick.set! last }
+          end
+        end
+
+        # A test: the row the cursor is on can be picked right now.
+        def menu_on_pickable_row(items, pick)
+          tests = items.each_index.filter_map do |i|
+            item = items[i]
+            next if item.enabled.equal?(false)
+
+            here = (pick == i)
+            menu_enabled_at_runtime?(item) ? here & menu_can_pick(item) : here
+          end
+          tests.reduce { |either, test| either | test }
+        end
+
+        # The next row that can be picked, walking from +from+ in +direction+ and
+        # wrapping. Worked out here, as the program is built, so nothing walks at run
+        # time. There is always one: a menu where no row can be picked is refused.
+        def menu_next_pickable(items, from, direction)
+          count = items.length
+          1.upto(count) do |offset|
+            at = (from + (direction * offset)) % count
+            return at if items[at].enabled
+          end
+        end
+
+        # Run the picked row's block when the button is pressed. On the press edge, so
+        # holding the button down chooses once rather than once a frame.
+        def menu_choose(items, pick, press)
+          return if items.none?(&:action)
+
+          pressed(press).then do
+            items.each_with_index do |item, i|
+              next unless item.action
+
+              # `.call` rather than instance_exec: the block keeps the `self` it was
+              # written with, so a game split across files still sees its own object.
+              # A row the game has shut does nothing, even with the cursor on it.
+              here = (pick == i)
+              here &= menu_can_pick(item) if menu_enabled_at_runtime?(item)
+              here.then { item.action.call }
+            end
+          end
+        end
+
+        # How a menu draws: where its column is, the three colours, the cursor and the
+        # font. Carried as one thing so the drawing below reads as drawing rather than as
+        # an argument list threaded through it.
+        Style = Data.define(:x, :cursor_x, :font, :color, :picked, :disabled, :cursor)
+
+        # Draw the rows. A row that cannot be picked is drawn dim and never any other
+        # way, so its test is settled at build time and costs nothing at run time.
+        def menu_draw(items, pick, x:, y:, step:, font:, color:, picked:, disabled:, cursor:)
+          # The cursor hangs one space off the left of the labels, so the column of
+          # labels stays a straight edge whichever row the cursor is on.
+          style = Style.new(x: x, cursor_x: x - text_width("#{cursor} ", font: font),
+                            font: font, color: color, picked: picked, disabled: disabled,
+                            cursor: cursor)
+
+          items.each_with_index do |item, i|
+            row = y + (i * step)
+            item.labels.each_with_index do |words, nth|
+              draw = -> { menu_draw_row(item, words: words, row: row, style: style, picked_when: -> { pick == i }) }
+              # A row that says one thing draws it. A row that can say several draws each
+              # of them under a test, so the one the game's own value points at is the one
+              # on screen and the others are simply not drawn.
+              next draw.call if item.labels.length == 1
+
+              (item.showing == nth).then { draw.call }
+            end
+          end
+        end
+
+        # One row, in whichever of its three colours applies. `picked_when` is a block
+        # rather than a test because a test belongs to one place in the tree, and a row
+        # that can say several things asks the same question once for each of them.
+        #
+        # The words are ONE draw in a pair of colours rather than two draws under a test.
+        # It says the same thing and paints the same pixels; what it saves is on a tiled
+        # screen, where two draws would be two sprites for every character with one of
+        # them always hidden. The cursor is still a test, because it is shown or not
+        # shown rather than recoloured.
+        #
+        # A row the game opens and shuts is drawn both ways, under its test: dim while it is
+        # shut, and the usual pair of colours while it is open.
+        def menu_draw_row(item, words:, row:, style:, picked_when:)
+          if menu_enabled_at_runtime?(item)
+            menu_can_pick(item).then { menu_draw_open_row(item, words: words, row: row, style: style, picked_when: picked_when) }
+                               .else { draw_text words, style.x, row, style.disabled, font: style.font }
+            return
+          end
+          unless item.enabled
+            draw_text words, style.x, row, style.disabled, font: style.font
+            return
+          end
+
+          menu_draw_open_row(item, words: words, row: row, style: style, picked_when: picked_when)
+        end
+
+        def menu_draw_open_row(item, words:, row:, style:, picked_when:)
+          bright = item.picked || style.picked
+          draw_text words, style.x, row, [item.color || style.color, bright],
+                    font: style.font, showing: picked_when.call
+          return if style.cursor.empty?
+
+          picked_when.call.then do
+            draw_text style.cursor, style.cursor_x, row, bright, font: style.font
+          end
+        end
+
+        # Collect the rows, and refuse a menu that cannot work. All of these are wrong
+        # the moment they are typed, so they are raised here rather than in a guardrail.
+        def menu_items!(name, block)
+          unless block
+            raise ArgumentError,
+                  "menu :#{name} needs its rows: menu :#{name}, at: [x, y] do |m| " \
+                  "m.item(\"NEW GAME\") { ... } end."
+          end
+
+          collected = Items.new
+          run_block(collected, &block)
+          items = collected.list
+          if items.empty?
+            raise ArgumentError,
+                  "menu :#{name} has no rows. Add one with `m.item(\"NEW GAME\") { ... }`."
+          end
+          if items.all? { |item| item.enabled.equal?(false) }
+            raise ArgumentError,
+                  "Every row of menu :#{name} is `enabled: false`, so the cursor has nowhere " \
+                  "to go. To fix this, remove `enabled: false` from one row."
+          end
+
+          items.each_with_index.map do |item, i|
+            item = item.with(showing: menu_showing_value!(item)) if item.showing
+            item.with(enabled: menu_enabled_value(name, i, item.enabled))
+          end
+        end
+
+        # What `enabled:` said, kept as true, false, or a VARIABLE that is 1 while the row can
+        # be picked. A test is turned into one here, at the top of the menu's frame: it is asked
+        # in several places — stepping, choosing, drawing — and a test belongs to one place in
+        # the program, where a variable can be read as often as anybody likes.
+        def menu_enabled_value(name, row, enabled)
+          return enabled unless enabled.is_a?(DSL::Condition)
+
+          open = var :"__menu_#{name}_open_#{row}", 0
+          enabled.then { open.set! 1 }.else { open.set! 0 }
+          open
+        end
+
+        # Whether a row's `enabled:` is decided as the game runs, rather than true or false.
+        def menu_enabled_at_runtime?(item) = item.enabled.is_a?(DSL::Value)
+
+        # A fresh test for a row that can be picked only while the game says so.
+        def menu_can_pick(item) = (item.enabled != 0)
+
+        # The value that says which of a row's several labels is on screen. A Symbol names
+        # a variable, the way a Symbol does everywhere else in the DSL.
+        def menu_showing_value!(item)
+          showing = item.showing
+          return value_handle_for(showing) if showing.is_a?(Symbol)
+          return showing if showing.is_a?(DSL::Value)
+
+          raise ArgumentError,
+                "`showing:` takes the variable that says which words the row shows. Give a " \
+                "variable, like `showing: music` or `showing: :music`. Got #{showing.inspect}."
+        end
+
+        # How many sprite slots the block's drawing took. Zero on a bitmap screen, where
+        # text is painted into the picture; on a tiled screen every character the console
+        # composites is one little sprite of its own, and they come out of the same table
+        # the game's own sprites do.
+        def menu_sprites_spent
+          before = @hud_objects.length
+          yield
+          @hud_objects.length - before
+        end
+
+        # A tiled menu that cannot fit in the sprite table.
+        #
+        # Only the menu's own share is checked here, because that is the part the menu can
+        # say something useful about — a game that overspends across everything it draws is
+        # a bigger question than this verb. Caught at the call site, where the labels are,
+        # rather than at lowering, where the message could only count anonymous sprites.
+        def refuse_menu_over_sprite_limit!(name, spent)
+          return if spent <= console.sprites
+
+          raise ArgumentError,
+                "menu :#{name} needs #{spent} sprites for its rows, and a #{console.title} draws at " \
+                "most #{console.sprites} at once. On a tiled screen the console draws " \
+                "each character as its own little sprite. To fix this, use shorter labels or " \
+                "fewer rows. Or put the menu on a `screen :bitmap`, where text costs no " \
+                "sprites at all."
+        end
+
+        # A menu is per-frame work, so it belongs where the frame's work goes.
+        def refuse_menu_outside_frame!
+          return if @building_scene || @container_stack.length > 1
+
+          raise ArgumentError,
+                "Call menu inside your game_loop, or inside a scene. A menu reads the " \
+                "buttons and draws its rows again on every frame. A menu above the loop " \
+                "runs one time, at the start, and then never again."
+        end
+
+        def menu_origin!(at)
+          unless at.is_a?(Array) && at.length == 2 && at.all?(Integer)
+            raise ArgumentError,
+                  "menu takes `at:` as where the first row starts, like `at: [80, 60]`. " \
+                  "Got #{at.inspect}. To centre a column of rows, ask the font how wide " \
+                  "the widest one comes out with `text_width`."
+          end
+
+          at
+        end
+
+        def menu_spacing!(step)
+          return step if step.is_a?(Integer) && step.positive?
+
+          raise ArgumentError,
+                "menu takes `spacing:` as the pixels from one row to the next. " \
+                "Got #{step.inspect}."
+        end
+
+        def refuse_bad_menu_repeat_every!(frames)
+          return if frames.is_a?(Integer) && frames.positive?
+
+          raise ArgumentError,
+                "menu takes `repeat_every:` as the frames a held button waits before it " \
+                "walks to the next row. Got #{frames.inspect}."
+        end
+
+        # Which row the cursor is on at power-on: the one the game named, else the first
+        # that can be picked.
+        #
+        # A row that cannot be picked is refused rather than quietly stepped past. Which
+        # rows those are is settled while the program is built, so a start that lands on
+        # one is a mistake in the program — and moving the cursor for you would hide it.
+        def menu_first_row!(name, items, starts_on)
+          return items.index { |item| !item.enabled.equal?(false) } if starts_on.nil?
+
+          unless starts_on.is_a?(Integer)
+            raise ArgumentError,
+                  "menu takes `starts_on:` as which row the cursor starts on, counting " \
+                  "from 0, like `starts_on: 2`. Got #{starts_on.inspect}."
+          end
+          unless (0...items.length).cover?(starts_on)
+            raise ArgumentError,
+                  "menu :#{name} must start on one of its own rows. It has #{items.length} " \
+                  "rows, and `starts_on: #{starts_on}` names none of them. Rows count from " \
+                  "0, so the last one is row #{items.length - 1}."
+          end
+          if items[starts_on].enabled.equal?(false)
+            raise ArgumentError,
+                  "menu :#{name} cannot start on row #{starts_on}, because that row is " \
+                  "`enabled: false`. The cursor never lands on a row that cannot be picked. " \
+                  "To fix this, give `starts_on:` a row that can be picked."
+          end
+
+          starts_on
+        end
+
+        # A menu's name is where its pick is kept, so two `menu :main` calls share one cursor
+        # — which is right for a menu written once in a routine called from two places. Two
+        # that start that cursor on different rows cannot both be right, and saying so here
+        # names the menu the author wrote, where the variable check underneath would name
+        # the hidden variable that holds the pick.
+        def refuse_conflicting_starts_on!(name, row)
+          here = Messages::AuthorSource.author_file_and_line
+          first = (@menu_first_rows ||= {})[name] ||= { row: row, at: here }
+          return row if first[:row] == row
+
+          raise ArgumentError,
+                "menu :#{name} is written in two places, and the two start the cursor on " \
+                "different rows. #{menu_site_phrase(first[:at], 'first')} it starts on row " \
+                "#{first[:row]}. #{menu_site_phrase(here, 'second')} it starts on row #{row}. " \
+                "Menus with one name share one cursor. If they are two different menus, give " \
+                "each one its own name. If they are one menu, give both the same `starts_on:`."
+        end
+
+        # "At hero.rb:12", or "In the first place" when no line of the game's own wrote it.
+        def menu_site_phrase(at, which) = at ? "At #{at}" : "In the #{which} place"
+
+        # Down here because the check classes it names are declared above it.
+        CHECKS = Ractor.make_shareable([NeedsGameLoop.new])
+      end
+    end
+  end
+end

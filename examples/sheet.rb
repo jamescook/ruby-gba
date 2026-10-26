@@ -20,7 +20,7 @@
 # Run it to build examples/sheet.gba:
 #   ruby examples/sheet.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Sheet
   SPEED = 2
@@ -54,7 +54,7 @@ module Sheet
     "##############################",
   ])
 
-  GAME = RubyGBA.game("SHEET", consoles: %i[gba]) do
+  GAME = VBlank.game("SHEET", consoles: %i[gba]) do
     screen :tiled # tile mode: a background room + a hardware sprite over it
 
     # Import the tile sheet straight into the tileset: "#" is its first tile (the

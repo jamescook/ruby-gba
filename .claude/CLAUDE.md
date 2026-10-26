@@ -49,7 +49,7 @@ can't be allowlisted, and can't be denied granularly.
 
 Integration tests run ROMs in an emulator via **ruby-gba-emulator** — a lean, headless libmgba
 probe. It is a **gem of its own**, living in this repository under `ruby-gba-emulator/`, and it
-is reached through the one seam, `RubyGBA::Diagnostics::Emulator` (`lib/ruby_gba/diagnostics/emulator.rb`), so nothing
+is reached through the one seam, `VBlank::Diagnostics::Emulator` (`lib/vblank/diagnostics/emulator.rb`), so nothing
 else names the backend directly.
 
 **Why a separate gem:** building a cartridge is pure Ruby and running one is not. It is
@@ -58,7 +58,7 @@ needs no C compiler. A game that wants to verify or profile adds it to its own G
 
 ```ruby
 git "https://github.com/jamescook/ruby-gba.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
-  gem "ruby-gba"
+  gem "vblank"
   gem "ruby-gba-emulator"
 end
 ```
@@ -85,8 +85,8 @@ build also records the C source it came from, so a game that loads a checkout bu
 last pull stops with `RubyGBAEmulator::OutOfDate` and how to rebuild, not an error deep in the
 profiler.
 
-`require "ruby_gba"` does not load the emulator. `Diagnostics::Emulator.load!` loads it the first
-time something needs it — a measured build, a verify, a picture check — and `ruby_gba/testing`
+`require "vblank"` does not load the emulator. `Diagnostics::Emulator.load!` loads it the first
+time something needs it — a measured build, a verify, a picture check — and `vblank/testing`
 loads it up front, because a test playing in a Ractor cannot load it.
 
 It is **required, not optional**: if it can't build or load, the emulator-backed tests **fail
@@ -114,19 +114,19 @@ with a line for each and fails if any did. It needs zig 0.17 (`mise use zig@0.17
 
 ```bash
 rake test                                                       # the suite, on every lowering
-rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file, on every lowering that plays it
-rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test
+rake test TEST=test/vblank/dsl/test_thing.rb                  # one file, on every lowering that plays it
+rake test TEST=test/vblank/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test
 rake test:lowering:gba                                          # the GBA lowering's run alone (takes TEST= too)
 rake test:lowering:native                                       # the native lowering's run alone (takes TEST= too)
 rake test:lowering:js                                           # the JavaScript lowering's run alone (takes TEST= too)
 rake test:lowering:gbc                                          # the Game Boy Color lowering's run alone (takes TEST= too)
-rake test:playthroughs                                          # one module's tests: every file in test/ruby_gba/playthroughs/
-RUBY_GBA_SUITE_LOCK=checkout rake test                          # in a worktree: go ahead beside another checkout's run
+rake test:playthroughs                                          # one module's tests: every file in test/vblank/playthroughs/
+VBLANK_SUITE_LOCK=checkout rake test                          # in a worktree: go ahead beside another checkout's run
 ```
 
 **One whole run at a time on the machine**, across every checkout: a second waits for the first and
 says where it is. A run in a worktree that should not queue behind the main checkout's sets
-`RUBY_GBA_SUITE_LOCK=checkout`, and the two then share the cores. See "One whole run on the
+`VBLANK_SUITE_LOCK=checkout`, and the two then share the cores. See "One whole run on the
 machine at a time" in `.claude/testing/runs.md`.
 
 **CI runs on a self-hosted runner, not on GitHub's machines.** A whole run plays every test on
@@ -165,17 +165,17 @@ with `game_player` (the interpreter on the GBA run, the game as C on the native 
 JavaScript on the JavaScript one, the Color cartridge on the Game Boy Color one), and a test that
 reaches for the Advance's cartridge in the emulator skips itself on the other runs. A test that does not pass on all of them fails `rake test`. The one
 exception is a test of one lowering's own output, which lives in a folder that lowering owns and
-is played by its run alone: `test/ruby_gba/ir/backends/gba/`, the cartridge-reading
-`diagnostics/` and `playthroughs/` for the GBA lowering, `test/ruby_gba/ir/backends/native/`
-for the native one, `test/ruby_gba/ir/backends/js/` for the JavaScript one and
-`test/ruby_gba/ir/backends/gbc/` for the Game Boy Color one (`TestSuites::LOWERING_FOLDERS` in `test/support/suites.rb`).
+is played by its run alone: `test/vblank/ir/backends/gba/`, the cartridge-reading
+`diagnostics/` and `playthroughs/` for the GBA lowering, `test/vblank/ir/backends/native/`
+for the native one, `test/vblank/ir/backends/js/` for the JavaScript one and
+`test/vblank/ir/backends/gbc/` for the Game Boy Color one (`TestSuites::LOWERING_FOLDERS` in `test/support/suites.rb`).
 What only the Advance can do — and every example game for the Advance alone — is tested in
 `test/advance/`, which the GBA, native and JavaScript runs load and the Color's never does: the
 Color run never sees a test it cannot make work, and a test is not bent to play on both.
 `.claude/rules/testing.md` has the details.
 
-The test tree mirrors the code's directories: a test of a file in `lib/ruby_gba/audio/`
-lives in `test/ruby_gba/audio/`, a test of an example in `test/examples/`, a test of a
+The test tree mirrors the code's directories: a test of a file in `lib/vblank/audio/`
+lives in `test/vblank/audio/`, a test of an example in `test/examples/`, a test of a
 tool in `test/tools/`. A test that builds a game through the DSL belongs to the builder
 file that defines the verb it is about. Tests are NOT split by which backend they assert
 against; most assert against both. The shared helpers stay at `test/` and are loaded by
@@ -187,7 +187,7 @@ usually a checkout beside this one, `../ruby-wolf3d` (anywhere else, say where i
 this one does not run and must not learn about: a library that names the games built on it is
 coupled to them. Its whole purpose is to find gaps here, and a gap it finds is tracked against
 this framework rather than worked around there. To work on both at once, point its bundler at
-this checkout (`bundle config set --local local.ruby-gba ../ruby-gba` from there).
+this checkout (`bundle config set --local local.vblank ../ruby-gba` from there).
 
 ## Testing strategy — assert behavior, at the right altitude
 
@@ -205,7 +205,7 @@ Test each layer the way a player experiences it, not by restating the code.
     `i = Reference.new.run(program); i.screen.pixel(x, y)` — or its variables (`i[:name]`).
     In-process, deterministic, no emulator. Assert a green pixel at (x, y), a
     marker whose position reveals a computed value, an edge that fires once, frame
-    by frame. `test/ruby_gba/dsl/test_dsl_expression.rb` is the worked example.
+    by frame. `test/vblank/dsl/test_dsl_expression.rb` is the worked example.
   - **Hardware path: the emulator** runs the real ROM and reads real pixels/audio
     (`assert_emulator_loads_rom` → `Verifier`). Keep a couple per feature to confirm
     the lowering; they fail loudly when the emulator is absent.
@@ -221,9 +221,9 @@ Test each layer the way a player experiences it, not by restating the code.
     not the wording verbatim.
 
 - **IR backend level — opcodes and lowering are fair game.** Here the generated
-  code *is* the contract, so `test/ruby_gba/ir/backends/gba/test_ir_backend_gba.rb` may assert
+  code *is* the contract, so `test/vblank/ir/backends/gba/test_ir_backend_gba.rb` may assert
   the two-pass jump math, register conventions, or instruction shapes, and
-  `test/ruby_gba/ir/backends/test_ir_backend_reference.rb` asserts interpreter state. These build hand-made
+  `test/vblank/ir/backends/test_ir_backend_reference.rb` asserts interpreter state. These build hand-made
   `IR::Build` trees (not the DSL) because they test the backend, not the surface.
 
 - **Cross-backend:** a feature isn't done until it's tested on every backend it
@@ -234,24 +234,24 @@ Test each layer the way a player experiences it, not by restating the code.
 
 ### Where a lib file goes
 
-`lib/ruby_gba/` is these modules, each a directory, by what a file IS — never by what it
+`lib/vblank/` is these modules, each a directory, by what a file IS — never by what it
 happens to touch:
 
 | directory | module | a file goes here when… |
 |---|---|---|
-| `dsl/` | `RubyGBA::DSL` | a game names it directly (a `Value`, a `Sprite`, a `List`), or it is a kind of thing one of those holds (`Whole`, `Fraction`, `NameSet`) |
-| `audio/` | `RubyGBA::Audio` | it is the sound and music model behind the verbs (`Score`, `Envelope`, `Music`) |
-| `graphics/` | `RubyGBA::Graphics` | it is what a picture is made of — colours, letters, images |
-| `console/` | `RubyGBA::Console` | it names a console — its hardware, where its memory is, its register addresses and flags (`Hardware`), what a game can tell about it (`Description`), and which of the library's parts serve it (`Kit`), named and never run |
-| `cartridge/` | `RubyGBA::Cartridge` | it turns a checked program into cartridge bytes (`ROM`, `Header`, `GameCode`) |
-| `diagnostics/` | `RubyGBA::Diagnostics` | it reads a built or running cartridge back (`Verifier`, `Profiler`, `BuildReport`) |
-| `playthroughs/` | `RubyGBA::Playthroughs` | it plays a finished cartridge with nobody at the controls, or two side by side to find where they differ (`Playthrough`, `Tape`, `Comparison`, `CommandLine`) |
-| `messages/` | `RubyGBA::Messages` | it is how a build talks to the author while it builds (`PlainWords`, `Progress`, `BuildOutput`, `AuthorSource`) |
-| `testing/` | `RubyGBA::Testing` | it is how a game's own test suite plays its games on each lowering (`CheckedPlayer`, `TestTask`, `RakeTasks`, `Processes`) |
+| `dsl/` | `VBlank::DSL` | a game names it directly (a `Value`, a `Sprite`, a `List`), or it is a kind of thing one of those holds (`Whole`, `Fraction`, `NameSet`) |
+| `audio/` | `VBlank::Audio` | it is the sound and music model behind the verbs (`Score`, `Envelope`, `Music`) |
+| `graphics/` | `VBlank::Graphics` | it is what a picture is made of — colours, letters, images |
+| `console/` | `VBlank::Console` | it names a console — its hardware, where its memory is, its register addresses and flags (`Hardware`), what a game can tell about it (`Description`), and which of the library's parts serve it (`Kit`), named and never run |
+| `cartridge/` | `VBlank::Cartridge` | it turns a checked program into cartridge bytes (`ROM`, `Header`, `GameCode`) |
+| `diagnostics/` | `VBlank::Diagnostics` | it reads a built or running cartridge back (`Verifier`, `Profiler`, `BuildReport`) |
+| `playthroughs/` | `VBlank::Playthroughs` | it plays a finished cartridge with nobody at the controls, or two side by side to find where they differ (`Playthrough`, `Tape`, `Comparison`, `CommandLine`) |
+| `messages/` | `VBlank::Messages` | it is how a build talks to the author while it builds (`PlainWords`, `Progress`, `BuildOutput`, `AuthorSource`) |
+| `testing/` | `VBlank::Testing` | it is how a game's own test suite plays its games on each lowering (`CheckedPlayer`, `TestTask`, `RakeTasks`, `Processes`) |
 
-`testing/`'s front door is the exception both ways. `lib/ruby_gba.rb` does NOT require it: it
+`testing/`'s front door is the exception both ways. `lib/vblank.rb` does NOT require it: it
 loads minitest, which a game needs only for its tests, so a game's suite requires
-`ruby_gba/testing` itself, and so does this repository's `test_helper.rb`. And it loads the
+`vblank/testing` itself, and so does this repository's `test_helper.rb`. And it loads the
 whole library and minitest besides its own files, since it is the one line a game's tests start
 with — but not `rake_tasks.rb` or `test_task.rb` (a Rakefile's, which must not start minitest) or `processes.rb`
 (loaded only into the native run's test processes, where it takes over how minitest plays).
@@ -269,61 +269,61 @@ what to press, on which frames, and what two cartridges made of the same presses
 their tests sit with the rest of the module's and `rake test:playthroughs` is one folder.
 
 The directory and the module always match: a file in `audio/` defines its classes inside
-`module RubyGBA; module Audio`. A file whose home is not obvious goes where its CALLERS would
+`module VBlank; module Audio`. A file whose home is not obvious goes where its CALLERS would
 look for it, and a new directory per feature is the flat list again one level down, so there
 isn't one.
 
 **Every directory has a front door beside it** — `audio.rb` next to `audio/`, and the same for
 every one — which requires that directory's files and nothing else's. So **a new file is
-required in its own module's front door, never in `lib/ruby_gba.rb`**, which names modules
+required in its own module's front door, never in `lib/vblank.rb`**, which names modules
 only: a line for each, and that is the whole library. The order of those lines is not free, and
 the comment above them says which steps are real dependencies between modules and why.
 
 What stays at the top besides the front doors: `version.rb`, `root.rb`, and `cli.rb` and
 `pager.rb`, the command-line program, which `bin/ruby-gba` requires and the library never does.
-`RubyGBA.game` and the library's error classes stay on `RubyGBA` itself: `BuildError`, which every
+`VBlank.game` and the library's error classes stay on `VBlank` itself: `BuildError`, which every
 build failure is one of (each lowering's own error included), `ROMError` and `ProfileError`.
 
-A file of the repo's is found from `RubyGBA.root` (`RubyGBA.root.join("examples", "cave.rb")`),
+A file of the repo's is found from `VBlank.root` (`VBlank.root.join("examples", "cave.rb")`),
 never by climbing `../` from the file asking. Only what loads the library itself climbs.
 
 Inside a module, a sibling is named bare (`Value` from `dsl/pool.rb`) and anything else by its
 module (`Graphics::Color` from `dsl/sprite.rb`). Where a nearer scope has a constant of the
 same name — the GBA backend has an `Audio` class of its own — write the whole path,
-`RubyGBA::Audio::Score`, because `Audio::Score` there means the wrong thing.
+`VBlank::Audio::Score`, because `Audio::Score` there means the wrong thing.
 
 ### Core Files
 
-- `lib/ruby_gba/builder.rb` — The DSL entry point (`Builder`). Thin now: it `require`s and
-  `include`s one concern module per area from `lib/ruby_gba/builder/` (19 files), each
+- `lib/vblank/builder.rb` — The DSL entry point (`Builder`). Thin now: it `require`s and
+  `include`s one concern module per area from `lib/vblank/builder/` (19 files), each
   owning a slice of the flat verb surface — `randomness`, `sound`, `music`, `text`,
   `images`, `sprites`, `sprite_import`, `input`, `drawing`, `variables`, `control_flow`,
   `scenes`, `collision`, `tiled`, `composition`, `timers`, `sampled_audio`, `layers`. Every
   verb builds a node in an IR tree and returns; nothing here emits ARM (see "Codegen IR").
-- `lib/ruby_gba/ir/backends/gba/asm.rb` — ARM7TDMI instruction encoding (MOV, LDR, STR, branch,
+- `lib/vblank/ir/backends/gba/asm.rb` — ARM7TDMI instruction encoding (MOV, LDR, STR, branch,
   etc). It sits with the lowering because that is who emits ARM: every caller but one is a file
   beside it, and those name it bare. The exception is the `entry` escape hatch's
   raw-instruction context in `builder.rb`, which names it in full.
-- `lib/ruby_gba/ir/` — Intermediate representation: a plain-Ruby op-tree the DSL builds instead of emitting target code directly. `node.rb` (`IR::Node`), `build.rb` (readable constructors). See "Codegen IR" below.
-- `lib/ruby_gba/cartridge/rom.rb` — ROM buffer management, header, finalization
-- `lib/ruby_gba/cartridge/game_code.rb` — the four characters an emulator tells one cartridge from
+- `lib/vblank/ir/` — Intermediate representation: a plain-Ruby op-tree the DSL builds instead of emitting target code directly. `node.rb` (`IR::Node`), `build.rb` (readable constructors). See "Codegen IR" below.
+- `lib/vblank/cartridge/rom.rb` — ROM buffer management, header, finalization
+- `lib/vblank/cartridge/game_code.rb` — the four characters an emulator tells one cartridge from
   another by. A game need not write one (`GameCode.for(title)` works a free one out), and a
   code a real cartridge already carries is refused — the list it checks against is
-  `lib/ruby_gba/data/known_game_codes.txt`, regenerated by `tools/make_known_game_codes.rb`
-- `lib/ruby_gba/console/hardware.rb` — GBA hardware register addresses and flags (`Console::Hardware`)
-- `lib/ruby_gba/audio/music.rb` — Music DSL (`SongContext`, note frequencies, duration math). Channel 1 for music, channel 2 for SFX
-- `lib/ruby_gba/graphics/color.rb` — 15-bit BGR555 color handling, named presets
-- `lib/ruby_gba/graphics/font.rb` — Bitmap font model (glyphs + metrics); built-in fonts registered in `fonts.rb`
-- `lib/ruby_gba/cartridge/rom_validator.rb` — ROM validation (header, checksum, structural checks) — `ROMValidator`
-- `lib/ruby_gba/diagnostics/inspector.rb` — ROM disassembly and header reporting
-- `lib/ruby_gba/diagnostics/verifier.rb` — Pixel-level verification via libmgba (through the `RubyGBA::Diagnostics::Emulator` seam → ruby-gba-emulator)
-- `lib/ruby_gba/diagnostics/emulator.rb` — The one seam to the emulator backend; swap emulators here
-- `lib/ruby_gba/cartridge/test_patterns.rb` — Built-in test ROMs (solid fill, color bars, etc)
+  `lib/vblank/data/known_game_codes.txt`, regenerated by `tools/make_known_game_codes.rb`
+- `lib/vblank/console/hardware.rb` — GBA hardware register addresses and flags (`Console::Hardware`)
+- `lib/vblank/audio/music.rb` — Music DSL (`SongContext`, note frequencies, duration math). Channel 1 for music, channel 2 for SFX
+- `lib/vblank/graphics/color.rb` — 15-bit BGR555 color handling, named presets
+- `lib/vblank/graphics/font.rb` — Bitmap font model (glyphs + metrics); built-in fonts registered in `fonts.rb`
+- `lib/vblank/cartridge/rom_validator.rb` — ROM validation (header, checksum, structural checks) — `ROMValidator`
+- `lib/vblank/diagnostics/inspector.rb` — ROM disassembly and header reporting
+- `lib/vblank/diagnostics/verifier.rb` — Pixel-level verification via libmgba (through the `VBlank::Diagnostics::Emulator` seam → ruby-gba-emulator)
+- `lib/vblank/diagnostics/emulator.rb` — The one seam to the emulator backend; swap emulators here
+- `lib/vblank/cartridge/test_patterns.rb` — Built-in test ROMs (solid fill, color bars, etc)
 
 ### How It Works
 
 The DSL builds an intermediate representation (IR) tree as the user's block runs — no ARM is
-emitted yet. `RubyGBA.build` creates a `Builder`, evaluates the block, then: checks the tree's
+emitted yet. `VBlank.build` creates a `Builder`, evaluates the block, then: checks the tree's
 internal consistency (`IR::Verifier`), runs it through `IR::Guardrails::Validator` (friendly,
 plain-language warnings/errors for known footguns — nothing is auto-fixed), lowers it to ARM
 machine code (`IR::Backends::GBA`), and hands that to `ROM.assemble`, which finalizes the header
@@ -332,7 +332,7 @@ machine code (`IR::Backends::GBA`), and hands that to `ROM.assemble`, which fina
 ### Codegen IR
 
 The DSL builds an **intermediate representation** first, rather than emitting target code
-directly: an in-memory op-tree (`lib/ruby_gba/ir/`, `IR::Node`) that a validation pass **checks**
+directly: an in-memory op-tree (`lib/vblank/ir/`, `IR::Node`) that a validation pass **checks**
 (catching black-screen footguns before any code exists) and a lowering pass then turns into
 machine code. Building the program as inspectable data — not bytes emitted on the fly — is what
 makes validation, forward references (resolved by name in a second pass, replacing hand-rolled
@@ -346,7 +346,7 @@ Keep the IR **target-agnostic**: `IR::Node` describes *what the program does*, n
 
 **Cross-backend rule:** a hardware feature (sound, tiles, sprites, paged modes…) isn't *done* until it works on every backend — the GBA lowering, the native lowering (`Backends::Native`, the game as C, built by zig into a desktop program), the JavaScript lowering (`Backends::JS`, whose runtime is the native one's written again in JavaScript), the Game Boy Color lowering (`Backends::GBC`, where "works" may also be a stated answer from `Console::ColorAnswers`: or refused in plain words naming the hardware it lacks) **and** the Ruby interpreter. `rake test` holds it to that: every test plays on every lowering, so a feature one of them lacks fails the run (see the comment atop `IR::Backends`). The moment a feature is on the radar, write down each backend's slice as its own piece of work — even before the details are known — so it can't be forgotten while you're heads-down on the feature elsewhere. Don't lean on this principle to remember; record it.
 
-**Conformance-fixture obligation:** a new IR feature (a `Node::CATEGORY` kind or a `binop` operator) isn't done until it's added to the kitchen-sink fixture in `test/conformance_fixture.rb`. That one program is run through every backend by `test/ruby_gba/ir/test_cross_backend_conformance.rb` — on the native run it is built as C and checked against the interpreter, and on the JavaScript run as JavaScript — and a backend missing a feature the fixture uses hits its "unsupported" branch and fails. The coverage test asserts the fixture touches every kind/operator, so a forgotten feature fails loudly — but only if you added it to the fixture. Hardware-only kinds (`raw` and `read_scanline` today) are exempt via `HARDWARE_ONLY_KINDS` and kept in an uncalled func. This guards *coverage*; the differential test (behavioral *agreement*) is separate.
+**Conformance-fixture obligation:** a new IR feature (a `Node::CATEGORY` kind or a `binop` operator) isn't done until it's added to the kitchen-sink fixture in `test/conformance_fixture.rb`. That one program is run through every backend by `test/vblank/ir/test_cross_backend_conformance.rb` — on the native run it is built as C and checked against the interpreter, and on the JavaScript run as JavaScript — and a backend missing a feature the fixture uses hits its "unsupported" branch and fails. The coverage test asserts the fixture touches every kind/operator, so a forgotten feature fails loudly — but only if you added it to the fixture. Hardware-only kinds (`raw` and `read_scanline` today) are exempt via `HARDWARE_ONLY_KINDS` and kept in an uncalled func. This guards *coverage*; the differential test (behavioral *agreement*) is separate.
 
 ### Key Patterns
 
@@ -392,7 +392,7 @@ GOOD  finalize_program
 - **Check before you rename.** Builder and `IR::Backends::GBA` are many modules mixed into one class,
   so a name that already exists in any of them silently overrides it: grep `def new_name` first.
 
-`test/ruby_gba/test_method_names.rb` fails the build on the mechanical half of this — articles,
+`test/vblank/test_method_names.rb` fails the build on the mechanical half of this — articles,
 vague-verb prefixes, two-letter abbreviations, and names of seven words or more. It cannot judge the rest, so a
 name that passes it is not thereby a good name.
 
@@ -454,7 +454,7 @@ conversational and explain the hardware generously (see above). The friendly,
 teaching tone stays; the skill only makes it clear and consistent.
 
 ### Claude Memory
-- Don't use it, period. Material knowledge for RubyGBA goes in code comments
+- Don't use it, period. Material knowledge for VBlank goes in code comments
 - Code style should be Rubocop or similar
 
 ### DSL Conventions

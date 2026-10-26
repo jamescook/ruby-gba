@@ -1,0 +1,907 @@
+# frozen_string_literal: true
+
+module VBlank
+  module IR
+    module Backends
+      class GBA
+        # THE CODE THAT PUTS BACKGROUNDS UP ON A TILED SCREEN, and changes them while the game
+        # runs. The console draws each background layer itself, every frame, from a map in
+        # its memory — a grid saying which tile goes in each cell — and a few registers saying
+        # where the layer is scrolled to, or, for the layer that turns, how it is turned and
+        # sized. So a background here is a map copied into place and those registers set;
+        # after that, scrolling it, swapping its map, changing one cell or recolouring it is a
+        # write or a copy, and nothing is redrawn.
+        #
+        # Which layer each background uses and where its tiles and map sit was settled before
+        # any code existed (see {ScreenLayout}); this writes the code that carries it out.
+        class BackgroundDrawing
+          include Console::Hardware
+          include EmitterCalls
+          include MapStreaming
+
+          def initialize(emitter:, primitives:, lowering:, divide:, raster:, palette_tint:, uploads:, lists:,
+                         call_cold_routine:)
+            @emitter = emitter
+            @primitives = primitives
+            @lowering = lowering
+            @lists = lists
+            @divide = divide
+            @raster = raster
+            @palette_tint = palette_tint
+            @uploads = uploads
+            @call_cold_routine = call_cold_routine
+            @layout = nil
+          end
+
+          attr_writer :layout
+
+          # The notes saying whose scenery is up (see SceneEntry), which Drawing keeps and hands
+          # over once it is made.
+          attr_writer :scene_entry
+
+          # Call a routine that always stays in the cartridge, from wherever this code is kept
+          # (see Placement#emit_call_cold_routine).
+          def emit_call_cold_routine(label) = @call_cold_routine.call(label)
+
+          # The per-layer control and scroll registers, indexed by BG number (0..3), so a
+          # layer configures and scrolls its own hardware layer.
+          BG_CNT_REGS  = [REG_BG0CNT, REG_BG1CNT, REG_BG2CNT, REG_BG3CNT].freeze
+          BG_HOFS_REGS = [REG_BG0HOFS, REG_BG1HOFS, REG_BG2HOFS, REG_BG3HOFS].freeze
+          BG_VOFS_REGS = [REG_BG0VOFS, REG_BG1VOFS, REG_BG2VOFS, REG_BG3VOFS].freeze
+
+          # Upload the one palette and the one run of tile pictures every layer draws from,
+          # once at boot — the pictures to the start of video memory, the colors to
+          # background palette memory. It is one run however many layers there are; where
+          # in it each layer starts counting its tile numbers is a per-layer setting, and
+          # goes in with the rest of them below. Each layer's map and control register are
+          # set later, when its background node is reached (emit_background_hardware).
+          def emit_boot_backgrounds
+            @uploads.emit_dma_blob(BG_SHARED_PAL, BG_PALETTE, @layout.screen.bg_shared.palette_units)  # colors -> palette memory
+            @uploads.emit_dma_blob(BG_SHARED_CHAR, VRAM_START, @layout.screen.bg_shared.tile_units)    # pictures -> video memory
+            @palette_tint.emit_tint_reset_if_tinting # the table now holds the originals again
+            @palette_tint.emit_record_bg_palette_source # ...the first area's, for a game that walks between areas
+          end
+
+          # Point one layer's hardware at its data: DMA its map into its own screen block,
+          # then set its control register (how its pixels are stored, where it counts its
+          # tile numbers from, that screen block, and its paint-order priority) and reset
+          # its scroll to the top-left. Drawn once — after that the hardware repaints the
+          # whole layer every frame for free, and composites the layers by priority so
+          # nearer ones sit in front.
+          def emit_background_hardware(node)
+            bg = @layout.screen.backgrounds.fetch(node.name)
+            return emit_affine_background_hardware(bg) if bg.affine
+
+            # A map brought in a strip at a time is put up as its first map, filled round the
+            # top-left corner (see MapStreaming). The corner, and not wherever the game last
+            # put the view: the scroll is put back to the corner a few lines down, and that
+            # is what the display shows until the gap after this pass, when the game's own
+            # place for the view is written and the cells round that are brought in. Filled
+            # round the place the view was left, a scene coming back showed that place's
+            # cells at the corner for a frame.
+            if bg.stream
+              emit_number(ACC, 0)
+              store_var(ACC, IR::Nodes::Background.stream_vars(node.name).first)
+              emit_stream_fill(bg, at_corner: true)
+            else
+              @uploads.emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
+            end
+            depth = bg.small ? 0 : BG_256_COLOR # a small layer's tiles each name their own bank
+            write_reg16(BG_CNT_REGS[bg.bg], bg.priority | bg.in_blocks | depth | (bg.char_base << CHAR_BASE_SHIFT) |
+                                            (bg.screen_block << 8) | bg.size)
+            write_reg16(BG_HOFS_REGS[bg.bg], 0) # start unscrolled
+            write_reg16(BG_VOFS_REGS[bg.bg], 0)
+          end
+
+          # PUT A DIFFERENT TILE IN ONE CELL, while the game runs.
+          #
+          # A background's map is a grid of half-word cells in video memory, each naming
+          # the tile to draw there, so changing one is one half-word written to a place
+          # worked out from the cell's column and row.
+          #
+          # WHEN THE WRITE HAPPENS, which is the question this raises and which is worth
+          # writing down because the obvious worry turns out not to hold. The display
+          # reads the map WHILE it draws, so a write can land between two scanlines of the
+          # very cell being drawn — and then that cell shows the old tile on its top rows
+          # and the new one on its bottom rows, for one frame.
+          #
+          # It is not a torn or corrupt picture: a cell is a half-word, and a half-word
+          # store is one write. Nothing can be read half-written. The whole effect is that
+          # one 8-pixel cell is split across a single frame, and only when a write lands
+          # inside that cell's own six-thousandths of a frame.
+          #
+          # So this writes straight away rather than holding the frame's changes and
+          # applying them between frames. Holding them costs a buffer in the console's
+          # scarcest memory, a policy for when it fills, and about four times the
+          # instructions — to remove an artifact of one frame of one cell, on the things
+          # this exists for: a door opening, a pot breaking, a bombable wall. What that
+          # bargain does NOT cover is a BULK change — a whole room swapped in one frame —
+          # where half the old room and half the new really would show at once. That wants
+          # a verb of its own, handing over a map in one go between frames.
+          def emit_set_tile(node)
+            bg = @layout.screen.backgrounds[node.name]
+            return if bg.nil? # a background with no tiled layer (a bitmap-mode program)
+
+            grid = bg.grid or raise_no_cells_to_change(node.name)
+            entry = grid.cell_for(node.tile)
+            fixed = [const_int(node.col), const_int(node.row)]
+            return emit_fixed_tile_write(bg, grid, entry, *fixed) if fixed.all?
+
+            emit_computed_tile_write(node, bg, grid, entry)
+          end
+
+          # A background that turns and resizes holds a tile number in each cell and nothing
+          # else, so the framework has no way yet to change one cell of it while the game runs.
+          def raise_no_cells_to_change(name)
+            raise LoweringError,
+                  "The background :#{name} turns and resizes, so one cell of it cannot be changed " \
+                  "while the game runs. Its cells hold a tile number and nothing else. To fix this, " \
+                  "stop turning this background, or change the whole map with show_map."
+          end
+
+          # A cell settled while the program was written: the address is worked out here,
+          # in Ruby, and the console does one store.
+          def emit_fixed_tile_write(bg, grid, entry, col, row)
+            return unless grid.holds?(col, row)
+
+            write_reg16(map_cell_address(bg, grid, col, row), entry)
+          end
+
+          # THE ADDRESS OF ONE CELL, and why it is not simply row times width.
+          #
+          # A map wider or taller than 32 cells is stored as several 32x32 SQUARES — left
+          # then right, top pair before bottom pair — so a cell's place depends on which
+          # quarter of the map it is in. 32 is a power of two, so that is shifts and masks
+          # rather than division.
+          def map_cell_address(bg, grid, col, row)
+            quarter = ((row / MAP_CELLS) * (grid.cols / MAP_CELLS)) + (col / MAP_CELLS)
+            index = (quarter * MAP_CELLS * MAP_CELLS) + ((row % MAP_CELLS) * MAP_CELLS) + (col % MAP_CELLS)
+            VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES) + (index * 2)
+          end
+
+          # A cell the game works out. The two coordinates are held in scratch registers
+          # while the address is assembled, and a cell outside the map is skipped rather
+          # than written somewhere else — so a coordinate that ran off the edge costs a
+          # test and changes nothing.
+          TILE_COL = 4
+          TILE_ROW = 5
+          TILE_ADDR = 6
+
+          def emit_computed_tile_write(node, bg, grid, entry)
+            @lowering.value(node.col)
+            emit(ASM.mov_reg(TILE_COL, ACC))
+            @lowering.value(node.row)
+            emit(ASM.mov_reg(TILE_ROW, ACC))
+
+            done = gensym
+            # One unsigned compare catches both ends: a negative coordinate reads as a
+            # very large number, so anything outside 0...size fails the same test.
+            emit(ASM.cmp_imm(TILE_COL, grid.cols))
+            emit_branch(:bcond, done, cond: :hs)
+            emit(ASM.cmp_imm(TILE_ROW, grid.rows))
+            emit_branch(:bcond, done, cond: :hs)
+
+            emit_cell_index(grid)
+            emit_number(TMP, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES))
+            emit(ASM.lsl_imm(TILE_ADDR, TILE_ADDR, 1)) # two bytes a cell
+            emit(ASM.add_reg(TILE_ADDR, TMP, TILE_ADDR))
+            emit_number(ACC, entry)
+            emit(ASM.store_halfword(ACC, TILE_ADDR))
+            place_label(done)
+          end
+
+          # The cell's index within the whole map, built from the column and row into
+          # TILE_ADDR. Which quarter of the map it is in rides in bits 10 and up; a map
+          # that fits one square has no quarters and needs neither shift.
+          def emit_cell_index(grid)
+            emit(ASM.and_imm(TILE_ADDR, TILE_ROW, MAP_CELLS - 1))
+            emit(ASM.lsl_imm(TILE_ADDR, TILE_ADDR, 5))
+            emit(ASM.and_imm(TMP, TILE_COL, MAP_CELLS - 1))
+            emit(ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
+            return if grid.cols == MAP_CELLS && grid.rows == MAP_CELLS
+
+            unless grid.rows == MAP_CELLS
+              # The bottom half of a tall map is a whole square further on — two of them
+              # when the map is also wide, since a row of squares comes first.
+              emit(ASM.lsr_imm(TMP, TILE_ROW, 5))
+              emit(ASM.lsl_imm(TMP, TMP, grid.cols == MAP_CELLS ? 10 : 11))
+              emit(ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
+            end
+            return if grid.cols == MAP_CELLS
+
+            emit(ASM.lsr_imm(TMP, TILE_COL, 5))
+            emit(ASM.lsl_imm(TMP, TMP, 10))
+            emit(ASM.orr_reg(TILE_ADDR, TILE_ADDR, TMP))
+          end
+
+          # HAND A BACKGROUND A WHOLE DIFFERENT MAP.
+          #
+          # A background's maps all live in the cartridge, laid end to end and all the same
+          # size, so the map numbered N starts N strides along from the first. Copying one
+          # into the layer's cells is then a single DMA — the same copy the boot upload
+          # already does, at an address worked out rather than known.
+          #
+          # WHY THIS CAN BE ARITHMETIC RATHER THAN A TEST PER MAP, which is what makes a
+          # game with hundreds of rooms affordable: the stride is settled while the program
+          # is built, so a room number becomes an address in two instructions however many
+          # rooms there are. A chain of comparisons would grow with the game.
+          #
+          # The stride is a power of two for a regular layer (a grid is 32 or 64 cells a
+          # side, two bytes a cell) so the multiply is a shift; a rotate/scale layer's byte
+          # map is a power of two too. Anything else multiplies, which is still one
+          # instruction on this chip.
+          #
+          # WHEN it happens is decided above this: the framework puts the copy in the gap
+          # between frames, on the frame the answer changed and no other (see
+          # Builder#finalize_background_maps). Thousands of cells cannot go in while the
+          # display is reading them, or the screen shows half of each map.
+          # A map number naming no map leaves the cells as they are — the same policy
+          # set_tile takes for a cell off the edge of the map, and for the same reason: a
+          # number the game worked out can be anything, and a game should not need a test
+          # around it to stay safe.
+          def emit_show_map(node)
+            bg = @layout.screen.backgrounds[node.name]
+            return if bg.nil? || bg.map_count < 2 # no tiled layer, or nothing else to show
+
+            done = gensym
+            emit_call_set_swap_if_changing(node, bg, done) if bg.sets
+            emit_map_copy(node, bg, done)
+            place_label(done)
+          end
+
+          def emit_map_copy(node, bg, done)
+            return emit_stream_map_change(node, bg, done) if bg.stream
+
+            emit_map_source(bg, node.which, done) # from that map in the cartridge
+            @emitter.note_video_copy("handing background :#{node.name} another map", bg.map_units * 2)
+            emit_start_copy_engine(from: in_register(ACC), to: map_vram_address(bg),
+                                   control: bg.map_units | DMA_ENABLE) # 16-bit, both ends advancing
+          end
+
+          # Where the display's settings are kept while a set of tiles is brought in with the
+          # background layers switched off.
+          SET_SWAP_DISPLAY = :_set_swap_display
+
+          # ...and where the number of the map coming in is kept while its set is brought in.
+          SET_SWAP_MAP = :_set_swap_map
+
+          # Registers held while a set is brought in: the set that is coming in, and the size
+          # of one set's colour table. Nothing reading a variable or a cartridge address touches
+          # either, so they last across those.
+          SET_PICKED = 3
+          SET_STRIDE = 2
+
+          # IS THE MAP NUMBERED +which+ OF ANOTHER SET OF TILES THAN THE ONE IN PLACE? Then call
+          # the routine that brings that set in, and the map with it (see
+          # #emit_set_swap_routines). A map of the set already in place falls through to the
+          # plain map copy, and nothing else.
+          #
+          # THIS IS ALL OF IT THAT THE CALLER HOLDS, and the caller is the game loop: the gap
+          # between frames, which every frame of every screen passes through and which is the
+          # first thing kept in the console's quick memory. A game changes area a handful of
+          # times an hour. Written out here, bringing a set in was the larger part of the loop
+          # of a game that walks between areas, once for each background that does — code that
+          # took the quick memory from routines every frame of play runs.
+          def emit_call_set_swap_if_changing(node, bg, done)
+            same = gensym
+            @lowering.value(node.which)
+            emit(ASM.cmp_imm(ACC, bg.map_count))
+            emit_branch(:bcond, done, cond: :hs) # a number naming no map changes nothing
+            emit_load_data_address(TMP, bg.sets.sets_of_maps)
+            emit(ASM.ldrb_reg(SET_PICKED, TMP, ACC)) # the set that map draws from
+            load_var(TMP, bg.sets.var)
+            emit(ASM.cmp_reg(SET_PICKED, TMP))
+            emit_branch(:bcond, same, cond: :eq)
+            # The routine is handed the map's number and its set, in the registers that hold
+            # them here already.
+            emit_call_cold_routine(set_swap_routine_label(node.name, bg))
+            emit_branch(:b, done)
+            place_label(same)
+          end
+
+          # The label of the routine that brings one of +name+'s sets in, reserved the first
+          # time a map of that background is shown and emitted once, later, by
+          # #emit_set_swap_routines — however many places show it a map.
+          def set_swap_routine_label(name, bg)
+            @pending_set_swaps ||= {}
+            @pending_set_swaps[name] ||= bg
+            Messages::MadeNames.make(:set_swap, background: name)
+          end
+
+          # BRING IN THE SET OF TILES A MAP DRAWS FROM, for a background that walks between
+          # areas — and the map with it, while the layers are off. One routine a background,
+          # emitted after the program's own code and reached only by the call above, which
+          # hands it the map's number.
+          #
+          # Every set sits in the same stretch of tile memory, so the set in place is the only
+          # one the console can draw, and a map of another set shown over it would draw every
+          # cell with the wrong picture. So the map is copied in only once its set is, and the
+          # background layers are switched off for both copies: a set is thousands of bytes,
+          # more than the gap between frames always holds, and with the layers off the console
+          # draws the backdrop rather than a part-copied set. Ending with the layers on again is
+          # the same picture the next frame was going to show.
+          #
+          # It always runs from the cartridge. Most of what it costs is the copies, which the
+          # console stops the processor for wherever the code asking for them runs from. The
+          # view of a big map is filled by that background's own routine, which the build can
+          # keep in the quick memory (see MapStreaming#emit_stream_view_routine). What is left
+          # running from the cartridge is the colours of a game that tints or fades, blended
+          # one at a time.
+          def emit_set_swap_routines
+            (@pending_set_swaps || {}).each do |name, bg|
+              label = Messages::MadeNames.make(:set_swap, background: name)
+              emit(ASM.loop_forever) # fall-through guard: only ever entered by the call
+              place_label(label)
+              emit(ASM.push(14))
+              emit_bring_set_in(name, bg)
+              emit(ASM.pop(15))
+              # Where it ends, so a profile of the finished game can name it (see
+              # GBA#lowered_routine_addresses).
+              place_label(:"#{label}_end")
+            end
+          end
+
+          # The body of that routine. The map's number arrives in the first register and the
+          # set it draws from in SET_PICKED. The caller has made sure the number names a map,
+          # so the test the map copy below makes of it again never fails here.
+          def emit_bring_set_in(name, bg)
+            swap = bg.sets
+            store_var(ACC, SET_SWAP_MAP)
+            emit(ASM.mov_reg(ACC, SET_PICKED))
+            store_var(ACC, swap.var)
+
+            emit_number(TMP, REG_DISPCNT)
+            emit(ASM.load_halfword(ACC, TMP))
+            store_var(ACC, SET_SWAP_DISPLAY)
+            emit(ASM.bic_imm(ACC, ACC, BG0_ENABLE | BG1_ENABLE | BG2_ENABLE | BG3_ENABLE))
+            emit(ASM.store_halfword(ACC, TMP))
+
+            emit_number(TMP, swap.stride)
+            emit(ASM.mul(ACC, SET_PICKED, TMP)) # r0 = how far along the blob that set starts
+            emit_load_data_address(TMP, swap.tiles)
+            emit(ASM.add_reg(ACC, ACC, TMP))
+            routine = Messages::MadeNames.make(:set_swap, background: name)
+            @emitter.note_video_copy(Messages::MadeNames.words_for_made_name(routine), swap.stride)
+            emit_start_copy_engine(from: in_register(ACC), to: VRAM_START + swap.at,
+                                   control: (swap.stride / 4) | DMA_ENABLE | DMA_32BIT)
+            emit_set_char_base(bg, swap) if swap.char_base_table
+
+            layers_back_on = gensym
+            emit_map_copy(Build.show_map(name, which: Build.var_ref(SET_SWAP_MAP)), bg, layers_back_on)
+            emit_stream_fill(bg) if bg.stream # ...the view of it, while the layers are still off
+            emit_area_colors(swap, from_var: true)
+            place_label(layers_back_on)
+            load_var(ACC, SET_SWAP_DISPLAY)
+            emit_number(TMP, REG_DISPCNT)
+            emit(ASM.store_halfword(ACC, TMP))
+          end
+
+          # A walking background put up as declared is back in its first area, tiles and all, so
+          # the colours go back to that area's too. One send serves every walking background,
+          # since they all start in the same area. Nothing for scenery that stays in one area.
+          def emit_first_area_colors(nodes, up: :unknown)
+            walking = @layout.screen.walking_placements(nodes).first
+            emit_area_colors(walking.sets, up: up) if walking
+          end
+
+          # Send in the colours of the area a walking background's set belongs to: the set
+          # named by its variable, or, without +from_var+, its first set, which is what a
+          # background put up as declared starts in. +up+ is the scene taking over, where this
+          # is part of it doing so (see PaletteTint#emit_recolored_banks).
+          def emit_area_colors(swap, from_var: false, up: :unknown)
+            emit_load_data_address(ACC, swap.colors)
+            if from_var
+              load_var(TMP, swap.var)
+              emit_number(SET_STRIDE, swap.color_units * 2)
+              emit(ASM.mul(TMP, SET_STRIDE, TMP)) # how far along the blob that set's table is
+              emit(ASM.add_reg(ACC, ACC, TMP))
+            end
+            @palette_tint.emit_send_bg_colors(swap.color_units, up: up)
+          end
+
+          # Point the layer at where the set now in place (r3) counts its tiles from, for sets
+          # that start counting from different places.
+          def emit_set_char_base(bg, swap)
+            emit_load_data_address(TMP, swap.char_base_table)
+            emit(ASM.ldrb_reg(ACC, TMP, SET_PICKED))
+            emit(ASM.lsl_imm(ACC, ACC, CHAR_BASE_SHIFT))
+            depth = bg.small ? 0 : BG_256_COLOR
+            emit_number(TMP, bg.priority | bg.in_blocks | depth | (bg.screen_block << 8) | bg.size)
+            emit(ASM.orr_reg(ACC, ACC, TMP))
+            emit_number(TMP, BG_CNT_REGS[bg.bg])
+            emit(ASM.store_halfword(ACC, TMP))
+          end
+
+          # PAINT A RUN OF TILES FROM ITS LIST: one copy, from the list straight into the video
+          # memory its tiles were given, a word at a time. The list already holds the pixels
+          # the way that memory does (two to a byte, the left one in the low half), which is
+          # what lets this be a plain copy rather than a loop that packs them.
+          #
+          # When it happens is decided above this, the same as a map copy: in the gap between
+          # frames, on a frame the game said `changed` (see Builder::TileRuns). A run that no
+          # background shows has nowhere on screen to go, so it copies nothing.
+          def emit_copy_tiles(node)
+            run = @layout&.screen&.painted_vram&.[](node.name)
+            return if run.nil?
+
+            emit_copy_painted_run(node.name, run)
+          end
+
+          def emit_copy_painted_run(name, run)
+            list = painted_run_list(name, run)
+
+            if run.moves?
+              done = gensym
+              emit_load_painted_run_place(ScreenLayout::PaintedRun.place_var(name), done)
+            end
+            @emitter.note_video_copy("painting #{run.what} :#{name}", run.bytes)
+            emit_start_copy_engine(from: list[:base], to: run.moves? ? in_register(ACC) : VRAM_START + run.at,
+                                   control: (run.bytes / 4) | DMA_ENABLE | DMA_32BIT)
+            place_label(done) if done
+          end
+
+          # EVERY PAINTED RUN OWED A COPY, AS ONE WALK OVER A TABLE (see Nodes::CopyOwedTiles).
+          # Written out run by run, a test and a copy came to about thirty instructions each, so a
+          # game with a box of text, a row of name tags and a few portraits carried kilobytes of
+          # them. Walked, the code is the same for one run as for twenty: each run is a row of
+          # six words, and two instructions of its own.
+          #
+          # A row is: where its pending bits are, which bit is its own, where its list starts,
+          # where it goes in video memory, how many words it is, and how far into the steps
+          # below its own step is. Where it goes is either the place itself, or — for a run that
+          # sits in different places on different screens — where the variable holding the place
+          # is, marked by its lowest bit (no place in video memory and no variable is at an odd
+          # address). That variable holds 0 on a screen that does not show the run, and then the
+          # run is skipped, as it was when each had its own copy.
+          #
+          # THE TWO INSTRUCTIONS EACH RUN KEEPS are the one that starts its copy and a jump back.
+          # Every run COULD start its copy at one shared instruction, and the profile could then
+          # no longer say which picture the bytes went to: it counts copies by how many times the
+          # instruction that starts each one ran, and reads nothing else off the cartridge.
+          COPY_ROW_BYTES = 24
+
+          def emit_copy_owed_tiles(node)
+            rows = owed_copy_rows(node)
+            return if rows.empty?
+
+            table = gensym
+            loop_top = gensym
+            direct = gensym
+            step = gensym
+            after = gensym
+            # Interrupts are held off for the walk: a timer's handler can use the same copying
+            # engine, and one landing between a row's setup writes would start this copy with
+            # the handler's addresses. r2 and r3 hold the walk; this step is only ever the body
+            # of the routine that copies, whose callers expect it to use them.
+            emit_number(TMP, REG_IME)
+            emit(ASM.load_halfword(ACC, TMP))
+            emit(ASM.push(ACC))
+            emit_number(ACC, 0)
+            emit(ASM.store_halfword(ACC, TMP))
+            emit_load_label_address(2, table)
+            emit_number(3, rows.size)
+            place_label(loop_top)
+            emit(ASM.ldr_offset(ACC, 2, 0))
+            emit(ASM.ldr(ACC, ACC))                 # its pending bits
+            emit(ASM.ldr_offset(TMP, 2, 4))
+            emit(ASM.and_reg(ACC, ACC, TMP))
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, step, cond: :eq)    # not owed a copy
+            emit(ASM.ldr_offset(ACC, 2, 12))        # where it goes
+            emit(ASM.tst_imm(ACC, 1))
+            emit_branch(:bcond, direct, cond: :eq)
+            emit(ASM.bic_imm(ACC, ACC, 1))
+            emit(ASM.ldr(ACC, ACC))                 # ...read from the variable this screen set
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, step, cond: :eq)    # nowhere on this screen
+            place_label(direct)
+            # The engine's three registers, written by hand rather than through
+            # Primitives#emit_start_copy_engine: the write that starts the copy is each run's
+            # own instruction, further down, and that call makes all three in one place.
+            emit_number(ADDR, REG_DMA3SAD)
+            emit(ASM.ldr_offset(TMP, 2, 8))
+            emit(ASM.str_offset(TMP, ADDR, 0))                        # from its list
+            emit(ASM.str_offset(ACC, ADDR, Primitives::COPY_TO_STEP)) # to its place
+            emit(ASM.ldr_offset(TMP, 2, 16))        # how much, and go
+            emit(ASM.ldr_offset(ACC, 2, 20))
+            # Into the run's own step: the processor reads pc as two instructions on, which is
+            # the first step, so the filler between is never run.
+            emit(ASM.add_reg(15, 15, ACC))
+            emit(ASM.nop)
+            rows.each do |row|
+              @emitter.note_video_copy("painting #{row[:what]} :#{row[:name]}", row[:bytes])
+              emit(ASM.str_offset(TMP, ADDR, Primitives::COPY_START_STEP))
+              emit_branch(:b, step)
+            end
+            place_label(step)
+            emit(ASM.add_imm(2, 2, COPY_ROW_BYTES))
+            emit(ASM.subs_imm(3, 3, 1))
+            emit_branch(:bcond, loop_top, cond: :ne)
+            emit(ASM.pop(ACC))
+            emit_number(TMP, REG_IME)
+            emit(ASM.store_halfword(ACC, TMP))      # the interrupt switch as it was
+            emit_branch(:b, after)
+            place_label(table)
+            rows.each_with_index do |row, i|
+              (row[:words] + [i * 8]).each { |word| emit([word].pack("V")) } # its step is the i-th, 8 bytes each
+            end
+            place_label(after)
+          end
+
+          # One table row per run a background or a sprite on some screen shows, in the shape
+          # #emit_copy_owed_tiles reads. A run nothing shows has nowhere to go, and no row.
+          def owed_copy_rows(node)
+            per = Nodes::CopyOwedTiles::RUNS_PER_MASK
+            node.runs.each_with_index.filter_map do |name, i|
+              run = @layout&.screen&.painted_vram&.[](name)
+              next if run.nil?
+
+              list = painted_run_list(name, run)
+              place = run.moves? ? var_addr(ScreenLayout::PaintedRun.place_var(name)) | 1 : VRAM_START + run.at
+              { name: name, what: run.what, bytes: run.bytes,
+                words: [var_addr(node.masks.fetch(i / per)), 1 << (i % per), list[:base], place,
+                        (run.bytes / 4) | DMA_ENABLE | DMA_32BIT] }
+            end
+          end
+
+          # The list a run paints from. The builder refuses a shifted one
+          # (Builder#refuse_shifted_tile_run_lists!); this is the lowering's own invariant, for a
+          # tree that reached it some other way.
+          def painted_run_list(name, run)
+            list = @lists.list_info(run.list)
+            raise LoweringError, "#{run.what} :#{name} paints from list :#{run.list}, which the game shifts." if list[:ring]
+
+            list
+          end
+
+          # A RUN SHOWN IN SEVERAL SCENES, IN DIFFERENT PLACES: the scene up now has put where
+          # the run sits on its screen in a variable (see Drawing#emit_painted_run_places), so
+          # the copy goes there. On a screen that does not show the run the variable holds 0,
+          # and the copy is skipped — there is nowhere on this screen for it to go, and video
+          # memory at any fixed place would be some other picture's. Leaves that place in ACC.
+          def emit_load_painted_run_place(var, done)
+            @primitives.load_var(ACC, var)
+            emit(ASM.cmp_imm(ACC, 0))
+            emit_branch(:bcond, done, cond: :eq)
+          end
+
+          # ACC = where the map numbered +which+ starts, or a jump to +done+ if it names no
+          # map. A number settled while the program was written is worked out here, in Ruby;
+          # one the game works out is checked and multiplied by the stride at run time.
+          def emit_map_source(bg, which, done)
+            fixed = const_int(which)
+            return emit_fixed_map_source(bg, fixed, done) if fixed
+
+            @lowering.value(which)
+            # One unsigned compare catches both ends: a negative number reads as a very
+            # large one, so anything outside 0...count fails the same test.
+            emit(ASM.cmp_imm(ACC, bg.map_count))
+            emit_branch(:bcond, done, cond: :hs)
+            emit_map_stride(bg)
+            emit_load_data_address(ACC, bg.map)
+            emit(ASM.add_reg(ACC, ACC, TMP))
+          end
+
+          def emit_fixed_map_source(bg, fixed, done)
+            return emit_branch(:b, done) unless fixed >= 0 && fixed < bg.map_count
+
+            emit_load_data_address(ACC, bg.map)
+            return if fixed.zero?
+
+            emit_number(TMP, fixed * bg.map_bytes)
+            emit(ASM.add_reg(ACC, ACC, TMP))
+          end
+
+          # TMP = how far along the blob this map starts. The stride is a power of two for
+          # every grid the console offers, so this is a shift; the multiply is here for a
+          # stride that is not, and costs one instruction either way on this chip.
+          def emit_map_stride(bg)
+            shift = Math.log2(bg.map_bytes).to_i
+            if 2**shift == bg.map_bytes
+              emit(ASM.lsl_imm(TMP, ACC, shift))
+            else
+              emit_number(TMP, bg.map_bytes)
+              emit(ASM.mul(TMP, ACC, TMP))
+            end
+          end
+
+          # DRAW A WHOLE LAYER FROM ANOTHER LIST OF COLOURS: put that list into the group of
+          # sixteen its tiles read.
+          #
+          # Nothing about the layer itself is touched — not a cell, not a tile, not a pixel.
+          # Every pixel on this console is a small NUMBER that picks a colour out of a shared
+          # table, so changing the sixteen entries the layer's numbers pick from changes
+          # every one of its pixels at once, and costs the same whatever is on screen. That
+          # is why shafts of light can shimmer for the price of one copy.
+          #
+          # WHY THE GROUP IS THE LAYER'S OWN: this write lands in the table, where anything
+          # else drawing from those sixteen would pick up the change too. The build gives a
+          # layer that can be recoloured a group nobody else reads (see
+          # PaletteBanks::Picture#keeps_to), so the write reaches this layer and nothing more.
+          #
+          # WHEN it happens is decided above this: the framework puts the copy in the gap
+          # between frames, on the frame the answer changed and no other (see
+          # Builder#finalize_background_colors). The whole screen is drawn through this table,
+          # so a write while the display is reading shows the top of the screen in one set of
+          # colours and the bottom in another.
+          #
+          # A number naming none of the lists hands over the layer's own colours, which sit
+          # last in the blob — so that case is a conditional move rather than a branch, and
+          # a counter that has run off the end looks right rather than wrong.
+          def emit_background_colors(node)
+            lists = @layout.screen.backgrounds[node.name]&.colors
+            return if lists.nil? # no tiled layer here, or nothing else to draw it with
+
+            @lowering.value(node.which)
+            # One unsigned compare catches both ends: a negative number reads as a very large
+            # one, so anything outside 0...count fails the same test.
+            emit(ASM.cmp_imm(ACC, lists.count))
+            emit(ASM.mov_imm_cond(:hs, ACC, lists.count))
+            emit(ASM.lsl_imm(TMP, ACC, lists.shift))
+            emit_load_data_address(ACC, lists.blob)
+            emit(ASM.add_reg(ACC, ACC, TMP))
+            # Remembered as well as written, because a tint walks the whole table from the
+            # cartridge and would otherwise put the colours the tiles were DRAWN in back over
+            # these groups. See PaletteTint#emit_recolored_banks, which reads this.
+            store_var(ACC, lists.at)
+            # One list into each group the layer's tiles read, side by side in the version. The
+            # groups themselves need not be side by side, so each is a copy of its own.
+            lists.banks.each_with_index do |bank, at|
+              unless at.zero?
+                load_var(ACC, lists.at)
+                emit(ASM.add_imm(ACC, ACC, at * COLOR_LIST_BYTES))
+              end
+              @palette_tint.emit_colors_into_bank(BG_PALETTE + (bank * COLOR_LIST_BYTES), COLOR_LIST_UNITS)
+            end
+          end
+
+          # A group is sixteen colours, and a colour is two bytes — so a list is 32 bytes and
+          # the list numbered N starts 32 * N along the blob, which is a shift rather than a
+          # multiply (the same arithmetic #emit_map_stride does for a map).
+          COLOR_LIST_UNITS = 16
+          COLOR_LIST_BYTES = COLOR_LIST_UNITS * 2
+          COLOR_LIST_SHIFT = 5
+
+          # Where a background's cells live: its own screen block in video memory.
+          def map_vram_address(bg) = VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES)
+
+          # Bit 13: the map WRAPS at its edge instead of showing the backdrop past it — the
+          # same torus every `screen :tiled` background already is.
+          AFFINE_WRAP = 0x2000
+
+          # Put BG2's rotate/scale registers back to "no transform" — matrix identity,
+          # zero reference point — the same state #emit_affine_background_hardware boots
+          # an affine background to. Only a program with an affine background at all
+          # needs this: those registers are also what Modes 3/4/5 render their bitmap
+          # framebuffer through (see #emit_affine_background's comment), so switching
+          # INTO any other mode has to leave BG2 neutral, or a bitmap/tiled scene
+          # entered right after an affine one keeps showing whatever turn or zoom the
+          # affine scene last left sitting in hardware.
+          def reset_bg2_affine_if_needed
+            return unless @layout.screen.backgrounds.values.any?(&:affine)
+
+            reset_bg2_affine_matrix
+          end
+
+          # The actual identity-matrix write, factored out so it can be called from
+          # three places that each need it exactly ONCE: leaving affine mode (above),
+          # genuinely entering it (Drawing#enter_affine_mode), and the plain single-mode boot
+          # path (Drawing#emit_screen) — never from #emit_affine_background_hardware, which
+          # runs every frame a scene-owned background's own node re-executes and would
+          # otherwise stomp a growing rotate/scale right back to "no transform" before
+          # the console ever shows it.
+          def reset_bg2_affine_matrix
+            write_reg16(REG_BG2PA, FIXED_ONE)
+            write_reg16(REG_BG2PB, 0)
+            write_reg16(REG_BG2PC, 0)
+            write_reg16(REG_BG2PD, FIXED_ONE)
+            store_word_immediate(0, REG_BG2X)
+            store_word_immediate(0, REG_BG2Y)
+            forget_told_turns
+          end
+
+          # The display has just been put back upright, so whatever turn and size it was last
+          # told are no longer on it. A turn is only told again when it differs from the one
+          # told last (see Builder#affine_write_if_changed), so forgetting the size — which is
+          # never nought — makes the next frame tell it the turn the game has now. Without this a
+          # background turned before a screen of another kind came back upright after it.
+          def forget_told_turns
+            @layout.screen.backgrounds.each do |name, background|
+              next unless background.affine
+
+              store_word_immediate(0, var_addr(Messages::MadeNames.make(:told_turn, background: name, part: :size)))
+            end
+          end
+
+          # Point the console's rotate/scale layer (BG2) at an affine background's map
+          # and tiles — its OWN node in the scene body, so it may run every frame the
+          # owning scene is active (harmless: same map, same control bits, every time).
+          # The matrix itself is NOT reset here — a scene-owned background is turned or
+          # resized by a per-frame write inserted at the frame boundary (see
+          # Builder#finalize_background_affine), which runs BEFORE this node in program
+          # order each frame; resetting the matrix here would throw that away before
+          # the console ever displayed it. The one-time "upright, undistorted" starting
+          # matrix is set at genuine mode entry instead (Drawing#enter_affine_mode, or here at
+          # boot for a single-mode program — see Drawing#emit_screen).
+          def emit_affine_background_hardware(bg)
+            @uploads.emit_dma_blob(bg.map, VRAM_START + (bg.screen_block * SCREENBLOCK_BYTES), bg.map_units)
+            write_reg16(REG_BG2CNT,
+                        bg.priority | bg.in_blocks | BG_256_COLOR | (bg.char_base << CHAR_BASE_SHIFT) |
+                        (bg.screen_block << 8) | AFFINE_WRAP | bg.size)
+          end
+
+          # Scratch memory the affine background's matrix numbers pass through on their
+          # way to the hardware registers — a background keeps only one matrix (unlike a
+          # sprite's per-slot OAM group), so there's nowhere else to park PA-PD while the
+          # reference point below is worked out from them.
+          BG_AFFINE_PA = :_bg_affine_pa
+          BG_AFFINE_PB = :_bg_affine_pb
+          BG_AFFINE_PC = :_bg_affine_pc
+          BG_AFFINE_PD = :_bg_affine_pd
+          BG_AFFINE_SCALE_RECIP = :_bg_affine_scale_recip
+
+          # Where the picture turns around is the program's to name and rides on the
+          # statement that turns it (see IR::Nodes::AffineBackground); the middle of the
+          # screen is only what it holds when nothing said otherwise.
+
+          # Turn/resize the affine background: work out this frame's rotate/scale matrix
+          # and write it to BG2's registers, then move the reference point so the turn
+          # pivots on the middle of the screen (see #emit_bg_affine_reference_point for
+          # why that needs its own step).
+          def emit_affine_background(node)
+            # Outside `screen :rotozoom` there's no rotate/scale layer prepared for this
+            # background to write into — and unlike a plain scroll's fallback registers
+            # (harmlessly inert when that layer isn't on), BG2's affine registers are
+            # never inert: a bitmap screen reads them too (Modes 3/4's framebuffer is
+            # itself rendered through this same BG2 matrix). So rather than fall back
+            # onto them, this does nothing at all, the same choice #emit_scroll_background
+            # makes for a background outside tile mode.
+            return unless @layout.screen.backgrounds[node.name]&.affine
+
+            # WHEN this runs is decided above it, in the tree, rather than here: the
+            # statement sits inside a test for the turn having moved since the display was
+            # last told, itself inside a test for the owning scene being the live one (see
+            # Builder#affine_write_if_changed). So reaching this is already the answer
+            # to both questions, and what is left is the write.
+            emit_bg_affine_matrix(node)
+            emit_bg_affine_reference_point(node.around_x, node.around_y)
+          end
+
+          # The same numbers a turning hardware sprite reads (see
+          # SpriteDrawing#emit_object_affine_matrix, whose steps this mirrors) — one sine-table lookup
+          # for sin and cos, scaled by one over the size — except there is no OAM group to
+          # drop them into, so each one goes to hardware AND to a scratch variable, which
+          # the reference point step below reads back.
+          def emit_bg_affine_matrix(node)
+            emit_bg_affine_scale_reciprocal(node.scale)
+            @lowering.value(node.angle)                       # r0 = angle in degrees (0..359)
+            emit_load_data_address(TMP, OBJ_SINE_BLOB)   # r1 = sine table base
+            emit(ASM.lsl_imm(2, ACC, 1))                 # r2 = angle * 2 (halfword offset)
+            emit(ASM.add_reg(ADDR, TMP, 2))
+            emit(ASM.ldrsh(2, ADDR))                     # r2 = sin(angle)
+            emit(ASM.add_imm(3, ACC, 90))                # r3 = angle + 90
+            emit(ASM.lsl_imm(3, 3, 1))
+            emit(ASM.add_reg(ADDR, TMP, 3))
+            emit(ASM.ldrsh(3, ADDR))                     # r3 = sin(angle + 90) = cos(angle)
+            emit_bg_scale_sine_and_cosine
+            emit(ASM.rsb_imm(ACC, 2, 0))                 # r0 = -sin(angle)
+            store_halfword_reg(3, REG_BG2PA)
+            store_var(3, BG_AFFINE_PA)
+            store_halfword_reg(2, REG_BG2PB)
+            store_var(2, BG_AFFINE_PB)
+            store_halfword_reg(ACC, REG_BG2PC)
+            store_var(ACC, BG_AFFINE_PC)
+            store_halfword_reg(3, REG_BG2PD)
+            store_var(3, BG_AFFINE_PD)
+          end
+
+          # One over this frame's size, the same divide a resizing sprite does (see
+          # SpriteDrawing#emit_object_scale_reciprocal) — a background always carries a size variable
+          # once it's ever turned or resized (rotate and scale share the same pair of
+          # variables), so this runs every frame rather than only when scale is in play.
+          def emit_bg_affine_scale_reciprocal(scale)
+            @lowering.value(scale)                                    # r0 = size, in SCALE_ONE-ths
+            emit(ASM.cmp_imm(ACC, Affine::MIN_SCALE))
+            emit(ASM.mov_imm_cond(:lt, ACC, Affine::MIN_SCALE))
+            emit_number(Divide::DIV_NUM, Build::SCALE_ONE * Affine::ONE_TH)
+            emit_call_divide_routine
+            emit_number(TMP, Affine::MAX)
+            emit(ASM.cmp_reg(ACC, TMP))
+            emit(ASM.mov_reg_cond(:gt, ACC, TMP))
+            store_var(ACC, BG_AFFINE_SCALE_RECIP)
+          end
+
+          # Scale the sine and cosine in r2/r3 by the reciprocal above, back down into
+          # 256ths — the background's own copy of SpriteDrawing#emit_scale_sine_and_cosine.
+          def emit_bg_scale_sine_and_cosine
+            load_var(4, BG_AFFINE_SCALE_RECIP)
+            emit(ASM.mul(5, 2, 4))
+            emit(ASM.asr_imm(2, 5, 8))
+            emit(ASM.mul(5, 3, 4))
+            emit(ASM.asr_imm(3, 5, 8))
+          end
+
+          # The matrix pivots on the layer's own top-left corner by itself — turn or
+          # resize without this and the whole picture swings away from under the point it
+          # is meant to turn around instead of turning in place. Moving the pivot to
+          # (+px+, +py+) means telling the console the texture point that SHOULD land
+          # there, worked backwards through the very matrix just written: for a screen
+          # point this far from (0, 0), the matrix says how far that is from the
+          # reference point in texture space, so read backwards, the reference point is
+          # the pivot's texture position minus that offset. One multiply-and-subtract per
+          # axis whatever the pivot is, so naming one costs nothing; the same shape a
+          # turned sprite gets for free by centering its drawing box (see
+          # SpriteDrawing#emit_draw_object_transformed) — a background has no box of its own to offset,
+          # so this stands in for it.
+          #
+          # The point of the PICTURE that lands there is the same pair of numbers, which is
+          # what makes a pivot free of side effects: at its drawn size, upright, the matrix
+          # is the identity and the reference point comes out at nought wherever the pivot
+          # is, so a background that is not turning lands in exactly the same place.
+          def emit_bg_affine_reference_point(px, py)
+            load_var(2, BG_AFFINE_PA)
+            emit_number(3, px)
+            emit(ASM.mul(4, 2, 3))                       # r4 = PA * px
+            load_var(2, BG_AFFINE_PB)
+            emit_number(3, py)
+            emit(ASM.mul(5, 2, 3))                       # r5 = PB * py
+            emit(ASM.add_reg(4, 4, 5))                   # r4 = PA*px + PB*py
+            emit_number(ACC, px * Affine::ONE_TH)
+            emit(ASM.sub_reg(ACC, ACC, 4))
+            store_word_acc(REG_BG2X)
+
+            load_var(2, BG_AFFINE_PC)
+            emit_number(3, px)
+            emit(ASM.mul(4, 2, 3))                       # r4 = PC * px
+            load_var(2, BG_AFFINE_PD)
+            emit_number(3, py)
+            emit(ASM.mul(5, 2, 3))                       # r5 = PD * py
+            emit(ASM.add_reg(4, 4, 5))                   # r4 = PC*px + PD*py
+            emit_number(ACC, py * Affine::ONE_TH)
+            emit(ASM.sub_reg(ACC, ACC, 4))
+            store_word_acc(REG_BG2Y)
+          end
+
+          # Scroll one layer: write the window's top-left offset into that layer's scroll
+          # registers. The tile hardware does the rest — it draws the layer starting at
+          # that offset and wraps the map around, so a moving offset scrolls the whole
+          # layer for free (no redrawing). Two layers scrolled at different speeds give
+          # parallax. The offset is evaluated at run time from the game's scroll variables.
+          def emit_scroll_background(node)
+            # In tile mode this names a real layer; outside it (a bitmap-mode program that
+            # still declares a background) there's no tiled layer, so fall back to BG0 —
+            # the scroll registers do nothing when that layer isn't on, matching the
+            # interpreter's harmless handling.
+            bg = @layout.screen.backgrounds[node.name]
+            bg_num = bg&.bg || 0
+            emit_view_along_map(node) if bg&.stream # the cells around the view, before the view moves
+            # A bending layer's sideways position is settled row by row instead, and every
+            # one of those rows already has this scroll in it (see Raster). Writing it here
+            # too would only undo the top row's bend until the display asked for the next.
+            unless @raster.row_bends.key?(node.name)
+              @lowering.value(node.x)        # r0 = scroll x (pixels)
+              store_halfword_acc(BG_HOFS_REGS[bg_num])
+            end
+            @lowering.value(node.y)          # r0 = scroll y
+            store_halfword_acc(BG_VOFS_REGS[bg_num])
+          end
+
+          # BRING A BIG MAP'S VIEW ALONG, for the scroll write of +node+ — but for a background a
+          # scene puts up as it takes over, only once it has. The write is gated on the variable
+          # that picks the scene, and a game that picks the next scene at the end of a pass (a file
+          # screen on START) has that variable naming the new scene in the gap before its first
+          # pass: the view was filled there, into cells the scene had not put up yet and that may
+          # still hold the scene leaving, and then filled again as the scene took over.
+          def emit_view_along_map(node)
+            declared = @layout.screen.picture.scenery.find { |scenery| scenery.name == node.name }
+            unless declared && @layout.screen.handover.on_arrival?(declared)
+              return emit_stream_view(node.name, node.x, node.y)
+            end
+
+            @scene_entry.emit_if_scene_up(:scenery, declared.scene) { emit_stream_view(node.name, node.x, node.y) }
+          end
+        end
+      end
+    end
+  end
+end

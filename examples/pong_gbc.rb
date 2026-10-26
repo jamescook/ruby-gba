@@ -43,7 +43,7 @@
 # part of the row: they light up with it, the cursor points at them, and the block under
 # them is what changes the value they show.
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 # The game lives in a module so its block belongs to that module rather than to the file's
 # top level. A block written at the top level belongs to Ruby's own main object, which two
@@ -84,7 +84,7 @@ module PongGBC
   NORMAL       = "NORMAL" # ...and its two rows
   HARD         = "HARD"
 
-  GAME = RubyGBA.game("PONG", consoles: %i[gbc]) do
+  GAME = VBlank.game("PONG", consoles: %i[gbc]) do
     screen :bitmap
     enable_sound
 

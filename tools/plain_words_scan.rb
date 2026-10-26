@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "ripper"
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 # WHAT A BUILD IS ALLOWED TO CALL THE CONSOLE'S QUICK MEMORY, checked over the whole library.
 #
@@ -20,7 +20,7 @@ require_relative "../lib/ruby_gba"
 # library does when it runs — so it belongs in `rake plain_words` and the commit hook rather
 # than in a suite whose job is to prove behaviour.
 module PlainWordsScan
-  LIB = RubyGBA.root.join("lib").to_s
+  LIB = VBlank.root.join("lib").to_s
 
   Finding = Data.define(:file, :line, :text)
 
@@ -39,7 +39,7 @@ module PlainWordsScan
 
   # The ones that call it something else.
   def offenders(found = literals)
-    banned = RubyGBA::Messages::PlainWords::NOT_CALLED.fetch(RubyGBA::Messages::PlainWords::QUICK_MEMORY)
+    banned = VBlank::Messages::PlainWords::NOT_CALLED.fetch(VBlank::Messages::PlainWords::QUICK_MEMORY)
     found.select { |one| banned.any? { |pattern| one.text.match?(pattern) } }
   end
 
@@ -60,7 +60,7 @@ module PlainWordsScan
       return true
     end
 
-    name = RubyGBA::Messages::PlainWords::QUICK_MEMORY
+    name = VBlank::Messages::PlainWords::QUICK_MEMORY
     out.puts "plain words: a build says #{name.inspect} and nothing else. Write " \
              "PlainWords::QUICK_MEMORY, or say it in a comment, where the hardware can be named."
     bad.each { |one| out.puts "  #{one.file}:#{one.line}  #{one.text.strip}" }

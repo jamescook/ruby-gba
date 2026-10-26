@@ -12,15 +12,15 @@
 # takes a moment where a compile takes seconds.
 #
 # It is its own program rather than something a test calls in-process, because finding the game
-# an example declares means watching RubyGBA.game while the example loads, and that is a change
-# to the whole process no test may make (test/ruby_gba/ir/backends/native/test_native_examples.rb
+# an example declares means watching VBlank.game while the example loads, and that is a change
+# to the whole process no test may make (test/vblank/ir/backends/native/test_native_examples.rb
 # runs this and reads what it prints).
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module NativeExamples
-  EXAMPLES = RubyGBA.root.join("examples").to_s
+  EXAMPLES = VBlank.root.join("examples").to_s
 
-  # Each game an example declares, noted as RubyGBA.game hands it back.
+  # Each game an example declares, noted as VBlank.game hands it back.
   module NoteGames
     def game(*, **, &)
       super.tap { |made| NativeExamples.declared << made }
@@ -31,7 +31,7 @@ module NativeExamples
 
   # [the example's name, nil when it builds or the reason it does not], for every example.
   def self.verdicts
-    RubyGBA.singleton_class.prepend(NoteGames)
+    VBlank.singleton_class.prepend(NoteGames)
     Dir.glob(File.join(EXAMPLES, "*.rb")).sort.map do |path|
       [File.basename(path, ".rb"), refusal_after_loading(path)]
     end
@@ -41,12 +41,12 @@ module NativeExamples
     before = declared.length
     require path
     games = declared[before..]
-    return "declares no game through RubyGBA.game" if games.empty?
+    return "declares no game through VBlank.game" if games.empty?
     if games.none? { |game| game.consoles.include?(:gba) }
       return "is for the Game Boy Color alone, and the desktop build plays games for the Advance"
     end
 
-    native = RubyGBA::IR::Backends::Native.new
+    native = VBlank::IR::Backends::Native.new
     games.each { |game| native.lower(native.checked_program(game, err: nil)) }
     nil
   rescue StandardError, ScriptError => e

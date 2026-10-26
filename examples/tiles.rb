@@ -35,10 +35,10 @@
 # Run it to build examples/tiles.gba:
 #   ruby examples/tiles.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Tiles
-  GAME = RubyGBA.game("TILES", consoles: %i[gba]) do
+  GAME = VBlank.game("TILES", consoles: %i[gba]) do
     screen :tiled # tile mode: the console draws the background layer from tiles + a map
 
   # Four 8x8 tiles, hand-drawn like any other image. A second character in each

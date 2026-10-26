@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require RubyGBA.root.join("examples/scroll").to_s
+require VBlank.root.join("examples/scroll").to_s
 
 # The Scroll example (examples/scroll.rb): pan a camera over a tiled world bigger
 # than the screen. This confirms the example is valid and the world renders; the
@@ -21,7 +21,7 @@ class TestScrollExample < Minitest::Test
 
   def test_the_world_renders
     s = game_player.run(Scroll.program, max_steps: 200).screen
-    blue = RubyGBA::Graphics::Color.resolve(:blue)
+    blue = VBlank::Graphics::Color.resolve(:blue)
     assert blue_in_lake?(->(x, y) { s.pixel(x, y) == blue }), "the lake renders in the middle of the world"
   end
 

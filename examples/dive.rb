@@ -15,7 +15,7 @@
 # Run it to build examples/dive.gba:
 #   ruby examples/dive.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 require_relative "dive/title"
 require_relative "dive/sea"
 require_relative "dive/diver"
@@ -26,7 +26,7 @@ module Dive
   # The colours the whole game is drawn in, named in one place so the parts agree about
   # them instead of each spelling out its own triple.
   module Ink
-    RGB = RubyGBA::Graphics::Color
+    RGB = VBlank::Graphics::Color
 
     SURFACE      = Ractor.make_shareable(RGB.rgb(3, 9, 20))    # open water up near the top
     SURFACE_SPOT = Ractor.make_shareable(RGB.rgb(4, 11, 23))
@@ -99,7 +99,7 @@ module Dive
   # is always worth it.
   BREATH = 6
 
-  GAME = Ractor.make_shareable(RubyGBA.game("DIVE", consoles: %i[gba]) do
+  GAME = Ractor.make_shareable(VBlank.game("DIVE", consoles: %i[gba]) do
     screen :tiled
 
     # The stack, back to front. One line saying what is in front of what, for a picture

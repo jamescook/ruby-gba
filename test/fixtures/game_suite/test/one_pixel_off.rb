@@ -4,12 +4,12 @@
 # colour off, so whatever this game's tests compare with the interpreter — the game as C, the
 # cartridge — disagrees with it. Every test file that wants it requires this, so each disagrees
 # whether or not the others are loaded.
-require "ruby_gba"
+require "vblank"
 
 module OnePixelOff
   def shown = super.dup.tap { |pixels| pixels[0] ^= 1 }
 end
 
-if ENV["GAME_SUITE_DISAGREE"] == "1" && !RubyGBA::IR::Backends::Reference::Framebuffer.ancestors.include?(OnePixelOff)
-  RubyGBA::IR::Backends::Reference::Framebuffer.prepend(OnePixelOff)
+if ENV["GAME_SUITE_DISAGREE"] == "1" && !VBlank::IR::Backends::Reference::Framebuffer.ancestors.include?(OnePixelOff)
+  VBlank::IR::Backends::Reference::Framebuffer.prepend(OnePixelOff)
 end

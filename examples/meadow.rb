@@ -51,7 +51,7 @@
 # Run it to build examples/meadow.gba:
 #   ruby examples/meadow.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Meadow
   SPEED = 2
@@ -103,7 +103,7 @@ module Meadow
   INSIDE_DOOR = [(14 * 8), (19 * 8) - HERO - 12].freeze
   OUTSIDE_DOOR = [(53 * 8), (46 * 8) + 4].freeze
 
-  GAME = RubyGBA.game("MEADOW", consoles: %i[gba]) do
+  GAME = VBlank.game("MEADOW", consoles: %i[gba]) do
     screen :tiled
 
     # The picture, back to front. Naming the layers is what lets the door say where its

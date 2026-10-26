@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require RubyGBA.root.join("tools/emitted_attribution").to_s
+require VBlank.root.join("tools/emitted_attribution").to_s
 
 # Which emitted bytes came from which part of the program (tools/emitted_attribution.rb).
 # It is what turns "this change cost 18 instructions" into "18 instructions of clamp,

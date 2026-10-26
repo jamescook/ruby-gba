@@ -1,7 +1,7 @@
 # The desktop window: menu, hotkeys, settings
 
 What a player or a developer does to the window of a native build, as opposed to the game in it.
-Code: `lib/ruby_gba/ir/backends/native/runtime/`.
+Code: `lib/vblank/ir/backends/native/runtime/`.
 
 ## How it is cut
 

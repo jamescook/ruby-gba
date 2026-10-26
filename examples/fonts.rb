@@ -12,12 +12,12 @@
 # Run it to build examples/fonts.gba:
 #   ruby examples/fonts.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module FontsDemo
   SCORE = 12_345
 
-  GAME = RubyGBA.game("FONTS", consoles: %i[gba]) do
+  GAME = VBlank.game("FONTS", consoles: %i[gba]) do
     screen :bitmap
     clear_screen :black
 

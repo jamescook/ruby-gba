@@ -1,18 +1,18 @@
-# DSL verb reference — the flat `RubyGBA.build` API
+# DSL verb reference — the flat `VBlank.build` API
 
-The verbs a `RubyGBA.game "NAME" do … end` block calls (mixed into `Builder` from
-`lib/ruby_gba/builder/*.rb`). **This file is the index**: a line per verb, enough to find it.
+The verbs a `VBlank.game "NAME" do … end` block calls (mixed into `Builder` from
+`lib/vblank/builder/*.rb`). **This file is the index**: a line per verb, enough to find it.
 Each verb's options, friendly errors, cost and worked example are in the group file its section
 names, under `.claude/dsl/`. **Read that file before using, changing or documenting a verb**, and
 grep `.claude/dsl/` for an option or handle method not named here.
 
-A drift test (`test/ruby_gba/test_dsl_reference.rb`) fails if a builder verb is missing from
+A drift test (`test/vblank/test_dsl_reference.rb`) fails if a builder verb is missing from
 this index or from its section's group file. A new verb gets a few words here and its whole
 story in the group file.
 
 Coordinates are pixels from the top left of a 240×160 screen. A `:symbol` names a variable, an
 Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`, `List`,
-`Sprite`, `Condition`…) are `RubyGBA::DSL::*` in `lib/ruby_gba/dsl/`.
+`Sprite`, `Condition`…) are `VBlank::DSL::*` in `lib/vblank/dsl/`.
 
 **Mistakes that raise nothing** (each in full in its group file):
 
@@ -25,7 +25,7 @@ Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`,
 
 ## Build / screen — `.claude/dsl/screen.md`
 
-- `RubyGBA.game "NAME", consoles: %i[gba]` — the game and the consoles it is for (`%i[gba gbc]` for the Color too); `ruby-gba build` makes a cartridge for each. Its code is worked out from the name. `stack_room:`.
+- `VBlank.game "NAME", consoles: %i[gba]` — the game and the consoles it is for (`%i[gba gbc]` for the Color too); `ruby-gba build` makes a cartridge for each. Its code is worked out from the name. `stack_room:`.
 - `screen :bitmap` / `:tiled` / `:rotozoom` (`tear_free:`, `colors:`, `late:`, `pace:`) — the display, per scene; `:bitmap` by default.
 - `screen_width` / `screen_height` — the screen the game is being built for, to lay it out from.
 - `setting :floors, 60` — a value handed to one build (`settings:`, `--set`).
@@ -136,7 +136,7 @@ Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`,
 
 ## Playing a finished game with nobody at the controls — `.claude/dsl/playthroughs.md`
 
-- `RubyGBA.playthrough "name" do … end` — scripted presses on a cartridge; `ruby-gba play`, `ruby-gba compare`.
+- `VBlank.playthrough "name" do … end` — scripted presses on a cartridge; `ruby-gba play`, `ruby-gba compare`.
 
 ## The Game Boy Advance — `.claude/dsl/game-boy-advance.md`
 

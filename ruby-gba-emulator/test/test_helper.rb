@@ -6,7 +6,7 @@ require "tempfile"
 # These tests build real GBA ROMs with ruby-gba (which lives one level up in
 # this repo) and run them through the headless core. That doubles as an
 # end-to-end smoke test of the whole stack: DSL → ROM → libmgba → probe.
-require_relative "../../lib/ruby_gba"
+require_relative "../../lib/vblank"
 require_relative "../lib/ruby_gba_emulator"
 
 module RubyGBAEmulatorTestSupport
@@ -19,7 +19,7 @@ module RubyGBAEmulatorTestSupport
   #   path = build_rom("RED") { screen :bitmap; clear_screen :red; game_loop {} }
   #   probe = RubyGBAEmulator.open(path)
   def build_rom(name = "TEST", code: "TEST", maker: "01", &block)
-    rom = RubyGBA.build(name, code: code, maker: maker, &block)
+    rom = VBlank.build(name, code: code, maker: maker, &block)
     tf = Tempfile.new([name.downcase, ".gba"])
     tf.binmode
     rom.write(tf.path)

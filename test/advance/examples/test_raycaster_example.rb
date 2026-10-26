@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require RubyGBA.root.join("examples/raycaster").to_s
+require VBlank.root.join("examples/raycaster").to_s
 
 # The Raycaster example (examples/raycaster.rb): a first-person view of a maze, built on
 # `table` (sine, wall height and the maze itself are build-time ROM tables the rays look

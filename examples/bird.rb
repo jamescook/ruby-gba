@@ -22,7 +22,7 @@
 # Run it to build examples/bird.gba:
 #   ruby examples/bird.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Bird
   SPEED = 2 # pixels per frame the D-pad moves the bird
@@ -32,7 +32,7 @@ module Bird
   FURTHEST = 0.75
   DRIFT_SECONDS = 2.5
 
-  GAME = RubyGBA.game("BIRD", consoles: %i[gba]) do
+  GAME = VBlank.game("BIRD", consoles: %i[gba]) do
     screen :tiled # tile mode: a background layer for the sky + a hardware sprite for the bird
 
     # A plain sky the bird flies over (one repeated tile).

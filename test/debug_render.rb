@@ -4,7 +4,7 @@
 # Diagnostic script: builds simple ROMs and dumps their instruction
 # bytes to verify ARM encoding is correct.
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 require_relative "test_helper"
 
 def hex_dump(buffer, offset, count)
@@ -29,7 +29,7 @@ end
 # Expected: MOV r0, #3 / ORR r0, r0, #0x0400 / MOV r1, #0x04000000 / STRH r0,[r1] / HALT
 # ============================================================
 puts "=== Test A: Display mode only ==="
-rom = RubyGBA.build("DISPONLY", console: :gba, code: "BTST", maker: "01") do
+rom = VBlank.build("DISPONLY", console: :gba, code: "BTST", maker: "01") do
   screen :bitmap
   halt
 end
@@ -37,7 +37,7 @@ end
 puts "Code at 0xC0:"
 dump_instructions(rom.buffer, 0xC0, 10)
 puts
-puts RubyGBA::Diagnostics::Inspector.from_rom(rom).code_report(max_instructions: 10)
+puts VBlank::Diagnostics::Inspector.from_rom(rom).code_report(max_instructions: 10)
 puts
 
 # Verify manually:
@@ -68,7 +68,7 @@ puts
 # Test B: Single red pixel at center
 # ============================================================
 puts "=== Test B: Red pixel at (120, 80) ==="
-rom = RubyGBA.build("REDPIX", console: :gba, code: "BTST", maker: "01") do
+rom = VBlank.build("REDPIX", console: :gba, code: "BTST", maker: "01") do
   screen :bitmap
   pixel 120, 80, :red
   halt
@@ -77,7 +77,7 @@ end
 puts "Code at 0xC0:"
 dump_instructions(rom.buffer, 0xC0, 20)
 puts
-puts RubyGBA::Diagnostics::Inspector.from_rom(rom).code_report(max_instructions: 20)
+puts VBlank::Diagnostics::Inspector.from_rom(rom).code_report(max_instructions: 20)
 puts
 
 # pixel address: VRAM_START + (80*240 + 120)*2 = 0x06000000 + 38640 = 0x060096F0
@@ -89,7 +89,7 @@ puts
 # Test C: Big visible rectangle (easier to spot)
 # ============================================================
 puts "=== Test C: Large blue rectangle (80x60 centered) ==="
-rom = RubyGBA.build("BIGRECT", console: :gba, code: "BTST", maker: "01") do
+rom = VBlank.build("BIGRECT", console: :gba, code: "BTST", maker: "01") do
   screen :bitmap
   fill_rect 80, 50, 80, 60, :blue
   halt
@@ -100,14 +100,14 @@ puts "ROM size: #{rom.size} bytes"
 puts "First 6 instructions:"
 dump_instructions(rom.buffer, 0xC0, 6)
 puts
-puts RubyGBA::Diagnostics::Inspector.from_rom(rom).code_report(max_instructions: 10)
+puts VBlank::Diagnostics::Inspector.from_rom(rom).code_report(max_instructions: 10)
 puts
 
 # ============================================================
 # Test D: Multiple large color blocks
 # ============================================================
 puts "=== Test D: Three large color blocks ==="
-rom = RubyGBA.build("BLOCKS", console: :gba, code: "BTST", maker: "01") do
+rom = VBlank.build("BLOCKS", console: :gba, code: "BTST", maker: "01") do
   screen :bitmap
   fill_rect 10, 10, 60, 60, :red
   fill_rect 90, 10, 60, 60, :green
@@ -126,7 +126,7 @@ puts
 if EmulatorSupport.gem_available?
   ["/tmp/debug_bigrect.gba", "/tmp/debug_blocks.gba"].each do |path|
     puts "Running #{path} in the emulator for 100 frames..."
-    core = RubyGBA::Diagnostics::Emulator.open(path)
+    core = VBlank::Diagnostics::Emulator.open(path)
     100.times { core.run_frame }
     core.destroy
     puts "OK"

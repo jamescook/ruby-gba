@@ -318,9 +318,9 @@ module SoundComparison
   # the emulator directly, because here it is the answer key and not the thing under test
   # (`require_emulator!` skips on a native run, for a test that is about the cartridge).
   def console_samples(program, frames:, buttons: {}, only: nil)
-    RubyGBA::Diagnostics::Emulator.load!
-    keys = ->(frame) { RubyGBA::IR::Buttons.mask(buttons.fetch(frame + 1, [])) }
-    verifier = RubyGBA::Diagnostics::Verifier.new(assemble_rom(program), frames: 0, keys: keys)
+    VBlank::Diagnostics::Emulator.load!
+    keys = ->(frame) { VBlank::IR::Buttons.mask(buttons.fetch(frame + 1, [])) }
+    verifier = VBlank::Diagnostics::Verifier.new(assemble_rom(program), frames: 0, keys: keys)
     verifier.hearing(only: only) if only
     verifier.step(frames)
     verifier.audio_samples.each_slice(2).map(&:first)

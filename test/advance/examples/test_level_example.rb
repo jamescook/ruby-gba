@@ -3,8 +3,8 @@
 require "test_helper"
 
 require "stringio"
-require RubyGBA.root.join("examples/level").to_s
-require RubyGBA.root.join("tools/make_example_assets").to_s # the art's colors, so expectations track the source
+require VBlank.root.join("examples/level").to_s
+require VBlank.root.join("tools/make_example_assets").to_s # the art's colors, so expectations track the source
 
 # The Level example (examples/level.rb): the CSV-tilemap import path. A tile sheet is
 # imported as numbered tiles and the level is read from a .csv exported the way a map
@@ -15,7 +15,7 @@ require RubyGBA.root.join("tools/make_example_assets").to_s # the art's colors, 
 # It uses the real ImageMagick adapter and does NOT skip when it's missing: importing
 # is the whole point, so its absence is a real failure.
 class TestLevelExample < Minitest::Test
-  include RubyGBA::Console::Hardware
+  include VBlank::Console::Hardware
 
   Assets = MakeExampleAssets
 

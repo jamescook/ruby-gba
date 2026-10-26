@@ -4,11 +4,11 @@ require "test_helper"
 require "differential"
 
 require "stringio"
-require RubyGBA.root.join("examples/meadow").to_s
+require VBlank.root.join("examples/meadow").to_s
 
 # The Meadow example (examples/meadow.rb): a hero walks out of a one-screen cabin into a
 # meadow of 120x100 cells, far bigger than the console's grid. The streaming itself is
-# pinned in test/ruby_gba/builder/test_big_maps.rb; this confirms the example builds, walks
+# pinned in test/vblank/builder/test_big_maps.rb; this confirms the example builds, walks
 # out the door, and draws the same picture on both backends on the way.
 #
 # Going through the door is the example's showcase of `pixelate_out` and `pixelate_in`: the

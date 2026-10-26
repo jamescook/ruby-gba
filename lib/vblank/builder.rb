@@ -1,0 +1,1599 @@
+# frozen_string_literal: true
+
+# DSL verbs grouped into concern modules, each mixed into Builder below. They keep
+# the flat DSL surface (every verb a top-level method) while letting each area live
+# in its own file. New concerns get required here and included in the class body.
+require_relative "builder/randomness"
+require_relative "builder/sound"
+require_relative "builder/music"
+require_relative "builder/text"
+require_relative "builder/images"
+require_relative "builder/color_lists"
+require_relative "builder/picture_groups"
+require_relative "builder/sprites"
+require_relative "builder/sprite_import"
+require_relative "builder/input"
+require_relative "builder/drawing"
+require_relative "builder/spotlights" # the circle a spotlight lights, a row at a time
+require_relative "builder/variables"
+require_relative "builder/control_flow"
+require_relative "builder/scenes"
+require_relative "builder/collision"
+require_relative "builder/tiled"
+require_relative "builder/tile_runs"
+require_relative "builder/canvases"
+require_relative "builder/composition"
+require_relative "builder/timers"
+require_relative "builder/clocks"
+require_relative "builder/sampled_audio"
+require_relative "builder/layers"
+require_relative "builder/draw_order"
+require_relative "builder/settings"
+require_relative "builder/save_program"
+require_relative "builder/save_records"
+require_relative "builder/save_half"
+require_relative "builder/save_places"
+require_relative "builder/save_jobs"
+require_relative "builder/save_var_record"
+require_relative "builder/saves" # ...all four held as one object, behind the save_data verb
+require_relative "builder/debug" # the probe-only verbs, defined but deliberately not mixed in
+require_relative "builder/game_effects" # uses: a game's own effect packs, for its build alone
+
+module VBlank
+  # DSL context for building a GBA ROM.
+  #
+  # Each DSL method builds a node in an IR tree — an in-memory description of what
+  # the program does — and returns. {VBlank.build} lowers the finished tree to a
+  # ROM once the block ends. Building the whole tree before lowering any of it is
+  # what lets a {#call} refer to a {#func} defined later in the block.
+  #
+  # @example Minimal ROM
+  #   rom = VBlank.build("MYGAME", console: :gba) do
+  #     entry { loop_forever }
+  #   end
+  #
+  # @example Draw pixels
+  #   rom = VBlank.build("PIXELS", console: :gba) do
+  #     screen :bitmap
+  #     pixel 120, 80, :red
+  #     pixel 121, 80, color("#00FF00")
+  #     fill_rect 50, 50, 30, 20, rgb(31, 31, 0)
+  #     halt
+  #   end
+  class Builder
+    include Randomness # seed, randomize, roll, rand, chance
+    include Sound      # enable_sound, define_sound, beep
+    include Music      # song, play_song, stop_music
+    include Text       # draw_text, draw_number
+    include Images     # image, blit, rgb, rgb8, color
+    include ColorLists # recolor (a list of sprite colours that holds other colours as the game runs)
+    include PictureGroups # picture_groups (a scene's sprite pictures by room, only some of them up at a time)
+    include Sprites    # sprite (software + hardware, facing/frames/clip animation, hitboxes)
+    include SpriteImport # sprite art adapters (sheets, Aseprite) feeding the sprite builder
+    include Input      # if_held, if_pressed, held, pressed
+    include Drawing    # screen, pixel, fill_rect, clear_screen, dma_fill_rect, draw_rect_at
+    include Variables  # set/var, add, sub, negate/flip, copy, abs, negate_abs, clamp, variables
+    include ControlFlow # game_loop, wait_vblank, repeat, every, after, halt, debug_halt, if_eq..if_le
+    include Scenes     # func, call, scene, case_var, dump_func
+    include Collision  # box (overlaps? lives on the shape — Box/Sprite via Bounds)
+    include Tiled      # tiles, background (tiled-graphics surface; hardware lowering to follow)
+    include TileRuns   # tiles from: a list — tiles the game paints as it runs
+    include Canvases   # canvas — the same, drawn into with words
+    include Composition # pool (a component + a pool of instances, per-instance update)
+    include Timers     # timer (a hardware counter running at a chosen rate)
+    include Clocks     # clock (the date and time, from the clock a cartridge carries)
+    include SampledAudio # sample (a recorded PCM sound, played via Direct Sound)
+    include Layers     # layers, layer (a named place in the stack: what sits in front of what)
+    include DrawOrder  # draw_in_order (sprites drawn in an order the game works out)
+    include Settings   # setting (what this build was told: which floors, which screen it boots on)
+    include SaveData   # save_data (records of the game's state, saved when the game says so; see Saves)
+    include GameEffects # uses (a game's own effect packs, for its build alone)
+
+    # Shorthand for the IR node constructors, so DSL methods can build tree
+    # nodes as terse Build.set(...) calls.
+    Build = IR::Build
+
+    # @param options [Cartridge::Options] how the game is built; the Builder reads its frame
+    #   pacing and the save memory it named
+    # @param progress [VBlank::Messages::Progress] what a build says it is doing (see {#progress})
+    # @param settings [Hash] what this build was told, read by the game with `setting` (see {Settings})
+    def initialize(options: Cartridge::Options.new, progress: Messages::Progress.silent, settings: {})
+      @frame_sync = options.frame_sync
+      @save_memory = options.save_memory # kilobytes the game named, or nil to let its records decide
+      @settings = settings.to_h.transform_keys(&:to_sym)
+      @asked_settings = Set.new
+      @progress = progress
+      @has_paced_loop = false  # set once a game_loop is pacing the program
+      @dropped_syncs = 0       # `wait_vblank` calls the game loop already covers
+      @estimate_lines = []     # where an `estimate:` was given, which nothing reads (see #record_estimate_line)
+      @variables = Set.new     # every variable's name, in the order the game first named it
+      @fraction_vars = {}      # name → fraction bits, for variables that hold a fraction (see Fraction)
+      @fraction_lists = {}     # ...and the same for lists, from what `holds:` showed
+      @name_vars = {}          # name → the NameSet, for variables that hold one of a set of names
+      @var_declarations = {}   # name → what its first `var` started it at, and where (see Variables#var)
+      @name_dispatches = []    # [dispatch node, NameSet] — filled in at finalize, once every name is known
+      @scene_name_sets = []    # the NameSet of each `call` that picks a scene, checked once every name is known
+      @functions = {}          # name → deferred body block (evaluated at emit time)
+      @tile_runs = []          # runs of tiles painted from a list, in declaration order (see TileRuns)
+      @painted_colors = {}     # picture painted from a list → the colours its places pick (see TileRuns)
+      @inline_tile_copies = [] # their copies where `changed` was said, moved to the frame gap at finalize
+      @func_fast = {}          # name → where the author insisted the routine live (func fast:)
+      @scene_loads_first = {}  # scene routine → true where its work waits a pass (scene loads_first:)
+      @dump_requests = []      # function names to disassemble from the lowered ROM
+      @songs = {}              # name → Music::SongContext or Score (for build-time validation)
+      @song_lists = {}         # name → the songs a `songs` list holds, in order
+      @sound_enabled = false
+      @debug_halted = false
+      @repeat_seq = 0          # counts repeat loops, to name each one's hidden index var
+      @timer_seq = 0           # counts every/after timers, to name each one's hidden counter var
+      @rng_seq = 0             # counts anonymous random draws, to name each one's hidden var
+      @approach_seq = 0        # counts approach calls, to name each one's hidden delta var
+      @number_seq = 0          # counts draw_number calls, to name each one's hidden digit vars
+      @sprite_seq = 0          # counts sprites, to name each one's hidden position/backing vars
+      @images = {}             # image name → [width, height], so a sprite can size itself from its art
+      @image_bounds = {}       # image name → [x, y, w, h] box around its visible (non-transparent) pixels, for collision
+      @pictures = {}           # image name → its {IR::Assets::Image}, so `mirror` can turn one round
+      @turned_images = {}      # [:mirrored or :upside_down, image name] → the turned picture's name, so turning one twice makes one picture
+      @color_lists = {}        # `colors` name → its colours, see-through first, for a sprite told to draw with it
+      @changing_color_lists = {} # `colors` name → what the build keeps about a list told to hold other colours (see ColorLists)
+      @picture_groups = {}     # `picture_groups` name → its declaration (see PictureGroups)
+      @sprite_recolors = []    # every sprite's and pool's other colours, to find who draws with a changing list
+      @lists_in_use = []       # each set of lists `colors_in_use` named, in the order the game counts them
+      @lists_backgrounds_draw_with = {} # `colors` name → the background drawn with it, which a changing list cannot reach
+      @tilesets = {}           # tileset name → { by_key:, by_number:, tile_w:, tile_h:, solid_images: } — a tile-image map addressable by the tileset's own keys or by number (a sheet cell)
+      @screen_mode = nil       # the current display mode (set by `screen`), so `sprite` picks its backend
+      @sprites = []            # live software sprites, repainted after every wait_vblank
+      @sprite_repaints = []    # [wait node, the software sprites declared by then], one per frame boundary
+      @routine_sprites = []    # the software sprites declared inside a routine's body (see Sprites#sprite_painting_state)
+      @building_routine = nil  # the routine whose body is being built, nil while the program block itself runs
+      @scene_numbers = {}      # scene func name → the number that says its body was the last scene to run
+      @scene_screens = {}      # scene func name → the screen its body draws on
+      @default_screen_mode = nil # the screen the program block left set, which every routine's body starts on
+      @hw_sprites = []         # live hardware sprites, drawn (into the sprite table) after every wait_vblank
+      @sprite_objects = []     # every sprite and pool slot object, in the order the game declared them
+      @hud_objects = []        # tiled-mode text/number glyph sprites, drawn on top after every wait_vblank
+      @glyph_images = {}       # [font, char, color] → a cached glyph image name (one 8x8 sprite tile per glyph)
+      @verb_owns_text = nil    # the verb drawing its own text right now (a menu's rows), rather than the author placing it
+      @animations = []         # flipbook sprites, whose pose is advanced on a beat after every wait_vblank
+      @pool_animations = []    # ...and posed pools, which step every instance on their own beat
+      @prng_used = false       # whether the program draws random numbers (seeds the stream once)
+      @boot_inits = []         # statements hoisted to program start (hidden state that must start known)
+      @pending_conditions = [] # Conditions built but not yet used; leftovers are orphans
+      @expressions = []        # every expression Value built; the unparented ones are orphans
+      @present_nodes = []      # every frame's present-objects node, filled with the full object list at finalize
+      @frame_boundaries = []   # each frame's wait node, the anchor the scroll writes are inserted after at finalize
+      @backgrounds = {}          # name → a DeclaredBackground, everything the build learns about one (see Builder::Tiled)
+      @inline_scroll_nodes = []  # scroll nodes recorded at their call site, dropped once a frame boundary exists
+      @inline_affine_nodes = []  # affine_background nodes recorded at their call site, moved to the frame boundary
+      @inline_map_nodes = []     # show_map nodes recorded at their call site, dropped once a frame boundary exists
+      @inline_color_nodes = []   # background_colors nodes, the same, for a layer drawn with other colours
+      @per_frame_routines = []   # func names `once_a_frame` declared, called at every frame boundary
+      @per_pass_routines = []    # func names the framework calls once a pass, after the frame boundary
+      @pass_jobs = {}            # each_pass jobs by name (or their routine's, when unnamed)
+      @each_frame_seq = 0        # counts once_a_frame bodies, to name each one's hidden routine
+      @scene_gates = {}        # scene func name → [state_var, value] it's dispatched on (from case_var), for gating its presentation
+      @current_scene_gate = nil # while a scene func's body is being built: the [state_var, value] its declarations belong to
+      @building_scene = nil    # the scene func name currently being built (lets its presentation be declared inside it)
+      @layer_stack = []        # the layers the program declared, back to front (see Builder::Layers)
+      @layers_node = nil       # ...and the node holding them, so a `layer` block can mark one see-through
+      @current_layer = nil     # while a `layer` block runs: the layer its declarations belong to
+      @routine_layer = {}      # routine name → [layer, what the author wrote] when it was declared inside one
+      @deferred_layer = nil    # while such a routine's body is built: that pair, so a declaration in it can be refused
+
+      # The program the DSL builds: an IR tree of nodes that {VBlank.build}
+      # lowers to a ROM. Each statement attaches to the container on top of the
+      # stack — the program root, or an open control-flow block (a loop, an if, a
+      # func body) while its block runs.
+      # The program names the console the options name, and a Builder told none makes an unbound
+      # program (see IR::Nodes::Program). The game is laid out on the screen
+      # the program says it is for.
+      @program = Build.program(console: options.console)
+      @console = @program.described_console
+      @container_stack = [@program]
+      @shown_while = []        # the conditions open right here, for a declaration that is only presented under them
+
+      # Persisted variables (from `save_var`), in declaration order — each is
+      # { name:, default:, slot: }, the slot being its place in save memory. Drives
+      # the one boot-time save_init and the auto-save after each change.
+      @persisted = []
+      @saves = nil             # the save_data records and what saves them (see Saves), made with the first
+    end
+
+    # The IR tree built so far (the whole program). Lets tests assert the DSL
+    # constructs the right tree without lowering it to a ROM.
+    attr_reader :program
+
+    # The console this game is being built for (a Console::Description): the screen the DSL
+    # lays things out on, clamps them to and checks them against.
+    attr_reader :console
+
+    # WHAT THIS BUILD SAYS IT IS DOING, for whoever is doing real work while it runs.
+    #
+    #   progress.step "reading the six episodes"
+    #   floors.each_with_index { |floor, n| progress.report_count n + 1, floors.length, floor.name; ... }
+    #
+    # A build is already a run of named phases saying how far each has got (see
+    # {VBlank::Messages::Progress}). Anything a game or an effect pack does while the block runs
+    # happens INSIDE one of those phases, and without this it happens namelessly — the
+    # build stands there saying "reading the game" for a minute with no clue which minute
+    # of it belongs to whom. This is the seam: a pack's verbs are mixed into this class,
+    # and a game's block is evaluated on it, so `progress` resolves here for both, with no
+    # plumbing to pass round. A game split across plain Ruby objects hands it on like any
+    # other dependency.
+    #
+    # IT IS A NOUN, NOT A VERB, and that distinction is deliberate. `blit` and `sprite` are
+    # things a GAME does and belong on the teaching-facing verb surface; progress is a thing
+    # the BUILD has, and the surface a person learns should not grow a build-time member.
+    #
+    # THE DEFAULT SAYS NOTHING, so nobody has to ask whether anybody is listening, and
+    # nothing reported here may change what gets built: this is an observation. A pack that
+    # behaved differently when somebody was watching would be a bug that only shows up in
+    # the mode nobody tests.
+    attr_reader :progress
+
+    # Function names queued by dump_func, disassembled from the lowered ROM.
+    attr_reader :dump_requests
+
+    # --- Lists ---
+
+    # Declare a named list — a bounded, ordered collection whose length changes as
+    # the game runs (a snake's body, a queue of shots). Returns a {List} handle you
+    # push onto, drop from, index into, and iterate.
+    #
+    #   body = list :body, capacity: 256
+    #   body.push head_cell
+    #   body.shift unless growing
+    #
+    # `capacity` is the most it can ever hold; it's rounded up to a power of two so
+    # the hardware can wrap an index cheaply, and every backend enforces that same
+    # ceiling, so a program overflows at the same point everywhere.
+    #
+    # `estimate:` does nothing but earn a warning (see #record_estimate_line). The build
+    # measures each scene with the list held at its capacity instead
+    # (VBlank.warn_of_collections_that_fill).
+    #
+    # `holds:` says what KIND of number the list keeps, by showing one. Write a Float and
+    # the list holds numbers with a fraction, exactly as writing one makes a variable hold
+    # them: `list :speeds, capacity: 8, holds: 0.0`. Every value read out then carries the
+    # scale and every value put in is checked against it, so a game with many of something
+    # that moves in halves and quarters never has to pick a scale and carry it by hand. The
+    # number itself is only an example — a list still starts empty.
+    #
+    # `width:` says HOW BIG ONE SLOT IS, and it is the difference between a list that fits in
+    # the console's fast memory and one that does not. A slot is a whole 32-bit number unless
+    # you say otherwise, and most lists do not hold anything like that much: `:byte` holds
+    # -128..127 and `:half` holds -32768..32767, at a quarter and a half of the memory. A list
+    # of flags, of directions, of which-picture-is-showing, of hit points, of countdowns —
+    # every one of those is a byte, and a game with many of them gets that memory back for
+    # other things.
+    #
+    #   list :hurt, capacity: 64, width: :byte   # 64 bytes, not 256
+    #
+    # A NARROW SLOT ALWAYS GOES BELOW NOTHING, and there is nothing to say about that — it is
+    # not a choice you are given, because there is no way to make it correctly. The case that
+    # decides it is a countdown: `wait.sub! 7` followed by `(wait <= 0)` really does hold -4
+    # while that test runs, and a slot that could not go below nothing would read -4 back as
+    # 252 and the test would never fire — a game that quietly stops working. Nothing at build
+    # time can see that coming, since the value is worked out as the game runs. So a `:byte`
+    # holds -128..127, and a number that has to reach past 127 asks for `:half`.
+    #
+    # A number too big for its slot keeps the low bits that fit, exactly as the console does,
+    # and both backends drop the same bits — 200 in a `:byte` reads back as -56 on each.
+    # Reading and writing a narrow slot costs the same as a wide one; only the memory differs.
+    #
+    # @param name [Symbol] the list's name
+    # @param capacity [Integer] the most items it can hold
+    # @param estimate [Object] does nothing but earn a warning
+    # @param holds [Numeric] an example of what it holds; a Float means it holds fractions
+    # WHERE IT LIVES is a question you almost never have to answer. The console has two
+    # work memories — a small quick one and a large one that makes it wait — and the
+    # framework puts what a frame touches in the quick one and lets the rest fall into
+    # the roomy one, so a game with a lot of state builds where it used to fail. Say
+    # `fast: false` about one you know is cold (a world state read when a menu opens) to
+    # give the quick memory back to the things that are walked every frame, or `fast:
+    # true` to insist on one the framework did not pick. It is the same word `func`
+    # already uses for the same question about code, and it changes nothing the program
+    # does — only how long a read takes. `rom.profile` says where everything went.
+    #
+    # @param width [Symbol] how big one slot is — :byte, :half or :word (the default)
+    # @param fast [Boolean, nil] insist on the quick memory (true) or give it up (false)
+    # @param full_of [Numeric, nil] start holding +capacity+ items of this, rather than none.
+    #   The loop it replaces, a push for each item, finds each item's place and stores the
+    #   length again every time; this is one fill, done the moment the declaration runs.
+    # @return [List] a handle to the list
+    def list(name, capacity:, estimate: nil, holds: nil, width: :word, fast: nil, full_of: nil)
+      record_estimate_line(estimate)
+      # A fraction given as what the list starts full of says it holds fractions, as `holds:` would.
+      example = holds
+      example = full_of if holds.nil? && full_of.is_a?(Numeric)
+      bits = list_fraction_bits(name, example)
+      record(Build.list_new(name, capacity, width: width, fast: fast,
+                                            full_of: list_starting_item(name, full_of, bits)))
+      @fraction_lists[name] = bits if bits
+      DSL::List.new(self, name, fraction_bits: bits)
+    end
+
+    # What `full_of:` said, as the number each item holds: a fraction multiplied up the way the
+    # list keeps its items. A fraction into a list `holds:` says is whole is refused, as a push
+    # of one would be.
+    def list_starting_item(name, full_of, bits)
+      return nil if full_of.nil?
+      unless full_of.is_a?(Numeric)
+        raise ArgumentError, "`full_of:` takes the number every item starts as, like `full_of: 0`. " \
+                             "`list :#{name}` was given #{full_of.inspect}."
+      end
+      if bits.nil? && !full_of.is_a?(Integer)
+        raise ArgumentError, "`list :#{name}` holds whole numbers, and `full_of:` gives #{full_of}. " \
+                             "To start it with a fraction, write `holds: 0.0` too, or leave `holds:` out."
+      end
+
+      bits ? DSL::Fraction.scale(full_of, bits) : full_of.to_i
+    end
+
+    # What `holds:` said, as a number of fraction bits. A whole number says the same as
+    # saying nothing, so it is allowed and means what it looks like.
+    def list_fraction_bits(name, holds)
+      return nil if holds.nil?
+      unless holds.is_a?(Numeric)
+        raise ArgumentError,
+              "`holds:` takes an example of what the list holds, like `holds: 0.0` for " \
+              "numbers with a fraction. `list :#{name}` was given #{holds.inspect}."
+      end
+
+      DSL::Fraction.bits_of(holds)
+    end
+
+    # AN `estimate:` DOES NOTHING, whatever it says, except have its line kept. A list, a pool, a `repeat`, a
+    # `.then` and a stretched rectangle or column once took one — `{ usually: N }`, how big or
+    # how often the thing normally was — for a cost estimate that worked a frame's time out from
+    # the program. That estimate is gone: the build measures a game by running it. A game
+    # written while the hint meant something still says it, so it is not refused; the line is
+    # kept, and one warning names every such line (Guardrails::Checks::EstimateDoesNothing).
+    # Nothing about it reaches the program.
+    def record_estimate_line(estimate)
+      @estimate_lines << caller_source_location unless estimate.nil?
+    end
+
+    # The lines that gave an `estimate:`, for the warning.
+    attr_reader :estimate_lines
+
+    # Ship a build-time array as a read-only ROM table, read at run time by a Value
+    # index. The array is plain Ruby, evaluated as the program is built, so work the
+    # console can't do cheaply every frame — sine, division — is precomputed once and
+    # then just looked up:
+    #
+    #   sin = table :sin, (0...256).map { |a| (Math.sin(a * Math::PI / 128) * 256).round }, width: :half
+    #   y.set! sin[angle]   # y = sin[angle], a plain lookup
+    #
+    # `width` is the element size: :byte (8-bit), :half (16-bit), or :word (32-bit).
+    # `signed` is inferred from the values (any negative makes it signed) unless you
+    # set it. An out-of-range index is made safe by the read — a power-of-two table
+    # wraps it (what an angle wants), any other size clamps it — so a lookup never
+    # reads past the table.
+    #
+    # @param name [Symbol] the table's name
+    # @param values [Array<Integer>] the whole numbers to store, computed at build time
+    # @param width [Symbol] :byte, :half, or :word
+    # @param signed [Boolean, nil] force signedness; nil infers it from the values
+    # @return [Table] a handle to index with []
+    def table(name, values, width: :half, signed: nil)
+      values = validate_table_values!(name, values)
+      bits = table_fraction_bits(values)
+      # A table of numbers with a fraction is stored multiplied up, and a whole cell of
+      # it no longer fits in a half — so it takes a word unless the program says
+      # otherwise. Reads from it carry the fraction, so nothing downstream repeats it.
+      width = :word if bits && width == :half
+      values = values.map { |v| bits ? DSL::Fraction.scale(v, bits) : v }
+      signed = values.any?(&:negative?) if signed.nil?
+      check_table_values_fit!(name, values, width, signed)
+      record(Build.table(name, values, width: width, signed: signed))
+      DSL::Table.new(self, name, values.length, fraction_bits: bits, width: width)
+    end
+
+    # A RUN OF A TABLE COPIED INTO A LIST AT ONCE (see List#copy_from). The loop it replaces —
+    # `list[i] = table[start + i]` for each i — works out an address and makes a read and a
+    # write for every entry, which is most of a frame for a few hundred of them. This is one
+    # statement, so the console copies the run as a block. The list then holds exactly
+    # +count+ entries; +at+ is held inside the table, so the run never reads past it.
+    #
+    # The two must keep their entries the same way, since a block copy moves bytes and does
+    # not change one size of entry into another.
+    def copy_table_run(list, table, at:, count:)
+      made = declared_list_node(list.name)
+      refuse_unfit_table_copy!(list, made, table, count, at)
+      record(Build.list_copy(list.name, table: table.name, at: DSL::Value.node_for(at), count: count))
+      ensure_var(at)
+    end
+
+    # A LIST SET TO ONE VALUE IN ONE STEP (see List#fill): the whole list as it is now, or
+    # +count+ items from +from+. The loop it replaces sets an item at a time and works out an
+    # address for each; the console sets the run a whole word at a time instead, and a byte
+    # at a time only at its ends. On the console a run is held to the list's capacity; a run
+    # written past that, or from before the first item, is refused here.
+    def fill_list_run(list, value_node, from:, count:)
+      what = "list :#{list.name}.fill"
+      if from.nil? != count.nil?
+        raise ArgumentError, "#{what} was given #{from.nil? ? 'count:' : 'from:'} alone. To fill a run, give both " \
+                             "from: and count:. To fill the whole list, give neither."
+      end
+      from, count = from.nil? ? [0, list.length] : [from, count]
+      refuse_fill_outside_list!(what, declared_list_node(list.name), from, count)
+      record(Build.list_fill(list.name, from: DSL::Value.node_for(from), count: DSL::Value.node_for(count),
+                                        value: value_node))
+      ensure_var(from)
+      ensure_var(count)
+    end
+
+    # A LIST THE GAME SHIFTS CANNOT BE FILLED. Dropping the front item makes the list a ring
+    # that wraps round its own memory, so a run of its items is not a run of memory to set in
+    # one step. Refused once every routine is built, so a `shift` anywhere in the game is seen,
+    # and both backends refuse it alike.
+    def refuse_filled_shifted_lists!
+      filled = @program.walk.filter_map { |node| node.name if node.kind == :list_fill }.uniq
+      return if filled.empty?
+
+      shifted = @program.walk.filter_map { |node| node.name if node.kind == :list_drop && node.from == :front }
+      name = filled.find { |list| shifted.include?(list) } or return
+      raise ArgumentError, "list :#{name} is filled with `fill`, and the game also uses `shift` on it. A shift moves " \
+                           "the first item, so the items are no longer one run in memory and `fill` cannot set " \
+                           "them at once. To fix this, set the items one at a time with `[]=`, or do not use " \
+                           "`shift` on list :#{name}."
+    end
+
+    def refuse_fill_outside_list!(what, made, from, count)
+      start = DSL::Value.fixed_number(from)
+      if start&.negative?
+        raise ArgumentError, "#{what} was given from: #{start}. The items count from 0, so give from: 0 or more."
+      end
+      size = DSL::Value.fixed_number(count)
+      return unless made && start && size && start + size > made.capacity
+
+      raise ArgumentError, "#{what} sets items #{start} to #{start + size - 1}, and the list holds #{made.capacity}. " \
+                           "Give a run that ends inside the list, or give the list a bigger capacity."
+    end
+
+    def declared_list_node(name)
+      (@program.walk.to_a + @boot_inits).find { |node| node.kind == :list_new && node.name == name }
+    end
+
+    def refuse_unfit_table_copy!(list, made, table, count, at)
+      what = "list :#{list.name}.copy_from"
+      unless made
+        raise ArgumentError, "#{what} copies into a list that is not declared. Declare it first with " \
+                             "`list :#{list.name}, capacity: ...`."
+      end
+      unless table.is_a?(DSL::Table)
+        raise ArgumentError, "#{what} needs a table, made with `table`. It was given #{table.class.name.split("::").last}."
+      end
+      unless count.is_a?(Integer) && count.positive?
+        raise ArgumentError, "#{what} needs `count:`, a whole number written in the program, 1 or more. " \
+                             "It was given #{count.inspect}."
+      end
+      if DSL::Fraction.bits_of(at)
+        raise ArgumentError, "#{what} starts the run at an entry of the table, and the number given to " \
+                             "`at:` holds a fraction. To fix this, use `.to_i` to drop the fraction."
+      end
+      if count > table.length
+        raise ArgumentError, "#{what} copies #{count} entries, and table :#{table.name} has #{table.length}. " \
+                             "Give a count of #{table.length} or less."
+      end
+      if count > made.capacity
+        raise ArgumentError, "#{what} copies #{count} entries, and the list holds #{made.capacity}. " \
+                             "Give the list a capacity of #{count} or more."
+      end
+      refuse_mismatched_table_copy!(what, list, made, table, count)
+    end
+
+    # The copying engine counts a run in at most 65535 halves, so a run is held to 64K.
+    TABLE_COPY_MOST_BYTES = 65_536
+
+    def refuse_mismatched_table_copy!(what, list, made, table, count)
+      list_width = made.width || :word
+      unless table.width == list_width
+        raise ArgumentError, "#{what} copies from table :#{table.name}, which keeps each entry in a " \
+                             "#{table.width}. The list keeps each item in a #{list_width}. A copy moves " \
+                             "the entries as they are, so give both the same `width:`."
+      end
+      bytes = count * Build::ELEMENT_BYTES.fetch(list_width)
+      if bytes > TABLE_COPY_MOST_BYTES
+        raise ArgumentError, "#{what} copies #{bytes} bytes. One copy can move #{TABLE_COPY_MOST_BYTES} bytes " \
+                             "or less. Copy the run in parts, each with a count of its own."
+      end
+      return if table.fraction_bits == list.fraction_bits
+
+      table_holds, list_holds = table.fraction_bits ? ["numbers with a fraction", "whole numbers"] : ["whole numbers", "numbers with a fraction"]
+      raise ArgumentError, "#{what} copies from table :#{table.name}, which holds #{table_holds}. The list holds " \
+                           "#{list_holds}. A copy moves the numbers as they are, so give both the same kind of number."
+    end
+
+    # Define an entry point of raw ARM instructions — the escape hatch for
+    # patterns the DSL can't express. The block runs in an {EntryContext} that
+    # collects the emitted bytes into a raw IR node, which the backend appends to
+    # the code verbatim.
+    def entry(&block)
+      ctx = EntryContext.new
+      ctx.instance_eval(&block)
+      record(Build.raw(ctx.bytes))
+    end
+
+    # --- Finalize (VBlank.build calls this once, after the DSL block) ---
+
+    # Refuse a setting the build was given that the game never asked for (see {Settings}).
+    def check_settings_were_asked!
+      problem = unasked_setting_error
+      raise ArgumentError, problem if problem
+    end
+
+    # Build the IR node for every deferred function body, then check that every
+    # call and case target names a function that exists. Called automatically by
+    # VBlank.build after the DSL block.
+    def finalize_program
+      convert_scene_name_dispatches # `call mode` over scene names is a case_var over them
+      @scene_gates = scan_scene_gates # which state value each scene is shown for (from case_var)
+
+      # The program's default display mode — whatever the top-level `screen` left set.
+      # Each scene starts from this, so one scene's `screen` (a tiled game) can't leak
+      # into the next (a bitmap title): a scene is bitmap or tiled by what IT declares,
+      # or the default, never by which scene happened to be built before it. That's what
+      # lets `sprite`/`draw_text`/`draw_number` pick software vs hardware per scene.
+      default_screen_mode = @screen_mode
+      @default_screen_mode = default_screen_mode
+
+      emitted = {}
+      emit_bodies(emitted, default_screen_mode)
+      # Every routine the game wrote is built, so nothing more can be kept in a save_data
+      # record: the records are laid out now, and the routines that read them built after.
+      check_saves_keep_everything!
+      lay_out_save_records
+      emit_bodies(emitted, default_screen_mode)
+
+      finalize_scene_sprite_handover # first: it settles what each sprite waits for before it is painted
+      finalize_sprite_repaints
+      finalize_sprite_clears
+      finalize_animation_steps
+      finalize_present_lists
+      finalize_pool_stacking
+      finalize_draw_orders # after the pools: a pool's numbers are copied with its things
+      finalize_background_scrolls
+      finalize_background_maps
+      refuse_shifted_tile_run_lists!
+      refuse_filled_shifted_lists!
+      finalize_tile_copies
+      finalize_background_colors
+      finalize_changing_color_lists
+      finalize_picture_groups
+      finalize_background_affine
+      finalize_layer_blend
+      finalize_light_switch
+      finalize_per_frame_routines
+      finalize_per_pass_routines
+      refuse_non_scenes_in_scene_dispatch!
+      finalize_name_dispatches
+      finalize_pool_walks
+      finalize_pool_colors
+      verify_targets_defined!
+      verify_instance_routines!
+      refuse_unlayered_when_scenery_in_front!
+      initialize_rng_stream
+      register_save_init
+      emit_boot_inits
+      declare_save_memory
+      resolve_save_data_peeks
+      swap_save_stores_for_change_flags
+    end
+
+    # Build every routine body not built yet (+emitted+ says which are), each into a func
+    # node of its own.
+    def emit_bodies(emitted, default_screen_mode)
+      # Drain rather than iterate: building one body can declare another routine — a
+      # verb reached from inside a scene may declare a `once_a_frame` of its own — and
+      # walking the hash directly would either miss it or raise for growing mid-loop.
+      # Emitting until nothing new is pending covers however deep that goes.
+      until (pending = @functions.reject { |name, _| emitted.key?(name) }).empty?
+        pending.each do |name, block|
+          emitted[name] = true
+          # A scene's declarations belong to it: while its body is built, remember the
+          # scene (so its HUD/sprites may be declared here) and the state gate that
+          # scopes what it presents to when the scene is active.
+          @building_scene = name if @scene_gates.key?(name)
+          @current_scene_gate = @scene_gates[name]
+          # ...and if this routine was WRITTEN inside a `layer` block, remember which, so
+          # anything it declares that wants a depth can be refused rather than quietly
+          # getting none (see Layers#refuse_deferred_layer!).
+          @deferred_layer = @routine_layer[name]
+          @screen_mode = default_screen_mode
+          @building_routine = name
+          push_container(Build.func(name, fast: @func_fast[name], loads_first: @scene_loads_first[name])) do
+            run_block(&block)
+          end
+          @scene_screens[name] = @screen_mode if @building_scene
+        ensure
+          @building_scene = nil
+          @current_scene_gate = nil
+          @deferred_layer = nil
+          @building_routine = nil
+        end
+      end
+    end
+    private :emit_bodies
+
+    # How many `wait_vblank` calls the game loop already covered. Read by
+    # VBlank.build so Checks::DroppedFrameSync can report them.
+    attr_reader :dropped_syncs
+
+    # The software sprites, in the order they were declared — which on a bitmap
+    # screen is the order they are painted in. Read by VBlank.build so
+    # Checks::StackNotHonored can compare that order against the declared stack; a
+    # software sprite's layer lives on the handle rather than in the tree, so a check
+    # walking the tree alone cannot see it.
+    attr_reader :sprites
+
+    # Remember that +name+ is scrolled, so its position is written once a frame in
+    # the gap between frames rather than wherever the game happened to compute it.
+    # +node+ is the write recorded at the call site, which finalize drops once it
+    # knows there is a frame boundary to move it to. A {Background} calls this.
+    def defer_scroll_write(name, x_var, y_var, node)
+      declared_background(name).scroll_x = x_var
+      declared_background(name).scroll_y = y_var
+      @inline_scroll_nodes << node
+    end
+
+    # Remember that +name+ can be handed a whole different map, so the copy is made once a
+    # frame in the gap between frames rather than wherever the game happened to say which
+    # map it wants. +shown_var+ is what the game said; +live_var+ is what is really in the
+    # background's cells. A {Background} calls this from `show_map`.
+    def defer_map_swap(name, shown_var, live_var, node)
+      declared_background(name).shown_map = shown_var
+      declared_background(name).live_map = live_var
+      @inline_map_nodes << node
+    end
+
+    # A background that can be drawn with lists of colours other than the one its tiles were
+    # drawn from. Hands back the statement that declared it, which is what carries those
+    # lists to the backends — the same place an object carries its own. Called once, from the
+    # first `draw_with`; a {Background} keeps the answer.
+    # Two of its variables start out agreeing, both meaning "its own colours", so a
+    # background that is told nothing on a frame writes nothing at all — which is also the
+    # state the tiles are already in when the game starts. The third is a place for a backend
+    # to keep whatever it needs to say which list is showing; nought is "nothing has been
+    # said yet", and what goes there otherwise is that backend's business alone.
+    def make_background_recolorable(name)
+      refuse_coloring_turning_background!(name)
+      at_boot(Build.set(:"__bg_#{name}_colors", Build.int(IR::Build::NO_RECOLOR)))
+      at_boot(Build.set(:"__bg_#{name}_live_colors", Build.int(IR::Build::NO_RECOLOR)))
+      at_boot(Build.set(:"__bg_#{name}_colors_at", Build.int(0)))
+      [:"__bg_#{name}_colors", :"__bg_#{name}_live_colors", :"__bg_#{name}_colors_at"].each { |v| ensure_var(v) }
+      declared_background(name).node
+    end
+
+    # The colour counterpart to {#defer_map_swap}: remember that +name+ can be handed a
+    # whole different list of colours, so the display's table is written once a frame in the
+    # gap between frames rather than wherever the game happened to say which list it wants.
+    # +shown_var+ is what the game said; +live_var+ is what is really in the table.
+    def defer_recolor_write(name, shown_var, live_var, node)
+      declared_background(name).shown_colors = shown_var
+      declared_background(name).live_colors = live_var
+      @inline_color_nodes << node
+    end
+
+    # The affine counterpart to {#defer_scroll_write}: remember that +name+ turns or
+    # resizes, so its matrix is written once a frame in the gap between frames rather
+    # than wherever the game happened to change its angle or size. Called once, as soon
+    # as a background is made affine (see Builder::Tiled#make_background_affine) — not
+    # only from `rotate`/`scale` themselves — so the matrix stays live even for a
+    # program that reaches into the angle/scale {Value}s directly (`bg.scale.approach!`)
+    # rather than through those two verbs.
+    #
+    # Also captures the CURRENT scene gate (whatever scene this first `rotate`/`scale`/
+    # `angle` call happens inside, if any — see #gated_by_scene), so a background declared
+    # and turned only inside one scene writes its matrix only while that scene is
+    # active. Without this, the write would land at every frame boundary in the whole
+    # program regardless of which scene is running — and BG2's affine registers are
+    # never inert the way a plain scroll's are: `screen :bitmap`'s Mode 3/4 framebuffer
+    # is itself rendered through these same registers, so an untouched write from an
+    # affine title screen would keep distorting a bitmap gameplay scene that never asked
+    # for it.
+    def defer_affine_write(name, angle_var, scale_var)
+      background = declared_background(name)
+      background.angle = angle_var
+      background.scale = scale_var
+      background.scene_gate = @current_scene_gate
+    end
+
+    # Does :+name+ turn and resize rather than scroll? True from the line that declares
+    # it on `screen :rotozoom`, where that is the only kind of layer there is, and from
+    # the first `.rotate`/`.scale` anywhere else. A {Background} handle asks this rather
+    # than keeping an answer of its own, because the fact is settled in two places at two
+    # moments and a copy on the handle was a second answer to keep in step.
+    def background_turns?(name)
+      declared_background(name).node.affine
+    end
+
+    # An affine_background write recorded at its call site (by {Background#rotate} /
+    # {Background#scale}) — kept so {#finalize_background_affine} can drop it once it
+    # knows there's a frame boundary to move the write to instead, the same as
+    # {#defer_scroll_write}'s inline scroll nodes.
+    def record_inline_affine_node(node)
+      @inline_affine_nodes << node
+    end
+
+    # THE SIZE OR ANGLE A BACKGROUND IS DECLARED AT, which is a different thing from one
+    # written each frame and has to run in a different place.
+    #
+    # `background(:sword, ...).scale(16.0)` says how big the picture STARTS. At the top of
+    # a program that is also where it runs, because the top of a program runs once — but a
+    # scene's body is reached on every frame that scene is up, so the same line there put
+    # the size back at the top of every frame and whatever was easing it got one step and
+    # no more. So it goes to boot, which is the promise `var` already makes about the value
+    # it is declared with, wherever it is declared.
+    def set_at_boot(var, value)
+      at_boot(Build.set(var, Build.int(value)))
+    end
+
+    # The point a background turns around, in screen pixels — kept with the background
+    # rather than with one turn, because a picture turns around one point however many
+    # times the game turns it (see {Background#turns_around}). Every write of that
+    # background's matrix carries it, so there is nowhere for a second answer to live.
+    def set_background_pivot(name, x, y)
+      declared_background(name).pivot = [x, y]
+    end
+
+    # The last statement recorded into the block being built, or nil where nothing has been
+    # recorded into it yet. What it answers is whether a call CONTINUES a declaration or
+    # comes after it — `background(...).scale(16.0)` is one line and one declaration, where
+    # a `scale` further down the same scene is a write that frame makes.
+    def last_statement
+      @container_stack.last.children.last
+    end
+
+    # Remember this frame boundary, so the per-frame scroll writes can be inserted
+    # just after it at finalize. Which backgrounds scroll isn't known yet — one may
+    # be scrolled further down the loop body, or inside a scene built later — so the
+    # spot is marked now and filled at the end.
+    #
+    # The wait itself is the anchor, not a position: other statements around it come
+    # and go before finalize is done (a program with no sprites has its present-
+    # objects statement removed), and an index recorded now would no longer point
+    # where it was meant to.
+    def mark_frame_boundary(wait_node)
+      @frame_boundaries << wait_node
+    end
+
+    # --- Handle hooks ---
+    # The Value / Condition / Branch / List classes call these back into the
+    # builder to record their statements at the current build point.
+
+    # The hook behind the expression DSL's `(cond).then { ... }`: record an `if`
+    # node from an already-built condition node and gather the block's statements
+    # into it, returning the node so an `.else` can attach to it. A {Condition}
+    # calls this; user code writes `.then`, not this.
+    def record_conditional(cond_node, &block)
+      if_node = Build.if_(cond_node)
+      push_container(if_node) do
+        run_block(&block)
+      end
+      if_node
+    end
+
+    # The hook a handle uses to append one of its own statement operations at the
+    # current build point — a {List}'s push, a {Sprite} painting itself onto the screen
+    # and taking itself off again — the counterpart to how a {Value}'s mutators record
+    # through the builder's verbs.
+    #
+    # It skips the layer rules a flat DSL verb goes through, and that is the whole
+    # difference between the two. A handle doing its own work is never a brushstroke
+    # somebody wrote inside a `layer` block: a software sprite paints itself with the
+    # same node an author's `blit` builds, and refusing the sprite for the sake of the
+    # `blit` would refuse the very thing a layer is for.
+    def record_statement(node)
+      attach(node)
+    end
+
+    # Record a container node and run +block+ to fill its children — the hook a handle
+    # reaches for to attach a body from outside the builder (e.g. Timer#on_tick). Lives
+    # in the core, not a concern, so it isn't scanned as a DSL verb. Returns the node.
+    def record_container(node, &block)
+      push_container(node) { run_block(&block) }
+      node
+    end
+
+    # A reusable hidden variable a handle can round-trip a read-modify-write through —
+    # e.g. a {FieldRef} mutating a pool slot (load the slot, apply a Value mutator, store
+    # it back). One is enough: such mutations are sequential statements, never nested.
+    # An internal hook like #record_statement / #ensure_var, not a DSL verb.
+    def field_scratch_var
+      @field_scratch ||= begin
+        name = :__field_scratch
+        ensure_var(name)
+        name
+      end
+    end
+
+    # A {Condition} enters this "pending" set when it's built (Condition#initialize)
+    # and leaves it when it's used (see #consume_condition). It's bookkeeping for
+    # one guardrail only, never part of the program.
+    def track_condition(condition)
+      @pending_conditions << condition
+    end
+
+    # A {Condition} was used — branched on with `.then`, or folded into another via
+    # `&` / `|` — so peel it back out of the pending set.
+    def consume_condition(condition)
+      @pending_conditions.delete(condition)
+    end
+
+    # Every EXPRESSION Value built during this build — a number worked out, as opposed to
+    # a handle naming a place that keeps one (see Value#handle?). Bookkeeping for one
+    # guardrail only, never part of the program.
+    #
+    # There is no matching "consume" the way a Condition has one, and that is the whole
+    # trick: an expression that gets used is written into another node, and a node wired
+    # into the tree carries a parent. So the tree itself records what was used, and the
+    # leftovers are the ones whose node never found a home.
+    def track_expression(value)
+      @expressions << value
+    end
+
+    # The expressions built during this build, for the orphaned-expression guardrail.
+    def expressions
+      @expressions
+    end
+
+    # The Conditions still pending at build's end: built but never used. Each did
+    # nothing, which almost always means it was handed to a native `if` (a Condition
+    # is truthy to Ruby, so the `if` body ran unconditionally and the comparison was
+    # silently ignored). The orphaned-Condition guardrail reports these.
+    def pending_conditions
+      @pending_conditions
+    end
+
+    # The hook behind `.then { }.else { }`: gather the else block's statements
+    # into an `else` node and attach it to the if node the `.then` produced.
+    def record_else(if_node, &block)
+      else_node = Build.else_
+      @container_stack.push(else_node)
+      # The other side of the same test: what is declared here is shown when the `if`'s
+      # condition is FALSE. A copy of that condition, because a node belongs to one place
+      # in the tree and this one already belongs to the `if`.
+      @shown_while.push(Build.binop(:==, if_node.cond.copy, Build.int(0)))
+      begin
+        run_block(&block)
+      ensure
+        @shown_while.pop
+        @container_stack.pop
+      end
+      if_node.else = else_node
+    end
+
+    private
+
+    # --- Boot-time initialization ---
+
+    # Register a statement to run once at program start, before anything else. It's
+    # for hidden state that must begin from a known value because console RAM isn't
+    # zero at power-on — the random seed, a timer's frame counter. #emit_boot_inits
+    # hoists these to the very front at finalize, so they can be recorded from deep
+    # inside a loop or scene yet still run once, up front.
+    def at_boot(node)
+      @boot_inits << node
+    end
+
+    # Hoist every registered boot statement to the front of the program, keeping
+    # the order they were registered in, so all hidden state is set before the
+    # game starts.
+    def emit_boot_inits
+      @boot_inits.reverse_each { |node| prepend_to_program(node) }
+    end
+
+    # Put +node+ first in the program, owned by it.
+    def prepend_to_program(node)
+      @program.children.unshift(node)
+      node.parent = @program
+    end
+
+    # A fixed marker written alongside the saved variables so a fresh cartridge
+    # (whose save memory holds random power-on garbage) is told apart from one that
+    # already holds real saved data. Any stable, unlikely value does; this spells
+    # "SAV1" in bytes.
+    SAVE_MAGIC = 0x53415631
+
+    # If the program declared any `save_var`s, add the one boot step that loads them
+    # (or writes their defaults on a fresh cartridge). Registered at boot like the
+    # other hidden-state setup, so it runs once before the game starts. On flash they are kept
+    # in a record of their own, which loads them itself (see SaveVarRecord).
+    def register_save_init
+      return if @persisted.empty? || @saves&.save_vars_in_record?
+
+      at_boot(Build.save_init(vars: @persisted, magic: SAVE_MAGIC))
+    end
+
+    # Record a mirror-to-save-memory right after a persisted variable changed, so
+    # what's saved always matches what the game just did. A no-op for an ordinary
+    # variable, so every mutation verb can call it without checking first.
+    def mirror_save(name)
+      entry = @persisted.find { |v| v.name == name }
+      record(Build.save_store(name, entry.slot)) if entry
+    end
+
+    # Whether +name+ is a persisted variable (declared with `save_var`).
+    def persisted?(name)
+      @persisted.any? { |v| v.name == name }
+    end
+
+    # Which scenes are shown for which state, read from the case_var dispatch(es):
+    # a scene func named as a case target is presented only while the dispatched
+    # variable holds that clause's value. Maps a scene func name → [state_var, value],
+    # so a sprite/HUD declared inside that scene can be gated to when the scene is live.
+    def scan_scene_gates
+      gates = {}
+      @program.walk do |node|
+        next unless node.kind == :case
+
+        node.clauses.each { |value, target| gates[target] ||= [node.var, value] }
+      end
+      gates
+    end
+
+    # Gate an object's visibility to its scene: a scene-owned object is shown only when
+    # both its own shown-flag is set AND its scene is the active one. Rides the object's
+    # existing per-frame `active` value, so presentation stays automatic — nothing new to
+    # call, and no per-draw flag in game code. Outside a scene, visibility is unchanged.
+    # Which game state a declaration belongs to, or nil where it belongs to none and is
+    # always there. The gate above says the same thing as a run-time test; this says it
+    # as a NAME, which is what something deciding what has to be in memory at once needs.
+    def declaring_scene = @building_scene
+
+    def gated_by_scene(active_node)
+      return active_node unless @current_scene_gate
+
+      Build.binop(:*, active_node, scene_up(@current_scene_gate))
+    end
+
+    # "The scene +gate+ names is the one up": the variable the game picks its scenes with holds
+    # the value that picks it. A gate is that variable and that value.
+    def scene_up((state_var, value)) = Build.binop(:==, Build.var_ref(state_var), Build.int(value))
+
+    # +node+, run only while the scene +gate+ names is up — or as it is, for a nil gate: a
+    # thing declared outside every scene is there in all of them.
+    def while_scene_up(gate, node) = gate ? Build.if_(scene_up(gate), node) : node
+
+    # Gate a declaration's visibility on the conditions it was WRITTEN under, so a
+    # blinking prompt is the plain thing an author would write:
+    #
+    #   (blink == 1).then { draw_text "PRESS START", 76, 100, :gray }
+    #
+    # Text on a tiled screen is not painted where the call sits — it becomes little glyph
+    # sprites the console composites every frame, from a list settled once at build time.
+    # So the `.then` around the call would otherwise decide nothing at all: the glyphs are
+    # declared inside it, and then shown on every frame regardless, which reads as a
+    # prompt that never blinks. Carrying the condition onto the glyph itself is what makes
+    # the two agree — it is shown exactly while the test holds, which is what the line says.
+    #
+    # A condition is 0 or 1, so several nested ones multiply together, the same way
+    # #gated_by_scene folds in "and this scene is the live one". Each is copied because a node
+    # belongs to one place in the tree, and these already belong to their `if`.
+    def gated_by_open_conditions(active_node)
+      @shown_while.reduce(active_node) { |node, cond| Build.binop(:*, node, cond.copy) }
+    end
+
+    # Fill every frame's present-objects node with the complete object list once all
+    # scenes are built — a scene declares its sprites/HUD inside its own body (built after
+    # the game loop), so the list isn't known when wait_vblank records the node. A frame
+    # that ends up with no objects drops the node, so an object-free program is unchanged.
+    #
+    # Sprites and a pool's slots are listed together, in the order the game declared them,
+    # so a pool takes its place among the sprites by the same rule two sprites follow: the
+    # one declared later is in front. The HUD comes last, over all of them.
+    def finalize_present_lists
+      names = arrange_draw_orders(in_stack_order(@sprite_objects + @hud_objects))
+      @present_nodes.each do |node|
+        if names.empty?
+          node.parent&.children&.delete(node)
+        else
+          node.names = names
+          node.orders = draw_order_runs(names)
+        end
+      end
+    end
+
+    # The objects to draw, arranged the way the declared layers ask for. This is the
+    # one place a frame's drawing order is settled: the list every backend is handed
+    # already says what goes in front of what, so no backend works it out for itself
+    # and two of them cannot come to different answers.
+    #
+    # The layer is read back off the objects in the tree rather than kept beside them
+    # here, because the tree is where a backend will read it too — one fact, one place.
+    def in_stack_order(names)
+      layer_of = @program.walk.each_with_object({}) do |node, found|
+        found[node.name] = node.layer if node.kind == :object
+      end
+      IR::Stacking.order_by_stack(names, @layer_stack) { |name| layer_of[name] }
+    end
+
+    # Move every background's scroll write to the frame boundary.
+    #
+    # The display re-reads a background's scroll position for every line it draws, so
+    # writing it while the picture is being drawn shifts only the lines below that
+    # point and the screen tears in half. Writing it in the gap between frames
+    # instead means a game can work out where its camera goes anywhere in the frame,
+    # take as long as it likes, and never tear.
+    #
+    # The writes are placed here rather than where scroll was called because which
+    # backgrounds scroll is only known now: a scene's body is built after the loop
+    # that dispatches to it. Each boundary gets fresh nodes, so no node is shared
+    # between two places in the tree.
+    #
+    # A program with no frame boundary (no game loop) keeps the writes where they
+    # were called — nothing is pacing it, so there is no gap to move them to.
+    #
+    # Each write is gated to its owning scene, the same as a scene-owned sprite, HUD glyph
+    # or turning background (see #finalize_background_affine). WHERE A BACKGROUND SITS IS A
+    # PROPERTY OF THE LAYER rather than of the background, and scenes take turns with the
+    # layers — so two backgrounds that share one both write its position every frame, and
+    # the one declared later wins wherever they disagree. A title screen of drifting
+    # scenery handing over to a game that starts at the top of its map was pinned still by
+    # the game's nought, on a screen the game was not even on.
+    def finalize_background_scrolls
+      write_between_frames(@inline_scroll_nodes, backgrounds_that(&:scrolls?)) do |name, background|
+        scroll = Build.scroll_background(name, x: Build.var_ref(background.scroll_x),
+                                               y: Build.var_ref(background.scroll_y))
+        while_scene_up(background.scene_gate, scroll)
+      end
+    end
+
+    # Everything the build knows about the background called +name+ — the record
+    # {Tiled#background} made on the line that declared it.
+    #
+    # fetch, not a lookup that makes one: every caller but that verb is reached from a
+    # handle the verb already handed back, so a name with no record is a bug here rather
+    # than something to shrug at. Made silently, an empty record would be written into,
+    # walked at finalize, and emit a write for a background that does not exist.
+    def declared_background(name)
+      @backgrounds.fetch(name)
+    end
+
+    # The declared backgrounds the block says yes to, in declaration order —
+    # `backgrounds_that(&:scrolls?)`.
+    def backgrounds_that
+      @backgrounds.select { |_name, background| yield(background) }
+    end
+
+    # PUT A WRITE PER THING IN THE GAP BETWEEN FRAMES, at every frame boundary there is — the
+    # shared half of the passes above and below, which differ only in what they are about
+    # (the backgrounds that scroll, the ones handed a map, the lists of colours that change)
+    # and what each one's write says. +things+ is those, by name; the block is handed each
+    # name and what is kept about it, and gives back the write.
+    #
+    # +inline_nodes+ are the writes recorded where the author called for them, dropped here
+    # because there is a better place to put them. A program with no frame boundary keeps
+    # them: nothing is pacing it, so there is no gap to move them to.
+    #
+    # They are written back to front, because each write is inserted directly after the wait
+    # and so pushes the one before it further along — reversing puts them back in the order
+    # they were declared.
+    def write_between_frames(inline_nodes, things)
+      return if things.empty? || @frame_boundaries.empty?
+
+      inline_nodes.each { |node| node.parent&.children&.delete(node) }
+
+      @frame_boundaries.each do |wait_node|
+        container = wait_node.parent
+        at = container&.children&.index(wait_node)
+        next unless at
+
+        things.reverse_each do |name, thing|
+          node = yield(name, thing)
+          container.children.insert(at + 1, node)
+          node.parent = container
+        end
+      end
+    end
+
+    # A WRITE MADE ONLY ON A FRAME WHERE THE ANSWER CHANGED. +said+ is the variable holding
+    # what the game last said, and +in_force+ the one holding what the write last put in
+    # place; they differ exactly on the frame to write on, and the write then makes them
+    # agree. See #finalize_background_maps for why it is two variables and not a write
+    # where the game said it.
+    def write_if_changed(said:, in_force:, write:)
+      # A fresh var_ref each time: no node is ever shared between two places in the tree.
+      Build.if_(Build.binop(:!=, Build.var_ref(said), Build.var_ref(in_force)),
+                write,
+                Build.set(in_force, Build.var_ref(said)))
+    end
+
+    # COPY A WHOLE MAP INTO A BACKGROUND'S CELLS, in the gap between frames, and only on a
+    # frame where the answer changed.
+    #
+    # A cell of a map is one half-word, so `set_tile` can write it wherever the game
+    # happens to be: nothing can read a half-word half-written, and the worst that happens
+    # is one 8-pixel cell split across a single frame. A whole map is thousands of cells,
+    # and there the same write really would show half of the old room and half of the new.
+    # So the copy waits for the gap, which is the one moment the display is not reading.
+    #
+    # WHY TWO VARIABLES rather than a copy where `show_map` was called. `show_map` says
+    # which map is showing — a statement about the world, the same shape as a scroll
+    # position — so a game may say it every frame, from inside a branch, from a scene. What
+    # the console must not do is copy thousands of cells every frame. Holding what the game
+    # SAID apart from what is really IN the cells turns that into one comparison: they
+    # differ exactly on the frame the answer changed, which is the frame to copy on.
+    def finalize_background_maps
+      write_between_frames(@inline_map_nodes, backgrounds_that(&:swaps_maps?)) do |name, background|
+        write_if_changed(said: background.shown_map, in_force: background.live_map,
+                         write: Build.show_map(name, which: Build.var_ref(background.shown_map)))
+      end
+    end
+
+    # WRITE A LAYER'S COLOURS INTO THE DISPLAY'S TABLE, in the gap between frames, and only
+    # on a frame where the answer changed — the colour twin of the map copy above, and held
+    # apart the same way and for the same reasons.
+    #
+    # The gap matters more here than the saving does. Every pixel on screen is drawn by
+    # looking its colour up in one shared table, so a table written while the display is
+    # reading shows the top of the screen in one set of colours and the bottom in another.
+    def finalize_background_colors
+      write_between_frames(@inline_color_nodes, backgrounds_that(&:draws_with_colors?)) do |name, background|
+        write = write_if_changed(said: background.shown_colors, in_force: background.live_colors,
+                                 write: Build.background_colors(name, which: Build.var_ref(background.shown_colors)))
+        # Gated to the owning scene, as a scroll is: a scene's backgrounds draw from colour
+        # groups other scenes use while they are up, so a list asked for from elsewhere waits
+        # until its scene is back, and goes in then.
+        while_scene_up(background.scene_gate, write)
+      end
+    end
+
+    # Move every affine background's matrix write to the frame boundary — the same
+    # reason {#finalize_background_scrolls} moves scroll writes there: the console reads
+    # a background's rotate/scale registers for the whole frame it draws, so writing them
+    # mid-frame would show two different pictures on one screen. See that method for the
+    # rest of the reasoning; this is its `rotate`/`scale` sibling.
+    #
+    # Each write is gated to its owning scene (see #defer_affine_write), the same as a
+    # scene-owned sprite or HUD glyph — a background turned only inside one scene must stop
+    # writing BG2's registers once that scene isn't the live one — and gated again on the
+    # turn having actually moved, which is #affine_write_if_changed below.
+    def finalize_background_affine
+      # A pivot can be named after the turn that reads it (`.scale(2.0).turns_around(...)`),
+      # and a program with no frame boundary keeps the writes where the author put them —
+      # so the ones being kept are told now, when every line has been read.
+      @inline_affine_nodes.each do |node|
+        pivot = declared_background(node.name).pivot
+        node.around_x, node.around_y = pivot if pivot
+      end
+
+      write_between_frames(@inline_affine_nodes, backgrounds_that(&:turns_each_frame?)) do |name, background|
+        affine_write_if_changed(name, background)
+      end
+    end
+
+    # WRITE THE TURN ONLY ON A FRAME WHERE IT CHANGED — the same two-variables trick
+    # {#finalize_background_maps} plays on a map, and here it buys something the map's
+    # version does not.
+    #
+    # A picture that has stopped moving is told to hold still by being told nothing, and
+    # the display holds it: the numbers that say how the layer is turned and where it is
+    # pinned stay where they were put. So writing them again every frame is not only work
+    # nobody asked for — a divide and two table lookups before the write itself — it is
+    # A RISK THE STILL PICTURE HAS NO REASON TO RUN. The display reads where the layer is
+    # pinned as it draws, so a write landing after the drawing has started moves the layer
+    # for the rest of that picture: one frame showing the layer somewhere else, and then it
+    # snaps back. Every game has frames that start late, and on those frames this write
+    # lands there. A scroll written late is invisible, which is why the scroll registers
+    # beside it have never needed this.
+    #
+    # Holding what the display was TOLD apart from what the program has SINCE SAID turns
+    # all of that into two comparisons: they differ exactly on the frame the answer moved,
+    # which is the frame worth writing on.
+    def affine_write_if_changed(name, background)
+      told_angle, told_size = declare_last_affine_vars(name)
+      changed = Build.binop(:or,
+                            Build.binop(:!=, Build.var_ref(background.angle), Build.var_ref(told_angle)),
+                            Build.binop(:!=, Build.var_ref(background.scale), Build.var_ref(told_size)))
+      write = Build.if_(changed,
+                        Build.affine_background(name, angle: Build.var_ref(background.angle),
+                                                      scale: Build.var_ref(background.scale),
+                                                      around: background.pivot || @console.middle),
+                        Build.set(told_angle, Build.var_ref(background.angle)),
+                        Build.set(told_size, Build.var_ref(background.scale)))
+
+      # A background turned inside one scene says nothing at all while another scene is up:
+      # the display has one turning layer and they share it, so a title screen's zoom must
+      # not go on distorting the game that took over from it.
+      while_scene_up(background.scene_gate, write)
+    end
+
+    # The angle and the size the display was last told. They are declared here rather than
+    # beside the angle and the size themselves because this is the only thing that reads
+    # them: a program with no gap between frames writes where the author asked for it and
+    # pays for none of this.
+    #
+    # Both start at nought, which is what makes the first frame write whatever else is
+    # true — no background is a size of nought, the smallest one anybody can ask for being
+    # more than nothing. So the pair starts out disagreeing, and the frame that finds them
+    # disagreeing is the frame that puts the picture on screen.
+    def declare_last_affine_vars(name)
+      vars = %i[angle size].map { |part| Messages::MadeNames.make(:told_turn, background: name, part: part) }
+      vars.each do |var|
+        at_boot(Build.set(var, Build.int(0)))
+        ensure_var(var)
+      end
+      vars
+    end
+
+    # Tell the display again how see-through the see-through layer is, once per frame.
+    #
+    # Only a picture whose amount the game works out needs this — fog that thickens,
+    # water that gets murkier as you go down. A number the author wrote is written once
+    # at boot and never again, and this puts nothing anywhere.
+    #
+    # It goes at the frame boundary for the reason the scroll writes do: that gap is the
+    # one moment the display is not reading, so the whole picture is drawn at one amount
+    # rather than half at each. And it goes FIRST, before the sprites are put where they
+    # go, so the frame that is about to be drawn is drawn at the amount this frame has.
+    def finalize_layer_blend
+      return if @frame_boundaries.empty? || @layers_node.nil?
+
+      # With a see-through layer on more than one screen, which of them the display is
+      # mixing changes as the screens take turns, so every one is told again at every
+      # boundary and each backend tells only the one on screen.
+      layers = @layers_node.see_through
+      told = layers.size > 1 ? layers : layers.reject { |layer| fixed_blend_amounts?(layer) }
+      return if told.empty?
+
+      @frame_boundaries.each do |wait_node|
+        container = wait_node.parent
+        at = container&.children&.index(wait_node)
+        next unless at
+
+        told.each_with_index do |layer, i|
+          node = Build.see_through(layer.name)
+          container.children.insert(at + 1 + i, node)
+          node.parent = container
+        end
+      end
+    end
+
+    # A layer whose amounts are both numbers the author wrote is told once, at boot.
+    def fixed_blend_amounts?(layer)
+      [layer.shows, layer.behind].all? { |amount| DSL::Value.fixed_number(amount) }
+    end
+
+    # Run every per-frame routine at each frame boundary — ONCE PER FRAME THAT REALLY
+    # PASSED, which on a program keeping up is once, and on one that overran its frame
+    # is twice or three times.
+    #
+    # THAT REPEAT IS THE WHOLE OF THE PROMISE. A pass of the game loop is not a frame;
+    # it is a frame on a program that fits and two frames on one that does not. So a
+    # body called once per PASS and described as running every frame quietly runs at
+    # half speed on a heavy game, and a fade told to take half a second takes a second
+    # and a half. Counting the frames instead is what makes the word mean what it says.
+    #
+    # One loop around all of them rather than one each, so a late pass replays the frame
+    # in order — every routine once, then every routine again — rather than running each
+    # routine twice before starting the next.
+    #
+    # They go at the boundary for the same reason the scroll writes do: that is the
+    # gap between frames, the one moment the display is not reading, so whatever they
+    # change takes effect on the whole picture rather than half of it. And they go in
+    # here rather than where `once_a_frame` was called because such a routine is
+    # normally set off by an event — a brick breaking, a life lost — while what it
+    # produces has to be applied on EVERY frame after that, including the frames the
+    # triggering code does not run on.
+    #
+    # A program with no frame boundary (no game loop) never calls them at all. That
+    # is a real footgun, so a verb built on this wants a guardrail for it — see
+    # Effects::Packs::ScreenShake::NeedsGameLoop.
+    def finalize_per_frame_routines
+      return if @per_frame_routines.empty? || @frame_boundaries.empty?
+
+      ensure_var(IR::Frames::STEP)
+      @frame_boundaries.each_with_index do |wait_node, boundary|
+        container = wait_node.parent
+        at = container&.children&.index(wait_node)
+        next unless at
+
+        index = :"__once_a_frame_#{boundary}"
+        ensure_var(index)
+        calls = @per_frame_routines.map { |name| Build.call(name) }
+        node = Build.repeat(Build.var_ref(IR::Frames::STEP), index, *calls)
+        container.children.insert(at + 1, node)
+        node.parent = container
+      end
+    end
+
+    # ROUTINES CALLED ONCE A PASS, straight after each frame boundary: work the framework spreads
+    # over a game's passes, such as writing a save a piece at a time. Once a PASS and not once a
+    # frame like the ones above, because what they leave for the game to read — a save that has
+    # just finished — has to hold for one whole pass of the game's own code, and a late pass
+    # that replayed them would clear it again before the game got to look.
+    def finalize_per_pass_routines
+      return if @per_pass_routines.empty?
+
+      @frame_boundaries.each do |wait_node|
+        container = wait_node.parent
+        at = container&.children&.index(wait_node)
+        next unless at
+
+        @per_pass_routines.reverse_each do |name|
+          node = Build.call(name)
+          container.children.insert(at + 1, node)
+          node.parent = container
+        end
+      end
+    end
+
+    # Give every "call the routine this variable names" its list of routines: the names that
+    # variable can hold, in the order they were numbered.
+    #
+    # IT HAS TO BE NOW rather than where the call was written, and the reason is ordinary
+    # program order: a name is one of the set from the first time anything uses it, and a
+    # routine's body is built at finalize — so a state set only inside another routine was not
+    # known yet. By here every body has been built and the set cannot grow again.
+    def finalize_name_dispatches
+      @name_dispatches.each { |node, held| node.targets = held.names }
+    end
+
+    # A NAME THAT PICKS A SCENE. `call mode` runs the routine its variable names, and when
+    # those names are scenes it is exactly a `case_var` over them — so it is made one, here,
+    # before any scene's body is built. Everything that asks which scene a thing belongs to
+    # reads case dispatches (a scene's text, sprites and scenery are shown only while it
+    # runs; the display is told its layers as it takes over), and it all then works for
+    # scenes picked by name with nothing else knowing the difference.
+    #
+    # EVERY SCENE THE GAME DECLARES IS GIVEN A NUMBER NOW. A name normally gets one the first
+    # time it is used, and a scene first named deep inside another scene's body — the walk
+    # a menu hands over to — would get one only as that body is built, after this dispatch
+    # was fixed. Numbering them all first costs nothing: a number the variable never holds
+    # simply never runs its scene.
+    def convert_scene_name_dispatches
+      scenes = @functions.keys.filter_map { |name| name.to_s.delete_prefix("_scene_").to_sym if name.to_s.start_with?("_scene_") }
+      @name_dispatches.reject! do |node, held|
+        next false unless node.which.kind == :var_ref && held.names.intersect?(scenes)
+
+        refuse_scene_routine_name_clash!(held.names)
+        scenes.each { |scene| held.number_for(scene) }
+        @scene_name_sets << held
+        clauses = held.names.each_with_index.map { |name, number| [number, :"_scene_#{name}"] }
+        swap_node(node, Build.case_(node.which.name, clauses))
+        true
+      end
+    end
+
+    def refuse_scene_routine_name_clash!(names)
+      both = names.find { |name| @functions.key?(name) && @functions.key?(:"_scene_#{name}") }
+      return unless both
+
+      raise ArgumentError, "`call` was given a variable that holds :#{both}, and :#{both} is both a scene " \
+                           "and a func, so it cannot tell which to run. To fix this, rename one of them."
+    end
+
+    # A variable that picks a scene is the game's screen: each of its names is a scene, shown
+    # while the variable holds it. A func among them would be a screen that is not a scene —
+    # looked for as a scene and not found, or, when the name first turned up inside a routine's
+    # body after the dispatch was made, a value that silently runs nothing. So it is refused,
+    # and only once every body is built, since that is when the set of names stops growing.
+    #
+    # A dispatch whose names held no scene when scenes were picked out is still a plain one, and
+    # a scene set inside a routine later joins it there: that is the same mix the other way
+    # round, looked for as a func and not found, so it is refused in the same words.
+    def refuse_non_scenes_in_scene_dispatch!
+      scene = ->(name) { @functions.key?(:"_scene_#{name}") }
+      later = @name_dispatches.filter_map { |node, held| held if node.which.kind == :var_ref && held.names.any?(scene) }
+      (@scene_name_sets + later).each do |held|
+        others = held.names.reject(&scene)
+        next if others.empty?
+
+        funcs, missing = others.partition { |name| @functions.key?(name) }
+        raise ArgumentError, non_scenes_in_scene_dispatch_message(funcs, missing)
+      end
+    end
+
+    def non_scenes_in_scene_dispatch_message(funcs, missing)
+      listed = ->(list) { list.map { |name| ":#{name}" }.join(", ") }
+      found = ["`call` was given a variable that picks a scene."]
+      found << "It also holds funcs (#{listed.(funcs)})." unless funcs.empty?
+      unless missing.empty?
+        found << (missing.one? ? "It also holds #{listed.(missing)}, which is not a scene or a func." :
+                                 "It also holds #{listed.(missing)}, which are not scenes or funcs.")
+      end
+      fixes = []
+      fixes << "make each func a scene, or keep the funcs in a variable of their own" unless funcs.empty?
+      fixes << "declare each missing name with `scene`, or correct the name where the variable is set" unless missing.empty?
+      "#{found.join(' ')} A variable that picks a scene can hold only scenes. To fix this, #{fixes.join('; and ')}."
+    end
+
+    # Put +replacement+ where +node+ sits in the tree.
+    def swap_node(node, replacement)
+      siblings = node.parent.children
+      siblings[siblings.index { |child| child.equal?(node) }] = replacement
+      replacement.parent = node.parent
+    end
+
+    # Note a variable on first mention, for the checks that ask which variables a game has
+    # (and #variables). Where it is kept is each lowering's business, since each console has
+    # memory of its own. Only a Symbol names a variable, so any other operand — a literal, an
+    # expression — is ignored: callers can pass a value operand straight through without
+    # guarding, and a non-name never notes a phantom entry. (Operand types are already
+    # validated upstream at the Value.node_for coercion boundary, so ensure_var needn't gate
+    # them.)
+    def ensure_var(name)
+      @variables << name if name.is_a?(Symbol)
+    end
+
+    # --- Importing art from image files ---
+
+    # This gem's own source directory. Frames of the call stack under here are
+    # framework internals; the first frame outside it is the user's script — which
+    # is where a relative image path should be resolved from (see #resolve_asset_path).
+    SOURCE_ROOT = __dir__.freeze
+
+    # Turn an image path the user wrote into a real file path. An absolute path is
+    # taken as-is. A relative one is resolved *next to the script that named it* —
+    # the natural expectation ("hero.png is beside my game") — falling back to the
+    # working directory, and finally a plain-language error that names where it
+    # looked. (Resolving against the current directory alone is a classic footgun:
+    # it works when you run from the project root and mysteriously fails otherwise.)
+    def resolve_asset_path(path)
+      return path if File.absolute_path?(path)
+
+      dir = caller_script_dir
+      if dir
+        beside_script = File.expand_path(path, dir)
+        return beside_script if File.exist?(beside_script)
+      end
+      return path if File.exist?(path) # a working-directory-relative path that happens to resolve
+
+      looked = [dir && File.expand_path(path, dir), File.expand_path(path)].compact.uniq
+      raise ArgumentError,
+            "Cannot find the image #{path.inspect}. Looked at #{looked.map(&:inspect).join(' and ')}. " \
+            "Put the image next to your script, or pass a full path."
+    end
+
+    # The directory of the nearest caller that isn't framework code — i.e. the user's
+    # script — so an asset path can be resolved relative to it. nil if the whole
+    # stack is internal (nothing sensible to resolve against).
+    def caller_script_dir
+      frame = caller_locations.find do |loc|
+        loc.absolute_path && !loc.absolute_path.start_with?(SOURCE_ROOT)
+      end
+      frame && File.dirname(frame.absolute_path)
+    end
+
+    # A sheet cell's pixel size: one number means a square cell, [w, h] a rectangle.
+    def sheet_tile_size(name, tile)
+      case tile
+      when Integer then [tile, tile]
+      when Array then tile
+      when nil
+        raise ArgumentError, "To import #{name} from an image, give tile:. tile: is the size of each cell in pixels."
+      else
+        raise ArgumentError, "tile: must be a number (square) or [width, height]. You gave #{tile.inspect}."
+      end
+    end
+
+    # Where a cell sits in a sheet grid: [column, row], or a single number counting
+    # cells left-to-right then top-to-bottom. +label+ names it in any error.
+    def sheet_cell_at(label, where, cols)
+      case where
+      when Array then where
+      when Integer then [where % cols, where / cols]
+      else raise ArgumentError, "#{label} must be a cell number or [column, row]. You gave #{where.inspect}."
+      end
+    end
+
+    # Element size in bytes for each table width.
+    TABLE_WIDTHS = { byte: 1, half: 2, word: 4 }.freeze
+
+    # A table's values must be a non-empty array of whole numbers.
+    def validate_table_values!(name, values)
+      unless values.is_a?(Array) && !values.empty?
+        raise ArgumentError, "table #{name.inspect} needs a non-empty array of numbers."
+      end
+      unless values.all?(Numeric)
+        raise ArgumentError,
+              "table #{name.inspect} can hold numbers only. You gave #{values.find { |v| !v.is_a?(Numeric) }.inspect}."
+      end
+      values
+    end
+
+    # How many fraction bits a table's values carry: a table with a Float anywhere in
+    # it holds numbers with a fraction, and every read from it hands back a value that
+    # says so. This is what lets a sine table be written as plain trigonometry — the
+    # scaling that used to be spelled out in the table's own definition is done here.
+    def table_fraction_bits(values)
+      DSL::Fraction::DEFAULT_BITS if values.any?(Float)
+    end
+
+    # Every value must fit the element width. A value that does not fit would be
+    # cut down silently on the console, so stop the build and name the fix.
+    def check_table_values_fit!(name, values, width, signed)
+      bytes = TABLE_WIDTHS.fetch(width) do
+        raise ArgumentError, "table #{name.inspect} width must be :byte, :half, or :word. You gave #{width.inspect}."
+      end
+      bits = bytes * 8
+      low, high = signed ? [-(1 << (bits - 1)), (1 << (bits - 1)) - 1] : [0, (1 << bits) - 1]
+      bad = values.find { |value| value < low || value > high }
+      return unless bad
+
+      kind = signed ? "signed" : "unsigned"
+      raise ArgumentError,
+            "table #{name.inspect} has the value #{bad}. It does not fit a #{kind} :#{width} element " \
+            "(range #{low} to #{high}). Use a wider width, or make the values smaller."
+    end
+
+    # --- IR tree construction ---
+
+    # Attach a freshly built IR node to the open container and return it — the route
+    # every flat DSL verb takes, so it's also where an open `layer` block gets its say
+    # about what was just written.
+    def record(node)
+      place_in_layer(node)
+      attach(node)
+    end
+
+    # Put a node in the open container. Stamp it with the DSL call site that built it
+    # (unless it already carries one), so a later guardrail finding can point the
+    # author straight at the line.
+    def attach(node)
+      node.source ||= caller_source_location
+      @container_stack.last.add_child(node)
+      node
+    end
+
+    # The user's call site that led here — "hero.rb:42", the nearest caller that
+    # isn't framework code — for diagnostics. nil if the whole stack is internal.
+    def caller_source_location
+      frame = caller_locations.find do |loc|
+        loc.absolute_path && !loc.absolute_path.start_with?(SOURCE_ROOT)
+      end
+      frame && "#{File.basename(frame.absolute_path)}:#{frame.lineno}"
+    end
+
+    # Build a container node, attach it, and keep it open while the block runs so
+    # nested statements land inside it — then close it. The block-taking control
+    # methods (loops, conditionals, func bodies) use this.
+    def push_container(node)
+      record(node)
+      @container_stack.push(node)
+      # A test the block is written under is also a test anything DECLARED in the block is
+      # only shown under (see #gated_by_open_conditions) — the same statement reads both ways, and a
+      # thing the framework redraws for you every frame has no other way to hear about it.
+      @shown_while.push(node.cond) if node.kind == :if
+      yield
+    ensure
+      @shown_while.pop if node.kind == :if
+      @container_stack.pop
+    end
+
+    # Run a DSL block (a game loop body, a `.then`, a func body…) at the current build
+    # point. It runs in the block's OWN context, not instance_eval'd onto the builder,
+    # so its `self` stays wherever the block was written: this builder at the top level
+    # (where these blocks live inside VBlank.build's instance_eval, so `self` already
+    # is the builder), or a plain Ruby object when a game is split across files — there
+    # the block still sees that object's @ivars, while its bare verbs resolve against the
+    # build it was handed (see examples/shmup). +args+ pass through to a block that takes them (a loop
+    # index). Sub-DSLs with their own vocabulary — `entry`, `case_var`, `font`, `song` —
+    # keep instance_eval instead, since their blocks speak a different verb set.
+    def run_block(*args, &block)
+      block.call(*args)
+    end
+
+    # Low-level entry context for raw instruction emission.
+    # Collects the raw ARM emitted inside an `entry` block into a byte string,
+    # which becomes a raw IR node the backend appends verbatim.
+    class EntryContext
+      attr_reader :bytes
+
+      def initialize
+        @bytes = +"".b
+      end
+
+      def loop_forever
+        @bytes << IR::Backends::GBA::ASM.loop_forever
+      end
+
+      def nop
+        @bytes << IR::Backends::GBA::ASM.nop
+      end
+    end
+  end
+end

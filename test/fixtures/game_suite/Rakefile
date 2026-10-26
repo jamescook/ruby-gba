@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 # A game's own Rakefile, as a game in a repository of its own writes it: the library's rake
-# tasks, and the game's test files. test/ruby_gba/testing/test_game_suite.rb runs it.
-require "ruby_gba/testing/rake_tasks"
+# tasks, and the game's test files. test/vblank/testing/test_game_suite.rb runs it.
+require "vblank/testing/rake_tasks"
 
-RubyGBA::Testing::RakeTasks.new do |t|
+VBlank::Testing::RakeTasks.new do |t|
   t.test_files = FileList["test/**/*_test.rb"]
   # A game for the Advance alone writes `t.consoles = %i[gba]`, and one for the Game Boy Color too
   # `t.consoles = %i[gba gbc]`. The test outside can name other consoles here, so one game stands

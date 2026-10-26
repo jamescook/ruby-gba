@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require RubyGBA.root.join("examples/fonts").to_s
+require VBlank.root.join("examples/fonts").to_s
 
 # The fonts example: the same number drawn in :default and :tiny. Asserts both
 # render, that the tiny one is genuinely smaller (fewer pixels, shorter box), and
@@ -39,11 +39,11 @@ class TestFontsExample < Minitest::Test
   end
 
   private def emitted_bytes(program)
-    RubyGBA::IR::Backends::GBA.new.lower(program).bytesize
+    VBlank::IR::Backends::GBA.new.lower(program).bytesize
   end
 
   private def build_number(font:)
-    b = RubyGBA::Builder.new
+    b = VBlank::Builder.new
     b.instance_eval { screen :bitmap; draw_number FontsDemo::SCORE, 8, 8, :green, digits: 5, font: font; halt }
     b.finalize_program
     b.program

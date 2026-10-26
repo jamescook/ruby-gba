@@ -5,7 +5,7 @@ require "test_helper"
 require "fileutils"
 require "stringio"
 require "tmpdir"
-require RubyGBA.root.join("tools/emitted").to_s
+require VBlank.root.join("tools/emitted").to_s
 
 # The emitted-code tool (tools/emitted.rb, `rake emitted`): build every example twice —
 # once against the working tree's library and once against an older one — and say
@@ -343,7 +343,7 @@ class TestEmittedTool < Minitest::Test
   # The copy is made to emit four bytes more than the original, so a measurement
   # says which copy produced it.
   MARKER = <<~RUBY
-    module RubyGBA
+    module VBlank
       module IR
         module Backends
           class GBA
@@ -367,7 +367,7 @@ class TestEmittedTool < Minitest::Test
 
     Dir.mktmpdir("emitted-isolation") do |dir|
       FileUtils.cp_r File.join(Emitted::ROOT, "lib"), dir
-      entry = File.join(dir, "lib", "ruby_gba.rb")
+      entry = File.join(dir, "lib", "vblank.rb")
       File.write entry, File.read(entry) + MARKER
 
       marked = Emitted.probe(File.join(dir, "lib"), example)

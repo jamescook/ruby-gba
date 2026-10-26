@@ -1,0 +1,157 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+require "stringio"
+
+# A SONG OF MANY PARTS. The console has two square-wave voices for music, and a song's other
+# parts play recorded instruments through the mixer — so a tune is not held to two parts, it is
+# held to two square-wave parts and as many recorded ones as the mixer has voices. The music a
+# game being built on the framework reads out of a retail cartridge wants seven to nine, and
+# twelve at the most, with the game's own sounds beside them.
+class TestSongParts < Minitest::Test
+  NOTES = VBlank::Audio::Music::NOTE_FREQUENCIES
+  STEP_ONE = GBA::Mixer::STEP_ONE
+  VOICES = VBlank::Audio::Sound::MIXER_VOICES
+
+  # Twelve recorded parts, one note each, all on the downbeat — a chord twelve voices wide.
+  CHORD = %i[C4 Cs4 D4 Ds4 E4 F4 Fs4 G4 Gs4 A4 As4 B4].freeze
+
+  # A song of two square-wave parts and a recorded part for each of +chord+.
+  private def song_of(chord)
+    lambda do
+      instrument :organ, pcm: [60, -60] * 4000, rate: 8000, note: :C4
+      song :big do
+        voice(:lead) { note :C5, :whole }
+        voice(:bass) { note :C3, :whole }
+        chord.each_with_index { |pitch, n| voice(:"pad_#{n}", plays: :organ) { note pitch, :whole } }
+      end
+    end
+  end
+
+  # The fourteen-part song, and a sound of the game's own sounding beside it the whole time.
+  private def fourteen_part_game
+    tune = song_of(CHORD)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      instance_exec(&tune)
+      hum = sample :hum, pcm: [20, -20] * 4000, rate: 8000
+      hum.play(loop: true)
+      play_song :big
+      game_loop { wait_vblank }
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_the_console_sounds_all_twelve_recorded_parts_at_their_pitches_beside_the_games_sound
+    console = assert_emulator_loads_rom(assemble_rom(fourteen_part_game, name: "SONG14"), frames: 6)
+    organ = console.voices.select { |voice| voice.sample == :organ }.map(&:step).sort
+    # A step is the note's pitch against the recorded one times the resampling — the mix runs
+    # at a rate the sound hardware can sustain, not at the rate the organ was recorded at.
+    resample = 8000.0 / console.sample_clock.rate
+    expected = CHORD.map { |pitch| (NOTES[pitch].to_f / NOTES[:C4] * resample * STEP_ONE).round }
+
+    assert_equal 12, organ.size, "twelve recorded parts sounding (#{console.voices.inspect})"
+    organ.zip(expected).each { |got, want| assert_in_delta want, got, 2 }
+    assert_equal [:hum], console.voices.map(&:sample) - [:organ], "...and the game's own sound with them"
+    assert console.sound?
+  end
+
+  # --- a recorded part on its own, with NOTHING sounding beside it ---
+
+  # THE TEST THAT WAS MISSING, and the reason a real bug lived here unnoticed: every hardware
+  # test above has something ELSE making a noise at the same time — two square-wave parts and a
+  # looping hum — so `sound?` was satisfied by the square wave while the recorded parts put out
+  # nothing at all, and the twelve voices were read off the voice TABLE, which is bookkeeping
+  # rather than audio. A tune whose melody is silent passes every one of them.
+  #
+  # So this is four parts on one instrument, no square part, no sound of the game's: if the
+  # recordings are silent there is nothing left to hear.
+  private def recorded_parts_only_game
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      instrument :organ, pcm: [60, -60] * 4000, rate: 8000, note: :C4
+      song :pads do
+        %i[C4 E4 G4 C5].each_with_index { |pitch, n| voice(:"pad_#{n}", plays: :organ) { note pitch, :whole } }
+      end
+      play_song :pads
+      game_loop { wait_vblank }
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_a_song_of_recorded_parts_alone_is_audible_on_the_console
+    console = assert_emulator_loads_rom(assemble_rom(recorded_parts_only_game, name: "PADS"), frames: 10)
+
+    assert_equal [:organ] * 4, console.voices.map(&:sample), "four recorded parts hold four voices"
+    assert console.sound?, "...and they are HEARD: nothing else in this program makes a sound, " \
+                           "so silence here means the recordings never reached the speaker " \
+                           "(energy #{console.audio_energy})"
+  end
+
+  # --- what cannot be had, said plainly ---
+
+  # More recorded parts than the mixer has voices stops the build (the check itself is
+  # test_ir_guardrail_song_too_many_parts.rb) — and only that is said, not also the warning about
+  # keeping every voice, which is about a song that fits.
+  def test_more_recorded_parts_than_the_mixer_has_voices_is_said_once
+    err = StringIO.new
+    too_many = VOICES + 1
+    assert_raises(VBlank::ROMError) do
+      VBlank.build("SONGOVER", console: :gba, code: "ZSNO", maker: "01", out: StringIO.new, err: err) do
+        screen :bitmap
+        enable_sound
+        instrument :organ, pcm: [60, -60] * 400, rate: 8000, note: :C4
+        song(:big) { too_many.times { |n| voice(:"pad_#{n}", plays: :organ) { note :C4, :quarter } } }
+        zap = sample :zap, pcm: [60, -60] * 400, rate: 8000
+        play_song :big
+        game_loop { pressed(:a).then { zap.play } }
+      end
+    end
+
+    assert_match(/#{too_many} parts that play an instrument/, err.string)
+    refute_match(/never play/, err.string)
+  end
+
+  # A song with as many recorded parts as there are voices builds without a word: the voices are
+  # shared, so its notes take them only while they sound, and a sound of the game's own gets one
+  # whenever a part rests.
+  def test_a_song_as_wide_as_the_mixer_is_no_trouble_to_a_game_with_sounds_of_its_own
+    tune = song_of(Array.new(VOICES) { :C4 })
+    err = StringIO.new
+    VBlank.build("SONGALL", console: :gba, code: "ZSNA", maker: "01", out: StringIO.new, err: err) do
+      screen :bitmap
+      enable_sound
+      instance_exec(&tune)
+      zap = sample :zap, pcm: [60, -60] * 400, rate: 8000
+      play_song :big
+      game_loop { pressed(:a).then { zap.play } }
+    end
+
+    assert_empty err.string
+  end
+
+  # --- what it costs is measured, by name ---
+
+  def test_the_profile_shows_what_the_music_costs
+    tune = song_of(CHORD)
+    rom = VBlank.build("SONGCOST", console: :gba, code: "ZSNC", maker: "01", out: StringIO.new, err: StringIO.new) do
+      screen :bitmap
+      enable_sound
+      instance_exec(&tune)
+      play_song :big
+      game_loop { wait_vblank }
+    end
+    result = VBlank::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
+    shares = result.lines.to_h { |line| [line.name, line.share] }
+
+    assert_operator shares.fetch(:__mix_routine, 0), :>, 0, "mixing the eight parts is measured (#{shares.inspect})"
+    assert_operator shares.fetch(:__interrupt, 0), :>, 0, "...and so is the player that starts their notes"
+  end
+end

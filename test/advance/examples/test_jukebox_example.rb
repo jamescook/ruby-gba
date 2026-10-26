@@ -4,7 +4,7 @@ require "test_helper"
 require "mixed_sound"
 
 require "stringio"
-require RubyGBA.root.join("examples/jukebox").to_s
+require VBlank.root.join("examples/jukebox").to_s
 
 # The Jukebox example (examples/jukebox.rb): the sound showcase. Three classical
 # melodies written with the note/tempo DSL; the cursor picks one and it plays and
@@ -130,7 +130,7 @@ class TestJukeboxExample < Minitest::Test
   # ...and the console dips too: loud, a stretch of quiet as the cursor moves, then loud again.
   def test_the_console_dips_between_tunes
     rom = Jukebox.build_rom(out: StringIO.new, err: StringIO.new)
-    down = ->(frame) { (40..41).cover?(frame) ? RubyGBA::Console::Hardware::KEY_DOWN : 0 }
+    down = ->(frame) { (40..41).cover?(frame) ? VBlank::Console::Hardware::KEY_DOWN : 0 }
     energy = assert_emulator_loads_rom(rom, frames: 110, keys: down).audio_energy_by_frame
     loud = energy.max / 4
 
@@ -212,7 +212,7 @@ class TestJukeboxExample < Minitest::Test
     Dir.mktmpdir do |dir|
       path = File.join(dir, "jukebox.gba")
       rom.write(path)
-      probe = RubyGBA::Diagnostics::Emulator.probe(path)
+      probe = VBlank::Diagnostics::Emulator.probe(path)
       moments = Array.new(frames) do
         voices = rom.built.voices.read { |address| probe.read32(address) }
         owners = voices.map(&:owner)
@@ -272,7 +272,7 @@ class TestJukeboxExample < Minitest::Test
     _, log = interpreted_jukebox(Listener.new(chord: :small, presses: [[:a, 0], [:a, 7]]), frames: 200)
 
     assert_equal 2, log.count([:sound_effect, :"sfx.hooray"])
-    assert_equal 2, log.count([:note, :"sfx.hooray", RubyGBA::Audio::Music::NOTE_FREQUENCIES[:C5]])
+    assert_equal 2, log.count([:note, :"sfx.hooray", VBlank::Audio::Music::NOTE_FREQUENCIES[:C5]])
     moments = console_jukebox(Listener.new(chord: :small, presses: [[:a, 0], [:a, 7]]), frames: 200)
     steps = moments.first(30).map { |now| now.voices.find { |voice| voice.owner == HOORAY }&.step }
     first_note = steps.compact.first

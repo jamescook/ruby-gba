@@ -25,16 +25,16 @@ lib_root, repo_root, example, detail = ARGV
 abort "usage: emitted_probe.rb <lib root> <repo root> <example.rb> [detail]" unless example
 
 $LOAD_PATH.unshift File.expand_path(lib_root)
-require "ruby_gba"
+require "vblank"
 require "json"
 require "stringio"
 require_relative "emitted_attribution"
 
 # An example asks for the library by relative path (`require_relative
-# "../lib/ruby_gba"`), which would load the working tree's copy straight over the
+# "../lib/vblank"`), which would load the working tree's copy straight over the
 # one we just chose — silently comparing today against today. Marking that file as
 # already loaded turns the example's require into the no-op it should be.
-working_tree_entry = File.join(repo_root, "lib", "ruby_gba.rb")
+working_tree_entry = File.join(repo_root, "lib", "vblank.rb")
 $LOADED_FEATURES << File.realpath(working_tree_entry) if File.exist?(working_tree_entry)
 
 report = { name: File.basename(example, ".rb") }
@@ -45,17 +45,17 @@ begin
   real_stdout = $stdout
   $stdout = StringIO.new
 
-  known = RubyGBA.registered_games.size
+  known = VBlank.registered_games.size
   load File.expand_path(example)
-  game = RubyGBA.registered_games[known..].last
-  raise "no RubyGBA.game was declared" unless game
+  game = VBlank.registered_games[known..].last
+  raise "no VBlank.game was declared" unless game
 
   program = game.program
   # The recording backend is a throwaway subclass, so asking for the breakdown
   # changes nothing about how the program is lowered — only what is remembered
   # about it. Off by default: a whole-corpus run wants three numbers per example,
   # not a byte map of each one.
-  base = RubyGBA::IR::Backends::GBA
+  base = VBlank::IR::Backends::GBA
   backend = (detail ? EmittedAttribution.recording(base) : base).new
   emitted = backend.lower(program)
 
@@ -101,7 +101,7 @@ begin
   # and nothing per frame — so carry the frame estimate alongside. It is a
   # separate question, so a library that can't answer it still gets measured.
   begin
-    report[:frame] = RubyGBA::IR::CostModel.new.as_json(program)[:frame_cost]
+    report[:frame] = VBlank::IR::CostModel.new.as_json(program)[:frame_cost]
   rescue StandardError, ScriptError
     report[:frame] = nil
   end

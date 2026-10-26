@@ -27,7 +27,7 @@
 # Run it to build examples/scroll.gba:
 #   ruby examples/scroll.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Scroll
   SPEED = 2
@@ -47,7 +47,7 @@ module Scroll
     end.join
   end)
 
-  GAME = RubyGBA.game("SCROLL", consoles: %i[gba]) do
+  GAME = VBlank.game("SCROLL", consoles: %i[gba]) do
     screen :tiled # tile mode: one big background layer we slide the window over
 
     image :grass, "." => rgb(3, 18, 5), "'" => rgb(5, 24, 7) do

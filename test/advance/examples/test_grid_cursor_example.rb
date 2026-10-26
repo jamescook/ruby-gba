@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require RubyGBA.root.join("examples/grid_cursor").to_s
+require VBlank.root.join("examples/grid_cursor").to_s
 
 # The grid-cursor example: a single lit cell steered around a board with the d-pad,
 # leaving no trail. It's the worked demonstration of `grid` — the game moves in
@@ -10,7 +10,7 @@ require RubyGBA.root.join("examples/grid_cursor").to_s
 # assert BEHAVIOR (the cursor lights the right cell and leaves nothing behind) on
 # the interpreter, plus an emulator check that it renders and steers on the console.
 class TestGridCursorExample < Minitest::Test
-  include RubyGBA::Console::Hardware
+  include VBlank::Console::Hardware
 
   CELL = GridCursor::CELL
   # The cursor starts in the middle cell; these are its top-left pixels.

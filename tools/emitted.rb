@@ -4,7 +4,7 @@ require "json"
 require "open3"
 require "tmpdir"
 require "rbconfig"
-require_relative "../lib/ruby_gba/root"
+require_relative "../lib/vblank/root"
 
 # `rake emitted` — what does a change to the compiler do to the ROMs it produces?
 #
@@ -34,7 +34,7 @@ require_relative "../lib/ruby_gba/root"
 # that only makes the build faster correctly reports "identical" here; for compiler
 # speed, reach for a profiler.
 module Emitted
-  ROOT = Ractor.make_shareable(RubyGBA.root.to_s)
+  ROOT = Ractor.make_shareable(VBlank.root.to_s)
   PROBE = File.join(__dir__, "emitted_probe.rb").freeze
 
   # Which Ruby to launch, asked once. Asking reads Ruby's own table of how it was built,
@@ -147,7 +147,7 @@ module Emitted
     # A game for the Game Boy Color alone has no ARM to measure.
     paths = Dir[File.join(EXAMPLES, "*.rb")].sort.select do |path|
       source = File.read(path)
-      source.include?("RubyGBA.game") && !source.include?("consoles: %i[gbc]")
+      source.include?("VBlank.game") && !source.include?("consoles: %i[gbc]")
     end
     return paths if wanted.empty?
 

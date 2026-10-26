@@ -15,7 +15,7 @@
 # Played by a test on every lowering for its pictures, and built by another for what its map of
 # sprite memory says, so it is written once, here.
 module ManyRoomsGame
-  INKS = (1..15).map { |i| RubyGBA::Graphics::Color.rgb(i * 2, 31 - (i * 2), 10) }.freeze
+  INKS = (1..15).map { |i| VBlank::Graphics::Color.rgb(i * 2, 31 - (i * 2), 10) }.freeze
 
   COLUMNS = 6
   ROWS = 4
@@ -84,7 +84,7 @@ module ManyRoomsGame
     end
   end
 
-  # The game's own lines, for a block handed to Builder or RubyGBA.build.
+  # The game's own lines, for a block handed to Builder or VBlank.build.
   def self.declare(builder)
     builder.instance_eval do
       screen :tiled
@@ -152,7 +152,7 @@ module ManyRoomsGame
   end
 
   def self.program
-    builder = RubyGBA::Builder.new
+    builder = VBlank::Builder.new
     declare(builder)
     builder.finalize_program
     builder.program

@@ -20,7 +20,7 @@
 # Run it to build examples/animate.gba:
 #   ruby examples/animate.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Animate
   SIZE  = 16 # a 16x16 coin
@@ -45,7 +45,7 @@ module Animate
 
   FRAMES = SPIN.each_index.map { |k| :"coin#{k}" }.freeze
 
-  GAME = RubyGBA.game("ANIMATE", consoles: %i[gba]) do
+  GAME = VBlank.game("ANIMATE", consoles: %i[gba]) do
     screen :bitmap
     clear_screen rgb(0, 0, 8) # a dark blue field
 

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require RubyGBA.root.join("examples/clock").to_s
+require VBlank.root.join("examples/clock").to_s
 
 # The clock example (examples/clock.rb): the time and the date in big letters, read from the
 # clock the cartridge carries. The test starts the clock at a moment of its own, the way it
@@ -13,7 +13,7 @@ require RubyGBA.root.join("examples/clock").to_s
 # before all fail: every pixel of a line's box is either ink where a letter is lit or the
 # background where it is not.
 class TestClockExample < Minitest::Test
-  LETTERS = RubyGBA::Graphics::Fonts.default
+  LETTERS = VBlank::Graphics::Fonts.default
   INK = Color.resolve(ClockFace::INK)
   BACKGROUND = Color.resolve(ClockFace::BACKGROUND)
 
@@ -89,7 +89,7 @@ class TestClockExample < Minitest::Test
   def test_the_console_shows_the_time_its_clock_chip_reads
     require_emulator!
     rom = ClockFace.build_rom(out: StringIO.new, err: StringIO.new)
-    v = RubyGBA::Diagnostics::Verifier.new(rom, frames: 10, clock: THURSDAY)
+    v = VBlank::Diagnostics::Verifier.new(rom, frames: 10, clock: THURSDAY)
 
     assert pixels_say?("21:07:05", ClockFace::TIME_ROW, ClockFace::BIG) { |x, y| v.pixel_gba(x, y) },
            "the cartridge read its chip and painted the time"

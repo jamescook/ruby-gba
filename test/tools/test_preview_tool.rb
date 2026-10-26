@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "png_reading"
-require RubyGBA.root.join("tools/preview").to_s
+require VBlank.root.join("tools/preview").to_s
 
 # The preview tool (tools/preview.rb): runs a program on the interpreter, captures its
 # frames, and puts each as a PNG in a self-contained HTML page you can watch. These

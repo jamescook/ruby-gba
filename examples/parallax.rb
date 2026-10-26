@@ -25,7 +25,7 @@
 # Run it to build examples/parallax.gba:
 #   ruby examples/parallax.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Parallax
   FAR_SPEED = 1  # the far layer (clouds) creeps
@@ -49,7 +49,7 @@ module Parallax
     end.join
   end)
 
-  GAME = RubyGBA.game("PARALLAX", consoles: %i[gba]) do
+  GAME = VBlank.game("PARALLAX", consoles: %i[gba]) do
     screen :tiled # tile mode: two background layers, composited by the hardware
 
     # --- FAR layer tiles: sky and clouds (fully opaque; it's the backmost layer) ---

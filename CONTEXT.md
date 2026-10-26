@@ -8,7 +8,7 @@ the hardware has a name for a thing, the half an author reads prefers the plain 
 ## What an author writes
 
 **Verb**:
-One call in a `RubyGBA.build` / `RubyGBA.game` block — `pixel`, `sprite`, `scene`. The
+One call in a `VBlank.build` / `VBlank.game` block — `pixel`, `sprite`, `scene`. The
 flat surface an author learns.
 _Avoid_: command, API method, primitive
 
@@ -86,7 +86,7 @@ _Avoid_: plugin, extension, mixin
 ## What the framework is
 
 **Game**:
-A title and a DSL block (`RubyGBA.game`), with cartridge codes only if the author wants to
+A title and a DSL block (`VBlank.game`), with cartridge codes only if the author wants to
 choose them. Building it is a separate step, so a game file only declares.
 _Avoid_: project, app, sketch
 
@@ -248,7 +248,7 @@ _Avoid_: shadow run, replay check
 
 **Playthrough**:
 A finished cartridge played with nobody at the controls, from a script of presses and
-waits (`RubyGBA.playthrough`); two played side by side say where they drift apart. The
+waits (`VBlank.playthrough`); two played side by side say where they drift apart. The
 presses it made, frame by frame, are its **tape**, and a **moment** is a frame the script
 names so a report can point at it.
 _Avoid_: bot, macro, recording

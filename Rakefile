@@ -68,23 +68,23 @@ end
 # exactly how many, for anybody who wants more or fewer.
 ENV["MT_RACTOR_WORKERS"] ||= [Etc.nprocessors / 2, 1].max.to_s
 
-require_relative "lib/ruby_gba/testing/rake_tasks"
+require_relative "lib/vblank/testing/rake_tasks"
 require_relative "test/support/suites"
 require_relative "tools/suite_lock"
 
 # A whole run of either suite waits for any other on the machine (tools/suite_lock.rb), or with
-# RUBY_GBA_SUITE_LOCK=checkout for any other in this checkout; a run of one file goes ahead. The
+# VBLANK_SUITE_LOCK=checkout for any other in this checkout; a run of one file goes ahead. The
 # lock is held until rake ends, by keeping the file open: it is kept in a variable so nothing
 # closes it sooner.
 task :suite_lock do
   next if ENV["TEST"]
 
-  path = SuiteLock.chosen_path(ENV["RUBY_GBA_SUITE_LOCK"], checkout: __dir__)
+  path = SuiteLock.chosen_path(ENV["VBLANK_SUITE_LOCK"], checkout: __dir__)
   @suite_lock = SuiteLock.hold("rake #{Rake.application.top_level_tasks.join(' ')}", path: path)
 end
 
 # EVERY LOWERING, ONE AFTER THE OTHER, by the library's own rake tasks — the ones a game's suite
-# defines the same way (RubyGBA::Testing::RakeTasks says what each does). `rake test` plays the
+# defines the same way (VBlank::Testing::RakeTasks says what each does). `rake test` plays the
 # GBA lowering's run (the interpreter, with the cartridge checked in the emulator), then the
 # native lowering's (the game built as C, checked against the interpreter, in several processes),
 # then the JavaScript lowering's (the game built as JavaScript and played by node, checked the same
@@ -93,7 +93,7 @@ end
 # `rake test:lowering:js` and `rake test:lowering:gbc` play one. TEST= names one file, played by each lowering whose run loads
 # it (a file in one lowering's own folder is played by that one alone; see
 # TestSuites::LOWERING_FOLDERS).
-RubyGBA::Testing::RakeTasks.new do |t|
+VBlank::Testing::RakeTasks.new do |t|
   # SDL=1 also builds and runs the desktop program, with its window (TestSuites::DESKTOP_TEST).
   t.test_files = TestSuites.all_files(desktop: ENV["SDL"] == "1")
   t.lowering_folders = TestSuites::LOWERING_FOLDERS
@@ -106,7 +106,7 @@ end
 # itself as the answer key — the sound the desktop build makes, test/sound_comparison.rb, and the
 # jukebox's voices), and a run with COVERAGE=1 starts its report afresh.
 task test: :suite_lock
-RubyGBA::Testing::Lowering::NAMES.each { |lowering| task "test:lowering:#{lowering}" => %i[suite_lock compile_emulator] }
+VBlank::Testing::Lowering::NAMES.each { |lowering| task "test:lowering:#{lowering}" => %i[suite_lock compile_emulator] }
 task "test:lowering:gba" => :clear_coverage
 
 namespace :test do
@@ -122,11 +122,11 @@ namespace :test do
   end
 
   # The tests of playing a game with nobody at the controls, which are every test in one
-  # folder: the folder that mirrors lib/ruby_gba/playthroughs. They are in the suite as
+  # folder: the folder that mirrors lib/vblank/playthroughs. They are in the suite as
   # well; this is for working on that one module without waiting for the rest.
   Rake::TestTask.new(playthroughs: %i[compile_emulator clear_coverage]) do |t|
     t.libs << "test" << "lib"
-    t.test_files = FileList["test/ruby_gba/playthroughs/**/test_*.rb"]
+    t.test_files = FileList["test/vblank/playthroughs/**/test_*.rb"]
     t.description = "Run the tests of playthroughs, tapes and comparisons"
   end
 

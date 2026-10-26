@@ -21,7 +21,7 @@ module TintedHandover
   def tinted_handover(from, to, amount: 50, ground: :green, toward: :red, &before_loop)
     tile = Minitest::Test::SOLID_TILE
     screens = [from, to]
-    b = RubyGBA::Builder.new
+    b = VBlank::Builder.new
     b.instance_eval do
       TintedHandover.say_screen(self, from)
       image(:ground, "#" => ground) { tile }

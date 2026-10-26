@@ -3,7 +3,7 @@
 require "test_helper"
 require "stringio"
 require "tmpdir"
-require RubyGBA.root.join("tools/suite_lock").to_s
+require VBlank.root.join("tools/suite_lock").to_s
 
 # A WHOLE RUN HAS THE MACHINE TO ITSELF. `rake test` and each lowering's run on its own are
 # sized to use the machine, so the second to start waits for the first, and says so.
@@ -18,7 +18,7 @@ class TestSuiteLock < Minitest::Test
         Thread.pass until said.string.include?("\n") || !second.alive?
         assert_predicate second, :alive?, "the second run went ahead while the first held the lock"
         assert_match(/rake test in #{Regexp.escape(Dir.pwd)} \(process #{Process.pid}\)/, said.string)
-        assert_match(/RUBY_GBA_SUITE_LOCK=checkout/, said.string, "and says how to stop waiting")
+        assert_match(/VBLANK_SUITE_LOCK=checkout/, said.string, "and says how to stop waiting")
       ensure
         first.close # lets the second through, whatever was asserted
         second.value.close
@@ -43,7 +43,7 @@ class TestSuiteLock < Minitest::Test
   def test_a_lock_setting_that_is_neither_is_refused_in_plain_words
     error = assert_raises(ArgumentError) { SuiteLock.chosen_path("mine", checkout: "/work/ruby-gba") }
 
-    assert_match(/RUBY_GBA_SUITE_LOCK is "machine" or "checkout"/, error.message)
+    assert_match(/VBLANK_SUITE_LOCK is "machine" or "checkout"/, error.message)
   end
 
   def test_a_run_with_nobody_ahead_of_it_says_nothing

@@ -12,10 +12,10 @@
 # Run it to build examples/font_styles.gba:
 #   ruby examples/font_styles.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module FontStyles
-  GAME = RubyGBA.game("FONTSTY", consoles: %i[gba]) do
+  GAME = VBlank.game("FONTSTY", consoles: %i[gba]) do
     screen :bitmap
     clear_screen :black
 

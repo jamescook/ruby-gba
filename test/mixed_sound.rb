@@ -21,13 +21,13 @@ module MixedSound
   # +presses+ (a frame number to the buttons down on it) held.
   def console_mixes(program, frames, presses: {})
     require_emulator!
-    gba = RubyGBA::IR::Backends::GBA.new
-    rom = RubyGBA::Cartridge::ROM.assemble(gba.lower(program), title: "MIXBYTES", built: gba.build_record(program))
-    keys = ->(frame) { RubyGBA::IR::Buttons.mask(presses.fetch(frame, [])) }
-    console = RubyGBA::Diagnostics::Verifier.new(rom, frames: 1, keys: keys, vars: gba.var_addresses)
+    gba = VBlank::IR::Backends::GBA.new
+    rom = VBlank::Cartridge::ROM.assemble(gba.lower(program), title: "MIXBYTES", built: gba.build_record(program))
+    keys = ->(frame) { VBlank::IR::Buttons.mask(presses.fetch(frame, [])) }
+    console = VBlank::Diagnostics::Verifier.new(rom, frames: 1, keys: keys, vars: gba.var_addresses)
     slice = console.sample_clock.samples_a_frame
     Array.new(frames) do
-      newest = console.var(RubyGBA::IR::Backends::GBA::Mixer::MIX_FRONT).zero? ? gba.mix_buf1 : gba.mix_buf0
+      newest = console.var(VBlank::IR::Backends::GBA::Mixer::MIX_FRONT).zero? ? gba.mix_buf1 : gba.mix_buf0
       bytes = (0...slice).map { |i| signed_byte(console.mem8(newest + i)) }
       console.step
       bytes
@@ -36,7 +36,7 @@ module MixedSound
 
   # ...and the interpreter's, the same buttons on the same frames.
   def interpreted_mixes(program, frames, presses: {})
-    RubyGBA::IR::Backends::Reference.new.input_each_frame { |frame| presses.fetch(frame, []) }
+    VBlank::IR::Backends::Reference.new.input_each_frame { |frame| presses.fetch(frame, []) }
                                     .run(program, frames: frames).mixed_sound
   end
 
@@ -45,7 +45,7 @@ module MixedSound
   # frame from the same first frame, since neither spends frames setting itself up; on a
   # JavaScript run, the game as JavaScript and the interpreter, the same way.
   def assert_mixes_agree(program, frames: 24, presses: {}, at_least: frames / 2)
-    return assert_native_mixes_agree(program, frames, presses, at_least) if RubyGBA::Testing.checked?
+    return assert_native_mixes_agree(program, frames, presses, at_least) if VBlank::Testing.checked?
 
     from_sound = ->(slices) { slices.drop_while { |slice| slice.all?(&:zero?) } }
     interpreted = from_sound.call(interpreted_mixes(program, frames, presses: presses))

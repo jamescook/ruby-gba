@@ -17,13 +17,13 @@
 # Run it to build examples/floating_digits.gba:
 #   ruby examples/floating_digits.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module FloatingDigits
   SCREEN_W = 240
   SCREEN_H = 160
-  W = RubyGBA::Graphics::Fonts.default.width  # 5px wide glyph
-  H = RubyGBA::Graphics::Fonts.default.height # 7px tall glyph
+  W = VBlank::Graphics::Fonts.default.width  # 5px wide glyph
+  H = VBlank::Graphics::Fonts.default.height # 7px tall glyph
 
   # One solid color per digit (5-bit R,G,B channels, 0..31), all clearly distinct.
   COLORS = Ractor.make_shareable([
@@ -35,13 +35,13 @@ module FloatingDigits
   # read straight from the built-in bitmap font — so we don't hand-draw ten digits.
   def self.glyph_art(d)
     lit = {}
-    RubyGBA::Graphics::Fonts.default.each_pixel(d.to_s) { |x, y| lit[[x, y]] = true }
+    VBlank::Graphics::Fonts.default.each_pixel(d.to_s) { |x, y| lit[[x, y]] = true }
     (0...H).map { |y| (0...W).map { |x| lit[[x, y]] ? "#" : "." }.join }.join("\n")
   end
 
   # The game as a block the builder runs (so a test can drive the exact program
   # that ships — the interpreter runs THIS, the console runs the ROM built from it).
-  GAME = RubyGBA.game("FLOATNUM", consoles: %i[gba]) do
+  GAME = VBlank.game("FLOATNUM", consoles: %i[gba]) do
     screen :bitmap
 
     # A colored glyph image per digit. '.' is transparent, so only the digit's lit

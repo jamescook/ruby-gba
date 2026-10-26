@@ -14,7 +14,7 @@
 # Run it to build examples/grid_cursor.gba:
 #   ruby examples/grid_cursor.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module GridCursor
   CELL = 8              # an 8x8 cell (even, so a cell can fast-fill)
@@ -23,7 +23,7 @@ module GridCursor
 
   # The game as a block the builder runs, so a test can drive the exact program
   # that ships — the headless interpreter runs THIS, the console runs the ROM.
-  GAME = RubyGBA.game("GRIDCURS", consoles: %i[gba]) do
+  GAME = VBlank.game("GRIDCURS", consoles: %i[gba]) do
     screen :bitmap
     clear_screen :black
 

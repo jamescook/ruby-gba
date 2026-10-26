@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 # Generate the art and sound examples/piano.rb imports: a left hand drawn in a few
 # poses, and one recorded piano note.
@@ -20,9 +20,9 @@ require_relative "../lib/ruby_gba"
 #   - piano.wav — a single ~0.6s piano-ish note at C4, which the `instrument` verb
 #     pitches across the keys.
 module MakePianoAssets
-  Color = RubyGBA::Graphics::Color
+  Color = VBlank::Graphics::Color
 
-  ASSETS = RubyGBA.root.join("examples/assets").to_s
+  ASSETS = VBlank.root.join("examples/assets").to_s
 
   # --- The hand's size and where its four fingers sit ---
   # A 64x32 sprite (a valid hardware-sprite size). The four fingers hang down from
@@ -96,7 +96,7 @@ module MakePianoAssets
       draw_finger(put, FINGER_CX[k], tip)
     end
 
-    RubyGBA::Graphics::PNG.encode(width: HAND_W, height: HAND_H, pixels: rgb, alpha: alpha)
+    VBlank::Graphics::PNG.encode(width: HAND_W, height: HAND_H, pixels: rgb, alpha: alpha)
   end
 
   # The back of the hand: a filled block outlined on top and sides. The bottom is

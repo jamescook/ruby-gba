@@ -75,7 +75,7 @@
 # Run it to build examples/hero.gba:
 #   ruby examples/hero.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Hero
   # The weather. Walking north thickens the mist and south thins it, a couple of points a
@@ -113,7 +113,7 @@ module Hero
     end.join
   end)
 
-  GAME = RubyGBA.game("HERO", consoles: %i[gba]) do
+  GAME = VBlank.game("HERO", consoles: %i[gba]) do
     screen :tiled # tile mode: a scrolling background for the world + a hardware sprite on top
 
     # Pixels the hero walks per frame while a direction is held. A setting rather than a

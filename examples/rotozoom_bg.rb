@@ -24,7 +24,7 @@
 # Run it to build examples/rotozoom_bg.gba:
 #   ruby examples/rotozoom_bg.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module RotozoomBg
   TURN_SPEED = 2
@@ -32,7 +32,7 @@ module RotozoomBg
   MIN_ZOOM = 0.5
   MAX_ZOOM = 3.0
 
-  GAME = RubyGBA.game("ROTOZOOM", consoles: %i[gba]) do
+  GAME = VBlank.game("ROTOZOOM", consoles: %i[gba]) do
     screen :rotozoom # the rotate/scale layer, not the plain-scroll one `screen :tiled` gives
 
     image :light, "#" => rgb(20, 20, 26) do

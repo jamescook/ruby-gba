@@ -109,9 +109,9 @@ not been checked. Native stops with the game's source line (`rg_fault`) until th
 ## Proposed shape of the C emitter (for approval; no code written)
 
 ```
-lib/ruby_gba/ir/backends/native.rb            Backends::Native: program -> C source. The comment atop
+lib/vblank/ir/backends/native.rb            Backends::Native: program -> C source. The comment atop
                                               it records the decisions above.
-lib/ruby_gba/ir/backends/native/c.rb          The C syntax tree (Data classes, frozen):
+lib/vblank/ir/backends/native/c.rb          The C syntax tree (Data classes, frozen):
                                                 expressions  Int, Name, AddressOf, Call
                                                 statements   Eval (a call as a statement), Assign,
                                                              If, While, For, Break, Return, Block,
@@ -119,32 +119,32 @@ lib/ruby_gba/ir/backends/native/c.rb          The C syntax tree (Data classes, f
                                                 top level    Global, ConstArray (tables, art),
                                                              Function, FunctionTable (call_one_of),
                                                              Include
-lib/ruby_gba/ir/backends/native/printer.rb    The only place text is made. Literals, indentation,
+lib/vblank/ir/backends/native/printer.rb    The only place text is made. Literals, indentation,
                                               escaping, one line per statement, /* pong.rb:42 */
                                               comments (and #line behind a switch).
-lib/ruby_gba/ir/backends/native/names.rb      IR name -> C identifier. A prefix per namespace
+lib/vblank/ir/backends/native/names.rb      IR name -> C identifier. A prefix per namespace
                                               (v_ variable, f_ routine, l_ list, t_ table, ...),
                                               bytes outside [A-Za-z0-9] escaped, wasm2c-style, so
                                               distinct names stay distinct. A collision or a
                                               reserved word is a LoweringError. A Name node can only
                                               be made here.
-lib/ruby_gba/ir/backends/native/values.rb     One method per value kind, as a VALUES table like
+lib/vblank/ir/backends/native/values.rb     One method per value kind, as a VALUES table like
                                               Reference's; each returns a C expression, almost
                                               always a Call to an rg_ helper.
-lib/ruby_gba/ir/backends/native/statements.rb One method per statement kind (STATEMENTS table);
+lib/vblank/ir/backends/native/statements.rb One method per statement kind (STATEMENTS table);
                                               each returns C statements. Control flow maps straight:
                                               if/else, repeat -> for with the count read once and
                                               stop_when tested before the body, case -> an if-chain
                                               on a snapshot that runs every clause that matches
                                               (as Reference's exec_case does), wait_vblank -> a
                                               call into the runtime, which takes the frame.
-lib/ruby_gba/ir/backends/native/runtime/rg_int32.h     Hand-written; mirrors int32.rb.
-lib/ruby_gba/ir/backends/native/runtime/rg_runtime.h   The seam the generated code calls (frames,
+lib/vblank/ir/backends/native/runtime/rg_int32.h     Hand-written; mirrors int32.rb.
+lib/vblank/ir/backends/native/runtime/rg_runtime.h   The seam the generated code calls (frames,
                                                        buttons, drawing, sound, saving). With
                                                        rg_int32.h and rg_list.h (the game's
                                                        lists), all game.c includes.
-lib/ruby_gba/ir/backends/native/runtime/rg_sdl.c       The SDL3 implementation (later work).
-lib/ruby_gba/ir/backends/native/runtime/rg_headless.c  The test and replay implementation.
+lib/vblank/ir/backends/native/runtime/rg_sdl.c       The SDL3 implementation (later work).
+lib/vblank/ir/backends/native/runtime/rg_headless.c  The test and replay implementation.
 ```
 
 How large: the tree, printer and names come to a few hundred lines of Ruby, and `rg_int32.h` to about
@@ -218,7 +218,7 @@ To keep compile time down, each test puts all its cases into one C file and comp
 
 ## What the IR asks of C
 
-Line numbers are `lib/ruby_gba/ir/int32.rb` at the current `native-backend` head.
+Line numbers are `lib/vblank/ir/int32.rb` at the current `native-backend` head.
 
 | Int32 rule (int32.rb) | C problem it collides with | wasm2c | zig.h / Zig C backend | Nim | Spinel |
 |---|---|---|---|---|---|
@@ -237,7 +237,7 @@ Line numbers are `lib/ruby_gba/ir/int32.rb` at the current `native-backend` head
 | `cmp` signed (L214-216) | none if operands are signed | casts each `u32` to `s32` before `<` | n/a | n/a | n/a |
 | narrow list/pool slots `:byte`/`:half` (dsl-reference) | `int16 * int16` promotes to `int` and can overflow (UB); storing an out-of-range value into `int8_t` is implementation-defined | n/a | `zig_promoted_T` exists for exactly this: "implements C integral promotions except with signedness preserved, which allows wrapping operations to avoid the ub" (zig.h L774-775) | n/a | n/a |
 
-Fixed point: `DEFAULT_BITS = 16` (`lib/ruby_gba/dsl/fraction.rb` L78). With 16 bits, `|a * b| ≤ 2^62`
+Fixed point: `DEFAULT_BITS = 16` (`lib/vblank/dsl/fraction.rb` L78). With 16 bits, `|a * b| ≤ 2^62`
 and `|a << 16| ≤ 2^47`, so both intermediates fit `int64_t`; the hazards are the shift of a negative
 `int64_t` and the narrowing, not width.
 
@@ -794,6 +794,6 @@ So C23 changes none of the rules that matter here.
     https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3220.pdf
 31. GCC manual, Integers implementation —
     https://gcc.gnu.org/onlinedocs/gcc/Integers-implementation.html
-32. This repo: `lib/ruby_gba/ir/int32.rb`, `lib/ruby_gba/ir/backends/reference.rb` (L2524, L2600-2640,
-    L2731-2754), `lib/ruby_gba/ir/backends/gba/divide.rb` (L430-438), `lib/ruby_gba/dsl/fraction.rb`
-    (L78), `lib/ruby_gba/ir/nodes.rb`.
+32. This repo: `lib/vblank/ir/int32.rb`, `lib/vblank/ir/backends/reference.rb` (L2524, L2600-2640,
+    L2731-2754), `lib/vblank/ir/backends/gba/divide.rb` (L430-438), `lib/vblank/dsl/fraction.rb`
+    (L78), `lib/vblank/ir/nodes.rb`.

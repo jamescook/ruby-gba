@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# A small suite for test/ruby_gba/testing/test_processes.rb to run across processes: tests that pass,
+# A small suite for test/vblank/testing/test_processes.rb to run across processes: tests that pass,
 # one that fails, and skips for two reasons. Not named test_*.rb, so the suite itself never loads
 # it.
 #

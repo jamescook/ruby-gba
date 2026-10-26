@@ -11,7 +11,7 @@ end
 
 # The library's test helper, the one a game's own suite requires: minitest, the library, and
 # which lowering this run tests. This suite uses it as a game does, so the two cannot drift.
-require_relative "../lib/ruby_gba/testing"
+require_relative "../lib/vblank/testing"
 require "minitest/ractor"
 require "support/suites"
 
@@ -20,7 +20,7 @@ require "support/suites"
 # file can open with the thing it is actually testing.
 #
 # The short names below. A test says `Builder.new` and `Color.resolve(:red)`
-# rather than spelling out RubyGBA::… every time. They used to be re-declared at
+# rather than spelling out VBlank::… every time. They used to be re-declared at
 # the top of all 93 test files, which meant renaming one of them touched every
 # file; now they live here.
 #
@@ -28,12 +28,12 @@ require "support/suites"
 # constant in the file wins over one from here (test_cost_printer.rb points
 # `Color` at the printer's palette that way).
 module SharedConstants
-  Reference = RubyGBA::IR::Backends::Reference # the oracle: runs a program in-process
-  SaveImage = RubyGBA::IR::SaveImage           # a cartridge's save memory, which outlives a run
-  GBA = RubyGBA::IR::Backends::GBA             # the lowering: turns a program into a ROM
-  Builder = RubyGBA::Builder                   # the DSL surface
-  Color = RubyGBA::Graphics::Color
-  ROM = RubyGBA::Cartridge::ROM
+  Reference = VBlank::IR::Backends::Reference # the oracle: runs a program in-process
+  SaveImage = VBlank::IR::SaveImage           # a cartridge's save memory, which outlives a run
+  GBA = VBlank::IR::Backends::GBA             # the lowering: turns a program into a ROM
+  Builder = VBlank::Builder                   # the DSL surface
+  Color = VBlank::Graphics::Color
+  ROM = VBlank::Cartridge::ROM
 
   # A solid 8x8 tile of one color — the piece of art a tiled test needs before it can say
   # anything about scrolling, layers, collision or sprites. Twenty-six files had written it
@@ -42,7 +42,7 @@ module SharedConstants
   # the same. It is here once now.
   #
   # Shareable, like everything else here: a test may run in a Ractor, and a worker can read a
-  # constant only when nothing in it can change. See test/ruby_gba/test_ractor_safety.rb.
+  # constant only when nothing in it can change. See test/vblank/test_ractor_safety.rb.
   SOLID_TILE = Ractor.make_shareable((["########"] * 8).join("\n"))
 end
 
@@ -53,8 +53,8 @@ end
 # names are ones a test may want for something else (Table, Sample, Screen). A file that
 # builds nodes directly includes it; everything else never sees them.
 module NodeTypes
-  RubyGBA::IR::Nodes.constants.each do |name|
-    const_set(name, RubyGBA::IR::Nodes.const_get(name))
+  VBlank::IR::Nodes.constants.each do |name|
+    const_set(name, VBlank::IR::Nodes.const_get(name))
   end
 end
 
@@ -68,7 +68,7 @@ module TreeAssertions
 end
 
 # Shared helpers for tests that exercise the emulator in-process. The emulator backend
-# (ruby-gba-emulator, a headless libmgba probe) is reached through RubyGBA::Diagnostics::Emulator — the one
+# (ruby-gba-emulator, a headless libmgba probe) is reached through VBlank::Diagnostics::Emulator — the one
 # seam — so nothing here names it directly.
 #
 # Include this in a test class instead of copy-pasting begin/require/rescue
@@ -78,7 +78,7 @@ module EmulatorSupport
   # debug scripts that degrade gracefully. Suite tests use #require_emulator!,
   # which fails loud, since the emulator is required, not optional.
   def self.gem_available?
-    RubyGBA::Diagnostics::Emulator.available?
+    VBlank::Diagnostics::Emulator.available?
   end
 
   # Ensure the emulator is available, failing loudly if it isn't. It is required to verify
@@ -91,9 +91,9 @@ module EmulatorSupport
   # (A native run does use the emulator for one thing — as the answer key for the desktop
   # build's sound — and asks it directly, not through here: see test/sound_comparison.rb.)
   def require_emulator!
-    skip "checks the cartridge in the emulator, which the GBA lowering's run plays" if RubyGBA::Testing.checked?
+    skip "checks the cartridge in the emulator, which the GBA lowering's run plays" if VBlank::Testing.checked?
 
-    RubyGBA::Diagnostics::Emulator.load!
+    VBlank::Diagnostics::Emulator.load!
   end
 
   # Lower an IR program to a finished ROM, the way the emulator tests need it — a
@@ -105,19 +105,19 @@ module EmulatorSupport
   # build decided — what it is playing (Verifier#voices), where its variables are — without
   # holding on to the backend that lowered it.
   def assemble_rom(program, name: "TEST")
-    RubyGBA::Cartridge::AdvanceBuild.cartridge_for(program, title: name)
+    VBlank::Cartridge::AdvanceBuild.cartridge_for(program, title: name)
   end
 
   # Load +rom+ into the emulator and run it headless for +frames+ frames,
   # asserting it loads and runs without raising. Fails loudly if the emulator isn't
-  # built (it's required). Returns a RubyGBA::Diagnostics::Verifier so callers can make pixel
+  # built (it's required). Returns a VBlank::Diagnostics::Verifier so callers can make pixel
   # assertions on the rendered frame:
   #
   #   v = assert_emulator_loads_rom(rom, frames: 30)
   #   assert v.red?(120, 80)
   def assert_emulator_loads_rom(rom, frames: 10, **opts)
     require_emulator!
-    verifier = RubyGBA::Diagnostics::Verifier.new(rom, frames: frames, **opts)
+    verifier = VBlank::Diagnostics::Verifier.new(rom, frames: frames, **opts)
     verifier.pixel(0, 0) # force the emulator to load the ROM and run the frames
     verifier
   rescue StandardError => e
@@ -144,7 +144,7 @@ class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
   include SharedConstants
   include EmulatorSupport
   include TreeAssertions
-  include RubyGBA::Testing # game_player, skip_on_native and CheckedPlayer, as a game's suite has them
+  include VBlank::Testing # game_player, skip_on_native and CheckedPlayer, as a game's suite has them
 
   # Hand every test to the pool. Minitest runs a class serially until the class asks not to.
   parallelize_me!
@@ -192,7 +192,7 @@ class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
   # take the whole run down, from here, with an error pointing somewhere else entirely.
   #
   # Anything that refuses to freeze is left exactly as it was and named by
-  # test/ruby_gba/test_ractor_safety.rb rather than passing quietly. Only one thing does
+  # test/vblank/test_ractor_safety.rb rather than passing quietly. Only one thing does
   # refuse: a block that reaches for a variable around it, which can never be shared.
   # That is the one error caught here — anything else raising is a mistake in this method
   # and should be heard.

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 # Generate the PNG art the `sheet` importer example reads (examples/sheet.rb).
 #
@@ -20,9 +20,9 @@ require_relative "../lib/ruby_gba"
 #                  of tile numbers (1 = brick from the sheet, 2 = floor, 0 = empty),
 #                  imported by examples/level.rb via `background from:`.
 module MakeExampleAssets
-  Color = RubyGBA::Graphics::Color
+  Color = VBlank::Graphics::Color
 
-  ASSETS = RubyGBA.root.join("examples/assets").to_s
+  ASSETS = VBlank.root.join("examples/assets").to_s
 
   # The room examples/level.rb draws, authored here as ASCII (a wall border around
   # open floor, with a few pillars) and written out as a CSV of tile numbers. It's the
@@ -89,7 +89,7 @@ module MakeExampleAssets
         pixels[(y * 16) + 8 + x] = floor_pixel(x, y)      # right cell
       end
     end
-    RubyGBA::Graphics::PNG.encode(width: 16, height: 8, pixels: pixels)
+    VBlank::Graphics::PNG.encode(width: 16, height: 8, pixels: pixels)
   end
 
   # A brick body with mortar along the top edge and a staggered vertical seam — a
@@ -118,7 +118,7 @@ module MakeExampleAssets
     4.times do |frame|
       draw_hero_frame(rgb, alpha, frame * 16, width, frame)
     end
-    RubyGBA::Graphics::PNG.encode(width: width, height: 16, pixels: rgb, alpha: alpha)
+    VBlank::Graphics::PNG.encode(width: width, height: 16, pixels: rgb, alpha: alpha)
   end
 
   # Draw one walk frame into the sheet at column offset +ox+. The head and body are

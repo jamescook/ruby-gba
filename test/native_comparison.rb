@@ -11,12 +11,12 @@
 # also what the C starts every variable at. Playing the two and saying how they differ is the
 # library's (Native::Differences); this is the suite's assertions over it.
 module NativeComparison
-  include RubyGBA::IR::Backends::Native::Differences
+  include VBlank::IR::Backends::Native::Differences
 
-  Native = RubyGBA::IR::Backends::Native
-  Reference = RubyGBA::IR::Backends::Reference
-  Builder = RubyGBA::Builder
-  WIDTH = RubyGBA::IR::Screen::WIDTH
+  Native = VBlank::IR::Backends::Native
+  Reference = VBlank::IR::Backends::Reference
+  Builder = VBlank::Builder
+  WIDTH = VBlank::IR::Screen::WIDTH
 
   # Buttons held the way a person holds them — one button through a run of frames at a time —
   # as the map of frame to buttons the comparisons take:
@@ -40,8 +40,8 @@ module NativeComparison
   # the names the frame draws, and gives back each run as [the names in it, its list].
   def with_draw_orders_written_by_hand(program)
     program.walk.select { |node| node.kind == :present_objects }.each do |drawn|
-      runs = yield(drawn.names).map { |names, list| RubyGBA::IR::Build::DrawOrder.new(objects: names, order: list) }
-      ordered = RubyGBA::IR::Build.present_objects(drawn.names, orders: runs)
+      runs = yield(drawn.names).map { |names, list| VBlank::IR::Build::DrawOrder.new(objects: names, order: list) }
+      ordered = VBlank::IR::Build.present_objects(drawn.names, orders: runs)
       beside = drawn.parent.children
       beside[beside.index(drawn)] = ordered
       ordered.parent = drawn.parent

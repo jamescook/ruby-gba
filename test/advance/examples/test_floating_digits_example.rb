@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require RubyGBA.root.join("examples/floating_digits").to_s
+require VBlank.root.join("examples/floating_digits").to_s
 
 # The floating-digits example: 0-9 drift around the screen and bounce off the
 # walls, each in its own solid color, drawn as moving glyph images (blit) since a

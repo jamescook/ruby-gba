@@ -36,7 +36,7 @@
 # part of the row: they light up with it, the cursor points at them, and the block under
 # them is what changes the value they show.
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 # --- Build-time constants (plain Ruby, resolved before any ARM is emitted) ---
 SCREEN_W     = 240
@@ -74,7 +74,7 @@ HARD           = "HARD"
 # cores may never share — and that would stop this game being built anywhere but where it
 # was declared. Every other example is shaped this way already.
 module PongGame
-  GAME = RubyGBA.game("PONG", consoles: %i[gba]) do
+  GAME = VBlank.game("PONG", consoles: %i[gba]) do
     screen :bitmap
     enable_sound
 

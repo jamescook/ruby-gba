@@ -4,7 +4,7 @@ require "test_helper"
 require "differential"
 
 require "stringio"
-require RubyGBA.root.join("examples/shmup").to_s
+require VBlank.root.join("examples/shmup").to_s
 
 # The Shmup example: a whole game split across files — examples/shmup/player.rb,
 # enemies.rb, hud.rb — each a plain Ruby object that takes the build and calls the DSL
@@ -81,7 +81,7 @@ class TestShmupExample < Minitest::Test
 
   # What the build made of the game's sprites, which is where the boss's object count is.
   private def video_memory
-    backend = RubyGBA::IR::Backends::GBA.new
+    backend = VBlank::IR::Backends::GBA.new
     backend.lower(Shmup.program)
     backend.build_record(Shmup.program).video_memory
   end

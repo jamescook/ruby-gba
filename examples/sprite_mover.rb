@@ -22,7 +22,7 @@
 # Run it to build examples/sprite_mover.gba:
 #   ruby examples/sprite_mover.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module SpriteMover
   SCREEN_W = 240
@@ -38,7 +38,7 @@ module SpriteMover
 
   # The game as a block the builder runs, so a test can drive the exact program
   # that ships — the headless interpreter runs THIS, the console runs the ROM.
-  GAME = RubyGBA.game("SPRITEMV", consoles: %i[gba]) do
+  GAME = VBlank.game("SPRITEMV", consoles: %i[gba]) do
     screen :bitmap
 
     # A little red heart. "." is transparent, so the field shows through its corners

@@ -1,0 +1,710 @@
+# frozen_string_literal: true
+
+module VBlank
+  module IR
+    module Backends
+      class Reference
+        # A simulated screen — the reference backend's stand-in for the display a real
+        # console would draw to. It's just a grid of colors: every cell holds one
+        # color directly, and drawing means writing colors into cells. Tests read
+        # cells back to assert what a program *would* put on screen, with no
+        # emulator and no ROM.
+        #
+        # Its size is the screen of the console the program is played as, which the
+        # interpreter says (Console::Description#screen_size). Writes that fall outside the
+        # grid are silently dropped rather than raising or scribbling onto memory — the
+        # same edge-safety the DSL promises, so a stray pixel at (999, 999) can never
+        # corrupt anything or crash a test.
+        class Framebuffer
+          attr_reader :width, :height, :camera_x, :camera_y, :fade_toward, :fade_steps,
+                      :tint_color, :tint_steps
+
+          # A color channel runs 0..31, and a full fade is 16 steps. Both come from the
+          # display contract every backend blends against, so the two agree step for step.
+          CHANNEL_MAX = 31
+          FADE_STEPS = FadeSteps::DISPLAY
+          # A tint counts in thirty-seconds (see #tint_steps_to).
+          TINT_STEPS = FadeSteps::WALK
+
+          # @param fill [Integer] the color every cell starts as (0 reads as black)
+          def initialize(width:, height:, fill: 0)
+            @width = width
+            @height = height
+            @fill = fill
+            @pixels = Array.new(width * height, fill)
+            @shown_pixels = @pixels # one page until the screen asks for two — see #paged=
+            @camera_x = 0
+            @camera_y = 0
+            @fade_toward = :black
+            @fade_steps = 0
+            @tint_color = nil
+            @tint_steps = 0
+            @paint_toward = nil
+            @paint_steps = 0
+            @through = nil
+            @mixed_tops = nil
+            @scenery = nil
+            @painting_sprite = false
+            @blending = false
+            @area = nil
+            @block = 1
+            @spans = nil
+            @shade_steps = 0
+            @light_off = false
+          end
+
+          # TWO PAGES, OR ONE. A tear-free screen is two pictures rather than one: the
+          # display shows one of them while the program draws into the other, and they
+          # trade places at the frame boundary. That is what stops a player ever seeing a
+          # half-drawn picture — nothing is drawn into the page being looked at.
+          #
+          # The price is that a frame's drawing lands on ONE of the two. A program that
+          # repaints everything every frame never notices, because both pages end up
+          # holding a complete picture. A program that ADDS to what is already there — a
+          # dissolve, a trail, a plot filling in — puts half its additions on each page,
+          # and the console then flickers between two half-drawn pictures.
+          #
+          # Drawing always lands on @pixels and the viewer always reads @shown_pixels.
+          # With one page those are the same array, so every draw and every read on a
+          # single-buffered screen touches one picture and none of this applies.
+          def paged=(wanted)
+            return if wanted == paged?
+
+            # Entering: the page drawn so far keeps being the one drawn into, and a fresh
+            # blank page goes in front of it — which is what the console does on the way
+            # in (it shows page 0 and hands the program page 1). So a program that draws
+            # and never reaches a frame boundary shows the blank one, exactly as a real
+            # cartridge does.
+            # Leaving: the two collapse onto the page holding the drawing.
+            @shown_pixels = wanted ? Array.new(@width * @height, @fill) : @pixels
+          end
+
+          def paged? = !@shown_pixels.equal?(@pixels)
+
+          # Both pictures, as [the one being drawn into, the one being shown]. Labelled by
+          # ROLE rather than by which page it is, which is what {Flicker} wants: two flips
+          # put the roles back where they started, so two readings taken a whole number of
+          # PAIRS of frames apart label the same picture the same way. With one page the two
+          # are the same picture, and the reading has nothing to compare.
+          def pages = [@pixels.dup, @shown_pixels.dup]
+
+          # Show the page just drawn and hand the program the other one. Called at the
+          # frame boundary, which is the only moment it is safe on real hardware — and
+          # it is a swap of two references, never a copy, for the same reason it is a
+          # single register write there.
+          def flip_pages
+            @pixels, @shown_pixels = @shown_pixels, @pixels
+          end
+
+          # WHERE DRAWING IS ALLOWED TO LAND, or nil for the whole picture. Everything that
+          # paints a cell goes through #paintable?, so saying it here says it once — and a
+          # backend that must instead work the same edges out per shape has this to agree with.
+          def draw_inside(x, y, width, height)
+            @area = [x, y, x + width, y + height]
+          end
+
+          def draw_anywhere = @area = nil
+
+          # The area in force right now, so a routine that sets one of its own can hand
+          # the caller's back when it returns (#restore_area).
+          attr_reader :area
+
+          def restore_area(area) = @area = area
+
+          # Move the visible window over the stored picture: after this, screen (0, 0)
+          # shows what was drawn at (x, y). Nothing stored moves — a camera changes what
+          # you LOOK at, not what is there — which is why a shake costs no redrawing.
+          def camera_to(x, y)
+            @camera_x = x
+            @camera_y = y
+          end
+
+          # Blend everything shown toward +toward+ (:black or :white) by +amount+, 0 to
+          # 100. Like the camera, this changes what you SEE and not what is stored, so a
+          # fade costs no redrawing and the picture is still all there underneath.
+          def fade_to(toward, amount)
+            fade_steps_to(toward, FadeSteps.steps(amount, fraction_bits: nil, walked: false))
+          end
+
+          # The same, said in the sixteenths the display counts in. +reaches+ keeps it to one
+          # part of the screen — :inside the rectangle +area+ ([left, top, right, bottom], the
+          # right and bottom one past the last pixel) or :outside it — and nil is the whole screen.
+          def fade_steps_to(toward, steps, reaches: nil, area: nil)
+            @fade_toward = toward
+            @fade_steps = steps
+            @fade_side = reaches
+            @fade_area = area
+            @tint_color = nil # a display holds one of these at a time — see #tint_to
+          end
+
+          # Does the display's fade reach the screen pixel (x, y)? Everywhere, unless the fade
+          # is held to a rectangle: then inside it for :inside and everywhere else for :outside.
+          # Asked by where the pixel is on the SCREEN, since that is where the window is.
+          def fade_reaches?(x, y)
+            return true unless @fade_side
+
+            left, top, right, bottom = @fade_area
+            within = x >= left && x < right && y >= top && y < bottom
+            @fade_side == :inside ? within : !within
+          end
+
+          # Blend everything shown toward +color+ by +amount+, 0 to 100. Same idea as
+          # fade_to, for the colors a fade cannot reach: moving a picture toward black or
+          # white is a change of BRIGHTNESS, which a display can do to a finished picture,
+          # while moving it toward red means mixing red IN.
+          #
+          # This is the tint the display mixes in as it draws, on a screen that holds a whole
+          # color in every pixel (see #mixed_by_display).
+          #
+          # A display holds ONE such effect at a time, so setting a tint puts away
+          # whatever fade was in force and the other way round. That is the display's own
+          # rule rather than a simplification here, and modelling it is what stops a
+          # program looking right on one backend and wrong on another.
+          def tint_to(color, amount)
+            tint_steps_to(color, FadeSteps.steps(amount, fraction_bits: nil, walked: true), by_display: true)
+          end
+
+          # The same, said in thirty-seconds. A tint is counted that finely because a fade
+          # that walks the colors is a tint toward black or white, and a walk can go as fine
+          # as a channel does (see IR::Fading); a tint counted in sixteenths is the even
+          # thirty-seconds, and the same picture.
+          #
+          # +color+ may also be :black or :white, for a fade that walks the colors: the same
+          # effect as a tint, counted as finely, but rounded the way the console's documented
+          # fade rounds, with a share taken away rather than kept (see Reference#fade_by_tint
+          # and IR::Backends::GBA::PaletteTint::DARKEN).
+          #
+          # +by_display+ says the display mixes the tint in as it draws, rather than the game
+          # writing tinted colors into the table; the two round differently (see
+          # #mixed_by_display).
+          def tint_steps_to(color, steps, by_display: false)
+            @tint_color = color
+            @tint_steps = steps
+            @tint_by_display = by_display
+            @fade_steps = 0
+          end
+
+          # A tint outlasts the screen it was said on, and the next screen mixes it its own way:
+          # +by_display+ as the plain bitmap screen's display does, or into a colour table.
+          attr_writer :tint_by_display
+
+          # Show the stored picture in flat blocks of +size+ pixels each way, or as it is for
+          # a size of 1. Like the camera and a fade, this changes what you SEE and not what
+          # is stored, so the picture is all there again when the size goes back to 1.
+          #
+          # This is for a picture that is ONE thing to the display — a screen the program
+          # paints. A picture built from several things is put into blocks a thing at a
+          # time, as it is built, and never comes here.
+          def show_in_blocks(size)
+            @block = size
+          end
+
+          # Blend everything painted FROM HERE ON toward +toward+ by +steps+ sixteenths,
+          # or paint colors as they are when +toward+ is nil.
+          #
+          # This is the other half of fade_to, and the two are not interchangeable. A fade
+          # over the whole screen blends the finished picture as it is read, which changes
+          # nothing that was drawn. A fade placed in the stack has to reach what is behind
+          # it and leave what is in front of it alone — so the compositor turns this on
+          # while it paints the things behind the line and off before the things in front,
+          # and the finished picture already carries the blend.
+          def set_paint_fade(toward, steps)
+            @paint_toward = toward
+            @paint_steps = toward.nil? ? 0 : steps
+            @blending = blending?
+          end
+
+          # Blend everything painted FROM HERE ON with what is already in the cell — a
+          # see-through layer. +weights+ is [how much of what is painted, how much of what is
+          # already there], in steps, or nil for no blend.
+          #
+          # This is the one blend that needs the DESTINATION, which is why it cannot be
+          # #set_paint_fade with a different color: a fade mixes toward a color that is the
+          # same everywhere, and a see-through layer mixes toward whatever happens to be
+          # underneath at that pixel. And it works BECAUSE the picture is painted back to
+          # front — for scenery, "blend with whatever is already there" and the display's
+          # own "blend with the layer directly beneath" are then the same rule, so nothing
+          # about the stack has to be modelled a second time.
+          #
+          # +sprite+ says that what is painted from here on is a sprite's. A sprite is the one
+          # thing that rule is wrong for, and it is mixed with the scenery kept apart instead
+          # (see #keep_scenery).
+          def set_paint_see_through(weights, sprite: false)
+            @through = weights
+            @painting_sprite = sprite
+            @blending = blending?
+            make_room_for_mixes(weights) if weights
+          end
+
+          # KEEP THE SCENERY WITH NO SPRITES ON IT, beside the picture — for a screen with a
+          # see-through layer of sprites.
+          #
+          # "Blend with what is already there" is right for scenery and wrong for a sprite
+          # over another sprite. A display puts all its sprites into one layer before it
+          # blends anything: at each pixel only the front sprite is kept, and a see-through
+          # one is then mixed with the layer beneath that, which is scenery or the backdrop.
+          # A sprite behind it is never part of the mix. So a see-through sprite has to be
+          # mixed with the picture as it would be with no sprite on it, and that is what is
+          # kept here: every paint that is not a sprite's lands on both.
+          #
+          # The picture is painted back to front, so when a sprite is painted the scenery
+          # kept here is the scenery behind it and none of what is in front, which is the
+          # layer the display would mix it with.
+          def keep_scenery
+            @scenery ||= @pixels.dup
+          end
+
+          # The color shown at screen (x, y) — the stored cell the window currently puts
+          # there, blended by whatever fade is on. An off-screen coordinate reads as nil
+          # ("there is no such pixel"). A window pushed off the drawn picture shows the
+          # backdrop along that edge, the same as a display with nothing left to fetch
+          # there.
+          def pixel(x, y)
+            return nil unless on_screen?(x, y)
+            return HELD_OFF if @held
+
+            seen_x, seen_y = @block > 1 ? block_corner(x, y) : [x, y]
+            color = shown_color(seen_x + @camera_x, seen_y + @camera_y, fade_here: fade_reaches?(x, y))
+            lit?(x, y) ? color : darkened_by_display(color, @shade_steps)
+          end
+
+          # DARKEN THE PICTURE OUTSIDE ONE SPAN OF EACH ROW, by +steps+ sixteenths, from now
+          # on: +spans+ holds a [left, right] for every row, the columns from left up to but
+          # not including right left as drawn. A light (see Builder#spotlight).
+          #
+          # It is done to the picture as it is READ, after everything else — the colours a
+          # fade has walked included — because that is where the display does it: the window
+          # decides, pixel by pixel on its way to the screen, whether the darkening applies.
+          # A block of a pixelated picture is lit or not by where the pixel is, not where its
+          # block's colour came from, for the same reason.
+          def shade_outside(spans, steps)
+            @spans = spans
+            @shade_steps = steps
+          end
+
+          # Whether the scene that just ran has the game's light switched off: then nothing is
+          # darkened, whatever the light was last worked out to be.
+          attr_writer :light_off
+
+          # Is (x, y) inside its row's span? A span whose left is past its right comes round
+          # the edge of the screen — from left to the right edge and from the left edge to
+          # right — which is what the console's window does with one.
+          def lit?(x, y)
+            return true if @shade_steps.zero? || @light_off
+
+            left, right = @spans[y]
+            left <= right ? x >= left && x < right : x >= left || x < right
+          end
+
+          # Whether the picture is switched off — true until a program that waits for frames
+          # has set its first one up. What is drawn meanwhile is kept; it is only not shown.
+          attr_writer :held
+
+          # What a display with its picture switched off shows: plain white.
+          HELD_OFF = Graphics::Color.resolve(:white)
+
+          # The color stored at (x, y), ignoring where the window sits. This is what the
+          # drawing engine reads — saving the pixels under a sprite has to see what is
+          # really in the picture, not what happens to be on screen right now. On a
+          # two-page screen that means the page being DRAWN into, which is the one the
+          # engine is about to write over.
+          def stored_pixel(x, y)
+            return nil unless on_screen?(x, y)
+
+            @pixels[(y * @width) + x]
+          end
+
+          # The same cell on the page a viewer is looking at. On a one-page screen this
+          # is #stored_pixel; on a two-page one it is the other page — the finished
+          # picture, not the one being drawn.
+          def shown_pixel(x, y)
+            return nil unless on_screen?(x, y)
+
+            @shown_pixels[(y * @width) + x]
+          end
+
+          # Paint one cell. Off-screen coordinates are dropped (see the class note
+          # on edge-safety), so this never raises for a bad (x, y).
+          def set_pixel(x, y, color)
+            return unless paintable?(x, y)
+
+            at = (y * @width) + x
+            color = blend_into_cell(at, color)
+            @pixels[at] = color
+            @scenery[at] = color if @scenery && !@painting_sprite
+            @mixed_tops[at] = nil if @mixed_tops && !@through
+          end
+
+          # Put back the cell at (x, y) as +scene+ stores it: the scenery kept apart to put back
+          # behind a sprite that is drawn onto the picture. A cell mixed there stays a mix here,
+          # so a tint still reaches both its sides (see #shown_color).
+          def put_back_cell(scene, x, y)
+            color = scene.stored_pixel(x, y)
+            return if color.nil?
+
+            set_pixel(x, y, color)
+            top, under, weights = scene.mixed_sides((y * @width) + x)
+            return unless top && paintable?(x, y)
+
+            make_room_for_mixes(weights)
+            @mixed_tops[(y * @width) + x] = top
+            @mixed_unders[(y * @width) + x] = under
+          end
+
+          # Paint a horizontal run of cells: +count+ of them starting at (x, y), read
+          # from +colors+ beginning at +from+. A nil in +colors+ leaves that cell as it
+          # is, so a see-through pixel keeps whatever is behind it.
+          #
+          # The run has to be on the screen. This is the compositor's path — it walks
+          # the screen a tile at a time and knows its own coordinates are inside it —
+          # so it skips the per-cell edge check set_pixel does. That check is most of
+          # the cost when a whole scrolling scene is repainted every frame.
+          def paint_row(x, y, colors, from:, count:)
+            base = (y * @width) + x
+            scenery = @painting_sprite ? nil : @scenery
+            # A cell painted solid over a mix is a mix no longer (see #shown_color).
+            mixed_tops = @through ? nil : @mixed_tops
+            i = 0
+            while i < count
+              color = colors[from + i]
+              if color
+                # The blend is asked for inline rather than through #blend_into_cell, which would
+                # be a method call per pixel on the path that repaints the whole scene.
+                color = blend_into_cell(base + i, color) if @blending
+                @pixels[base + i] = color
+                scenery[base + i] = color if scenery
+                mixed_tops[base + i] = nil if mixed_tops
+              end
+              i += 1
+            end
+          end
+
+          # Paint a w-by-h rectangle whose top-left is (x, y). Any part hanging off
+          # the screen is clipped, because each cell goes through set_pixel.
+          def fill_rect(x, y, width, height, color)
+            y.upto(y + height - 1) do |py|
+              x.upto(x + width - 1) do |px|
+                set_pixel(px, py, color)
+              end
+            end
+          end
+
+          # Paint the entire screen one color — or, where drawing is held to a part of it, that
+          # part and no more.
+          def clear(color)
+            return fill_rect(@area[0], @area[1], @area[2] - @area[0], @area[3] - @area[1], color) if @area
+
+            @scenery&.fill(apply_placed_fade(color))
+            @mixed_tops&.fill(nil)
+            @pixels.fill(apply_placed_fade(color))
+          end
+
+          # A flat, row-major copy of every cell of the page being SHOWN, as it is stored —
+          # for counting how many cells hold a given color, or asserting what was drawn.
+          # "Stored" is about effects, not pages: no camera offset and no fade, but still
+          # the picture a viewer is looking at (see #shown, which blends this one).
+          def to_a
+            @shown_pixels.dup
+          end
+
+          # The same screen as it is SHOWN: the window's offset applied, and whatever fade
+          # or tint is on blended in. The companion to #to_a, and the two are not
+          # interchangeable.
+          #
+          # Where they differ is exactly where an effect is on, and that difference is the
+          # whole point of an effect: a fade changes NOTHING that was drawn, which is what
+          # makes it cost the same however much is on screen and come back untouched. So
+          # anything comparing this screen with a real display has to read this one — the
+          # stored cells are a picture nobody is looking at.
+          def shown
+            return to_a if plain?
+
+            Array.new(@width * @height) { |i| pixel(i % @width, i / @width) }
+          end
+
+          # Nothing between what is stored and what is shown: the window at the origin and
+          # no effect in force. The common case, and worth not walking the screen for.
+          def plain?
+            !@held && @camera_x.zero? && @camera_y.zero? && @tint_color.nil? && fade_steps.zero? && @block == 1 &&
+              @shade_steps.zero?
+          end
+
+          protected
+
+          # The two colors cell +at+ was mixed from and the weights they were mixed at, or nil
+          # for a cell painted solid.
+          def mixed_sides(at)
+            top = @mixed_tops&.[](at)
+            top && [top, @mixed_unders[at], @mixed_weights]
+          end
+
+          private
+
+          # Room to keep the two sides of every cell mixed at +weights+ (see #shown_color). A
+          # screen has one see-through layer, so one set of weights serves every mixed cell.
+          def make_room_for_mixes(weights)
+            @mixed_tops ||= Array.new(@width * @height)
+            @mixed_unders ||= Array.new(@width * @height)
+            @mixed_weights = weights
+          end
+
+          # The screen pixel whose colour (x, y) shows while the picture is in blocks: the
+          # top left corner of its block.
+          #
+          # DOWN THE SCREEN the blocks are fixed to it, a new one at every row that is a
+          # multiple of the size. ACROSS they are fixed to it too, while the picture covers
+          # the row from its first column — which is always, unless the window has been
+          # moved off the picture's left edge. Then the first block of a row starts where
+          # the picture does, and the rest count from there: a display starts a block at
+          # the first pixel it finds something to show.
+          def block_corner(x, y)
+            first = [-@camera_x, 0].max
+            x = first + (((x - first) / @block) * @block) if x >= first
+            [x, y - (y % @block)]
+          end
+
+          # One color with the current fade applied.
+          #
+          # A color is three 5-bit channels packed into a halfword, and the fade moves
+          # each channel a fraction of the way to its limit. So a mid-fade picture keeps
+          # its shape and loses its color, rather than every pixel jumping at once.
+          #
+          # The display's own fade is worked out the way the emulator the picture is checked
+          # against works it out (#darkened_by_display, #brightened_by_display), so a test
+          # can name one expected color and assert it on both backends.
+          #
+          # A fade that walks the colors is a different thing — the game writes those colors
+          # into the table and the display shows them as they are — and keeps the console's
+          # documented rule in five bits (#walked_toward). There BOTH DIRECTIONS MOVE BY A
+          # TRUNCATED SHARE: toward white a channel ADDS a share of the headroom it has left,
+          # toward black it TAKES AWAY a share of what it has. Neither keeps a share instead,
+          # and the two round in opposite directions: a channel at the top taken a quarter of
+          # the way to black comes back 24, where keeping three quarters would leave 23.
+          def faded(color, fade_here: true)
+            if @tint_color.is_a?(Symbol)
+              # On the plain bitmap screen the display does a walked fade, in sixteenths.
+              return faded_by_display(color, @tint_color, @tint_steps >> 1) if @tint_by_display
+
+              return walked_toward(color, @tint_color, @tint_steps)
+            end
+            # The display counts in sixteenths, the even thirty-seconds, so an odd step is dropped.
+            return mixed_by_display(color, @tint_color, @tint_steps & ~1) if @tint_color && @tint_by_display
+            return mixed(color, @tint_color, @tint_steps) if @tint_color
+            return color unless fade_here
+
+            faded_by_display(color, @fade_toward, @fade_steps)
+          end
+
+          # One color mixed toward another in five bits a channel, the arithmetic a tint that
+          # walks the color table writes its colors with: each channel takes its share of the
+          # picture and its share of the other color, the two are ADDED, and only then is the
+          # fraction dropped.
+          #
+          # WHERE THE TRUNCATION FALLS IS THE WHOLE OF IT. Truncating each share on its own
+          # and adding them can land a whole step lower — white mixed half way toward red
+          # keeps 30 of its red that way and 31 this way — so a picture where both sides
+          # have something in a channel comes out different.
+          #
+          # The two shares are in thirty-seconds and always add to thirty-two, so no channel
+          # can come out above its limit and there is nothing to clamp.
+          def mixed(color, toward, steps)
+            return color if steps.zero?
+
+            keep = TINT_STEPS - steps
+            packed = 0
+            3.times do |channel|
+              shift = channel * 5
+              have = (color >> shift) & CHANNEL_MAX
+              want = (toward >> shift) & CHANNEL_MAX
+              packed |= (((have * keep) + (want * steps)) / TINT_STEPS) << shift
+            end
+            packed
+          end
+
+          # The same mix as the display's blend unit does it as it draws, THE WAY THE
+          # EMULATOR THIS IS CHECKED AGAINST WORKS IT OUT: each channel widened to eight bits
+          # first (see #mix_see_through), the two shares added there and the fraction
+          # dropped, and only then back to five. So it is a step higher than #mixed wherever
+          # the bits five bits throw away would have carried — a channel at 16 taken half way
+          # toward 31 is 24 here and 23 there.
+          #
+          # The display counts in sixteenths, and those are the even thirty-seconds +steps+
+          # is said in: halving both shares and the whole leaves every answer as it was.
+          def mixed_by_display(color, toward, steps)
+            return color if steps.zero?
+
+            keep = TINT_STEPS - steps
+            packed = 0
+            3.times do |channel|
+              shift = channel * 5
+              have = widen_channel((color >> shift) & CHANNEL_MAX)
+              want = widen_channel((toward >> shift) & CHANNEL_MAX)
+              packed |= ((((have * keep) + (want * steps)) / TINT_STEPS) >> 3) << shift
+            end
+            packed
+          end
+
+          # One color on its way into the cell at +at+: the blend a placed fade asks for,
+          # then the blend a see-through layer asks for against what is under it — what is
+          # already there for scenery, and the scenery alone for a sprite (see
+          # #keep_scenery). Untouched when neither is on, which is the usual case.
+          def blend_into_cell(at, color)
+            color = apply_placed_fade(color)
+            return color unless @through
+
+            under = (@painting_sprite && @scenery ? @scenery : @pixels)[at]
+            @mixed_tops[at] = color # the two sides of the mix, kept for #shown_color
+            @mixed_unders[at] = under
+            mix_see_through(color, under, *@through)
+          end
+
+          # The color shown for the stored cell at (x, y), with the fade or tint in force.
+          #
+          # A CELL A SEE-THROUGH LAYER WAS MIXED INTO is the one place the order matters. A
+          # tint on a screen drawn through a color table moves the colors IN the table, and
+          # the display then mixes the moved colors as it draws: the tint reaches each side of
+          # the mix before the two are added. Tinting the finished mix instead is the same
+          # picture only while the layer's two shares make exactly a whole. Past a whole —
+          # light rays showing all of what is behind them and half of themselves — each side
+          # carries its own share of the tint color into the sum, so the console's mix under a
+          # tint toward white is brighter, and the clamp at full brightness falls in a
+          # different place. So such a cell is mixed again, from its two colors tinted.
+          #
+          # A fade or a tint the display does as it draws comes after the mix there too, and
+          # neither meets a mixed cell anyway: the display's fade takes the blend from the
+          # layer, and its tint is only on a screen with no table and no layers.
+          #
+          # The two sides are kept for the page drawn into, which is the page shown on every
+          # screen that has layers to see through.
+          #
+          # +fade_here+ is false where a fade held to a rectangle does not reach (#fade_reaches?).
+          def shown_color(x, y, fade_here: true)
+            top = @mixed_tops && @tint_color && !paged? && on_screen?(x, y) && @mixed_tops[(y * @width) + x]
+            return faded(shown_pixel(x, y) || @fill, fade_here: fade_here) unless top
+
+            mix_see_through(faded(top), faded(@mixed_unders[(y * @width) + x]), *@mixed_weights)
+          end
+
+          # A see-through layer's color over what is under it: +near+ steps of the one and
+          # +far+ of the other, added channel by channel, and only then is the sixteenth
+          # dropped. The two shares need not add to a whole, and past one a channel stops at
+          # its brightest, as the display's does.
+          #
+          # EACH CHANNEL IS WIDENED TO EIGHT BITS FIRST, the way the emulator this is checked
+          # against mixes: five bits become eight by repeating the top ones underneath
+          # (31 becomes 255, 16 becomes 132), the mix is taken there, and the result goes
+          # back to five. Mixed in five bits the answer is a step lower on some pixels — for
+          # a window drawn at 15 and 10 sixteenths, most of them — and picori measured the
+          # widened mix matching a retail cartridge's pixels every one. The console's own
+          # documentation describes the five-bit mix; what the picture is checked against
+          # is the widened one.
+          def mix_see_through(color, under, near, far)
+            packed = 0
+            3.times do |channel|
+              shift = channel * 5
+              have = widen_channel((color >> shift) & CHANNEL_MAX)
+              below = widen_channel((under >> shift) & CHANNEL_MAX)
+              packed |= ([((have * near) + (below * far)) / FADE_STEPS, 255].min >> 3) << shift
+            end
+            packed
+          end
+
+          def widen_channel(channel) = (channel << 3) | (channel >> 2)
+
+          # One color taken +steps+ sixteenths of the way to black by the display's darkening,
+          # THE WAY THE EMULATOR THIS IS CHECKED AGAINST WORKS IT OUT — which is not the same
+          # for every channel, and that is the whole reason this is not #walked_toward.
+          #
+          # It widens each channel to eight bits (see #mix_see_through) and keeps the three
+          # in one number, red in the lowest byte, green above it and blue above that. Each
+          # channel loses a share of itself, worked out where it sits in that number, and only
+          # then is the channel's own byte kept. For red the share is a whole number and is
+          # taken off whole. Green and blue sit eight and sixteen bits up, so their share keeps
+          # what would have been its fraction in the bits below, and keeping the byte drops it
+          # from the answer instead — they come out a step lower whenever the share is not
+          # whole. White taken three quarters of the way is red 8, green 7, blue 7. Back to
+          # five bits after.
+          def darkened_by_display(color, steps)
+            return color if steps.zero?
+
+            packed = 0
+            3.times do |channel|
+              shift = channel * 5
+              placed = widen_channel((color >> shift) & CHANNEL_MAX) << (channel * 8)
+              kept = (placed - ((placed * steps) / FADE_STEPS)) >> (channel * 8)
+              packed |= (kept >> 3) << shift
+            end
+            packed
+          end
+
+          # The other way: one color taken +steps+ sixteenths of the way to white by the
+          # display's brightening, the way the same emulator works it out. Each channel is
+          # widened to eight bits and gains a share of the headroom it has left there. A
+          # share is ADDED here, so the fraction is dropped from the sum whichever byte a
+          # channel sits in, and the three channels round alike — what makes this differ
+          # from five bits is the widening alone: a channel at 16 taken half way is 24
+          # here, where five bits say 23.
+          def brightened_by_display(color, steps)
+            return color if steps.zero?
+
+            packed = 0
+            3.times do |channel|
+              shift = channel * 5
+              have = widen_channel((color >> shift) & CHANNEL_MAX)
+              packed |= ((have + (((255 - have) * steps) / FADE_STEPS)) >> 3) << shift
+            end
+            packed
+          end
+
+          # One color with the display's own fade toward black or white.
+          def faded_by_display(color, toward, steps)
+            toward == :white ? brightened_by_display(color, steps) : darkened_by_display(color, steps)
+          end
+
+          # One color with the blend a placed fade asks for, or the color untouched when
+          # no fade is placed. The same arithmetic as #faded, so a picture blended while
+          # it is painted and one blended while it is read cannot come out different.
+          def apply_placed_fade(color)
+            @paint_toward ? faded_by_display(color, @paint_toward, @paint_steps) : color
+          end
+
+          # Is anything between the color asked for and the cell it lands in? Kept as one
+          # flag rather than two questions, because it is asked once per pixel on the path
+          # that repaints a whole scrolling scene.
+          def blending?
+            !@paint_toward.nil? || !@through.nil?
+          end
+
+          # A color walked +steps+ thirty-seconds toward black or white in five bits a
+          # channel, the arithmetic a walked fade's colors are written with.
+          def walked_toward(color, toward, steps)
+            return color if steps.zero?
+
+            channels = [color & 0x1F, (color >> 5) & 0x1F, (color >> 10) & 0x1F]
+            blended = channels.map do |c|
+              if toward == :white
+                c + (((CHANNEL_MAX - c) * steps) / TINT_STEPS)
+              else
+                c - ((c * steps) / TINT_STEPS)
+              end
+            end
+            blended[0] | (blended[1] << 5) | (blended[2] << 10)
+          end
+
+          # Where a cell may be PAINTED: on the screen, and inside the area drawing is held to.
+          def paintable?(x, y)
+            return false unless on_screen?(x, y)
+            return true unless @area
+
+            x >= @area[0] && x < @area[2] && y >= @area[1] && y < @area[3]
+          end
+
+          # Where a cell may be READ: anywhere on the screen. An area holds where drawing lands
+          # and nothing else — the display still shows the whole picture, and what is already
+          # there is still there to be read, whatever area is open when somebody looks.
+          def on_screen?(x, y) = x >= 0 && x < @width && y >= 0 && y < @height
+        end
+      end
+    end
+  end
+end

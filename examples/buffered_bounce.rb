@@ -18,7 +18,7 @@
 # Usage:   ruby examples/buffered_bounce.rb
 # Output:  examples/buffered_bounce.gba
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module BufferedBounce
   SCREEN_W = 240
@@ -26,7 +26,7 @@ module BufferedBounce
   BALL = 8
   SPEED = 2
 
-  GAME = RubyGBA.game("BOUNCE", consoles: %i[gba]) do
+  GAME = VBlank.game("BOUNCE", consoles: %i[gba]) do
     screen :bitmap, tear_free: true # the tear-proof screen — try flipping this to false
 
     # Each ball is a position (x, y) and a velocity (dx, dy).

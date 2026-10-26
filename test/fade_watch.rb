@@ -27,7 +27,7 @@ module FadeWatch
   # 31, which is 32 levels: a new picture on every frame of the fade but its first.
   def long_fade(screen_kind, frames: 33, toward: :white, color: :red)
     tile = (["#" * 8] * 8).join("\n")
-    b = RubyGBA::Builder.new
+    b = VBlank::Builder.new
     b.instance_eval do
       screen screen_kind
       if screen_kind == :tiled

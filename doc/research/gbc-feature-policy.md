@@ -7,8 +7,8 @@ game can write carries straight over; some has no hardware there at all. What do
 with each verb, what does it say, and how does a game say it is meant for both consoles?
 
 **The answer per verb is in code**, `Console::GBCFeatures::ANSWERS`
-(`lib/ruby_gba/console/gbc_features.rb`), where the build checks read it and the DSL reference
-shows it beside each verb. `test/ruby_gba/console/test_gbc_features.rb` fails for a verb with no
+(`lib/vblank/console/gbc_features.rb`), where the build checks read it and the DSL reference
+shows it beside each verb. `test/vblank/console/test_gbc_features.rb` fails for a verb with no
 answer, so a new verb cannot reach a Game Boy Color undecided. This note is the policy behind the
 table.
 
@@ -66,7 +66,7 @@ with more, naming them. A fade or a tint rewrites those four, as it rewrites eve
 
 ## A game says which consoles it is for
 
-`RubyGBA.game "PONG", consoles: %i[gba gbc] do ... end`. Without it a game is built for the Advance
+`VBlank.game "PONG", consoles: %i[gba gbc] do ... end`. Without it a game is built for the Advance
 alone, and building it for a Game Boy Color is refused in plain words. That is deliberate: a game
 laid out for 240×160 and shown on 160×144 loses a third of its picture, and no warning makes that
 right. Saying `consoles:` is the author's statement that the game reads the screen it is given —

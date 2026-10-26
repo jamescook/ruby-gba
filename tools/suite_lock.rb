@@ -18,9 +18,9 @@ require "fileutils"
 #
 # TWO CHECKOUTS AT ONCE. Somebody with two checkouts of the repository (a worktree for each piece
 # of work, or two sessions) can let each take a lock of its own, so neither waits on the other:
-# start the run with RUBY_GBA_SUITE_LOCK=checkout. The two then share the machine's cores, and each
+# start the run with VBLANK_SUITE_LOCK=checkout. The two then share the machine's cores, and each
 # takes about twice as long as it would alone. Two runs in the same checkout still wait for each
-# other. RUBY_GBA_SUITE_LOCK=machine, or nothing, is the shared lock.
+# other. VBLANK_SUITE_LOCK=machine, or nothing, is the shared lock.
 module SuiteLock
   FOLDER = Ractor.make_shareable(File.join(Dir.home, ".cache", "ruby-gba"))
   PATH = Ractor.make_shareable(File.join(FOLDER, "test-suites.lock"))
@@ -36,7 +36,7 @@ module SuiteLock
       folder = File.expand_path(checkout)
       File.join(FOLDER, "test-suites-#{File.basename(folder)}-#{Digest::SHA256.hexdigest(folder)[0, 12]}.lock")
     else
-      raise ArgumentError, "RUBY_GBA_SUITE_LOCK is \"machine\" or \"checkout\", not #{setting.inspect}. " \
+      raise ArgumentError, "VBLANK_SUITE_LOCK is \"machine\" or \"checkout\", not #{setting.inspect}. " \
                            "Leave it out to share one lock with every checkout on this machine."
     end
   end
@@ -49,7 +49,7 @@ module SuiteLock
     unless file.flock(File::LOCK_EX | File::LOCK_NB)
       holder = file.read.strip
       io.puts "Waiting for another whole test run on this machine to finish: #{holder.empty? ? 'one just starting' : holder}"
-      io.puts "If that run is in another checkout, start this one with RUBY_GBA_SUITE_LOCK=checkout to run beside it, " \
+      io.puts "If that run is in another checkout, start this one with VBLANK_SUITE_LOCK=checkout to run beside it, " \
               "sharing the cores."
       io.flush
       file.flock(File::LOCK_EX)

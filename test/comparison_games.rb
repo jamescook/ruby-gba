@@ -35,7 +35,7 @@ module ComparisonGames
   # +logo_for+ frames of a black screen ahead of the game, on which the game does not tick.
   # Two walkers with different logos are the same game, out of step from power-on.
   def walker(speed: 2, turns_red_at: 100_000, red_for: 100_000, counts_by: 1, specks: 0, spare_variables: 0, logo_for: 0)
-    RubyGBA.build("WALKER", console: :gba, out: StringIO.new, err: StringIO.new) do
+    VBlank.build("WALKER", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       spare_variables.times { |spare| var :"spare#{spare}", 0 }
       ticks = var :ticks, 0
@@ -74,7 +74,7 @@ module ComparisonGames
   # +specks+ white pixels in a row are drawn on it too, far from any edge: a difference of a
   # known size that IS one at five bits.
   def grey_screen(brightened:, specks: 0)
-    RubyGBA.build("GREY", console: :gba, out: StringIO.new, err: StringIO.new) do
+    VBlank.build("GREY", console: :gba, out: StringIO.new, err: StringIO.new) do
       screen :bitmap
       clear_screen(brightened ? rgb(16, 16, 16) : rgb(17, 17, 17))
       specks.times { |speck| pixel SPECK_X + speck, SPECK_Y, :white }
@@ -86,7 +86,7 @@ module ComparisonGames
   # A lead-in for any walker: let frames go by until its ground is up, which is the first
   # frame of the game itself, however long a logo came before it.
   def past_the_logo
-    RubyGBA.playthrough "past the logo" do
+    VBlank.playthrough "past the logo" do
       wait_until("the ground is blue") { |game| game.blue?(0, 0) }
     end
   end
@@ -96,7 +96,7 @@ module ComparisonGames
   def specks_showing?(game) = game.white?(SPECK_X, SPECK_Y) && game.blue?(SPECK_X, SPECK_Y + 1)
 
   def walk_right
-    RubyGBA.playthrough "wait, then walk right" do
+    VBlank.playthrough "wait, then walk right" do
       wait frames: 10
       moment :standing
       hold :right, frames: 20
@@ -109,9 +109,9 @@ module ComparisonGames
   # way round, with no comparison in it. The block is handed the running cartridge after
   # each frame and the number of that frame, counted from 1.
   def each_frame_of(cartridge, tape)
-    game = RubyGBA::Diagnostics::Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses)
+    game = VBlank::Diagnostics::Verifier.new(cartridge, frames: 0, vars: cartridge.var_addresses)
     tape.steps.flat_map { |step| [step] * step.frames }.each.with_index(1) do |step, frame|
-      yield game.step(1, keys: RubyGBA::Playthroughs::Playthrough.key_mask(step.buttons)), frame
+      yield game.step(1, keys: VBlank::Playthroughs::Playthrough.key_mask(step.buttons)), frame
     end
   end
 

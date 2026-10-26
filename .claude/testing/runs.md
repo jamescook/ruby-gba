@@ -2,14 +2,14 @@
 
 ```bash
 rake test                                                       # the suite, on every lowering
-rake test TEST=test/ruby_gba/dsl/test_thing.rb                  # one file, on each lowering that plays it
-rake test TEST=test/ruby_gba/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test; -n /pat/ trips shell quoting
+rake test TEST=test/vblank/dsl/test_thing.rb                  # one file, on each lowering that plays it
+rake test TEST=test/vblank/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test; -n /pat/ trips shell quoting
 rake test:lowering:gba                                          # the GBA lowering's run alone (TEST= too)
 rake test:lowering:native                                       # the native lowering's run alone (TEST= too)
 rake test:lowering:js                                           # the JavaScript lowering's run alone (TEST= too)
 rake test:lowering:gbc                                          # the Game Boy Color lowering's run alone (TEST= too)
-rake test:playthroughs                                          # every test in test/ruby_gba/playthroughs/
-bundle exec ruby -Itest test/ruby_gba/dsl/test_thing.rb         # one file, plain minitest (needs bundle exec)
+rake test:playthroughs                                          # every test in test/vblank/playthroughs/
+bundle exec ruby -Itest test/vblank/dsl/test_thing.rb         # one file, plain minitest (needs bundle exec)
 ```
 
 | what changed | what to run |
@@ -34,7 +34,7 @@ runs — so a second run waits and says which run, in which checkout, it waits f
 does not take it.
 
 Two checkouts (a worktree per piece of work, or two sessions) wait on each other's whole runs by
-default. `RUBY_GBA_SUITE_LOCK=checkout` takes a lock of the checkout's own instead, so it goes
+default. `VBLANK_SUITE_LOCK=checkout` takes a lock of the checkout's own instead, so it goes
 ahead beside a run elsewhere; the two share the cores and each takes about twice as long. Two
 runs in one checkout still wait. Set it in the environment of a session working in a worktree.
 The lowerings' runs inside `rake test` go one after the other, each with all the cores.
@@ -42,7 +42,7 @@ The lowerings' runs inside `rake test` go one after the other, each with all the
 ## The native run uses processes, not Ractors
 
 A Ractor cannot start the child processes a native test needs, so
-`lib/ruby_gba/testing/processes.rb` starts `TEST_PROCESSES` processes (as many as the GBA run has
+`lib/vblank/testing/processes.rb` starts `TEST_PROCESSES` processes (as many as the GBA run has
 workers unless told) and hands them one test at a time, so one slow file never decides how long
 a run takes. Each sends its results back and the run prints one report — the same totals,
 failures and skips by reason a single process would. A process that dies under a test costs that

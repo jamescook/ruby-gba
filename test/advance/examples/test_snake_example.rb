@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require RubyGBA.root.join("examples/snake").to_s
+require VBlank.root.join("examples/snake").to_s
 
 # The Snake example as a whole (examples/snake.rb). This is the capstone POC game;
 # the focused move/collision core lives in test_snake_core.rb. Here we prove the
@@ -14,11 +14,11 @@ require RubyGBA.root.join("examples/snake").to_s
 # that change each step) so the per-frame work stays inside the console's vblank
 # window — a full redraw every frame overruns it and tears once the snake grows.
 class TestSnakeExample < Minitest::Test
-  include RubyGBA::Console::Hardware
+  include VBlank::Console::Hardware
 
   CELL = Snake::CELL
 
-  # AC: examples/snake.rb builds clean. RubyGBA.build runs the guardrails (raising
+  # AC: examples/snake.rb builds clean. VBlank.build runs the guardrails (raising
   # on any fatal footgun) and the ROM-image validation, so calling it is the check.
   def test_the_example_builds_clean
     rom = Snake.build_rom

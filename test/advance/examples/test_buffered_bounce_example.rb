@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require RubyGBA.root.join("examples/buffered_bounce").to_s
+require VBlank.root.join("examples/buffered_bounce").to_s
 
 # The buffered-bounce example (examples/buffered_bounce.rb): the worked demo that
 # the tear-proof double-buffered screen is usable today with the fill/clear verbs.
@@ -11,11 +11,11 @@ require RubyGBA.root.join("examples/buffered_bounce").to_s
 # clean (which runs the guardrails and ROM-image checks) and actually renders its
 # balls on a blue field, on both backends, so it can't rot into a black screen.
 class TestBufferedBounceExample < Minitest::Test
-  include RubyGBA::Console::Hardware
+  include VBlank::Console::Hardware
 
   BALL_COLORS = %i[yellow cyan magenta].freeze
 
-  # RubyGBA.build runs the guardrails (raising on any fatal footgun) and the
+  # VBlank.build runs the guardrails (raising on any fatal footgun) and the
   # ROM-image validation, so a clean build IS the check.
   def test_the_example_builds_clean
     rom = BufferedBounce.build_rom

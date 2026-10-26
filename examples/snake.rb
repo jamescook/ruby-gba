@@ -29,7 +29,7 @@
 # Run it to build examples/snake.gba:
 #   ruby examples/snake.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 # Everything lives under Snake so the file is safe to `require` from a test
 # (requiring it just defines the module; only running it directly writes a ROM).
@@ -93,7 +93,7 @@ module Snake
   # The whole game, as a block the builder runs. Keeping it in one place means the
   # test drives the exact program that ships: the headless interpreter runs THIS to
   # check the game plays without crashing, and the console runs the ROM built from it.
-  GAME = RubyGBA.game("SNAKE", consoles: %i[gba]) do
+  GAME = VBlank.game("SNAKE", consoles: %i[gba]) do
     screen :bitmap
     enable_sound
 

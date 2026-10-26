@@ -98,12 +98,12 @@ at the wrong place by accident. `registers[:pc]` is the address of the instructi
 next, which is where `run_until` stopped. The picture is not refreshed by it: `pixel` still
 shows the last whole frame `step` ran.
 
-From ruby-gba, `RubyGBA::Diagnostics::Verifier` does the same by routine name, so nobody counts bytes —
+From ruby-gba, `VBlank::Diagnostics::Verifier` does the same by routine name, so nobody counts bytes —
 where a routine landed is in the build record, including the ones copied into the console's
 quick memory at boot:
 
 ```ruby
-v = RubyGBA::Diagnostics::Verifier.new(rom, frames: 2)
+v = VBlank::Diagnostics::Verifier.new(rom, frames: 2)
 v.run_until(:count_up)        # the first instruction of func(:count_up)
 v.registers[:r14]             # where it will return to
 ```
@@ -115,7 +115,7 @@ means changing Ruby version rebuilds rather than leaving a library that will not
 
 ```ruby
 git "https://github.com/jamescook/ruby-gba.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
-  gem "ruby-gba"
+  gem "vblank"
   gem "ruby-gba-emulator"
 end
 ```

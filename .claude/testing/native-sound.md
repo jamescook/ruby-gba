@@ -17,7 +17,7 @@ reads which way the voice stands on each step of a slow one (`Heard#runs`, in
 helper asks it directly rather than through `require_emulator!`. Its tolerances and their
 reasons are at the top of the file.
 
-A small made-up program goes in `test/ruby_gba/ir/backends/native/test_native_tones.rb`; a whole
+A small made-up program goes in `test/vblank/ir/backends/native/test_native_tones.rb`; a whole
 example's sound in a file of its own under `native/examples/` (`test_pong_sounds.rb`). The
 windowless program has no speaker, so it writes its sound to a temporary file (`--sound-out`)
 that the helper reads; a game played in its window writes none.

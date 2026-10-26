@@ -2,15 +2,15 @@
 
 # A game's own test, as a game in a repository of its own writes it: one require for the
 # library's test helper, and nothing from ruby-gba's own test folder.
-require "ruby_gba/testing"
+require "vblank/testing"
 require_relative "one_pixel_off"
 
-# Run by test/ruby_gba/testing/test_game_suite.rb, which reads what these leave behind.
+# Run by test/vblank/testing/test_game_suite.rb, which reads what these leave behind.
 class WalkerTest < Minitest::Test
-  include RubyGBA::Testing
+  include VBlank::Testing
 
   def test_holding_right_walks_the_walker
-    game = RubyGBA.game "WALKER", consoles: %i[gba] do
+    game = VBlank.game "WALKER", consoles: %i[gba] do
       x = var :x, 0
       game_loop do
         held(:right).then { x.add! 1 }
@@ -24,8 +24,8 @@ class WalkerTest < Minitest::Test
   # Which lowering played this test, left as a file for the test outside to read.
   def test_says_which_lowering_played_it
     folder = ENV.fetch("GAME_SUITE_PLAYED", nil)
-    File.write(File.join(folder, "#{RubyGBA::Testing.lowering}-#{Process.pid}"), "") if folder
+    File.write(File.join(folder, "#{VBlank::Testing.lowering}-#{Process.pid}"), "") if folder
 
-    assert_includes RubyGBA::Testing::Lowering::NAMES, RubyGBA::Testing.lowering
+    assert_includes VBlank::Testing::Lowering::NAMES, VBlank::Testing.lowering
   end
 end

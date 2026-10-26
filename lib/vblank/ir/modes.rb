@@ -1,0 +1,252 @@
+# frozen_string_literal: true
+
+module VBlank
+  module IR
+    # Works out which screen mode each scene of a program runs in.
+    #
+    # A game can put different scenes on screen in different screen modes — a
+    # colorful direct-color title, then a tear-free double-buffered play field —
+    # and the framework switches the hardware as each scene takes over. Deciding
+    # *which* scene draws in *which* mode is pure structural analysis of the
+    # program: it doesn't depend on any target machine, so a backend and the
+    # cost/palette analyses can all read one answer from here instead of each
+    # working it out (and risking a subtle disagreement).
+    #
+    # A scene declares its mode with a `screen` at its top; with none, it runs in
+    # the mode it was reached in. The mode is resolved by following the call graph
+    # from the program's per-frame entry points (the scenes a game loop dispatches
+    # to), so a helper a scene calls inherits the scene's mode. A drawing routine
+    # reached from two different modes can't draw both ways, so that's a friendly
+    # error rather than a silently-wrong screen.
+    class Modes
+      # Raised when one drawing routine is reached from scenes of different modes.
+      class Conflict < StandardError; end
+
+      DIRECT = :direct     # single-buffered direct color (bitmap)
+      BUFFERED = :buffered # double-buffered, tear-free (bitmap)
+      TILED = :tiled       # tile backgrounds + hardware sprites
+      AFFINE = :affine     # the rotate/scale background layer (BG2), its own display system
+
+      # The two bitmap display modes — the same linear framebuffer, single- or
+      # double-buffered. They're one display *system*; tiled is the other. The
+      # buffered-vs-direct machinery is about these two, so several queries below
+      # deliberately count only them and leave tiled out.
+      BITMAP_MODES = [DIRECT, BUFFERED].freeze
+
+      # The screens drawn out of TILES, spelled the way a `screen` node spells them
+      # rather than the way a resolved mode above does. Both are tile hardware —
+      # `:rotozoom` is a different pair of layers from `:tiled`'s four, not a
+      # different kind of picture — so anything asking whether a program draws out of
+      # tiles at all wants both, and anything asking whether a background can turn
+      # wants both as well. A `:bitmap` screen has pixels somebody painted instead.
+      TILE_SCREENS = %i[tiled rotozoom].freeze
+
+      # The `screen` each resolved mode is drawn on — the other way round from #declared_mode.
+      SCREEN_OF_MODE = { DIRECT => :bitmap, BUFFERED => :bitmap, TILED => :tiled, AFFINE => :rotozoom }.freeze
+
+      def self.resolve(program)
+        new(program)
+      end
+
+      # Is any part of this program drawn out of TILES? Asked of the program rather
+      # than of a resolved mode, because it is a question about what was declared
+      # anywhere — a program with one tiled scene has tile layers to lay out and tile
+      # layers to run out of, whatever its other scenes do.
+      def self.draws_with_tiles?(program)
+        program.walk.any? { |node| node.kind == :screen && TILE_SCREENS.include?(node.mode) }
+      end
+
+      # Strip the internal `_scene_` prefix a scene's func carries, so a message or
+      # a report shows the name the author actually wrote (`:play`, not
+      # `:_scene_play`).
+      def self.strip_scene_prefix(name)
+        name.to_s.sub(/\A_scene_/, "")
+      end
+
+      # The boot screen mode: the mode declared at the top level, or :direct.
+      attr_reader :default_mode
+
+      # func name -> :direct | :buffered, for every func reachable from an entry
+      # point (unreached funcs, which never render, are absent).
+      attr_reader :func_mode
+
+      # The funcs the per-frame loop dispatches to, in first-seen order — the
+      # points where the hardware mode is switched as a scene takes over.
+      attr_reader :scene_funcs
+
+      # Does any scene double-buffer? When false, a program stays entirely on the
+      # single-buffered path (no palette, no page flips).
+      def any_buffered?
+        @default_mode == BUFFERED || @func_mode.value?(BUFFERED)
+      end
+
+      # Does any scene run in tiled mode?
+      def any_tiled?
+        @default_mode == TILED || @func_mode.value?(TILED)
+      end
+
+      # Does any scene run on the affine (rotate/scale) background layer?
+      def any_affine?
+        @default_mode == AFFINE || @func_mode.value?(AFFINE)
+      end
+
+      # Does the program cross a display-system boundary — bitmap, tiled, and affine
+      # are three separate systems (bitmap keeps a framebuffer; tiled paints regular
+      # scrolling layers; affine paints the one rotate/scale layer), and crossing
+      # between any two of them is what the console has to switch the whole display
+      # for (the mode register plus the VRAM/OAM layout), not just flip a page. A
+      # program that stays on one system is left on its existing path.
+      def crosses_display_systems?
+        systems = (@func_mode.values + [@default_mode]).map { |m| BITMAP_MODES.include?(m) ? :bitmap : m }
+        systems.uniq.size > 1
+      end
+
+      # Is the display switched as each scene takes over? A program whose scenes do not
+      # all draw the same way has to be set up once and then re-set on a scene's change,
+      # rather than leaving each `screen` to say it where it is written.
+      def switched_per_scene? = any_buffered? || crosses_display_systems?
+
+      # Every mode some part of the program draws in, the boot mode among them.
+      def modes_in_use = (@func_mode.values + [@default_mode]).uniq
+
+      # Whether the program mixes modes — some scene direct, some buffered. A
+      # single-mode program can be judged as a whole; a mixed one has to be judged
+      # scene by scene, since each mode has its own drawing budget.
+      def mixes_direct_and_buffered?
+        seen = @func_mode.values + [@default_mode]
+        seen.include?(DIRECT) && seen.include?(BUFFERED)
+      end
+
+      # The resolved mode of a func: what it was reached as, or the boot mode for a
+      # func never reached from an entry point.
+      def mode_of(name)
+        @func_mode.fetch(name, @default_mode)
+      end
+
+      # Which of +nodes+ belong to a scene drawn on the tiled screen.
+      #
+      # A program can put two screens on in turn, so "this program declares such a thing
+      # somewhere" and "the tiled screen itself holds one" are different questions — and
+      # for anything the tiled screen has a fixed number of, only the second one counts.
+      # A thing on a screen that is up at a different moment costs this screen nothing.
+      def select_on_tiled_screen(nodes) = nodes.select { |node| mode_at(node) == TILED }
+
+      # The screen mode in force where a statement sits: the mode of the scene that
+      # owns it, or the boot mode for a statement in the main body. Asking it per
+      # statement is what lets a bitmap title screen and a tiled play scene live in
+      # one program and be judged apart.
+      def mode_at(node)
+        func = node.parent
+        func = func.parent while func && func.kind != :func
+        func ? mode_of(func.name) : default_mode
+      end
+
+      # The statement subtrees that draw in buffered mode: the main body when the
+      # boot mode is buffered, plus every func that draws in buffered mode. A
+      # consumer that cares only about buffered drawing (the palette, which only
+      # exists for the indexed double-buffered screen) walks exactly these, so a
+      # direct-color scene's colors never count toward the buffered palette.
+      #
+      # A func nothing calls counts too, in the boot mode (#mode_of), because the
+      # lowering still emits it in that mode — leaving its colors out would make the
+      # build ask the table for a color it was never given.
+      def buffered_scopes
+        scopes = []
+        scopes.concat(main_body) if @default_mode == BUFFERED
+        @funcs.each { |name, func| scopes << func if mode_of(name) == BUFFERED }
+        scopes
+      end
+
+      private
+
+      def initialize(program)
+        @program = program
+        @funcs = {}
+        program.walk { |node| @funcs[node.name] = node if node.kind == :func }
+        @func_mode = {}
+        @scene_funcs = []
+        @default_mode = declared_mode(main_body) || DIRECT
+        scene_targets.each { |target| assign_func_mode!(target, @default_mode, scene: true) }
+        # A plain `call` sitting directly in the main loop — chiefly `once_a_frame`'s
+        # hidden routine, but any bare per-frame helper the same way — is not a scene:
+        # it doesn't own the display, it runs every real frame regardless of which
+        # scene (if any) is active. Resolving it still gives it a mode (so a tint or
+        # fade inside it knows whether it's drawing through a color table), but
+        # `scene: false` keeps it out of #scene_funcs, so it never gets a mode-switch
+        # preamble of its own — one that would otherwise force the hardware back to
+        # this mode every frame, fighting whatever scene is actually live. Without
+        # this split, a `flash_screen`/`pulse`/`shake_screen`/`camera_follows` present
+        # ANYWHERE in a program that also switches screen modes per scene corrupts the
+        # scene's own display: its hidden routine's preamble re-enters its own mode
+        # every frame, right after the real scene already presented that frame's
+        # sprites, clearing them before the console ever shows them.
+        (main_body_call_targets - scene_targets).each { |target| assign_func_mode!(target, @default_mode, scene: false) }
+        @func_mode.freeze
+        @scene_funcs.freeze
+      end
+
+      def assign_func_mode!(name, inherited, scene:)
+        func = @funcs[name] or return
+        mode = declared_mode(func.children) || inherited
+        @scene_funcs << name if scene && !@scene_funcs.include?(name)
+
+        if @func_mode.key?(name)
+          return if @func_mode[name] == mode
+
+          raise Conflict,
+                "The drawing routine :#{self.class.strip_scene_prefix(name)} is reached from scenes of " \
+                "different screen modes. A drawing routine cannot be shared across screen modes, " \
+                "because the modes draw to different places. To fix this, give each mode its own " \
+                "routine. Or move the shared drawing inline."
+        end
+
+        @func_mode[name] = mode
+        call_targets(func).each { |target| assign_func_mode!(target, mode, scene: false) }
+      end
+
+      # The screen mode a run of statements declares, via a `screen` node among
+      # them (nil if none): tiled for a tiled screen, else buffered when the screen
+      # opted into double buffering, else plain direct color.
+      def declared_mode(statements)
+        statements.each do |node|
+          next unless node.kind == :screen
+
+          return TILED if node.mode == :tiled
+          return AFFINE if node.mode == :rotozoom
+
+          return node.buffered ? BUFFERED : DIRECT
+        end
+        nil
+      end
+
+      # The program's main body — everything except the func definitions appended
+      # to the tree (those are separate scenes/helpers, resolved on their own).
+      def main_body
+        @program.children.reject { |node| node.kind == :func }
+      end
+
+      # The funcs a `case_var` in the main body dispatches to — the real mode-switch
+      # entry points, the only routines that "own" the display the way a scene does.
+      def scene_targets
+        targets = []
+        main_body.each { |node| node.walk { |n| n.clauses.each { |_value, target| targets << target } if n.kind == :case } }
+        targets
+      end
+
+      # Every func called from somewhere in the main body other than by a case_var — this
+      # catches `once_a_frame`'s hidden routine and any other bare per-frame helper, and a
+      # routine picked by number, alongside a case_var's own targets (a scene can itself be
+      # reached by a plain `call` too, e.g. a game with no case_var at all).
+      def main_body_call_targets
+        targets = []
+        main_body.each { |node| node.walk { |n| targets.concat(n.callees) unless n.kind == :case } }
+        targets
+      end
+
+      # Every func a node (and its whole subtree, including else-branches) can call.
+      def call_targets(node)
+        node.walk.flat_map(&:callees)
+      end
+    end
+  end
+end

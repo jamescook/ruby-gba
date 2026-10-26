@@ -12,7 +12,7 @@ gemspec
 # the suite reads real pixels off a real emulator.
 #
 # WHAT THIS LINE DOES AND DOES NOT DO. It puts the emulator on the load path, so
-# `require "ruby_gba_emulator"` resolves and RubyGBA::Emulator takes the same route a consumer
+# `require "ruby_gba_emulator"` resolves and VBlank::Emulator takes the same route a consumer
 # takes rather than its sibling-checkout fallback — which is the point of declaring it, since a
 # fallback nobody else has is a fallback that hides whether the normal path works.
 #
@@ -31,7 +31,7 @@ gemspec
 #
 #   git "https://github.com/jamescook/ruby-gba.git",
 #       glob: "{,ruby-gba-emulator/}*.gemspec" do
-#     gem "ruby-gba"
+#     gem "vblank"
 #     gem "ruby-gba-emulator"
 #   end
 gem "ruby-gba-emulator", path: "ruby-gba-emulator"

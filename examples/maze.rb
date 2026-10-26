@@ -20,7 +20,7 @@
 # Run it to build examples/maze.gba:
 #   ruby examples/maze.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Maze
   SPEED = 2
@@ -50,7 +50,7 @@ module Maze
     "##############################",
   ])
 
-  GAME = RubyGBA.game("MAZE", consoles: %i[gba]) do
+  GAME = VBlank.game("MAZE", consoles: %i[gba]) do
     screen :tiled # tile mode: a background room + a hardware sprite over it
 
     # Two 8x8 tiles: a brick wall and a dark floor. A little texture in each so a run

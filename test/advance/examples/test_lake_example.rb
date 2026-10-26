@@ -3,7 +3,7 @@
 require "test_helper"
 require "differential"
 
-require RubyGBA.root.join("examples/lake").to_s
+require VBlank.root.join("examples/lake").to_s
 
 # The lake example: a scene, water that bends row by row over it, and jellyfish drifting
 # across half see-through.
@@ -18,9 +18,9 @@ class TestLakeExample < Minitest::Test
   include Differential
 
   # The art, as the example draws it.
-  BELL = RubyGBA::Graphics::Color.rgb(31, 26, 31)
-  WATER = RubyGBA::Graphics::Color.rgb(6, 11, 24)
-  GLINT = RubyGBA::Graphics::Color.rgb(28, 27, 17) # the sun's reflection, the brightest thing in the lake
+  BELL = VBlank::Graphics::Color.rgb(31, 26, 31)
+  WATER = VBlank::Graphics::Color.rgb(6, 11, 24)
+  GLINT = VBlank::Graphics::Color.rgb(28, 27, 17) # the sun's reflection, the brightest thing in the lake
 
   # How far the blend goes, in the sixteenths the display counts in.
   STEPS = (Lake::SEE_THROUGH * 16) / 100
@@ -100,12 +100,12 @@ class TestLakeExample < Minitest::Test
   #
   # The water is drawn in three shades, so a bell can be over any of them — hence a set to
   # look for rather than one number.
-  BELL_OVER_ANY_WATER = [WATER, RubyGBA::Graphics::Color.rgb(8, 14, 27), RubyGBA::Graphics::Color.rgb(10, 17, 29)]
+  BELL_OVER_ANY_WATER = [WATER, VBlank::Graphics::Color.rgb(8, 14, 27), VBlank::Graphics::Color.rgb(10, 17, 29)]
                         .map { |shade| blend(BELL, shade) }.freeze
 
   def test_the_console_blends_the_jellyfish_into_the_lake
     require_emulator!
-    seen = RubyGBA::Diagnostics::Verifier.new(assemble_rom(Lake.program, name: "LAKE"), frames: 9).frame_gba.uniq
+    seen = VBlank::Diagnostics::Verifier.new(assemble_rom(Lake.program, name: "LAKE"), frames: 9).frame_gba.uniq
 
     refute_empty seen & BELL_OVER_ANY_WATER, "the console draws a bell with the water mixed in"
     refute_includes seen, BELL, "and no pixel of a bell is its own colour"

@@ -1,0 +1,283 @@
+# frozen_string_literal: true
+
+module VBlank
+  module IR
+    # PUTTING THINGS IN THE ORDER THE STACK ASKS FOR.
+    #
+    # A program can name the depths its picture is built from (see the +layers+ node)
+    # and say which one a thing belongs to. Turning that into a drawing order is one
+    # rule, and it lives here rather than in each consumer, because two consumers that
+    # each worked it out would eventually disagree — and a disagreement about which
+    # thing is in front is exactly the kind that shows up as a wrong picture on one
+    # machine and a right one on another.
+    #
+    # THE RULE, and the second half is what makes it safe to adopt a bit at a time:
+    #
+    #   * Things that named a layer are put in the stack's order, back to front. Two
+    #     things in the same layer keep the order they were declared in.
+    #   * Things that named NO layer do not move. They keep the exact places they had,
+    #     and the layered things are rearranged among the places THEY had. So wrapping
+    #     one part of a game in a layer cannot pick up and move a part that says
+    #     nothing about layers.
+    module Stacking
+      module_function
+
+      # +items+ arranged the way +stack+ (the declared layers, backmost first) asks
+      # for. The block is handed each item and answers which layer it named, or nil.
+      # An unchanged copy comes back when nothing names a layer the stack knows.
+      def order_by_stack(items, stack)
+        return items if stack.nil? || stack.empty?
+
+        places = (0...items.length).select { |at| stack.include?(yield(items[at])) }
+        return items if places.length < 2
+
+        sorted = places.map { |at| items[at] }
+                       .sort_by.with_index { |item, nth| [stack.index(yield(item)), nth] }
+
+        arranged = items.dup
+        places.each_with_index { |at, nth| arranged[at] = sorted[nth] }
+        arranged
+      end
+
+      # --- the whole picture, read off a program ---
+
+      # Everything about how a program's picture is stacked: the +stack+ it declared,
+      # its +scenery+ and +objects+ in the order they are drawn, and the +depths+ each
+      # one sits at. One call, so a backend, a build check and a report all get the same
+      # answer without any of them knowing how it was reached.
+      Picture = Data.define(:stack, :scenery, :objects, :depths) do
+        # The names in one layer, back to front — what that layer turned out to hold.
+        def in_layer(name)
+          (scenery + objects).select { |node| node.layer == name }.map(&:name)
+        end
+      end
+
+      def picture(program)
+        stack = program.walk.find { |node| node.kind == :layers }&.names || []
+        scenery = order_by_stack(program.walk.select { |node| node.kind == :background }, stack, &:layer)
+        objects = objects_in_draw_order(program)
+        Picture.new(stack: stack, scenery: scenery, objects: objects,
+                    depths: depths(scenery: scenery, objects: objects, stack: stack))
+      end
+
+      # --- one screenful at a time ---
+      #
+      # WHAT CAN BE ON SCREEN AT ONCE, which is a different question from what a program
+      # declares, and it is the one that decides every scarce thing about a picture.
+      #
+      # A machine that composites in hardware has a fixed, small number of places to put a
+      # layer, and a fixed, small number of depths to stack them at. Both are spent WHILE
+      # SOMETHING IS BEING DRAWN, so what has to fit is one screenful — never the whole
+      # program. A game whose scenes take turns shows one of them at a time, so two scenes
+      # of four backgrounds each need four places, not eight. That is already how the room
+      # for sprite pictures is reckoned, and it is what lets a game declare a room's
+      # scenery in the scene the room belongs to.
+      #
+      # A screenful is the scenery every screen shows, plus one scene's own. Scenery that
+      # named no scene is in EVERY screenful, and it comes first, because nothing re-points
+      # it as scenes come and go — it has to keep the same place throughout.
+      Screenful = Data.define(:scene, :scenery, :objects, :depths) do
+        # The scenery that PANS rather than turning. A machine may hold a different number
+        # of each — and may put the turning one somewhere of its own — so the two are
+        # counted apart wherever room is being found for them.
+        def scrolling = scenery.reject(&:affine)
+
+        def turning = scenery.select(&:affine)
+
+        # This screenful's turning scenery that is on the TILED screen — which is a
+        # different question from which of it turns. A machine may keep a screen of its own
+        # for turning a picture, and scenery up on that one is up at another moment
+        # entirely, so it costs the tiled screen nothing and does not decide how the tiled
+        # screen is arranged.
+        #
+        # Everything that decides that arrangement asks this one method. Two places asking
+        # it two ways is how a picture comes out right in the check that allows it and wrong
+        # in the code that draws it.
+        def turning_on_tiled_screen(modes) = modes.select_on_tiled_screen(turning)
+      end
+
+      # Every screenful a program has, the always-there one first. A program with no scenes
+      # has exactly one, holding everything — so a caller need not know whether scenes were
+      # used, and a program that uses none comes out exactly as it did.
+      def screenfuls(program)
+        whole = picture(program)
+        scenes = every_scene(program, whole)
+        return [screenful(whole, nil)] if scenes.empty?
+
+        scenes.map { |scene| screenful(whole, scene) }
+      end
+
+      # EVERY SCENE THE PROGRAM CAN BE IN, and not only the ones that own something.
+      #
+      # A scene that declares nothing is still a screen: what is on it is the scenery that
+      # belongs to no scene, and nothing else. Left out, a program of one scene with
+      # backgrounds and one without reads as having a single screen — which always agrees
+      # with itself, so nothing is ever written per scene and the console keeps whatever
+      # boot set up. A layer belonging to the scene that has not run is then switched on
+      # with no map of its own, which is not blank: it reads its grid from the start of
+      # video memory, where the tile PICTURES are, and draws the art as a grid over the
+      # game.
+      #
+      # The scenes are taken from where the program dispatches to them, so one that
+      # declares nothing counts and one that is never reached does not. A scene that owns
+      # only sprites is here for the older reason too: sprites spend the depths, so leaving
+      # it out would put them in no screenful at all.
+      def every_scene(program, whole)
+        dispatched = program.walk.flat_map do |node|
+          node.kind == :case ? node.clauses.map(&:last) : []
+        end
+        (dispatched + (whole.scenery + whole.objects).filter_map(&:scene)).uniq
+      end
+
+      # One screenful, read off the whole picture so the stack's order is already settled:
+      # the scenery every screen shows and +scene+'s own, in the order the whole picture
+      # puts them, with the depths worked out among just those.
+      def screenful(whole, scene)
+        scenery = whole.scenery.select { |node| node.scene.nil? || node.scene == scene }
+        objects = whole.objects.select { |node| node.scene.nil? || node.scene == scene }
+        Screenful.new(scene: scene, scenery: scenery, objects: objects,
+                      depths: depths(scenery: scenery, objects: objects, stack: whole.stack))
+      end
+
+      # Every declared object, in the order a frame draws them (later = in front). The
+      # frame's own draw list leads; an object that list never mentions — one in a
+      # program with no frame to draw it — keeps its place in the tree, after the drawn
+      # ones.
+      def objects_in_draw_order(program)
+        declared = program.walk.select { |node| node.kind == :object }
+        drawn = program.walk.find { |node| node.kind == :present_objects }
+        return declared unless drawn
+
+        by_name = declared.to_h { |node| [node.name, node] }
+        ordered = drawn.names.filter_map { |name| by_name[name] }
+        ordered + (declared - ordered)
+      end
+
+      # --- how deep each thing sits ---
+      #
+      # A picture is built up in LEVELS, counted from the back. Everything on one level
+      # is painted before anything on the next, and the things sharing a level are told
+      # apart by rules a machine already has: a moving object is drawn over the scenery
+      # it shares a level with, and two objects on one level keep their draw order.
+      #
+      # A level is the scarce thing — a machine with dedicated stacking hardware has
+      # only a few — so the point of this is to spend as FEW as the picture needs, not
+      # one per name. Any number of named layers can share a level, as long as what
+      # comes out is the order that was declared. Only scenery opens a new level,
+      # because scenery is the one thing that cannot be told apart from other scenery
+      # any other way.
+
+      # Where everything sits: +of+ maps a name to its level (0 is the backmost), and
+      # +count+ is how many levels the picture needs.
+      Depths = Data.define(:of, :count) do
+        def [](name) = of.fetch(name)
+      end
+
+      # Work out the levels for a picture made of +scenery+ (background nodes) and
+      # +objects+ (object nodes), each list already in its own drawing order, given the
+      # declared +stack+.
+      #
+      # With no stack declared this is the arrangement every picture has always had:
+      # the scenery back to front, and the objects over all of it. That is not a special
+      # case in the code — it is what the rule below produces when nothing names a
+      # layer, which is why a picture that names none comes out byte for byte the same.
+      def depths(scenery:, objects:, stack: [])
+        level = 0
+        started = false
+        of = {}
+
+        back_to_front(scenery, objects, stack).each do |item, kind|
+          level += 1 if started && kind == :scenery
+          started = true
+          of[item.name] = level
+        end
+
+        Depths.new(of: of, count: level + 1)
+      end
+
+      # Everything in one sequence, back to front, tagged with what it is. Scenery and
+      # objects in the same layer come out scenery-first, because an object is drawn
+      # over the scenery it shares a level with.
+      #
+      # Something that named no layer takes the place it has always had: scenery at the
+      # back, objects in front of it. That keeps a picture that names no layers exactly
+      # as it was, and it is what #scenery_over_objects? watches, because the two rules
+      # only disagree once the stack asks for scenery in FRONT of an object.
+      #
+      # An object that can be put in other layers as the program runs is in each of them
+      # here too, as a stand-in named by #choice_name, so every place it can go has a level
+      # worked out for it before it ever goes there.
+      def back_to_front(scenery, objects, stack)
+        tagged = scenery.each_with_index.map { |node, nth| [node, :scenery, depth_key(node, stack, -1), nth] } +
+                 objects.each_with_index.flat_map do |node, nth|
+                   [node, *layer_choices(node)].map { |item| [item, :object, depth_key(item, stack, Float::INFINITY), nth] }
+                 end
+
+        tagged.sort_by { |_node, kind, key, nth| [key, kind == :scenery ? 0 : 1, nth] }
+              .map { |node, kind, _key, _nth| [node, kind] }
+      end
+
+      # One of the other layers an object can be put in, standing in for the object there.
+      LayerChoice = Data.define(:name, :layer)
+
+      # What +depths+ calls +object+ while it is in +layer+, one of the other layers it can
+      # be put in. Its own name is the layer it was declared in.
+      def choice_name(object, layer) = [object.name, layer]
+
+      def layer_choices(object)
+        (object.layers || []).map { |layer| LayerChoice.new(name: choice_name(object, layer), layer: layer) }
+      end
+
+      # Every level +object+ can be at: the one it was declared at, then one per other
+      # layer it can be put in, in the order those are counted.
+      def levels_of(depths, object)
+        [depths[object.name], *layer_choices(object).map { |choice| depths[choice.name] }]
+      end
+
+      # Where in the stack a thing sits, or +absent+ when it named no layer.
+      def depth_key(node, stack, absent)
+        at = stack.index(node.layer)
+        at || absent
+      end
+
+      # --- placing an effect in the stack ---
+      #
+      # An effect (a fade, and in time a tint or a blend) can be placed UNDER a layer
+      # instead of covering everything: what is behind it changes, what is at that layer
+      # or in front of it is left alone. "Fade the game out and keep the score showing"
+      # is that, and it is the reason a stack is worth naming at all.
+
+      # Everything at +layer+ and in front of it, scenery and objects together — what an
+      # effect placed under that layer leaves alone.
+      #
+      # Read off the STACK and not the levels, and the difference matters: a background
+      # and the sprites over it share one level, so a line drawn between levels could not
+      # separate them. A line drawn between layers can, and each side then gets whichever
+      # mechanism its machine has for it.
+      #
+      # Something that named no layer is never on the kept side. There is no place in the
+      # stack to read for it, and the answer that surprises nobody is that an effect
+      # reaches what you did not say to keep.
+      def at_or_above(picture, layer)
+        line = picture.stack.index(layer)
+        return [] if line.nil?
+
+        (picture.scenery + picture.objects).select do |node|
+          place = picture.stack.index(node.layer)
+          place && place >= line
+        end
+      end
+
+      # Does the stack put any scenery IN FRONT OF an object? That is the one arrangement
+      # a picture cannot fall into by accident, and it is where "it named no layer, so
+      # leave it where it was" stops having an answer: once the levels are no longer
+      # simply scenery-then-objects, a thing with no layer has no place among them.
+      def scenery_over_objects?(depths, scenery:, objects:)
+        return false if scenery.empty? || objects.empty?
+
+        frontmost = scenery.map { |node| depths[node.name] }.max
+        objects.any? { |node| levels_of(depths, node).min < frontmost }
+      end
+    end
+  end
+end

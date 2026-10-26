@@ -231,14 +231,14 @@ class TestRubyGBAEmulatorProfile < Minitest::Test
   # They agree exactly, which neither could establish alone.
   def test_the_measured_rate_agrees_with_counting_the_game_loop_passes
     [[500, 60.0], [40_000, 30.0], [60_000, 20.0]].each do |passes, expected|
-      program = RubyGBA.game("PFXC", code: "PFXC", maker: "01") do
+      program = VBlank.game("PFXC", code: "PFXC", maker: "01") do
         screen :bitmap
         clear_screen :black
         var :x, 0
         game_loop { repeat(passes) { add! :x, 1 } }
       end.program
 
-      counted = RubyGBA::Diagnostics::Analyzer.measure_fps(program)
+      counted = VBlank::Diagnostics::Analyzer.measure_fps(program)
       measured = with_probe(adding_rom(passes, "PFXC", "PFXC")) do |probe|
         probe.profile(frames: 60, settle: 20).frames_per_second
       end
@@ -283,7 +283,7 @@ class TestRubyGBAEmulatorProfile < Minitest::Test
   # begins while the handler is running rather than the game's own code.
   private def rom_ending_on(lines, name, busy_timer: false)
     build_rom(name, code: name) do
-      extend RubyGBA::Builder::Debug
+      extend VBlank::Builder::Debug
       screen :bitmap
       var :spin, 0
       if busy_timer
@@ -350,7 +350,7 @@ class TestRubyGBAEmulatorProfile < Minitest::Test
   # not in the count at all. This is what lets a build weigh keeping a list in the quick memory
   # against keeping a routine there.
   def test_each_word_a_frame_reads_is_counted_once_a_read
-    rom = RubyGBA.build("PTCH", code: "PTCH", maker: "01") do
+    rom = VBlank.build("PTCH", code: "PTCH", maker: "01") do
       screen :bitmap
       clear_screen :black
       var :x, 0

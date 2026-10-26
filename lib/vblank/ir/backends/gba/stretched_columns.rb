@@ -1,0 +1,186 @@
+# frozen_string_literal: true
+
+module VBlank
+  module IR
+    module Backends
+      class GBA
+        # Where a see-through picture's columns hold pixels (see StretchedColumns): the
+        # stretches themselves, and where each column's list of them starts.
+        #
+        # A row number is one byte, so a picture taller than this ships none and walks its
+        # whole height, as every picture did before there were lists. Any height up to it
+        # ships them — turning a picture row into a screen row divides by the height, and a
+        # height that is not a power of two divides by a multiply the build settles rather
+        # than by a shift (see Framebuffer::ColumnDivide).
+        RUNS_SUFFIX = "__runs"
+        RUNS_START_SUFFIX = "__runstart"
+        RUNS_MAX_ROWS = 256
+        # The byte that ends a column's list. The tallest picture that ships one has a row of
+        # exactly this number — its bottom row — so a stretch that STARTS there would read as
+        # the end of the list and everything from it would be lost. A stretch like that is
+        # widened by a row when it is written (see #avoid_end_marker), and that picture's walk
+        # asks each row whether its pixel is see-through. A stretch that merely
+        # ENDS on that row is untouched, because a last row is read rather than compared.
+        RUNS_END = 255
+        RUNS_MAX_BYTES = 0xFFFF
+
+        # WHAT THE BUILD COULD DO FOR ONE SEE-THROUGH PICTURE a stretched column reads:
+        # whether it ships where each of its columns holds pixels, and what stopped it when
+        # it does not. +held_back_by+ is nil when it ships, :too_tall for a picture past
+        # RUNS_MAX_ROWS, and :too_many when its lists together run past RUNS_MAX_BYTES.
+        #
+        # A picture that ships none walks EVERY row of every column it draws, and a see-through
+        # picture is mostly rows that draw nothing — so this is the difference between a lamp
+        # costing its lit rows and costing its square. The report reads it to say what happened.
+        #
+        # +widened+ is true when a stretch had to take a see-through row to stay clear of the
+        # byte that ends a list (see StretchedColumns#avoid_end_marker): such a stretch is not
+        # all pixels, so that picture's walk asks each row whether it is see-through, where
+        # every other picture's lands exactly on its pixels and asks nothing.
+        ColumnStretches = Data.define(:height, :held_back_by, :widened) do
+          def skips_empty_rows? = held_back_by.nil?
+          def stretches_are_all_pixels? = skips_empty_rows? && !widened
+        end
+
+        # EVERY PICTURE A STRETCHED COLUMN DRAWS, and what the build settled about each.
+        #
+        # A stretched column walks down the screen asking each row for a pixel, and for a
+        # picture that is mostly see-through most of those rows answer "nothing here". A
+        # scaled sprite is exactly that: a lamp, a barrel, a clip of ammunition, each in the
+        # middle of a square of see-through. So the build works out, per column, the stretches
+        # of rows that hold pixels, ships them beside the picture, and the walk goes round once
+        # per stretch instead of once down the square.
+        #
+        # Three questions come out of that and they are all the same fact, which is why they
+        # are one object: whether a picture needs its pixels in the cartridge at all (only a
+        # stretched column reads a see-through one), whether its walk goes stretch by stretch
+        # or row by row, and what to tell somebody whose picture missed.
+        class StretchedColumns
+          def initialize(program, emitter:)
+            @emitter = emitter
+            @drawn_as_columns = program.walk.filter_map { |node| node.name if node.kind == :draw_column_at }.uniq
+            @drawn_in_interrupt = drawn_in_interrupt?(program)
+            @decided = {}
+          end
+
+          # Does a stretched column read this picture? A see-through picture is otherwise
+          # drawn pixel by pixel with its colors baked into the code and needs no copy in the
+          # cartridge; this walks it as the game runs, so it does.
+          def reads?(name) = @drawn_as_columns.include?(name)
+
+          # MAY A COLUMN TAKE THE STEP THE COLUMN BEFORE IT WORKED OUT (see
+          # Framebuffer#emit_column_step)? That step is kept in memory as three numbers, read
+          # and written one at a time. A timer's tick interrupts the game wherever it happens to
+          # be, so a tick that draws a column could land between those reads, put a different
+          # strip's numbers in, and leave the game holding one strip's height with another's
+          # step. In a game like that every column divides, as they all did before.
+          def reuses_last_step? = !@drawn_as_columns.empty? && !@drawn_in_interrupt
+
+          # Does this picture's walk go stretch by stretch? A picture that ships no list is
+          # drawn in one pass over its full height, which is what every picture did before
+          # there were lists and what an opaque one still does.
+          def skips_empty_rows?(name) = @decided[name]&.skips_empty_rows? || false
+
+          # Is every row of every stretch this picture ships a pixel? Then a walk that lands
+          # exactly on each stretch's first and last rows reaches no see-through row, and need
+          # not ask any row whether it is one.
+          def stretches_are_all_pixels?(name) = @decided[name]&.stretches_are_all_pixels? || false
+
+          # What the lists are filed under, beside the picture's colors.
+          def runs_blob(name) = :"#{name}#{RUNS_SUFFIX}"
+          def runs_start_blob(name) = :"#{name}#{RUNS_START_SUFFIX}"
+
+          # What the build settled for each picture, for the report.
+          def to_h = @decided.dup
+
+          # WHERE EACH COLUMN OF A SEE-THROUGH PICTURE HOLDS PIXELS, as the stretches of rows
+          # that hold them. Called for every picture; one no stretched column draws, and an
+          # opaque one, keep nothing.
+          #
+          # THE STRETCHES AND NOT JUST THE FIRST AND LAST. A thing lying on the floor holds its
+          # pixels in the bottom sixth of its column and one band would catch that — but a lamp
+          # that hangs holds them at the TOP of its column and at the bottom, with the ceiling
+          # between, and the gap in the middle is where a player standing under it is looking.
+          # Measured on a real floor: the first-and-last band leaves 30 rows walked in every
+          # hundred, and the stretches leave 17.
+          #
+          # A column that holds nothing at all gets an empty list, so it walks no rows.
+          def register(node)
+            return unless node.transparent && reads?(node.name)
+
+            if node.height > RUNS_MAX_ROWS
+              @decided[node.name] = ColumnStretches.new(height: node.height, held_back_by: :too_tall, widened: false)
+              return
+            end
+
+            runs = column_runs(node)
+            @decided[node.name] = ColumnStretches.new(height: node.height, held_back_by: store_column_runs(node, runs),
+                                                      widened: runs.flatten(1).any? { |(first, _)| first == RUNS_END })
+          end
+
+          private
+
+          # Does anything an interrupt runs — a timer's tick, or a background bent a row at a
+          # time — draw a stretched column, itself or through the routines it calls?
+          def drawn_in_interrupt?(program)
+            routines = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
+            seen = Set.new
+            waiting = TopOfQuickMemory.interrupt_bodies(program)
+            until waiting.empty?
+              body = waiting.shift
+              return true if body.walk.any? { |node| node.kind == :draw_column_at }
+
+              body.walk.flat_map(&:callees).each do |name|
+                waiting << routines[name] if routines.key?(name) && seen.add?(name)
+              end
+            end
+            false
+          end
+
+          # Ship a picture's stretches, and say what stopped it: nil when they ship, else
+          # :too_many.
+          def store_column_runs(node, runs)
+            runs = runs.map { |column| column.map { |(first, last)| avoid_end_marker(first, last) } }
+            starts = []
+            at = 0
+            runs.each do |column|
+              starts << at
+              at += (column.length * 2) + 1 # a pair of rows each, then the byte that ends the list
+            end
+            # Where a column's list starts is a halfword, so a picture whose lists together run
+            # past that ships none and walks its whole height, as every picture did before there
+            # were lists.
+            return :too_many if at > RUNS_MAX_BYTES
+
+            @emitter.data_blobs[runs_blob(node.name)] =
+              runs.flat_map { |column| column.flat_map { |run| [run.first, run.last] } << RUNS_END }
+                  .pack("C*")
+            @emitter.data_blobs[runs_start_blob(node.name)] = starts.pack("v*")
+            nil
+          end
+
+          # Each column's stretches as [first row, last row], exactly as the picture holds them.
+          def column_runs(node)
+            pixels = node.pixels.unpack("v*")
+            (0...node.width).map do |x|
+              rows = (0...node.height).select { |y| pixels[(y * node.width) + x] != node.transparent }
+              rows.slice_when { |a, b| b != a + 1 }.map { |run| [run.first, run.last] }
+            end
+          end
+
+          # One stretch, as a pair the reader can tell from the byte that ends the list.
+          #
+          # Only the tallest picture has a row numbered RUNS_END, and only a stretch that
+          # begins there is at risk — a lone pixel on the bottom row, or a stretch starting
+          # on it. That one begins a row earlier instead. The row it gains is see-through by
+          # construction (a lit one would have been part of the same stretch), so a picture with
+          # a stretch like that keeps the walk that asks each row whether it is see-through
+          # (see ColumnStretches#stretches_are_all_pixels?), and the row draws nothing.
+          def avoid_end_marker(first, last)
+            [first == RUNS_END ? first - 1 : first, last]
+          end
+        end
+      end
+    end
+  end
+end

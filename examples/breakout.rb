@@ -49,7 +49,7 @@
 # Run it to build examples/breakout.gba:
 #   ruby examples/breakout.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Breakout
   # --- Build-time constants (plain Ruby, resolved before any code is emitted) ---
@@ -138,7 +138,7 @@ module Breakout
   # On a Game Boy Color the screen is painted into 8×8 squares of four colours each. Every
   # brick row keeps to its own squares but one: the orange and yellow rows meet in one row of
   # squares, which then holds orange, yellow, the white ball and black — four.
-  GAME = RubyGBA.game("BREAKOUT", consoles: %i[gba gbc]) do
+  GAME = VBlank.game("BREAKOUT", consoles: %i[gba gbc]) do
     screen :bitmap, tear_free: true # draw to a hidden page, flip when done — no tearing
     layout = Layout.new(width: screen_width, height: screen_height)
     bricks = layout.bricks

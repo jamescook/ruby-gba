@@ -11,11 +11,11 @@ It is also an experiment in **AI-native tooling**: every line here was written b
 > The game above is a complete Snake — growing body, random food, scoring, game-over — written in the DSL. Full source: [`examples/snake.rb`](examples/snake.rb).
 
 ```ruby
-require_relative "lib/ruby_gba"
+require_relative "lib/vblank"
 
 # A trimmed slice of examples/snake.rb — see that file for the full, commented game.
 # (Grid constants like CELL, MIN_COL, BODY_CAP and the STEP beat are defined there.)
-Snake = RubyGBA.game("SNAKE", consoles: %i[gba]) do
+Snake = VBlank.game("SNAKE", consoles: %i[gba]) do
   screen :bitmap
   enable_sound
   define_sound :eat, frequency: 880, duty: :quarter, decay: :fast
@@ -125,8 +125,8 @@ module Juice
   def self.checks = [MyCheck.new]  # the pack's own guardrails, active only while it's loaded
 end
 
-RubyGBA.register_effects(Juice)
-RubyGBA::Effects.register(:wash) { |c| clear_screen c }   # or a single verb, inline
+VBlank.register_effects(Juice)
+VBlank::Effects.register(:wash) { |c| clear_screen c }   # or a single verb, inline
 ```
 
 The one rule at the seam: **a pack composes public verbs; it never builds IR or touches hardware.** That isn't taste. A verb built from public verbs bottoms out in things every backend already runs, so it works on the console *and* in the reference interpreter the day you write it — no per-backend lowering, no conformance fixture to extend. Anything lower is **kernel** and gets baked in properly.
@@ -138,7 +138,7 @@ The one rule at the seam: **a pack composes public verbs; it never builds IR or 
 | `camera` — move the whole picture | `shake_screen` — jitter it, then put it back |
 | `fade` — blend the picture toward a color | `fade_in` / `fade_out` — walk the amount over frames |
 
-Screen shake is the worked example, and it ships as a default pack. Moving the picture at all is kernel — `camera` is an IR node with a real lowering on each backend. *Shaking* is not: it's `camera` called with a jittering offset, four variables and a routine that runs each frame. So `shake_screen` lives in a pack written in the same verbs a game is, and neither backend knows the file exists — copy `lib/ruby_gba/effects/packs/screen_shake.rb` to write your own. The rule is enforced, not just documented: a test reads the pack sources and fails one that builds IR or names a hardware register.
+Screen shake is the worked example, and it ships as a default pack. Moving the picture at all is kernel — `camera` is an IR node with a real lowering on each backend. *Shaking* is not: it's `camera` called with a jittering offset, four variables and a routine that runs each frame. So `shake_screen` lives in a pack written in the same verbs a game is, and neither backend knows the file exists — copy `lib/vblank/effects/packs/screen_shake.rb` to write your own. The rule is enforced, not just documented: a test reads the pack sources and fails one that builds IR or names a hardware register.
 
 ### `rom.profile` — see the work, measured
 
@@ -160,7 +160,7 @@ Tearing is split the same way. Whether a game **can** tear is a fact about the s
 
 This framework used to ship a cost *estimator* instead: a frame priced in scanlines against a budget, with a verdict of fits or tears. It was a second statement of what the hardware costs, kept in step with the backend by hand, so every mispricing was a bug — 169 of the repo's first 567 commits touched it. It has been deleted in favour of the above.
 
-[^fast]: How much quicker, why, and how the build chooses what goes there: [`placement.rb`](lib/ruby_gba/ir/backends/gba/placement.rb). `rom.profile` prints what it chose, how much room is left, and what did not fit.
+[^fast]: How much quicker, why, and how the build chooses what goes there: [`placement.rb`](lib/vblank/ir/backends/gba/placement.rb). `rom.profile` prints what it chose, how much room is left, and what did not fit.
 
 ### Playing on a computer
 
@@ -191,7 +191,7 @@ ruby-gba preview examples/pong.rb              # serve it; every reload builds i
 
 `preview` is the quick loop while you work: edit the game, reload the page. It shows the game as the framework understands it, so check the cartridge too before shipping.
 
-A page of your own, the game as a module for your site or a bundler, and the game's options are described at the top of [`lib/ruby_gba/ir/backends/js.rb`](lib/ruby_gba/ir/backends/js.rb).
+A page of your own, the game as a module for your site or a bundler, and the game's options are described at the top of [`lib/vblank/ir/backends/js.rb`](lib/vblank/ir/backends/js.rb).
 
 `rake test` plays every test's game this way too, under [node](https://nodejs.org), and compares every frame with the interpreter (`rake test:lowering:js` plays only that side).
 
@@ -200,7 +200,7 @@ A page of your own, the game as a module for your site or a bundler, and the gam
 A game can be built for the Game Boy Color too. It says so where it is named, and lays itself out from the screen it is being built for, `screen_width` and `screen_height`, rather than from 240 and 160:
 
 ```ruby
-RubyGBA.game "PONG", consoles: %i[gba gbc] do
+VBlank.game "PONG", consoles: %i[gba gbc] do
   paddle_x = screen_width - 12
   # ...
 end
@@ -221,10 +221,10 @@ The Color is a smaller machine: a 160×144 screen, eight buttons, one background
 A game's own tests can do the same, with the library's test helper. In the game's test helper (minitest is in the game's Gemfile):
 
 ```ruby
-require "ruby_gba/testing"
+require "vblank/testing"
 
 class Minitest::Test
-  include RubyGBA::Testing
+  include VBlank::Testing
 end
 ```
 
@@ -240,14 +240,14 @@ end
 In the game's Rakefile:
 
 ```ruby
-require "ruby_gba/testing/rake_tasks"
+require "vblank/testing/rake_tasks"
 
-RubyGBA::Testing::RakeTasks.new do |t|
+VBlank::Testing::RakeTasks.new do |t|
   t.test_files = FileList["test/**/test_*.rb"]   # the default
 end
 ```
 
-To check the cartridge itself against the interpreter, include `RubyGBA::Testing::Pictures` as well and ask for the same picture:
+To check the cartridge itself against the interpreter, include `VBlank::Testing::Pictures` as well and ask for the same picture:
 
 ```ruby
 def test_the_title_screen_draws_on_the_console
@@ -259,14 +259,14 @@ It builds the cartridge, plays it in the emulator with the same buttons held, an
 
 `rake test` then plays every test three times, one run after the other: on the interpreter, which is what the cartridge is checked against; as C; and as JavaScript — where every frame of every game is compared with the interpreter and a difference fails that test, naming the frame. A game built for the Color too (`consoles: %i[gba gbc]` where it is named) says the same in its Rakefile, `t.consoles = %i[gba gbc]`, and gets a fourth run, as a Game Boy Color cartridge; a Rakefile that says nothing is for the Advance alone and has no Color run. It ends with a line for each. `rake test:lowering:gba`, `rake test:lowering:native`, `rake test:lowering:js` and (for the Color) `rake test:lowering:gbc` play one side, and each takes `TEST=` for one file. The native side needs zig 0.17, and the JavaScript side node 18 or later. Both play their tests in several processes rather than Ractors, since each test starts a program. A test that only one side can play goes in a folder that side owns (`t.lowering_folders = { native: ["test/native"] }`), and `skip_on_native "why"` or `skip_on_js "why"` skips one test on that side, which counts its skips by reason at the end.
 
-A game whose Rakefile keeps its own `rake test`, or a task for each group of its tests, makes only the runs it wants, under its own names, with `RubyGBA::Testing::TestTask`. That is rake's own test task told which lowering it is for, and it defines nothing else:
+A game whose Rakefile keeps its own `rake test`, or a task for each group of its tests, makes only the runs it wants, under its own names, with `VBlank::Testing::TestTask`. That is rake's own test task told which lowering it is for, and it defines nothing else:
 
 ```ruby
-require "ruby_gba/testing/test_task"
+require "vblank/testing/test_task"
 
 namespace :test do
   namespace :native do
-    RubyGBA::Testing::TestTask.new(:items) do |t|
+    VBlank::Testing::TestTask.new(:items) do |t|
       t.lowering = :native
       t.libs = %w[game/lib test]
       t.test_files = FileList["test/items/**/test_*.rb"]
@@ -459,7 +459,7 @@ Which to reach for:
 ## Project layout
 
 ```
-lib/ruby_gba/
+lib/vblank/
   builder.rb, builder/*      # the DSL surface, split by concern (drawing, input, sound, ...)
   dsl/                       # what a game names: Value, Condition, Sprite, List, Pool, ...
   audio/, graphics/          # the sound and music model; colours, fonts, images
@@ -501,7 +501,7 @@ Anything that reads what a ROM *actually did* runs it in an emulator through **`
 
 ```ruby
 git "https://github.com/jamescook/ruby-gba.git", glob: "{,ruby-gba-emulator/}*.gemspec" do
-  gem "ruby-gba"
+  gem "vblank"
   gem "ruby-gba-emulator"
 end
 ```

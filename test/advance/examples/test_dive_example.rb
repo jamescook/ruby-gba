@@ -4,7 +4,7 @@ require "test_helper"
 require "differential"
 
 require "stringio"
-require RubyGBA.root.join("examples/dive").to_s
+require VBlank.root.join("examples/dive").to_s
 
 # The Dive example: a game whose layers and palette are load-bearing. A title screen in
 # the console's mixed arrangement (two scrolling layers beside one that turns), a play
@@ -13,7 +13,7 @@ require RubyGBA.root.join("examples/dive").to_s
 # blending. Each of those is a thing the framework only had tests for; here it is a game.
 class TestDiveExample < Minitest::Test
   include Differential
-  include RubyGBA::Console::Hardware # REG_DISPCNT
+  include VBlank::Console::Hardware # REG_DISPCNT
 
   # Which of the console's arrangements is in force sits in the low three bits of its
   # display register, and which background layers are switched on in the byte above.

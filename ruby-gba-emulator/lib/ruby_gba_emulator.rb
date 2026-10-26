@@ -33,7 +33,7 @@ require_relative "ruby_gba_emulator/probe"
 # It is a gem of its own rather than part of ruby-gba, because building a
 # cartridge is pure Ruby and running one is not: this half needs a C compiler
 # and a system libmgba, and only somebody verifying or profiling a ROM needs it
-# at all. ruby-gba reaches it through one seam, {RubyGBA::Diagnostics::Emulator}, and names
+# at all. ruby-gba reaches it through one seam, {VBlank::Diagnostics::Emulator}, and names
 # nothing from here anywhere else.
 #
 # Its methods are defined last, after the compiled half has loaded. A load that fails stops this

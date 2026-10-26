@@ -3,9 +3,9 @@
 
 # Shmup — a whole game split across files, with real scenes.
 #
-# A game outgrows a single `RubyGBA.game` block. The way out is plain Ruby: each part of
+# A game outgrows a single `VBlank.game` block. The way out is plain Ruby: each part of
 # the game is an ordinary object in its own file that takes the build (the object
-# `RubyGBA.game` hands your block as `self`) and calls the DSL verbs on it — build.sprite,
+# `VBlank.game` hands your block as `self`) and calls the DSL verbs on it — build.sprite,
 # build.held, build.var — the same verbs you'd write inline. There's no base class and no
 # magic: pass the build in, call verbs on it.
 #
@@ -24,7 +24,7 @@
 # examples/shmup.gba:
 #   ruby examples/shmup.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 require_relative "shmup/player"
 require_relative "shmup/enemies"
 require_relative "shmup/boss"
@@ -41,7 +41,7 @@ module Shmup
   # again, so the pulse rises and falls; the two share their colours on the console too.
   WARM = %i[warm_yellow warm_orange warm_red warm_orange_again].freeze
 
-  GAME = RubyGBA.game("SHMUP", consoles: %i[gba]) do
+  GAME = VBlank.game("SHMUP", consoles: %i[gba]) do
     screen :tiled
     # The stack, back to front — one line saying what is in front of what, for a picture
     # whose parts are declared in three different files. The fade below then sits UNDER

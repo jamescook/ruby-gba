@@ -132,8 +132,8 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
     end
     with_probe(rom) do |probe|
       probe.step(8)
-      assert_equal RubyGBA::Audio::Sound::Registers.wave_rate(440), probe.wave_rate
-      assert_equal 0, probe.read16(RubyGBA::Cartridge::Constants::REG_SOUND3CNT_X) & 0x07FF,
+      assert_equal VBlank::Audio::Sound::Registers.wave_rate(440), probe.wave_rate
+      assert_equal 0, probe.read16(VBlank::Cartridge::Constants::REG_SOUND3CNT_X) & 0x07FF,
                    "the register itself reads back no pitch"
     end
   end
@@ -180,7 +180,7 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
   end
 
   def test_a_stretch_read_as_words_is_the_same_as_asking_for_each
-    rom = RubyGBA.build("BULK", validate: false) do
+    rom = VBlank.build("BULK", validate: false) do
       screen :bitmap
       var :a, 11
       var :b, 22
@@ -221,12 +221,12 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
   # A program of three instructions written by hand, so where each one sits is known
   # without asking the build: the cartridge's code starts right after its header.
 
-  CODE_START = 0x0800_0000 + RubyGBA::Cartridge::ROM::ENTRY_OFFSET
+  CODE_START = 0x0800_0000 + VBlank::Cartridge::ROM::ENTRY_OFFSET
 
   def test_a_run_stops_at_an_address_and_reads_what_the_registers_hold_there
-    rom = hand_written_rom(RubyGBA::IR::Backends::GBA::ASM.load_immediate(4, 0x55) +
-                           RubyGBA::IR::Backends::GBA::ASM.load_immediate(5, 0x66) +
-                           RubyGBA::IR::Backends::GBA::ASM.loop_forever)
+    rom = hand_written_rom(VBlank::IR::Backends::GBA::ASM.load_immediate(4, 0x55) +
+                           VBlank::IR::Backends::GBA::ASM.load_immediate(5, 0x66) +
+                           VBlank::IR::Backends::GBA::ASM.loop_forever)
     with_probe(rom) do |probe|
       probe.run_until(CODE_START + 4)
       assert_equal CODE_START + 4, probe.registers[:pc]
@@ -236,7 +236,7 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
   end
 
   def test_a_run_that_never_reaches_the_address_says_so_rather_than_stopping_somewhere_else
-    rom = hand_written_rom(RubyGBA::IR::Backends::GBA::ASM.loop_forever)
+    rom = hand_written_rom(VBlank::IR::Backends::GBA::ASM.loop_forever)
     with_probe(rom) do |probe|
       err = assert_raises(RuntimeError) { probe.run_until(CODE_START + 0x100, limit: 1000) }
       assert_match(/0x080001C0/, err.message)
@@ -287,7 +287,7 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
 
   # A cartridge holding exactly these instructions and nothing the framework adds.
   def hand_written_rom(code)
-    rom = RubyGBA::Cartridge::ROM.assemble(code, title: "BYHAND", code: "THND", maker: "01")
+    rom = VBlank::Cartridge::ROM.assemble(code, title: "BYHAND", code: "THND", maker: "01")
     tf = Tempfile.new(["byhand", ".gba"])
     tf.binmode
     rom.write(tf.path)
@@ -300,7 +300,7 @@ class TestRubyGBAEmulatorProbe < Minitest::Test
   # appear. Yields [directory, rom path]; the directory goes when the block ends.
   def in_a_directory_of_its_own
     Dir.mktmpdir("probe-save") do |dir|
-      rom = RubyGBA.build("SAVER", code: "TSAV", maker: "01") do
+      rom = VBlank.build("SAVER", code: "TSAV", maker: "01") do
         screen :bitmap
         high = save_var :high_score, 0
         s = var :s, 0

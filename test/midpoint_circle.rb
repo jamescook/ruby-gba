@@ -44,7 +44,7 @@ module MidpointCircle
 
   # Each row's lit columns in a picture of a white room under a light of darkness 100, as
   # [left, right), or nil for a row with none.
-  def lit_spans(screen, white = RubyGBA::Graphics::Color.resolve(:white))
+  def lit_spans(screen, white = VBlank::Graphics::Color.resolve(:white))
     Array.new(HEIGHT) do |row|
       lit = (0...WIDTH).select { |column| screen.pixel(column, row) == white }
       lit.empty? ? nil : [lit.first, lit.last + 1]

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 # Preview — turn a run of a program into a picture you can watch.
 #
@@ -15,10 +15,10 @@ require_relative "../lib/ruby_gba"
 #   Preview.write("out.html", frames, title: "My Game", scale: 3)
 #
 # It leans on the interpreter's frame-by-frame hook (Backends::Reference#each_vblank) to
-# grab each settled frame, then has the library write each as a PNG (RubyGBA::Graphics::PNG)
+# grab each settled frame, then has the library write each as a PNG (VBlank::Graphics::PNG)
 # so the page stays small and needs nothing but a browser.
 module Preview
-  Reference = RubyGBA::IR::Backends::Reference
+  Reference = VBlank::IR::Backends::Reference
 
   # Run +program+ and collect the first +frames+ frames as it plays. An optional block
   # supplies the buttons held on each frame (the same shape as
@@ -100,7 +100,7 @@ module Preview
   # pack("m0") is base64 with no line breaks — the same bytes the base64 library would
   # give, without depending on it (Ruby 4 dropped it from the default gems).
   def self.png_data_uri(frame)
-    "data:image/png;base64,#{[RubyGBA::Graphics::PNG.encode(**frame)].pack('m0')}"
+    "data:image/png;base64,#{[VBlank::Graphics::PNG.encode(**frame)].pack('m0')}"
   end
 
   def self.uris_json(uris)
@@ -113,7 +113,7 @@ module Preview
 
   # --- command line: `ruby tools/preview.rb EXAMPLE [options]` ---
 
-  EXAMPLES_DIR = Ractor.make_shareable(RubyGBA.root.join("examples").to_s)
+  EXAMPLES_DIR = Ractor.make_shareable(VBlank.root.join("examples").to_s)
 
   # Load examples/NAME.rb and return its module (Parallax, SnakeBuffered, ...). The
   # module name is the file name camel-cased; it must expose `.program`.

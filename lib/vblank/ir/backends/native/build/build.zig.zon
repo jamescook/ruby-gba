@@ -1,0 +1,34 @@
+.{
+    .name = .vblank_native,
+    .version = "0.0.0",
+    // Together with the name, this tells zig this package is the same package
+    // from one build to the next. zig made it up; never edit it by hand.
+    .fingerprint = 0xd2f77b24f63740f1, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        // SDL3, ported to zig's build system by Carl Åstholm, so zig compiles
+        // SDL's own C sources and nothing has to be installed on the machine.
+        // Tag v0.6.0+3.4.18, which is SDL 3.4.18. The hash is of the files
+        // themselves, so a download that differs by one byte is refused.
+        //
+        // Lazy: fetched the first time a build asks for it rather than as
+        // soon as this file is read.
+        .sdl = .{
+            .url = "https://github.com/castholm/SDL/archive/dbcb19aa3583c318556ecae3ecbeb29b102d37c5.tar.gz",
+            .hash = "sdl-0.6.0+3.4.18-SDL--p-gqAGWpnfTLlhs0dgjDtc4P4_CHeNLGY_SX_Fv",
+            .lazy = true,
+        },
+        // Dear ImGui, for the menu drawn over the picture (runtime/rg_menu.cpp). It has no
+        // build.zig of its own, so build.zig compiles the few files it needs. Tag v1.93.0,
+        // named here by its commit; the hash is of the files themselves.
+        .imgui = .{
+            .url = "https://github.com/ocornut/imgui/archive/c1aaac65e896a45f81f47a4d68f9959e0f86c859.tar.gz",
+            .hash = "N-V-__8AAEVjfgCU7hthaWtlDkNjFB4HE1XYqFl6UO7oqXwD",
+            .lazy = true,
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+    },
+}

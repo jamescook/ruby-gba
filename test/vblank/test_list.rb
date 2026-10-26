@@ -1,0 +1,423 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+# `list :name, capacity: N` — a bounded, ordered collection whose length changes
+# at run time. Assert its behavior through the reference interpreter (the oracle):
+# build a small program that pushes, drops, indexes, and iterates, then read the
+# variables it leaves behind. Overflow / underflow / out-of-range surface as
+# friendly ProgramErrors, checked headlessly.
+class TestList < Minitest::Test
+  Build = VBlank::IR::Build
+
+  # Run a DSL block through the interpreter and hand back the finished run, so a
+  # test can read `interpret { ... }[:var]`. The block runs in the builder's
+  # context. (Not named `run` — that would shadow Minitest::Test#run.)
+  private def interpret(&block)
+    builder = Builder.new
+    builder.instance_eval(&block)
+    builder.finalize_program
+    game_player.run(builder.program)
+  end
+
+  # --- reading back what was pushed ---
+
+  def test_push_then_read_by_index
+    result = interpret do
+      body = list :body, capacity: 8
+      body.push 10
+      body.push 20
+      body.push 30
+      set! :a, body[0]
+      set! :b, body[1]
+      set! :c, body[2]
+      halt
+    end
+
+    assert_equal 10, result[:a]
+    assert_equal 20, result[:b]
+    assert_equal 30, result[:c]
+  end
+
+  def test_length_tracks_pushes_and_drops
+    result = interpret do
+      body = list :body, capacity: 8
+      body.push 1
+      body.push 2
+      body.push 3
+      set! :after_pushes, body.length
+      body.shift
+      set! :after_shift, body.length
+      body.pop
+      set! :after_pop, body.length
+      halt
+    end
+
+    assert_equal 3, result[:after_pushes]
+    assert_equal 2, result[:after_shift]
+    assert_equal 1, result[:after_pop]
+  end
+
+  def test_shift_drops_the_oldest
+    result = interpret do
+      body = list :body, capacity: 8
+      body.push 10
+      body.push 20
+      body.push 30
+      body.shift # drops 10
+      set! :first, body.first
+      set! :len, body.length
+      halt
+    end
+
+    assert_equal 20, result[:first], "the front is now the second item pushed"
+    assert_equal 2, result[:len]
+  end
+
+  def test_pop_drops_the_newest
+    result = interpret do
+      body = list :body, capacity: 8
+      body.push 10
+      body.push 20
+      body.push 30
+      body.pop # drops 30
+      set! :last, body.last
+      set! :len, body.length
+      halt
+    end
+
+    assert_equal 20, result[:last], "the back is now the second-to-last item pushed"
+    assert_equal 2, result[:len]
+  end
+
+  def test_index_assignment_overwrites_a_slot
+    result = interpret do
+      body = list :body, capacity: 8
+      body.push 10
+      body.push 20
+      body.push 30
+      body[1] = 99
+      set! :a, body[0]
+      set! :b, body[1]
+      set! :c, body[2]
+      halt
+    end
+
+    assert_equal [10, 99, 30], [result[:a], result[:b], result[:c]]
+  end
+
+  # --- iterating ---
+
+  def test_each_visits_every_item_front_to_back
+    result = interpret do
+      body = list :body, capacity: 8
+      body.push 10
+      body.push 20
+      body.push 30
+      # Copy each item, in order, into a second list — so the order is observable.
+      seen = list :seen, capacity: 8
+      body.each { |cell| seen.push cell }
+      set! :s0, seen[0]
+      set! :s1, seen[1]
+      set! :s2, seen[2]
+      set! :count, seen.length
+      halt
+    end
+
+    assert_equal [10, 20, 30], [result[:s0], result[:s1], result[:s2]]
+    assert_equal 3, result[:count]
+  end
+
+  def test_each_over_an_empty_list_runs_the_body_no_times
+    result = interpret do
+      body = list :body, capacity: 8
+      set! :ran, 0
+      body.each { |_cell| set! :ran, 1 }
+      halt
+    end
+
+    assert_equal 0, result[:ran], "the body never runs for an empty list"
+  end
+
+  # --- values flow through the coercion boundary ---
+
+  def test_push_and_index_accept_variables_and_value_expressions
+    result = interpret do
+      v = var :v, 42
+      body = list :body, capacity: 8
+      body.push v            # push a Value
+      body.push :v           # push by variable name (a Symbol)
+      i = var :i, 1
+      set! :by_value, body[i] # index with a Value
+      set! :by_symbol, body[:i]
+      halt
+    end
+
+    assert_equal 42, result[:by_value]
+    assert_equal 42, result[:by_symbol]
+  end
+
+  # --- capacity ---
+
+  # A LIST HOLDS WHAT IT WAS ASKED FOR, exactly. It used to hold the next power of two up,
+  # because its storage was a ring whose index was wrapped with a mask — so `capacity: 3` quietly
+  # held four, and the slots nobody planned for came out of the console's 32K. How the storage is
+  # arranged is the backend's business; how full the list gets is the author's number.
+  def test_a_list_holds_the_capacity_it_was_given_and_no_more
+    result = interpret do
+      body = list :body, capacity: 3
+      body.push 1
+      body.push 2
+      body.push 3
+      set! :len, body.length
+      halt
+    end
+
+    assert_equal 3, result[:len], "three fit"
+    assert_raises(VBlank::IR::Backends::Reference::ProgramError) do
+      interpret do
+        body = list :body, capacity: 3
+        4.times { |n| body.push n }
+        halt
+      end
+    end
+  end
+
+  def test_pushing_past_capacity_raises_a_friendly_error
+    err = assert_raises(Reference::ProgramError) do
+      interpret do
+        body = list :body, capacity: 2
+        body.push 1
+        body.push 2
+        body.push 3 # capacity is 2 — overflow
+        halt
+      end
+    end
+    assert_match(/full/i, err.message)
+  end
+
+  # --- friendly errors on misuse ---
+
+  def test_shifting_an_empty_list_raises
+    err = assert_raises(Reference::ProgramError) do
+      interpret do
+        body = list :body, capacity: 4
+        body.shift
+        halt
+      end
+    end
+    assert_match(/empty/i, err.message)
+  end
+
+  def test_popping_an_empty_list_raises
+    err = assert_raises(Reference::ProgramError) do
+      interpret do
+        body = list :body, capacity: 4
+        body.pop
+        halt
+      end
+    end
+    assert_match(/empty/i, err.message)
+  end
+
+  def test_indexing_out_of_range_raises
+    err = assert_raises(Reference::ProgramError) do
+      interpret do
+        body = list :body, capacity: 8
+        body.push 10
+        set! :oops, body[5] # only index 0 exists
+        halt
+      end
+    end
+    assert_match(/out of range/i, err.message)
+  end
+
+  def test_writing_out_of_range_raises
+    err = assert_raises(Reference::ProgramError) do
+      interpret do
+        body = list :body, capacity: 8
+        body.push 10
+        body[3] = 7 # only index 0 exists
+        halt
+      end
+    end
+    assert_match(/out of range/i, err.message)
+  end
+
+  def test_using_a_list_before_it_is_created_raises
+    # Built straight from the IR: the DSL can't express this (a handle only comes
+    # from `list`), but a stray push must still fail loudly rather than silently.
+    err = assert_raises(Reference::ProgramError) do
+      game_player.run(Build.program(Build.list_push(:ghost, 1), Build.halt))
+    end
+    assert_match(/before it was created/i, err.message)
+  end
+
+  # --- Build-level: the constructors and the capacity rule ---
+
+  class BuildContract < Minitest::Test
+    Build = VBlank::IR::Build
+
+    def test_list_new_stores_the_capacity_it_was_given
+      assert_equal 3, Build.list_new(:x, 3).capacity
+      assert_equal 100, Build.list_new(:x, 100).capacity
+    end
+
+    # The rounding is still here, and is still the rule every backend shares — but what it
+    # decides now is how much ROOM a backend sets aside for a list it wraps an index into,
+    # not how many items the list holds.
+    def test_round_up_capacity_covers_the_boundaries
+      {
+        1 => 1, 2 => 2, 3 => 4, 4 => 4, 5 => 8,
+        8 => 8, 9 => 16, 100 => 128, 256 => 256
+      }.each do |requested, rounded|
+        assert_equal rounded, Build.round_up_capacity(requested),
+                     "#{requested} rounds up to #{rounded}"
+      end
+    end
+
+    def test_capacity_must_be_a_positive_whole_number
+      assert_raises(ArgumentError) { Build.list_new(:x, 0) }
+      assert_raises(ArgumentError) { Build.list_new(:x, -4) }
+    end
+
+    def test_list_drop_direction_must_be_front_or_back
+      assert Build.list_drop(:x, from: :front)
+      assert Build.list_drop(:x, from: :back)
+      assert_raises(ArgumentError) { Build.list_drop(:x, from: :sideways) }
+    end
+  end
+
+  # --- a slot narrower than a whole number ----------------------------------------------
+  #
+  # A list slot is a whole 32-bit number unless it is told otherwise, and almost nothing a
+  # game keeps in one needs that much: a direction, a state number, a countdown, a flag. The
+  # point of asking for less is the MEMORY, so what these check is that a narrow slot holds
+  # what it says it holds and hands the same number back that the console would.
+
+  def test_a_byte_slot_holds_a_number_that_fits_it
+    result = interpret do
+      hurt = list :hurt, capacity: 8, width: :byte
+      hurt.push 0
+      hurt.push 100
+      hurt.push 127
+      set! :a, hurt[0]
+      set! :b, hurt[1]
+      set! :c, hurt[2]
+      halt
+    end
+
+    assert_equal [0, 100, 127], [result[:a], result[:b], result[:c]]
+  end
+
+  # A NARROW SLOT GOES BELOW NOTHING WITHOUT BEING ASKED, and this is the case it exists for:
+  # a countdown is written `sub!` first and tested second, so it really does hold a negative
+  # number while the test runs. A slot that could not hold one would read -4 back as 252 and
+  # the test would never fire — which is a game that silently stops working, not an error.
+  def test_a_countdown_can_go_below_nothing_in_a_byte_slot
+    result = interpret do
+      wait = list :wait, capacity: 4, width: :byte
+      wait.push 3
+      wait[0] = wait[0] - 7
+      set! :a, wait[0]
+      set! :b, 0
+      (wait[0] <= 0).then { set! :b, 1 }
+      halt
+    end
+
+    assert_equal(-4, result[:a], "three take seven is below nothing and the slot holds it")
+    assert_equal 1, result[:b], "so the countdown's own test fires"
+  end
+
+  # A number too big for its slot keeps the low bits, which is what the console's byte store
+  # does. Silently, because there is nothing else a store CAN do — what stops it being a trap
+  # is that both backends drop exactly the same bits.
+  def test_a_number_too_big_for_a_byte_slot_keeps_the_low_bits
+    result = interpret do
+      hurt = list :hurt, capacity: 4, width: :byte
+      hurt.push 200
+      hurt.push 300
+      set! :a, hurt[0]
+      set! :b, hurt[1]
+      halt
+    end
+
+    assert_equal(-56, result[:a], "200 does not fit a byte that can go below nothing")
+    assert_equal 44, result[:b], "300 is 256 and 44, and the 256 does not fit"
+  end
+
+  # THERE IS NO WAY TO ASK FOR A SLOT THAT CANNOT GO BELOW NOTHING, on purpose. A `table` can
+  # be asked, because every value in one is known while the cartridge is built; a list's are
+  # written while the game runs, so nothing could check the answer was right — and the wrong
+  # answer breaks countdowns silently.
+  def test_a_narrow_slot_takes_no_signedness_to_get_wrong
+    error = assert_raises(ArgumentError) do
+      Builder.new.instance_eval { list :body, capacity: 8, width: :byte, signed: false }
+    end
+    assert_match(/signed/, error.message)
+  end
+
+  def test_a_half_slot_holds_more_than_a_byte_can
+    result = interpret do
+      big = list :big, capacity: 4, width: :half
+      big.push 32_767
+      big.push(-32_768)
+      set! :a, big[0]
+      set! :b, big[1]
+      halt
+    end
+
+    assert_equal 32_767, result[:a]
+    assert_equal(-32_768, result[:b])
+  end
+
+  # THE WHOLE POINT, ASSERTED: a narrow list really is smaller in the console's memory. Read
+  # off the backend's own allocator rather than inferred, so nothing can claim the saving
+  # without making it.
+  def test_a_narrow_list_takes_less_of_the_consoles_memory
+    used = { word: nil, half: nil, byte: nil }.keys.to_h do |width|
+      builder = Builder.new
+      builder.instance_eval do
+        list :room, capacity: 256, width: width
+        halt
+      end
+      builder.finalize_program
+      backend = GBA.new
+      backend.lower(builder.program)
+      [width, backend.iwram_report.used_bytes]
+    end
+
+    assert_equal 256 * 3, used[:word] - used[:byte], "a byte slot saves three of every four"
+    assert_equal 256 * 2, used[:word] - used[:half], "and a half slot saves two"
+  end
+
+  # Many numbers fill the part of the console's memory that is always in view, so the last of
+  # them are kept further on. A painted screen still keeps every number right.
+  def test_a_painted_game_keeps_every_number_when_it_has_many
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      seen = list :seen, capacity: 120
+      90.times { |i| var :"spare#{i}", i }
+      count = var :count, 0
+      game_loop do
+        clear_screen :black
+        count.add! 1
+        seen.push count
+        fill_rect 8, 8, 16, 8, :white
+      end
+    end
+    builder.finalize_program
+    run = game_player.run(builder.program, frames: 6)
+
+    assert_equal 6, run[:count]
+    assert_equal [1, 2, 3, 4, 5, 6], run.list(:seen)
+  end
+
+  def test_a_width_the_list_does_not_know_is_refused
+    error = assert_raises(ArgumentError) do
+      Builder.new.instance_eval { list :body, capacity: 8, width: :nibble }
+    end
+    assert_match(/:byte, :half or :word/, error.message)
+  end
+end

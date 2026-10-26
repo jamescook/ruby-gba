@@ -3,14 +3,14 @@
 require "test_helper"
 
 require "stringio"
-require RubyGBA.root.join("examples/maze").to_s
+require VBlank.root.join("examples/maze").to_s
 
 # The Maze example (examples/maze.rb): a hero walks a tiled room and is stopped by the
 # wall tiles (a tileset with `solid:` bricks + a sprite `blocked_by` the room). Proves
 # the room renders, the hero starts on the floor, and holding into a wall stops it flush
 # instead of passing through — on the interpreter oracle and on real hardware.
 class TestMazeExample < Minitest::Test
-  include RubyGBA::Console::Hardware
+  include VBlank::Console::Hardware
 
   HERO = Color.rgb(31, 20, 0)  # the hero disc's body
   BRICK = Color.rgb(20, 10, 8) # a wall brick

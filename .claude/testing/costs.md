@@ -6,7 +6,7 @@ deleted). A test that says "this is more work than that" has two honest instrume
 **What the build emitted**, for code that is a straight run of instructions:
 
 ```ruby
-RubyGBA::IR::Backends::GBA.new.lower(program).bytesize
+VBlank::IR::Backends::GBA.new.lower(program).bytesize
 ```
 
 Right for "a tiny font emits less than the default one". Wrong wherever machinery is shared — a
@@ -16,7 +16,7 @@ reads very differently in two programs.
 **What the console really did**, for anything about time:
 
 ```ruby
-result = RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
+result = VBlank::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
 result.idle_share        # how much of each frame was left over — the usual one
 result.fps               # 60.0, or less when a pass does not fit in a frame
 result.samples_per_frame # instructions a frame
@@ -31,5 +31,5 @@ spills into the next, so a slower build runs fewer instructions per frame. A pro
 sleeps idles at 0.0 either way; compare `fps` for those.
 
 **Tearing.** Whether a game can tear is a fact of its screen, and `BuildReport` says it. Whether
-it does is a race a profile reads (`RubyGBA::Diagnostics::Tearing`), except on a screen with no
+it does is a race a profile reads (`VBlank::Diagnostics::Tearing`), except on a screen with no
 framebuffer, where it says nothing rather than "no tear".

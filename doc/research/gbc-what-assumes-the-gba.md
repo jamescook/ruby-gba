@@ -27,7 +27,7 @@ are two separate sources of the same fact, tied together only by a test, and fiv
 
 ## The map
 
-Paths are under `lib/ruby_gba/`. **C** marks a console fact, to be read from the description;
+Paths are under `lib/vblank/`. **C** marks a console fact, to be read from the description;
 **L** the GBA lowering's own; **P** a picker that should choose by console.
 
 ### The screen size
@@ -90,7 +90,7 @@ Paths are under `lib/ruby_gba/`. **C** marks a console fact, to be read from the
 
 | where | what | side |
 |---|---|---|
-| `lib/ruby_gba.rb:171,193` | `RubyGBA.build` names `Backends::GBA` and `Cartridge::ROM` | P — the checking steps above them are neutral |
+| `lib/vblank.rb:171,193` | `VBlank.build` names `Backends::GBA` and `Cartridge::ROM` | P — the checking steps above them are neutral |
 | `testing/pictures.rb:178`, `test/test_helper.rb:108`, `diagnostics/analyzer.rb:421`, `ir/dump.rb:130` | four more places that make a GBA cartridge by name | P where they serve tests of the game; L where they serve the profiler |
 | `cartridge/rom.rb`, `header.rb`, `game_code.rb`, `rom_validator.rb` | the GBA header, entry branch, checksum, logo, four-character code | L — a GBC cartridge has its own header (0x100–0x14F), its own two checksums and a memory bank controller; it is a class of its own beside `ROM` |
 | `cartridge/options.rb:25` | `fast_cartridge`, `fast_code`, `stack_room`, `save_memory` | L for the first three; `save_memory` is neutral once the kind is explicit |
@@ -141,7 +141,7 @@ the check for that is every example built before and after, byte for byte.
    frame, too many sprites, too many background layers.
 5. **The interpreter sizes its screen from the program**, and every `Screen::HEIGHT` inside it
    becomes the screen's own height.
-6. **`RubyGBA.build` picks its lowering and cartridge by console** — the GBA's are the only ones
+6. **`VBlank.build` picks its lowering and cartridge by console** — the GBA's are the only ones
    until the GBC lowering exists — and `Game#default_filename` takes the console's extension.
 7. **The save layout says its kind** — and, as it turned out, need not yet. A Game Boy Color
    cartridge's battery-backed memory is written a byte at a time, as the Advance's 32K is, so the

@@ -34,7 +34,7 @@
 # its rows are one unbroken run of memory and the whole band goes in as a single
 # transfer rather than one per row.
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Raycaster
   MAP_W = 8 # an 8x8 maze: a solid border ring with a few inner walls
@@ -74,14 +74,14 @@ module Raycaster
 
   # The palette. Sky and floor bracket the eye line, and the three wall shades are the
   # depth cue: a near wall catches the light, a far one falls into the gloom.
-  SKY = Ractor.make_shareable(RubyGBA::Graphics::Color.rgb(5, 7, 12))
-  FLOOR = RubyGBA::Graphics::Color.rgb(11, 8, 5)
-  NEAR = Ractor.make_shareable(RubyGBA::Graphics::Color.rgb(29, 27, 23))
-  MID = RubyGBA::Graphics::Color.rgb(20, 18, 15)
-  FAR = Ractor.make_shareable(RubyGBA::Graphics::Color.rgb(11, 10, 9))
+  SKY = Ractor.make_shareable(VBlank::Graphics::Color.rgb(5, 7, 12))
+  FLOOR = VBlank::Graphics::Color.rgb(11, 8, 5)
+  NEAR = Ractor.make_shareable(VBlank::Graphics::Color.rgb(29, 27, 23))
+  MID = VBlank::Graphics::Color.rgb(20, 18, 15)
+  FAR = Ractor.make_shareable(VBlank::Graphics::Color.rgb(11, 10, 9))
   WALL_SHADES = [NEAR, MID, FAR].freeze
 
-  GAME = RubyGBA.game("RAYCAST", consoles: %i[gba]) do
+  GAME = VBlank.game("RAYCAST", consoles: %i[gba]) do
     screen :bitmap, tear_free: true # double-buffered: the whole view is repainted each frame
 
     # A table written with Floats holds numbers with a fraction, and every read from it

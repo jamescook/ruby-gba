@@ -4,7 +4,7 @@ require "test_helper"
 
 require "stringio"
 require "tmpdir"
-require RubyGBA.root.join("tools/emitted_baseline").to_s
+require VBlank.root.join("tools/emitted_baseline").to_s
 
 # The recorded size of every example, and the check that nothing grew past it
 # (tools/emitted_baseline.rb, `rake emitted:record` / `rake emitted:check`).

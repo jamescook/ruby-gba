@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require RubyGBA.root.join("examples/hero").to_s
+require VBlank.root.join("examples/hero").to_s
 
 # The Hero example (examples/hero.rb): a follow-you camera — a hardware sprite
 # pinned to the center of the screen while a world bigger than the screen scrolls
@@ -55,7 +55,7 @@ class TestHeroExample < Minitest::Test
   # the file is empty, and A again starts the game. Nothing in it is counted, so each
   # test's own script begins with the hero standing in the world.
   private def new_game_lead_in
-    RubyGBA.playthrough "hero: a new game" do
+    VBlank.playthrough "hero: a new game" do
       wait frames: 10
       press :a
       wait frames: 4
@@ -77,7 +77,7 @@ class TestHeroExample < Minitest::Test
   # the last frame left it.
   private def console_after(name, rom, &steps)
     require_emulator!
-    RubyGBA.playthrough("hero: #{name}", &steps).play(rom, lead_in: new_game_lead_in).game
+    VBlank.playthrough("hero: #{name}", &steps).play(rom, lead_in: new_game_lead_in).game
   end
 
   def test_the_example_builds_clean

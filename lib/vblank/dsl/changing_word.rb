@@ -1,0 +1,61 @@
+# frozen_string_literal: true
+
+module VBlank
+  module DSL
+    # A WORD THAT CHANGES A VARIABLE ENDS IN `!`, and this is the sentence that says so when one
+    # is written without it — on a variable's handle, on a pool field, and as a flat verb.
+    #
+    # It lives in one place because the wording and the advice under it are one promise to the
+    # reader: the same slip should read the same way whichever of the three shapes it was written
+    # in. Written twice, the two copies differed in how they named an operand, and one of them
+    # answered a variable by describing the whole build.
+    module ChangingWord
+      module_function
+
+      # +written+ is the call as the author wrote it (`hp.add`, `add :hp, 1`), +bang+ the same with
+      # its `!`, +instead+ how to get the same number without changing anything, and +at+ the line
+      # they wrote it on.
+      def refusal(written:, bang:, instead: "", at: "")
+        "`#{written}` does not change a variable. A word that changes a variable ends in `!`. " \
+          "To change it, write `#{bang}`.#{instead}#{at}"
+      end
+
+      # ...and that advice, for a word whose new-number form is an operator: `hp + 1`. The two
+      # sides are named the way the author would write them, and a side with no name to give — an
+      # expression worked out on the spot — leaves the advice out rather than describing itself.
+      def operator_advice(left, operator, right, handles: false)
+        left = as_source_text(left)
+        right = as_source_text(right)
+        return "" if operator.nil? || left.nil? || right.nil?
+
+        tail = handles ? " with the handles that `var` gives you" : ""
+        " To get a new number and keep the variable as it is, write `#{left} #{operator} #{right}`#{tail}."
+      end
+
+      # The arguments of a flat verb as the author wrote them: a name with its colon, a number as
+      # itself, a variable's handle by the variable's name. Anything else — a number worked out
+      # on the spot — has no name, and stands as `...`. Inspecting it instead would describe the
+      # whole build, since a handle holds the builder that made it.
+      def arguments_text(arguments)
+        arguments.compact.map do |argument|
+          case argument
+          when Symbol, Numeric, String, true, false then argument.inspect
+          else as_source_text(argument) || "..."
+          end
+        end.join(", ")
+      end
+
+      # An operand as the author would write it: a variable by its own name, a number as itself.
+      # Nil for anything else, which has no name to be written by.
+      def as_source_text(operand)
+        case operand
+        when nil then nil
+        when Symbol then operand.to_s
+        when Numeric then operand.inspect
+        when String then operand
+        else operand.name&.to_s if operand.respond_to?(:name)
+        end
+      end
+    end
+  end
+end

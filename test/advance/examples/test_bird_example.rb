@@ -2,14 +2,14 @@
 
 require "test_helper"
 
-require RubyGBA.root.join("examples/bird").to_s
+require VBlank.root.join("examples/bird").to_s
 
 # The Bird example (examples/bird.rb): a sprite imported straight from a native .aseprite
 # file — the whole animated bird, composited from its seven layers, with no export step.
 # Proves it builds a clean ROM and the bird actually renders over the sky, on the
 # interpreter oracle and on the console.
 class TestBirdExample < Minitest::Test
-  SKY = RubyGBA::Graphics::Color.rgb(12, 18, 28) # the background tile color
+  SKY = VBlank::Graphics::Color.rgb(12, 18, 28) # the background tile color
 
   def test_it_builds_a_rom
     assert_operator Bird.build_rom(out: StringIO.new, err: StringIO.new).size, :>, 0
@@ -55,6 +55,6 @@ class TestBirdExample < Minitest::Test
   # writes — read off the variable the pulse walks.
   private def drawn_size(frames)
     interp = game_player.run(Bird.program, frames: frames, max_steps: 50_000_000)
-    interp[:__obj1_scale] / RubyGBA::IR::Build::SCALE_ONE.to_f
+    interp[:__obj1_scale] / VBlank::IR::Build::SCALE_ONE.to_f
   end
 end

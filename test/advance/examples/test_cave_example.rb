@@ -4,12 +4,12 @@ require "test_helper"
 require "differential"
 
 require "stringio"
-require RubyGBA.root.join("examples/cave").to_s
+require VBlank.root.join("examples/cave").to_s
 
 # The Cave example (examples/cave.rb): a hero with a lantern walks out of a dark cave, the
 # screen closes in a circle on them, and it opens onto a meadow in daylight. The light and
-# the iris themselves are pinned in test/ruby_gba/builder/test_spotlight.rb and
-# test/ruby_gba/effects/packs/test_iris.rb; this confirms the example builds, that holding
+# the iris themselves are pinned in test/vblank/builder/test_spotlight.rb and
+# test/vblank/effects/packs/test_iris.rb; this confirms the example builds, that holding
 # RIGHT takes the hero all the way out, and that the console draws the same picture on the
 # way.
 class TestCaveExample < Minitest::Test

@@ -1,0 +1,41 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+# The cross-backend contracts that live in the IR core (peers of IR::Int32): the
+# button vocabulary and the screen model. Every backend must agree on these, so
+# these tests pin the single source of truth and guard the backends against
+# quietly drifting from it.
+class TestIRContracts < Minitest::Test
+  Buttons = VBlank::IR::Buttons
+  Screen = VBlank::IR::Screen
+
+  def test_the_button_vocabulary_is_the_ten_gba_buttons
+    assert_equal %i[a b down l left r right select start up], Buttons::NAMES.sort
+    assert Buttons.known?(:start)
+    refute Buttons.known?(:turbo)
+  end
+
+  def test_the_gba_backend_maps_exactly_the_shared_vocabulary
+    # The console's name -> key-bit mapping must cover every shared button and no
+    # stragglers. If they drift, a valid button would fail to lower (or a bogus
+    # one would sneak in a mapping) — this catches that at the seam.
+    mapped = VBlank::IR::Backends::GBA::BUTTON_BIT.keys
+    assert_equal Buttons::NAMES.sort, mapped.sort
+  end
+
+  def test_the_screen_size_has_a_single_source_of_truth
+    assert_equal 240, Screen::WIDTH
+    assert_equal 160, Screen::HEIGHT
+    # The GBA hardware constants are an alias for the contract, not a second copy.
+    assert_equal Screen::WIDTH, VBlank::Console::Hardware::SCREEN_WIDTH
+    assert_equal Screen::HEIGHT, VBlank::Console::Hardware::SCREEN_HEIGHT
+  end
+
+  # Before it plays a program, the interpreter's screen is the one a program that names no
+  # console is played on.
+  def test_an_interpreter_that_has_played_nothing_has_the_advances_screen
+    screen = VBlank::IR::Backends::Reference.new.screen
+    assert_equal [240, 160], [screen.width, screen.height]
+  end
+end

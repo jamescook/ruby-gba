@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require RubyGBA.root.join("examples/tiles").to_s
+require VBlank.root.join("examples/tiles").to_s
 
 # The tiles example (examples/tiles.rb): a whole room drawn out of four 8x8 tiles
 # stamped onto a grid by a character map. Proves the tiles/background surface

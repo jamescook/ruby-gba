@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require RubyGBA.root.join("examples/corridor").to_s
+require VBlank.root.join("examples/corridor").to_s
 
 # The corridor example (examples/corridor.rb): the corpus's witness NEAR THE LINE.
 #
@@ -12,9 +12,9 @@ require RubyGBA.root.join("examples/corridor").to_s
 # it is a real game that draws a real picture, and it is heavy enough that a change which
 # pushed it over would be caught here.
 class TestCorridorExample < Minitest::Test
-  include RubyGBA::Console::Hardware
+  include VBlank::Console::Hardware
 
-  # RubyGBA.build runs the guardrails and the ROM-image validation, so a clean build IS
+  # VBlank.build runs the guardrails and the ROM-image validation, so a clean build IS
   # the check.
   def test_the_example_builds_clean
     assert_operator Corridor.build_rom.size, :>, 0, "the built ROM should be non-empty"
@@ -75,7 +75,7 @@ class TestCorridorExample < Minitest::Test
 
   private def profile_of(game)
     rom = game.build_rom(out: StringIO.new, err: StringIO.new, profile: false)
-    RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
+    VBlank::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
   end
 
   private def idle_share_of(game) = profile_of(game).idle_share

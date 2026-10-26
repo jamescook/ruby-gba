@@ -3019,7 +3019,7 @@ mgba_core_cpu_halted_p(VALUE self)
  * edges. Callers that need one number take the larger of the two rather than
  * trusting either alone, and dma_cycles clamps the difference at zero.
  *
- * WHAT NONE OF THIS AFFECTS: RubyGBA's profiler, which counts instructions by
+ * WHAT NONE OF THIS AFFECTS: VBlank's profiler, which counts instructions by
  * sampling the program counter and reads its sleep off global time. Nothing
  * that decides anything goes through here. */
 static inline uint32_t

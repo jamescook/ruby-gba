@@ -28,7 +28,7 @@
 # Run it to build examples/jukebox.gba:
 #   ruby examples/jukebox.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Jukebox
   # --- Layout (pixels; the screen is 240x160, origin top-left) ---
@@ -56,7 +56,7 @@ module Jukebox
     { name: :chorale,    label: "PIANO CHORDS", color: :green },
   ])
 
-  Score = RubyGBA::Audio::Score
+  Score = VBlank::Audio::Score
   Part = Score::Part
   Note = Score::Note
 
@@ -83,7 +83,7 @@ module Jukebox
     Note.new(at: 0, key: :G5, length: 4), Note.new(at: 4, key: :C6, length: 4),
   ])]))
 
-  GAME = Ractor.make_shareable(RubyGBA.game("JUKEBOX", consoles: %i[gba]) do
+  GAME = Ractor.make_shareable(VBlank.game("JUKEBOX", consoles: %i[gba]) do
     # Double-buffered so the full repaint each frame can't tear: we draw the whole
     # menu to a hidden screen and show it all at once.
     screen :bitmap, tear_free: true

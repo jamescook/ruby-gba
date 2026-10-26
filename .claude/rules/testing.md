@@ -22,24 +22,24 @@ you need before writing a test that uses it:
 
 ## Where a test file goes
 
-`test/` mirrors lib's directories (not its files): a test of `lib/ruby_gba/audio/score.rb` is in
-`test/ruby_gba/audio/`, of `cli.rb` in `test/ruby_gba/`, of an example in `test/examples/` (or
+`test/` mirrors lib's directories (not its files): a test of `lib/vblank/audio/score.rb` is in
+`test/vblank/audio/`, of `cli.rb` in `test/vblank/`, of an example in `test/examples/` (or
 `test/advance/examples/` for a game for the Advance alone), of a tool in `test/tools/`. A new
 directory under `test/` needs one under `lib/` first. The exceptions are
-`test/ruby_gba/ir/backends/native/examples/` and `test/ruby_gba/ir/backends/gbc/examples/`, which
+`test/vblank/ir/backends/native/examples/` and `test/vblank/ir/backends/gbc/examples/`, which
 mirror `examples/`, and `test/advance/`, which mirrors `test/` (below).
 
 A test belongs to the file a person opens first when it fails:
 
 - A DSL program checked for what it does → the builder file that defines the verb,
-  `test/ruby_gba/builder/` (`grep -n "def <verb>" lib/ruby_gba/builder/*.rb`). A method on a
-  handle (`sprite.face_angle`, `list.shift`) → the dsl file defining it, `test/ruby_gba/dsl/`.
+  `test/vblank/builder/` (`grep -n "def <verb>" lib/vblank/builder/*.rb`). A method on a
+  handle (`sprite.face_angle`, `list.shift`) → the dsl file defining it, `test/vblank/dsl/`.
 - Hand-built IR checked on one backend → that backend's folder.
-- One guardrail's friendly error → `test/ruby_gba/ir/guardrails/`.
+- One guardrail's friendly error → `test/vblank/ir/guardrails/`.
 - A number about the build or the run (bytes, frames, dropped sounds) → the file that makes the
-  number, usually a backend or `test/ruby_gba/diagnostics/`.
+  number, usually a backend or `test/vblank/diagnostics/`.
 - A command → the file that does its work. `ruby-gba play` and `compare` are done by
-  `lib/ruby_gba/playthroughs/command_line.rb`, so their tests are in `test/ruby_gba/playthroughs/`.
+  `lib/vblank/playthroughs/command_line.rb`, so their tests are in `test/vblank/playthroughs/`.
 
 Never by which backend a test asserts against: one behaviour checked on the interpreter and the
 emulator is one test, with the thing.
@@ -74,10 +74,10 @@ end
 and the Verifier), `GBA`, `Builder`, `Color`, `ROM`, and `EmulatorSupport`
 (`assert_emulator_loads_rom`, `assemble_rom`, `require_emulator!`). Do not re-declare them; a
 constant declared in the file wins where it needs the name for something else. Narrower helpers
-are opt-in: `include Differential`, `include CostArith`, `include RubyGBA::IR::Build`.
+are opt-in: `include Differential`, `include CostArith`, `include VBlank::IR::Build`.
 
 Commands and which run a change needs are in `runs.md`. One whole run holds the machine at a
-time; in a worktree set `RUBY_GBA_SUITE_LOCK=checkout`.
+time; in a worktree set `VBLANK_SUITE_LOCK=checkout`.
 
 ## Every test plays on every lowering
 
@@ -129,15 +129,15 @@ and on real hardware:
 
 A position decided while a frame is being drawn cannot appear in that frame, so this is not
 something to design away. In a test, run one frame further before reading the picture, or read
-the variable a frame earlier. `test/ruby_gba/ir/test_frame_pairing.rb` pins both halves. It only
+the variable a frame earlier. `test/vblank/ir/test_frame_pairing.rb` pins both halves. It only
 bites a test that pairs a picture with a variable.
 
 ## Building the program under test
 
-- **IR directly**, when the lowering is under test: `include RubyGBA::IR::Build`, then
+- **IR directly**, when the lowering is under test: `include VBlank::IR::Build`, then
   `program(screen(:bitmap), clear_screen(:white), bitmap(:s, width:, height:, pixels:, transparent:), blit(:s, x, y), halt)`.
-- **DSL**, when the surface is: `b = RubyGBA::Builder.new; b.instance_eval { … }; b.finalize_program; b.program`,
-  or `RubyGBA.build("NAME", console: :gba) { … }` for a ROM (pass `out:`/`err:` a `StringIO` to assert
+- **DSL**, when the surface is: `b = VBlank::Builder.new; b.instance_eval { … }; b.finalize_program; b.program`,
+  or `VBlank.build("NAME", console: :gba) { … }` for a ROM (pass `out:`/`err:` a `StringIO` to assert
   warnings). A build always names its console. A Builder or a hand-built `program(...)` names none, and each
   run plays it as that run's console.
   Don't write a `code:`: made-up codes collide with real cartridges, which is a build error.

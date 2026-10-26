@@ -1,0 +1,213 @@
+# frozen_string_literal: true
+
+module VBlank
+  module IR
+    module Backends
+      class GBA
+        # Func bodies live after the main code. A leading endless loop guards against
+        # the main flow running off its end into the first body. Each func saves the
+        # return address and restores it as the program counter.
+        #
+        # The routines that stay in the cartridge. The ones chosen to run from the
+        # console's quick memory are emitted separately, as one block (see
+        # {Placement}#emit_hot_functions), because that block is copied wholesale —
+        # #placement answers which, and #emit_one_function is what emits either kind.
+        class Functions
+          # +modes+ is the IR::Modes result GBA#resolve_modes builds each #lower — not
+          # known at construction, so it's set afterward with #modes= rather than
+          # passed in here. +scene_preamble+ is Drawing's own #emit_scene_preamble,
+          # handed in as a bound method rather than a reference to Drawing as a whole, and
+          # +scene_late_pages+ its #emit_scene_late_pages the same way.
+          def initialize(emitter:, lowering:, placement:, scene_preamble:, scene_art:, scene_arrival_pass:,
+                         scene_late_pages:)
+            @emitter = emitter
+            @lowering = lowering
+            @placement = placement
+            @scene_preamble = scene_preamble
+            @scene_late_pages = scene_late_pages
+            @scene_art = scene_art
+            @scene_arrival_pass = scene_arrival_pass
+            @modes = nil
+            @funcs = {}
+            @minted = {}
+            @func_ranges = {}
+            @number_tables = {}
+          end
+
+          attr_writer :modes
+          attr_reader :funcs, :func_ranges
+
+          # Where each routine's number table is, for the routines that have one: the last
+          # part of the routine's own span, which holds numbers and not instructions. Anything
+          # that reads a routine back as code (dump_func) has to know where the code stops.
+          attr_reader :number_tables
+
+          # A ROUTINE THIS BACKEND MADE UP FOR ITSELF, with a block for a body rather than
+          # statements of the program — because nothing in the program asked for it. Something
+          # the console needs done in one place rather than written out again at every point
+          # it is needed (see SpriteDrawing#emit_write_sprite_rows).
+          #
+          # It is a routine like any other from here on: emitted with the rest, and reached by
+          # `call` under the same name. The chooser ranks routines by what a frame spends in
+          # each, which it reads off the program, and this one is not in there to be read — so
+          # it stays in the cartridge unless the chooser is told about it by name, which it is
+          # for each scene's moving sprites and each see-through layer's amounts (see
+          # Placement#scene_routines), and for each big map's view (see
+          # Placement#routines_placed_with_frame).
+          def define_generated_func(name, &body)
+            @funcs[name] = Build.func(name)
+            @minted[name] = body
+          end
+
+          # Is +name+ one of those?
+          def generated_func?(name) = @minted.key?(name)
+
+          def emit_functions
+            cold = @funcs.reject { |name, _| @placement.emitted_for_quick_memory?(name) }
+            return if cold.empty?
+
+            @emitter.emit(ASM.loop_forever) # fall-through guard
+            cold.each { |name, fnode| emit_one_function(name, fnode) }
+          end
+
+          # One routine: save the return address, run the body, return. Shared by both
+          # places routines are emitted, so where a routine lives cannot change what it
+          # does.
+          #
+          # A routine going into the quick memory keeps its big numbers in a table after
+          # its return (see {NumberTable}), and the table is part of the routine: it is
+          # inside the span, so it is counted in the routine's size and copied with it.
+          def emit_one_function(name, fnode)
+            start = @emitter.pos
+            table = @placement.number_table_for(name)
+            if table
+              @emitter.open_number_table(measured_bytes: table.measured_bytes, read_within: table.read_within,
+                                         routine: name)
+            end
+            @emitter.place_label(func_label(name))
+            @emitter.emit(ASM.push(14))                          # push {lr}
+            minted = @minted[name]
+            # Draws in this func lower in its resolved mode; a scene (a per-frame
+            # entry point) also switches the hardware to that mode as it takes over.
+            @lowering.in_mode(@modes.func_mode.fetch(name, @modes.default_mode)) do
+              next minted.call if minted
+
+              @scene_late_pages.call(name) # what this scene's screen does with a late page
+              if @modes.scene_funcs.include?(name)
+                # ...a preamble: what this scene has to tell the display as it takes over.
+                # That is the screen mode, in a program that switches it per scene, and the
+                # layers this scene uses, in one whose scenes use different ones. A program
+                # that needs neither emits nothing here.
+                @scene_preamble.call(name)
+                # ...and its own sprite pictures, which scenes share the room for, so a
+                # scene taking over sends its own and one already running sends nothing.
+                @scene_art.call(name)
+                # ...and, with its pictures up, the end of the pass it took over on, for a scene
+                # that has that pass to itself.
+                @scene_arrival_pass.call(name)
+              end
+              fnode.children.each { |stmt| @lowering.statement(stmt) }
+            end
+            @emitter.emit(ASM.pop(15))                           # pop {pc}  (return)
+            table_start = @emitter.pos
+            @emitter.close_number_table
+            @number_tables[name] = (table_start...@emitter.pos) if @emitter.pos > table_start
+            @func_ranges[name] = (start...@emitter.pos)          # byte span, table and all
+          end
+
+          def func_label(name)
+            "func_#{name}"
+          end
+
+          # Multi-way dispatch lowers to one "if the variable equals this value, call
+          # that scene" per clause — reusing the ordinary if/compare/call path. Each
+          # comparison reloads from memory itself, so a scene call is free to clobber
+          # every register without disturbing the dispatch.
+          #
+          # WHICH IS WHY THE VALUE IS COPIED ASIDE FIRST, and it is the whole of this
+          # method. Reloading is right; reloading THE STATE VARIABLE would not be, because
+          # the scene that just ran is usually the thing that changes it. A title screen
+          # sets the state to the menu and returns, and the next comparison would ask "is
+          # it the menu?", find that it is, and run the menu too — in the same pass, on the
+          # same snapshot of the pad, so the menu answers the press that left the title.
+          # Every clause past the one that ran is another scene the player never asked for,
+          # and a game numbers its screens in the order they are met, so an ordinary
+          # transition goes forward and falls the length of the table.
+          #
+          # Nothing a scene does can reach the copy, so the clauses all answer the state as
+          # it was when the dispatch was reached and exactly one runs. That is what running
+          # a scene per frame means, and it is what the interpreter does — it reads the
+          # variable once and compares each clause against that reading.
+          def emit_case(node)
+            picked = :"_picked_#{node.var}"
+            @lowering.statement(Build.copy(picked, node.var))
+            @entering_scene_set = @placement.emit_scene_set_entry if @placement.swaps_at?(node)
+            node.clauses.each do |value, target|
+              test = Build.binop(:==, Build.var_ref(picked), Build.int(value))
+              next emit_clause_entering_scene_set(test, target) if @placement.swaps_at?(node)
+
+              @lowering.statement(Build.if_(test, Build.call(target)))
+            end
+          end
+
+          # A CLAUSE OF THE DISPATCH THAT SWAPS: the scene's own routines are copied into the
+          # quick memory before its routine is called, unless they are in already (see
+          # SceneQuickMemory). The swap belongs on the branch that calls the scene, so a pass
+          # that calls no new scene copies nothing.
+          def emit_clause_entering_scene_set(test, target)
+            skip = @emitter.gensym
+            @lowering.value(test)
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, skip, cond: :eq)
+            # A scene with no routines of its own leaves whichever set is in, in: its code is
+            # still there, and the words saying where each routine is are still right.
+            if @placement.scene_keeps_routines?(target)
+              @emitter.emit(ASM.load_immediate(ACC, @placement.scene_set_number(target)))
+              @emitter.emit_branch(:bl, @entering_scene_set)
+            end
+            @lowering.statement(Build.call(target))
+            @emitter.place_label(skip)
+          end
+
+          # A CALL PICKED BY NUMBER, which costs the same for a list of two as for a list of
+          # two hundred. The dispatch above asks each clause in turn — a compare, a branch and a
+          # load of the copy for every one, all of them asked every time — so a long list is a
+          # long run of questions. This asks none: the number is how far along a table of
+          # addresses to read (see Placement#routine_table), and the word it finds is where the
+          # routine starts.
+          #
+          # ONE TEST GUARDS BOTH ENDS. Compared as a number that cannot be negative, -1 reads as
+          # the biggest number there is, so "is it at least the length?" catches a number below 0
+          # as well as one past the end — and either way nothing is called, where reading the
+          # table there would jump to whatever the next word happened to hold.
+          #
+          # The console cannot call an address held in a register in one instruction, so the
+          # return address is set by hand (Emit#emit_call_through), exactly as a call that
+          # crosses into the quick memory does. The label after it is where both roads meet.
+          def emit_call_one_of(node)
+            table = @placement.routine_table(node.targets)
+            none = @emitter.gensym
+            @lowering.value(node.which)                                # r0 = which routine
+            emit_compare_acc(node.targets.length)
+            @emitter.emit_branch(:bcond, none, cond: :hs)              # past the end, or below 0
+            @emitter.emit_load_data_address(ADDR, table)               # r12 = the table
+            @emitter.emit(ASM.ldr_reg_lsl(ADDR, ADDR, ACC, 2))         # r12 = where that routine starts
+            @emitter.emit_call_through(ADDR)
+            @emitter.place_label(none)
+          end
+
+          private
+
+          # Compare r0 with +count+: in the instruction when it fits there, or through r1 when
+          # it is too big to.
+          def emit_compare_acc(count)
+            return @emitter.emit(ASM.cmp_imm(ACC, count)) if ASM.encode_rotated_immediate(count)
+
+            @emitter.emit_number(TMP, count)
+            @emitter.emit(ASM.cmp_reg(ACC, TMP))
+          end
+        end
+      end
+    end
+  end
+end

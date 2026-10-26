@@ -26,7 +26,7 @@
 # cell to take it, and the bar counts what you have. Build it:
 #   ruby examples/corridor.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Corridor
   MAP_W = 8 # an 8x8 maze: a solid border ring with a few inner walls
@@ -69,13 +69,13 @@ module Corridor
   MAX_H = VIEW_H - 8
   MIN_H = 6
 
-  SKY = Ractor.make_shareable(RubyGBA::Graphics::Color.rgb(4, 6, 11))
-  FLOOR = RubyGBA::Graphics::Color.rgb(10, 7, 4)
-  NEAR = Ractor.make_shareable(RubyGBA::Graphics::Color.rgb(29, 26, 20))
-  MID = RubyGBA::Graphics::Color.rgb(19, 17, 13)
-  FAR = Ractor.make_shareable(RubyGBA::Graphics::Color.rgb(10, 9, 8))
-  BAR = RubyGBA::Graphics::Color.rgb(2, 2, 4)
-  GOLD_C = RubyGBA::Graphics::Color.rgb(31, 27, 6)
+  SKY = Ractor.make_shareable(VBlank::Graphics::Color.rgb(4, 6, 11))
+  FLOOR = VBlank::Graphics::Color.rgb(10, 7, 4)
+  NEAR = Ractor.make_shareable(VBlank::Graphics::Color.rgb(29, 26, 20))
+  MID = VBlank::Graphics::Color.rgb(19, 17, 13)
+  FAR = Ractor.make_shareable(VBlank::Graphics::Color.rgb(10, 9, 8))
+  BAR = VBlank::Graphics::Color.rgb(2, 2, 4)
+  GOLD_C = VBlank::Graphics::Color.rgb(31, 27, 6)
   WALL_SHADES = [NEAR, MID, FAR].freeze
 
   # The game, with the ray count left as a parameter. It is a parameter because it is the one
@@ -83,7 +83,7 @@ module Corridor
   # sixty rays it ships with the console spends about four fifths of a frame, and at eighty it
   # does not fit at all. A test plays both sides on the console to show it.
   def self.game(name: "CORRIDOR", cols: NUM_COLS, col_w: COL_W)
-    RubyGBA.game(name, consoles: %i[gba]) do
+    VBlank.game(name, consoles: %i[gba]) do
       screen :bitmap, tear_free: true # double-buffered: the whole view is repainted each frame
       enable_sound
       define_sound :chime, frequency: 1400, duty: :half, decay: :fast

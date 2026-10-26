@@ -1,0 +1,378 @@
+# frozen_string_literal: true
+
+module VBlank
+  module IR
+    # Guardrails turn known footguns into friendly, plain-language messages by
+    # inspecting the IR *before* it is lowered to a target. That's the payoff of
+    # having the whole program as inspectable data: a check can walk the semantic
+    # tree and say "you painted pixels on a tiled screen" far more reliably
+    # than anything scanning finished machine code could.
+    #
+    # This file is only the *mechanism* — a registry of checks and a pass that
+    # runs them. Each check is target knowledge (what's a footgun on this
+    # hardware and how to phrase it); those live in Guardrails::Checks. A check
+    # does four things: detect a problem, name what it blames so the author knows
+    # where to look, explain it in plain language, and — where it's safe — offer a
+    # fix the pass can apply automatically.
+    module Guardrails
+      # Raised by Report#raise_on_error! when validation found a real problem
+      # that wasn't (or couldn't be) auto-fixed.
+      class ValidationError < VBlank::BuildError; end
+
+      # One problem a guardrail found.
+      #   severity — :error (would break the ROM) or :warning (advisory — a
+      #              non-fatal footgun, or an error the pass auto-fixed for you)
+      #   message  — plain language written for the person, not a log
+      #   node     — what the finding blames, and the answer to "where do I look?":
+      #              the IR node at fault, or the sentinel :program when the problem
+      #              really is the whole program and no single line. Required, and
+      #              that's the whole point — a check cannot report a black screen
+      #              without saying what to go read, so a finding with no line is a
+      #              deliberate claim someone wrote rather than a detail that got
+      #              dropped. Anything carrying a #source works, which is how the
+      #              one check with no node (an unused Condition never records one)
+      #              still names the author's line.
+      #   fix      — an optional Fix the pass may apply; nil if there's no safe one
+      Finding = Data.define(:check, :severity, :message, :node, :fix) do
+        def initialize(check:, severity:, message:, node:, fix: nil)
+          # `equal?`, not `==`: a Value answers `==` with a COMPARISON to be branched on
+          # later, which is truthy, so asking it that question both gets the wrong answer
+          # and leaves a stray comparison behind for another guardrail to trip over.
+          unless node.equal?(:program) || node.respond_to?(:source)
+            raise ArgumentError,
+                  "a finding blames an IR node, or :program when it blames the whole " \
+                  "program; got #{node.inspect}"
+          end
+
+          super
+        end
+
+        # The DSL call site to send the person to ("hero.rb:42"). nil for a
+        # whole-program finding, and for a node the builder never stamped (one the
+        # framework synthesized rather than the author writing it).
+        def source
+          node.equal?(:program) ? nil : node.source
+        end
+
+        def error?
+          severity == :error
+        end
+
+        def warning?
+          severity == :warning
+        end
+
+        # The message shown to the person: the plain message, plus the source
+        # location. Appending it here — the one place — is why no check writes
+        # "(at …)" into its own sentence and why a new guardrail gets it for free.
+        def full_message
+          source ? "#{message} (at #{source})" : message
+        end
+      end
+
+      # A safe, automatic correction a check offers.
+      #   message — what we changed and why, for the person to read
+      #   apply   — a callable taking the program and returning the fixed program
+      Fix = Data.define(:message, :apply)
+
+      # The result of a validation pass: the program (possibly auto-fixed) plus
+      # every finding, so a caller can print warnings, raise on errors, or lower
+      # the corrected tree.
+      Report = Data.define(:program, :findings) do
+        def errors
+          findings.select(&:error?)
+        end
+
+        def warnings
+          findings.select(&:warning?)
+        end
+
+        # True when nothing remains that would break the ROM (warnings are fine —
+        # they mean we already fixed something for you).
+        def ok?
+          errors.empty?
+        end
+
+        def raise_on_error!
+          return self if ok?
+
+          raise ValidationError, errors.map(&:full_message).join("\n\n")
+        end
+
+        # Write every finding's plain-language message to +to+, in order — the one
+        # place guardrail findings become human-visible text. A caller (a build, a
+        # CLI, a test) hands its output here instead of formatting and printing
+        # findings by hand, so the wording and destination live in one spot and the
+        # stream is injectable: $stderr for a real build, a StringIO to capture it in
+        # a test, or a null sink to silence it. Returns self so it chains.
+        def print_findings(to: $stderr)
+          return self if findings.empty?
+
+          # A heading, then a blank line before each finding, so several read as a list
+          # somebody wrote rather than as prose that started on its own. The heading also
+          # says how many there are, which a reader would otherwise have to count.
+          to.puts(heading)
+          findings.each do |finding|
+            to.puts
+            to.puts(finding.full_message)
+          end
+          self
+        end
+
+        # "2 warnings about this game:", "1 problem and 3 warnings about this game:" — what
+        # was found, counted, and named by what it is. A problem stops the build; a warning
+        # does not, and the two are worth telling apart before a word of either is read.
+        def heading
+          problems = errors.length
+          counts = []
+          counts << plural_count(problems, "problem") if problems.positive?
+          counts << plural_count(findings.length - problems, "warning") if findings.length > problems
+          "#{counts.join(' and ')} about this game:"
+        end
+
+        def plural_count(count, thing) = "#{count} #{thing}#{'s' if count != 1}"
+      end
+
+      # The extension hook. BUILTIN_CHECKS are always on; these are the extra
+      # whole-program checks something adds at runtime — an effect pack's own
+      # guardrails, or a one-off a game registers. They're kept separate from the
+      # frozen builtins because they're only active while whoever added them is
+      # loaded: a pack's footgun checks travel with the pack and never fire for a
+      # verb you aren't using.
+      #
+      # A check is anything with #detect(program) -> [Finding] — the same contract
+      # the builtins honor, so a registered check may warn, error, or offer a Fix
+      # just like a builtin. This hook is for WHOLE-PROGRAM checks that can only be
+      # judged once the full IR exists (state left un-restored, a pool declared but
+      # never drawn, an asset referenced but never defined). Cheap argument checks
+      # (a rate of 0, an unknown color) belong inline in the verb as an immediate
+      # error, not here.
+      @registered_checks = [].freeze
+
+      class << self
+        # Register a whole-program check so it runs in every validation pass from
+        # now on. Idempotent for the same check instance. Returns the check.
+        # The list is replaced rather than added to, so what it holds can never change under
+        # a reader. That is what lets a game build from a Ractor: a worker may read a list
+        # kept on a module only while nothing in it can still change.
+        def register(check)
+          @registered_checks = (@registered_checks + [check]).freeze unless @registered_checks.include?(check)
+          check
+        end
+
+        # The checks registered so far — a copy, so the registry stays visible data
+        # a caller can read without being able to mutate it by accident.
+        def registered_checks
+          @registered_checks.dup
+        end
+
+        # The full set a Validator runs by default: the always-on builtins plus
+        # everything registered. Read fresh each pass (not frozen at construction),
+        # so a check registered after a Validator was built still takes effect.
+        def default_checks
+          BUILTIN_CHECKS + @registered_checks
+        end
+
+        # The checks that cannot run until the program has been lowered, built with the
+        # cost model that knows how the build turned out.
+        # WHAT NEEDS THE BUILD, rather than just the program. This one reads a decision the
+        # build made after the other guardrails ran — whether the game loop's body got the
+        # console's quick memory, where code runs about two and a third times faster.
+        #
+        # THREE OTHERS USED TO RUN HERE and are gone: how many scanlines a frame draws, how
+        # many items a list can hold before the frame stops fitting, and whether a timer's
+        # rate really fits its handler. Each put an invented number in front of an author.
+        # They were the last readers of a weight table that had to be kept in step with the
+        # backend by hand, so every mispricing was a bug. What replaced the first of them is
+        # a measurement: a build runs the game to decide what goes in the quick memory, so
+        # the real frame rate is already in its hands and it says so when a game misses 60
+        # (VBlank.warn_of_slow_scenes). The second is measured too, with each scene run again
+        # with its lists and pools held full (VBlank.warn_of_collections_that_fill).
+        def build_checks(placement)
+          [Checks::FrameFromCartridge.new(placement), Checks::InterruptFromCartridge.new(placement)]
+        end
+
+        # Stop running a registered check — what unloading a pack does with the
+        # checks it brought. Returns true if the check was registered.
+        def unregister(check)
+          return false unless @registered_checks.include?(check)
+
+          @registered_checks = (@registered_checks - [check]).freeze
+          true
+        end
+
+        # Drop every registered check, back to builtins only. For tests, so one
+        # test's registration can't leak into the next, and for any caller that
+        # wants a clean slate.
+        #
+        # This drops a loaded pack's checks too, since they register through the
+        # same hook. Restore them by re-registering the pack, or snapshot
+        # registered_checks first and put them back.
+        def clear_registered!
+          @registered_checks = [].freeze
+        end
+      end
+
+      # The validation pass. Runs each check over the tree in order. When autofix
+      # is on and a check offers a safe fix, it applies the fix — threading the
+      # corrected program into the checks that follow — and downgrades that
+      # finding from an error to a warning. With autofix off, problems are left
+      # as errors and the tree is returned untouched.
+      #
+      # A check is just something with #detect(program) -> findings. Most inspect
+      # the tree; a stateful one may ignore it and report from data it was built
+      # with (the orphaned-Condition check does this — its data is the builder's
+      # leftover Conditions, not the tree). Either way the pass treats them alike;
+      # pass your own list via +checks:+ to run a different set.
+      class Validator
+        def initialize(checks: Guardrails.default_checks, progress: Messages::Progress.silent)
+          @checks = checks
+          @progress = progress
+        end
+
+        def run(program, autofix: true)
+          findings = []
+          @checks.each_with_index do |check, n|
+            @progress.report_count(n + 1, @checks.length, plain_name(check))
+            check.detect(program).each do |finding|
+              if autofix && finding.fix
+                program = finding.fix.apply.call(program)
+                # The same finding, reported as "we corrected this for you" — it keeps
+                # blaming the same node, so the warning still points at the line.
+                findings << finding.with(severity: :warning, message: finding.fix.message, fix: nil)
+              else
+                findings << finding
+              end
+            end
+          end
+          Report.new(program: program, findings: findings)
+        end
+
+        private
+
+        # WHAT THE PROGRESS LINE CALLS A CHECK — and the only place a check's name is ever read
+        # by a person. A finding says what went wrong in a sentence of its own and never names
+        # the check that found it, so this line is the whole of a check's public identity.
+        #
+        # Which is why it is a name the check DECLARES rather than its identifier tidied up.
+        # `NAME` is a symbol for the framework's own use, and turning `fade_never_lifted` into
+        # "fade never lifted" only spells the identifier out — worse, it hands a learner
+        # whatever hardware word happened to be in it ("vblank sync", "iwram budget"). The
+        # declared name says what the check is LOOKING FOR, which is the thing worth reading
+        # while a build works: "a fade never lifted", "a game loop that never waits for the
+        # screen".
+        #
+        # A check from a pack or a game that declares none is named by its class, so every
+        # check in the list still has something to show.
+        def plain_name(check)
+          klass = check.class
+          return klass::PLAIN_NAME if klass.const_defined?(:PLAIN_NAME, false)
+
+          klass.name.to_s.split("::").last
+        end
+      end
+    end
+  end
+end
+
+require_relative "guardrails/frame_reach"
+require_relative "guardrails/tiled_display" # shared by the two tiled-screen checks below
+require_relative "guardrails/empty_tiled_screen"
+require_relative "guardrails/bitmap_draw_on_tiled"
+require_relative "guardrails/hide_sprites_on_bitmap"
+require_relative "guardrails/call_inside_area"
+require_relative "guardrails/screen_inside_scene"
+require_relative "guardrails/painted_picture_with_other_poses"
+require_relative "guardrails/fade_never_lifted"
+require_relative "guardrails/tint_never_lifted"
+require_relative "guardrails/dropped_frame_sync"
+require_relative "guardrails/estimate_does_nothing"
+require_relative "guardrails/vblank_sync"
+require_relative "guardrails/termination"
+require_relative "guardrails/off_screen_draw"
+require_relative "guardrails/orphaned_condition"
+require_relative "guardrails/orphaned_expression"
+require_relative "guardrails/song_words" # shared by the music checks below
+require_relative "guardrails/channel_conflict"
+require_relative "guardrails/song_needs_frames"
+require_relative "guardrails/song_instrument_unknown"
+require_relative "guardrails/song_too_many_parts"
+require_relative "guardrails/square_note_too_low"
+require_relative "guardrails/note_never_plays"
+require_relative "guardrails/song_loops_into_silence"
+require_relative "guardrails/redraw_everything"
+require_relative "guardrails/sprite_cleared_each_frame"
+require_relative "guardrails/manual_sprite_blit"
+require_relative "guardrails/per_frame_scope" # shared by the one-time-setup checks below
+require_relative "guardrails/seed_in_loop"
+require_relative "guardrails/list_in_loop"
+require_relative "guardrails/list_filled_by_loop"
+require_relative "guardrails/iwram_budget"
+require_relative "guardrails/frame_from_cartridge"
+require_relative "guardrails/interrupt_from_cartridge"
+require_relative "guardrails/layer_holds_nothing"
+require_relative "guardrails/layer_invisible"
+require_relative "guardrails/layer_solid_while_fading"
+require_relative "guardrails/stack_not_honored"
+require_relative "guardrails/too_many_background_layers"
+require_relative "guardrails/sprite_words" # shared by the two sprite checks below
+require_relative "guardrails/too_many_sprites"
+require_relative "guardrails/poses_with_different_colors"
+require_relative "guardrails/see_through_per_screen"
+require_relative "guardrails/sprite_in_blocks_kept_from_fade"
+require_relative "guardrails/light_cannot_share"
+require_relative "guardrails/held_fade_cannot_share"
+require_relative "guardrails/routine_never_called"
+require_relative "guardrails/console_answers"
+require_relative "guardrails/clock_never_asked"
+require_relative "guardrails/web_portability" # not always on: the web build runs it, and a game may register it
+
+module VBlank
+  module IR
+    module Guardrails
+      # The always-on checks, in order — the base every validation pass runs. A
+      # plain frozen list so it's visible data, not hidden behind a method.
+      # Guardrails.default_checks appends whatever's been registered on top of
+      # these; instantiate a Validator with your own list to run a different set.
+      BUILTIN_CHECKS = Ractor.make_shareable([
+        Checks::EmptyTiledScreen.new,
+        Checks::BitmapDrawOnTiled.new,
+        Checks::HideSpritesOnBitmap.new,
+        Checks::CallInsideArea.new,
+        Checks::FadeNeverLifted.new,
+        Checks::TintNeverLifted.new,
+        Checks::VblankSync.new,
+        Checks::Termination.new,
+        Checks::OffScreenDraw.new,
+        Checks::ChannelConflict.new,
+        Checks::SongNeedsFrames.new,
+        Checks::SongInstrumentUnknown.new,
+        Checks::SongTooManyParts.new,
+        Checks::SquareNoteTooLow.new,
+        Checks::NoteNeverPlays.new,
+        Checks::SongLoopsIntoSilence.new,
+        Checks::RedrawEverything.new,
+        Checks::SpriteClearedEachFrame.new,
+        Checks::ManualSpriteBlit.new,
+        Checks::SeedInLoop.new,
+        Checks::ListInLoop.new,
+        Checks::ListFilledByLoop.new,
+        Checks::IwramBudget.new,
+        Checks::LayerInvisible.new,
+        Checks::LayerSolidWhileFading.new,
+        Checks::TooManyBackgroundLayers.new,
+        Checks::TooManySprites.new,
+        Checks::PosesWithDifferentColors.new,
+        Checks::SeeThroughPerScreen.new,
+        Checks::SpriteInBlocksKeptFromFade.new,
+        Checks::LightCannotShare.new,
+        Checks::HeldFadeCannotShare.new,
+        Checks::ScreenInsideScene.new,
+        Checks::PaintedPictureWithOtherPoses.new,
+        Checks::RoutineNeverCalled.new,
+        Checks::ConsoleAnswers.new,
+        Checks::ClockNeverAsked.new,
+      ])
+    end
+  end
+end

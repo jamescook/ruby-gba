@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require RubyGBA.root.join("examples/snake_buffered").to_s
+require VBlank.root.join("examples/snake_buffered").to_s
 
 # The buffered Snake example (examples/snake_buffered.rb): the demonstration that
 # double buffering lets you write the naive "clear and repaint everything every
@@ -14,9 +14,9 @@ require RubyGBA.root.join("examples/snake_buffered").to_s
 # renders its title and playing board on the console — through Mode 4's auto
 # palette and page flip, with the whole board repainted each frame.
 class TestSnakeBufferedExample < Minitest::Test
-  include RubyGBA::Console::Hardware
+  include VBlank::Console::Hardware
 
-  # RubyGBA.build runs the guardrails and validation, so a clean build IS the check.
+  # VBlank.build runs the guardrails and validation, so a clean build IS the check.
   # This game used to warn that its frame goes over budget past about 419 cells. It no
   # longer does, and the warning was wrong rather than the check being broken: it was
   # priced before the build had decided anything, so it charged cartridge speed for a
@@ -44,7 +44,7 @@ class TestSnakeBufferedExample < Minitest::Test
     require_emulator!
     rom = BufferedSnake.build_rom(err: StringIO.new, profile: false)
 
-    refute_predicate RubyGBA::Diagnostics::Profiler.run(rom, frames: 30, picture: false), :dropping_frames?
+    refute_predicate VBlank::Diagnostics::Profiler.run(rom, frames: 30, picture: false), :dropping_frames?
   end
 
   # The title screen shows "SNAKE" in green — the simplest proof it isn't a black

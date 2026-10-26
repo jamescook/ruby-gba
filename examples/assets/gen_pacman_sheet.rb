@@ -13,7 +13,7 @@
 # ImageMagick (the `magick` command) to write the PNG, the same tool the importer reads
 # it back with.
 
-require_relative "../../lib/ruby_gba"
+require_relative "../../lib/vblank"
 require_relative "../pacman"
 
 DIRS   = Pacman::DIRS          # one row each: right, left, up, down
@@ -24,7 +24,7 @@ SIZE   = Pacman::SIZE
 # the same yellow whether drawn from the formula or from the sheet. The color is a
 # 15-bit BGR555 value; spread each 5-bit channel across the full 8-bit range.
 def yellow_rgb
-  v = RubyGBA::Graphics::Color.resolve(:yellow)
+  v = VBlank::Graphics::Color.resolve(:yellow)
   [0, 5, 10].map do |shift|
     c = (v >> shift) & 0x1F
     (c << 3) | (c >> 2)

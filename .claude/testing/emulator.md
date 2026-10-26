@@ -9,7 +9,7 @@ it ran. On the native and JavaScript runs a test that reaches for it skips itsel
 include EmulatorSupport                    # from test/test_helper.rb
 require_emulator!                          # ensure the emulator; fails loud if it isn't built
 
-rom = RubyGBA::Cartridge::ROM.assemble(RubyGBA::IR::Backends::GBA.new.lower(prog), title: "NAME")
+rom = VBlank::Cartridge::ROM.assemble(VBlank::IR::Backends::GBA.new.lower(prog), title: "NAME")
 
 v = assert_emulator_loads_rom(rom, frames: 6, keys: KEY_LEFT)  # returns a Verifier
 v.red?(x, y) / v.white? / v.blue? / v.green? / v.black?     # named-colour checks
@@ -57,7 +57,7 @@ at eight bits: a nearly black screen is black to `only_color` a frame before `al
 
 Read everything off the same Verifier. A second reader over the same ROM is two readings of one
 frame that can disagree, and they do: the emulator's low-level handle
-(`RubyGBA::Diagnostics::Emulator.probe`) reports where a sprite's tiles were put, not where its
+(`VBlank::Diagnostics::Emulator.probe`) reports where a sprite's tiles were put, not where its
 picture starts. Use that handle only for what the Verifier does not do (cost and timing, watching
 an address, profiling).
 
@@ -86,7 +86,7 @@ ends. Every reader still answers for the whole run. The energy readers (`audio_e
 `audio_energy_by_frame`, `silent?`, `sound?`) work each frame out once, so asking after every
 frame is cheap: `v.step.audio_energy_by_frame.last` is that frame. `audio_samples` returns every
 sample at once, read from the file each time — ask it once. To change either:
-`Verifier.new(rom, sound: RubyGBA::Diagnostics::RecordedSound.new(frames_in_memory: 600, folder: "scratch"))`.
+`Verifier.new(rom, sound: VBlank::Diagnostics::RecordedSound.new(frames_in_memory: 600, folder: "scratch"))`.
 
 ## `v.var` versus `v.mem32`
 
@@ -117,7 +117,7 @@ test passed.
 - **Name it, and only its rows come back.** Never identify one by slot number, by position, or by
   its colours. A picture too big for one hardware sprite is several rows with one name; every live
   slot of a `pool` comes back under the pool's name; tiled text letters have a nil name.
-- Needs a ROM assembled with its build record (`assemble_rom` and `RubyGBA.build` both do);
+- Needs a ROM assembled with its build record (`assemble_rom` and `VBlank.build` both do);
   `rom.built.sprite_slots` is the raw map.
 
 ## `v.step` — when something is HAPPENING

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-require RubyGBA.root.join("examples/sprite_mover").to_s
+require VBlank.root.join("examples/sprite_mover").to_s
 
 # The sprite_mover example, rewritten to use the `sprite` helper: the heart is a
 # sprite that repaints itself, so the game loop no longer clears the screen or
@@ -10,9 +10,9 @@ require RubyGBA.root.join("examples/sprite_mover").to_s
 # everything pattern is gone from the loop — and that it still renders and steers,
 # on the interpreter and on the emulator.
 class TestSpriteMoverExample < Minitest::Test
-  include RubyGBA::Console::Hardware
+  include VBlank::Console::Hardware
 
-  FIELD = RubyGBA::Graphics::Color.rgb(4, 6, 14)
+  FIELD = VBlank::Graphics::Color.rgb(4, 6, 14)
   START = [(SpriteMover::SCREEN_W - SpriteMover::SPRITE_W) / 2,
            (SpriteMover::SCREEN_H - SpriteMover::SPRITE_H) / 2].freeze
 

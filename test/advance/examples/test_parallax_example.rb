@@ -3,7 +3,7 @@
 require "test_helper"
 
 require "stringio"
-require RubyGBA.root.join("examples/parallax").to_s
+require VBlank.root.join("examples/parallax").to_s
 
 # The Parallax example (examples/parallax.rb): two tiled background layers — far sky
 # with clouds, near ground with trees — that scroll at different speeds to fake depth.
@@ -12,7 +12,7 @@ require RubyGBA.root.join("examples/parallax").to_s
 # far" is pinned in test_background_layers.rb; this confirms the example itself renders
 # and scrolls, on the interpreter oracle and on real hardware.
 class TestParallaxExample < Minitest::Test
-  include RubyGBA::Console::Hardware
+  include VBlank::Console::Hardware
 
   SKY   = Color.rgb(11, 17, 28) # the far layer's sky
   GRASS = Color.rgb(4, 18, 4)   # the near layer's grass line

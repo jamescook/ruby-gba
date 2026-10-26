@@ -37,10 +37,10 @@
 # Run it to build examples/clock.gba:
 #   ruby examples/clock.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module ClockFace
-  LETTERS = RubyGBA::Graphics::Fonts.default
+  LETTERS = VBlank::Graphics::Fonts.default
 
   SCREEN_W = 240
 
@@ -82,7 +82,7 @@ module ClockFace
     (SCREEN_W - width) / 2
   end
 
-  GAME = RubyGBA.game("CLOCK", consoles: %i[gba]) do
+  GAME = VBlank.game("CLOCK", consoles: %i[gba]) do
     screen :bitmap, tear_free: true
 
     font :big, glyphs: ClockFace.blown_up("0123456789: #{NO_CLOCK}#{NOT_SET}", BIG), spacing: BIG

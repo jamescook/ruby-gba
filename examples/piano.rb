@@ -24,7 +24,7 @@
 # Run it to build examples/piano.gba:
 #   ruby examples/piano.rb
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
 module Piano
   # --- Layout (pixels; the screen is 240x160, origin top-left) ---
@@ -58,7 +58,7 @@ module Piano
   CHORD_HOLD  = 60             # frames the chord stays down before lifting
   RELEASE     = 4             # lift a melody finger this many frames before its note ends
 
-  GAME = RubyGBA.game("PIANO", consoles: %i[gba]) do
+  GAME = VBlank.game("PIANO", consoles: %i[gba]) do
     # Tiled mode: the console composites the hands and the key-lights as hardware
     # sprites over the keyboard background — no framebuffer, no redraw by hand.
     screen :tiled

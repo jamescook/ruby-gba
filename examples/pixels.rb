@@ -10,9 +10,9 @@
 # Output:
 #   examples/pixels.gba
 
-require_relative "../lib/ruby_gba"
+require_relative "../lib/vblank"
 
-Pixels = RubyGBA.game("RUBYGBA", consoles: %i[gba]) do
+Pixels = VBlank.game("RUBYGBA", consoles: %i[gba]) do
   screen :bitmap
 
   # Draw an Italian flag in the center of the screen

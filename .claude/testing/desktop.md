@@ -30,11 +30,11 @@ refreshes and plays at half speed. The pacing rule and the limit behind a hidden
 arithmetic in `runtime/rg_pacing.h`, tested as that (`test_native_pacing.rb`).
 
 **An editor's complaints about the runtime's C are not the build's.** An editor's C checker reads
-`lib/ruby_gba/ir/backends/native/runtime/` on its own. Every native build writes a
+`lib/vblank/ir/backends/native/runtime/` on its own. Every native build writes a
 `compile_flags.txt` above that folder with the build's own flags and header folders
 (`Native::Zig.checker_flags`), so the checker holds the code to what the build does and finds
-SDL's headers; the test harnesses (`test/ruby_gba/ir/backends/native/*_harness.c`) get one too.
+SDL's headers; the test harnesses (`test/vblank/ir/backends/native/*_harness.c`) get one too.
 After a header is edited the checker can keep reading it at old positions and report nonsense
 ("invalid suffix on integer constant" on a line naming a defined number). Ask the compiler before
 believing it:
-`rake test:lowering:native TEST=test/ruby_gba/ir/backends/native/test_native_checker_flags.rb`.
+`rake test:lowering:native TEST=test/vblank/ir/backends/native/test_native_checker_flags.rb`.

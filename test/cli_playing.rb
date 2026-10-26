@@ -12,15 +12,15 @@ module CLIPlaying
   # Which Ruby to launch, asked once here. Asking reads Ruby's own table of how it was
   # built, which is not something a worker may touch — and these tests run in a pool.
   RUBY = RbConfig.ruby.freeze
-  BIN = RubyGBA.root.join("bin/ruby-gba").to_s.freeze
+  BIN = VBlank.root.join("bin/ruby-gba").to_s.freeze
 
   # A white box on a blue ground, that walks while RIGHT is down and keeps the furthest it
   # has been in save memory. Two settings make a second game of it that differs in one
   # thing: how far it walks a frame, and the tick its ground turns red on.
   GAME = <<~RUBY
-    require "ruby_gba"
+    require "vblank"
 
-    RubyGBA.game "WALKER", consoles: %i[gba] do
+    VBlank.game "WALKER", consoles: %i[gba] do
       screen :bitmap
       speed = setting :speed, 2
       red_at = setting :red_at, 100_000
@@ -39,7 +39,7 @@ module CLIPlaying
 
   # One playthrough: stand, walk right for twenty frames, stand.
   WALK = <<~RUBY
-    RubyGBA.playthrough "walk" do
+    VBlank.playthrough "walk" do
       wait frames: 10
       moment :standing
       hold :right, frames: 20
@@ -51,19 +51,19 @@ module CLIPlaying
   # Three playthroughs in one file: one to stand, one to walk until the box is somewhere,
   # and one to let a few frames go by before either.
   SEVERAL = <<~RUBY
-    RubyGBA.playthrough "stand" do
+    VBlank.playthrough "stand" do
       wait frames: 12
       moment :stood
     end
 
-    RubyGBA.playthrough "walk to sixty" do
+    VBlank.playthrough "walk to sixty" do
       wait frames: 10
       moment :standing
       hold_until("the box is at sixty", :right) { |game| game.var(:x) >= 60 }
       moment :arrived
     end
 
-    RubyGBA.playthrough "five frames" do
+    VBlank.playthrough "five frames" do
       wait frames: 5
     end
   RUBY

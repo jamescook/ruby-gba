@@ -19,7 +19,7 @@ require "test_helper"
 # exempt comes straight from each kind's own tier (see Node::Declarations#tier) —
 # not a list hardcoded here.
 module ConformanceFixture
-  B = RubyGBA::IR::Build
+  B = VBlank::IR::Build
 
   # Every binary operator the backends implement (arithmetic, comparison, and the
   # 0/1 logical composition `held(:a) & held(:b)` lowers to). Kept in sync with
@@ -28,7 +28,7 @@ module ConformanceFixture
 
   # Node kinds a portable backend may legitimately not implement — the kinds tagged
   # hardware-only, read from the portability classification rather than restated.
-  HARDWARE_ONLY_KINDS = RubyGBA::IR::Portability.hardware_only_kinds.freeze
+  HARDWARE_ONLY_KINDS = VBlank::IR::Portability.hardware_only_kinds.freeze
 
   # The list the background's tiles are drawn from — see-through first, then a colour per
   # place — and another list the whole layer can be drawn from instead. The two differ at
@@ -49,9 +49,9 @@ module ConformanceFixture
       # --- definitions: registered up front, referenced by name below ---
       B.define_sound(:blip, frequency: 880),
       B.song(:tune, total_frames: 8, voices: [
-               RubyGBA::Audio::Music::Part.new(events: [[0, 440], [4, 0]]),
+               VBlank::Audio::Music::Part.new(events: [[0, 440], [4, 0]]),
                # ...and a part that plays a recording rather than the square wave
-               RubyGBA::Audio::Music::Part.new(events: [[0, 262], [4, 0]], instrument: :clip),
+               VBlank::Audio::Music::Part.new(events: [[0, 262], [4, 0]], instrument: :clip),
              ]),
       # a song only a list names, which loops from frame 1 with a note held across it
       B.song(:theme, events: [[0, 330], [2, 392]], total_frames: 4, loop_frame: 1),
@@ -61,8 +61,8 @@ module ConformanceFixture
       # a sound effect over the tune, on the square voice and the noise voice, with a priority and
       # a group of its own
       B.song(:hit, total_frames: 3, priority: 68, group: :sword, voices: [
-               RubyGBA::Audio::Music::Part.new(events: [[0, 523], [2, 0]]),
-               RubyGBA::Audio::Music::Part.new(events: [[0, 131]], noise: true),
+               VBlank::Audio::Music::Part.new(events: [[0, 523], [2, 0]]),
+               VBlank::Audio::Music::Part.new(events: [[0, 131]], noise: true),
              ]),
       B.sound_effect_list(:sfx, [:hit]),
       B.data(:blob, "\x01\x02\x03\x04".b),
@@ -105,7 +105,7 @@ module ConformanceFixture
       B.clamp(:y, B.int(0), B.var_ref(:x)), # bounds worked out as the program runs
 
       # --- persistence: load a saved variable at boot, mirror it back on change ---
-      B.save_init(vars: [RubyGBA::IR::SavedVar.new(name: :hi_score, default: 0, slot: 0)],
+      B.save_init(vars: [VBlank::IR::SavedVar.new(name: :hi_score, default: 0, slot: 0)],
                   magic: 0x53415631),
       B.save_store(:hi_score, 0),
       # ...and the three steps save data is built from: write a word and a byte, read them
@@ -214,7 +214,7 @@ module ConformanceFixture
       B.draw_text("HI", 10, 10, :white),
       # A font the program declared for itself, and a line drawn with it. Every backend has
       # to find a font the program owns, not only the two that ship.
-      B.font(:fixture_face, RubyGBA::Graphics::Font.new(glyphs: { "I" => [0b1, 0b1, 0b1] },
+      B.font(:fixture_face, VBlank::Graphics::Font.new(glyphs: { "I" => [0b1, 0b1, 0b1] },
                                                         widths: { "I" => 1 }, height: 3)),
       B.draw_text("I", 40, 10, :white, font: :fixture_face),
       B.draw_digit(B.var_ref(:x), 20, 10, :white), # one run-time digit glyph
@@ -408,7 +408,7 @@ module ConformanceFixture
       B.set(:acc, B.clock(:present)),
       B.set(:acc, B.clock(:hour)),
       # ...and set (nothing happens with no clock, so the saved numbers it would keep stay 0)
-      *RubyGBA::IR::Clock::OFFSETS.map { |offset| B.set(offset, B.int(0)) },
+      *VBlank::IR::Clock::OFFSETS.map { |offset| B.set(offset, B.int(0)) },
       B.set_clock(year: B.int(2031), month: B.int(5), day: B.int(17), hour: B.int(8), minute: B.int(9), second: B.int(10)),
 
       # --- terminate: a loop that syncs once then halts (covers loop + halt) ---

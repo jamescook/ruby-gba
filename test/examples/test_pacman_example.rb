@@ -4,7 +4,7 @@ require "test_helper"
 
 require "stringio"
 require "differential"
-require RubyGBA.root.join("examples/pacman").to_s
+require VBlank.root.join("examples/pacman").to_s
 
 # The Pac-Man example (examples/pacman.rb): the tiled-mode flagship. Pac, the
 # pellets, and the ghost are HARDWARE sprites composited over a TILED room; Pac
@@ -12,7 +12,7 @@ require RubyGBA.root.join("examples/pacman").to_s
 # the whole stack renders and behaves — on the interpreter oracle and on real
 # hardware. (Facing correctness itself is pinned in test_hardware_sprite_facing.rb.)
 class TestPacmanExample < Minitest::Test
-  include RubyGBA::Console::Hardware
+  include VBlank::Console::Hardware
   include Differential
 
   START_X, START_Y = Pacman::START
@@ -25,7 +25,7 @@ class TestPacmanExample < Minitest::Test
 
   # The game as this run's console plays it, and where it lays itself out on that console's screen.
   private def program = Pacman::GAME.program(console: game_console)
-  private def screen_size = RubyGBA::Console.described(game_console).screen_size
+  private def screen_size = VBlank::Console.described(game_console).screen_size
   private def layout = Pacman::Layout.new(width: screen_size[0], height: screen_size[1])
 
   def test_it_builds_a_rom
