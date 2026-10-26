@@ -219,14 +219,16 @@ module RubyGBA
       #
       # +big+ is [picture name, how many objects] for each sprite spending more than one,
       # and +twins+ is what the windows that hold a placed fade off a sprite cost, since
-      # each of those shadows a sprite object for object.
-      Objects = Data.define(:used, :capacity, :big, :twins) do
-        def initialize(big: [], twins: 0, **rest) = super
+      # each of those shadows a sprite object for object. +held+ is a game with more than the
+      # console's 128, which keeps them in a bigger copy and draws 128 of them on a frame (see
+      # IR::Guardrails::Checks::TooManySprites); its +capacity+ is what a game can keep.
+      Objects = Data.define(:used, :capacity, :big, :twins, :held) do
+        def initialize(big: [], twins: 0, held: false, **rest) = super
 
         def free = capacity - used
 
         def to_h
-          { used: used, capacity: capacity, free: free,
+          { used: used, capacity: capacity, free: free, held: held,
             big: big.map { |name, count| { name: name, objects: count } }, twins: twins }
         end
       end

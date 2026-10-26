@@ -186,7 +186,7 @@ module RubyGBA
 
         losses = Losses.new(sounds: rom.built.sound_drops, colors_short_at: rom.built.colors_short_at,
                             sprites_left_out_at: rom.built.held_sprites&.left_out_at)
-        profile, tearing, flicker, lost, short = in_temp_rom(rom) do |path|
+        profile, tearing, flicker, lost, counted = in_temp_rom(rom) do |path|
           probe = Emulator.probe(path)
           probe.clock_at(clock) if clock # a clock chip reading that moment (see Verifier#initialize)
           begin
@@ -206,15 +206,15 @@ module RubyGBA
             # READ BEFORE the picture is looked at, because looking at it steps the game on a
             # few more frames — and those frames are not the frames that were measured.
             lost_sounds = drops_in(probe, losses.sounds)
-            short = [colors_short_in(probe, losses.colors_short_at),
-                     colors_short_in(probe, losses.sprites_left_out_at)]
+            counted = { colors_short: count_in(probe, losses.colors_short_at),
+                        sprites_left_out: count_in(probe, losses.sprites_left_out_at) }
             loaded_sets = sets_in(rom, probe)
             routines = rom.built.routines_with_sets(loaded_sets)
             [measured,
              picture ? tearing_in(probe, program, held) : nil,
              picture ? flicker_in(probe, program, held) : nil,
              lost_sounds,
-             short]
+             counted]
           ensure
             probe.close
           end
@@ -232,7 +232,7 @@ module RubyGBA
                 pages_shown_at_once: shown_at_once,
                 pages_shown_part_way: count_at_sites(profile, late_pages.select { |site| site[:tears] }, loaded_sets),
                 fps: pictures_per_second(profile, shown_at_once),
-                power_on_pass: power_on_pass, colors_short: short[0], sprites_left_out: short[1])
+                power_on_pass: power_on_pass, **counted)
       end
 
       # NEW PICTURES A SECOND. The emulator counts the frames the game finished its work in by
@@ -300,9 +300,11 @@ module RubyGBA
         drops.read { |address| probe.read32(address) }
       end
 
-      # The same, for a sprite drawn in another list's colours because no group was left to lend
-      # its list (see Cartridge::BuildRecord#colors_short_at). nil for a game that lends nothing.
-      def self.colors_short_in(probe, address)
+      # A count the console keeps in one word at +address+ — a sprite drawn in another list's
+      # colours because no group was left to lend its list (see Cartridge::BuildRecord#colors_short_at),
+      # or a row left out of a full sprite table (#held_sprites) — or nil for a game that keeps
+      # no such count.
+      def self.count_in(probe, address)
         address && probe.read32(address)
       end
 

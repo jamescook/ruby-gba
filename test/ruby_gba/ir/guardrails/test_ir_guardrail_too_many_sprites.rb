@@ -73,7 +73,7 @@ class TestIRGuardrailTooManySprites < Minitest::Test
     message = refusal(scenes(title: 20, play: 510, shared: 10))
 
     assert_match(/:play scene has 520 sprites/, message, "it names the busiest scene and counts what it shows")
-    assert_match(/512/, message, "...and says how many the console has")
+    assert_match(/512/, message, "...and says how many a game can keep")
     assert_match(/520 are sprites the game declared/, message, "...and spends the busiest scene's, not the game's")
   end
 
@@ -103,7 +103,7 @@ class TestIRGuardrailTooManySprites < Minitest::Test
     message = refusal(game)
 
     assert_match(/520 sprites/, message, "it says how many the game asks for")
-    assert_match(/512/, message, "...and how many the console has")
+    assert_match(/512/, message, "...and how many a game can keep")
     assert_match(/30 are letters of text/, message, "...and how many of them are text")
     assert_match(/20 are the places of pool :spark/, message, "...and a pool's share")
     assert_match(/470 are sprites.*:dot/, message, "...and the sprites the game declared, by picture")

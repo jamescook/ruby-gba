@@ -478,8 +478,8 @@ module RubyGBA
           raise ProgramError, refusal if refusal
         end
 
-        # The same answer about sprites: this picture has room for any number of them, and
-        # the console has 128 places. See Guardrails::Checks::TooManySprites.
+        # The same answer about sprites: this picture has room for any number of them, and a
+        # game for a console can keep only so many places. See Guardrails::Checks::TooManySprites.
         def refuse_too_many_sprites!(node)
           refusal = Guardrails::Checks::TooManySprites.new.refusal_message(node)
           raise ProgramError, refusal if refusal

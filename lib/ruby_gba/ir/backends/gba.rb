@@ -994,6 +994,7 @@ module RubyGBA
           @drawing.emit_late_pages_at_power_on # what the game's own screen does with a late page
           @picture_group_copying.emit_clear_groups_at_power_on # no picture group wanted or up yet
           @sprite_drawing.emit_sprites_shown_at_power_on # no frame without sprites asked for yet
+          @sprite_drawing.emit_held_table_at_power_on # no sprite left out of a full table yet
           emit_copy_hot_code_to_iwram unless @fast_funcs.empty?
           emit_call_power_on_swap # the scenes' own routines that fit side by side, the ones the game loop runs first
           # THE MIXER IS BROUGHT UP BEFORE THE INTERRUPTS ARE ARMED, and the order is load-bearing
@@ -1055,7 +1056,7 @@ module RubyGBA
           @background_drawing.emit_set_swap_routines # bringing another set of tiles in, a routine a background
           @sprite_drawing.emit_shared_room_routines # giving a sprite a room for its pose, two routines a set of rooms
           @sprite_drawing.emit_lend_colors_routine # lending a group of sprite colours to the list a sprite wears
-          @sprite_drawing.emit_held_table_routine # copying the rows that show into the console's table
+          @sprite_drawing.emit_held_table_copy_routine # copying the rows that show into the console's table
           @lists.emit_fill_routine # the one routine every list_fill calls, for the same reason
           @clock_chip.emit_routines # the conversations with the cartridge's clock chip
           @lists.emit_copy_routine # ...and every list_copy

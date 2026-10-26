@@ -227,7 +227,7 @@ module RubyGBA
             by_scene.each { |group| emit_scene_sprites(group) }
             emit_refresh_still_sprites
             @layout.draw_runs.each { |run| emit_copy_draw_run(run) }
-            emit_copy_held_table
+            emit_call_held_table_copy
           end
 
           # EVERY SPRITE OFF FOR A FRAME (see Builder::Sprites#hide_sprites).
@@ -433,7 +433,7 @@ module RubyGBA
           # in a bigger copy of the table, in the roomy memory, and every sprite writes its row
           # there exactly as it would have written the console's. Before each frame the rows that
           # show something are copied into the console's table one after another, front to back
-          # (see #emit_held_table_routine): so what has to fit in 128 is one frame's sprites, as
+          # (see #emit_held_table_copy_routine): so what has to fit in 128 is one frame's sprites, as
           # in the console's own games, which build their table each frame from what they draw.
           #
           # THE ORDER HOLDS. The console puts a lower row in front, and the copy keeps every row
@@ -466,17 +466,22 @@ module RubyGBA
                           came_from: alloc.call(MAX_SPRITES * 2, "which sprite each row of the console's table is"))
           end
 
-          # Every row of the copy hidden, at power-on, as the console's own table is.
+          # Every row of the copy hidden whenever the console's own table is cleared: at power-on,
+          # and on coming back to a screen that draws sprites.
           def emit_clear_held_table
             held = @layout.held_sprites or return
 
             emit_start_copy_engine(from: var_addr(:_oam_clear), to: held.copy,
                                    control: @framebuffer.dma_fill_control(held.rows * 2))
             store_word_immediate(OAM_START + OAM_SIZE, var_addr(HELD_SHOWN_TO))
-            store_word_immediate(0, var_addr(LEFT_OUT))
           end
 
-          def emit_copy_held_table
+          # ...and nothing left out yet, at power-on only: the count runs from there.
+          def emit_held_table_at_power_on
+            store_word_immediate(0, var_addr(LEFT_OUT)) if @layout.held_sprites
+          end
+
+          def emit_call_held_table_copy
             @call_cold_routine.call(HELD_TABLE_ROUTINE) if @layout.held_sprites
           end
 
@@ -490,11 +495,12 @@ module RubyGBA
           # A hidden row is one with its first half's two "how it is drawn" bits saying hidden and
           # not turning (OBJ_HIDDEN_ATTR0 with the rotate/scale bit clear).
           #
+          #   r0  the half being copied, then the hidden marker
           #   r1  the row of the copy being looked at     r5  its number
           #   r2  where the copy ends                      r6  rows left out this frame
           #   r3  the console's row being written         r7  scratch
           #   r4  where its number is noted                r8  where the console's table ends
-          def emit_held_table_routine
+          def emit_held_table_copy_routine
             held = @layout.held_sprites or return
 
             look = gensym

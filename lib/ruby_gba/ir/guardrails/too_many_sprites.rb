@@ -18,12 +18,12 @@ module RubyGBA
         # what has to fit is the busiest screen: one scene's sprites with the ones every
         # scene shows.
         #
-        # A GAME CAN KEEP MORE ROWS THAN THE CONSOLE DRAWS, up to MOST: a pool keeps a row for
-        # every thing it can hold, and a room shows a handful of them. Past 128 the cartridge
-        # keeps its rows in a bigger copy of the table and copies the ones showing something
-        # into the console's before each frame (see Backends::GBA::SpriteDrawing::HeldTable),
-        # so what has to fit in 128 is one frame's sprites. MOST is the most any backend draws
-        # in a frame; a game over that has a sprite with nowhere to go.
+        # A GAME CAN KEEP MORE ROWS THAN ITS CONSOLE DRAWS ON ONE FRAME, up to MOST: a pool keeps
+        # a row for every thing it can hold, and a room shows a handful of them, so what has to
+        # fit the console's table is one frame's sprites, and how a backend keeps the rest is
+        # its own business. MOST is the most any backend draws in a frame; a game over that has
+        # a sprite with nowhere to go. A console that keeps no more rows than it draws answers
+        # with its own count (see #most_places).
         #
         # This used to be a number an author counted, until tiled text: the console draws
         # every character of a tiled `draw_text` as a sprite of its own, and a menu is two

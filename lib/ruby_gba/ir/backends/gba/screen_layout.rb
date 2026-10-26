@@ -434,10 +434,17 @@ module RubyGBA
               end
             end
           end
-          # WHICH OF THE CONSOLE'S 128 PLACES EACH DECLARED SPRITE WAS GIVEN.
+
+          # How many rows of the sprite table the build handed out, the fade windows' twins among
+          # them: more than the console's 128 is a game that keeps its rows in a bigger copy of
+          # the table (see SpriteDrawing::HeldTable). Nought for a game with no sprites.
+          def sprite_table_rows = @sprite_table_rows || 0
+
+          # WHICH PLACE OF THE SPRITE TABLE EACH DECLARED SPRITE WAS GIVEN.
           #
           # The console composes the picture from a table of 128 sprites, and each row of it says
-          # which place it is — a number the build handed out and the author never saw. So a
+          # which place it is — a number the build handed out and the author never saw (a game
+          # with more than 128 keeps them in a bigger copy, and its places count there). So a
           # cartridge that did not carry this can be asked where its sprites are and cannot say
           # which of the answers is the hero.
           #
@@ -450,11 +457,6 @@ module RubyGBA
           # Keyed on the name the AUTHOR wrote. The program's own names for these are handed out
           # as it is built, so they say nothing to anybody, and a sprite drawn for something the
           # author named nothing (a letter of text) is left out rather than given one.
-          # How many rows of the sprite table the build handed out, the fade windows' twins among
-          # them: more than the console's 128 is a game that keeps its rows in a bigger copy of
-          # the table (see SpriteDrawing::HeldTable). Nought for a game with no sprites.
-          def sprite_table_rows = @sprite_table_rows || 0
-
           def sprite_slots
             each_built_sprite.each_with_object({}) do |(node, sprite), places|
               next unless node.declared
@@ -2606,8 +2608,12 @@ module RubyGBA
             twins = twin_object_count
             return nil if big.empty? && twins.zero?
 
+            # Past the console's 128, the rows are kept in a bigger copy (see SpriteDrawing::HeldTable),
+            # and what they are counted against is what a game can keep.
+            held = sprite_table_rows > MAX_SPRITES
             RubyGBA::Diagnostics::VideoMemory::Objects.new(used: @sprite_rows.count + twins,
-                                              capacity: MAX_SPRITES, big: big, twins: twins)
+                                                           capacity: held ? Guardrails::Checks::TooManySprites::MOST : MAX_SPRITES,
+                                                           big: big, twins: twins, held: held)
           end
 
           # +objects+ is every sprite's record: the finished ones, or, where the build stops on

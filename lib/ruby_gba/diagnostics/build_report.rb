@@ -293,8 +293,13 @@ module RubyGBA
       def object_count_lines(objects, printer)
         return if objects.nil?
 
-        printer.puts "  the sprites the console draws at once: " \
-                     "#{objects.used} of #{objects.capacity} used, #{objects.free} free"
+        if objects.held
+          printer.puts "  the places this game keeps for sprites: #{objects.used} of #{objects.capacity} used, " \
+                       "#{objects.free} free (the console draws 128 of them at once)"
+        else
+          printer.puts "  the sprites the console draws at once: " \
+                       "#{objects.used} of #{objects.capacity} used, #{objects.free} free"
+        end
         objects.big.each do |name, count|
           printer.puts "    :#{name} is bigger than one sprite, so it is drawn as #{count}"
         end
