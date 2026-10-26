@@ -34,7 +34,7 @@ jobs:
     runs-on: [self-hosted, macOS, mac-studio]
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      github.repository == 'jamescook/ruby-gba' &&
+      github.repository == 'jamescook/vblank' &&
       github.actor == 'jamescook' &&
       github.triggering_actor == 'jamescook'
     timeout-minutes: 90
