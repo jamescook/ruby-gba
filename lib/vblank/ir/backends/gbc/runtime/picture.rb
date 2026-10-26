@@ -831,19 +831,18 @@ module VBlank
                 asm.load([:hli], :a)
               end
               asm.label("rt_sprite_noted")
-              asm.load_high(:a, args.call(0)) # the picture's entry: the table + 2 × its number
+              asm.load_high(:a, args.call(0)) # the picture's entry: the table + 3 × its number
               asm.load(:l, :a)
               asm.load_high(:a, args.call(0) + 1)
               asm.load(:h, :a)
-              asm.add_hl(:hl)
-              asm.load(:de, "art_pictures")
-              asm.add_hl(:de)
-              asm.load(:a, [:hli])
-              asm.load(:h, [:hl])
-              asm.load(:l, :a) # HL = the picture's pieces
+              # The pieces' bank in view while they are read, and the game's back after. Nothing
+              # placing a piece switches it.
+              emit_banked_entry(asm, "art_pictures")
+              asm.load(:h, :d)
+              asm.load(:l, :e) # HL = the picture's pieces
               asm.load(:a, [:hli])
               asm.and_a(:a)
-              asm.ret(:z)
+              asm.jump(:z, "rt_bank_back")
               asm.load(:c, :a) # how many pieces
               asm.label("rt_sprite_piece")
               asm.push(:bc)
@@ -851,7 +850,7 @@ module VBlank
               asm.pop(:bc)
               asm.dec(:c)
               asm.jump_relative(:nz, "rt_sprite_piece")
-              asm.ret
+              asm.jump("rt_bank_back")
 
               # One piece at HL (dx, dy, tile, bank), HL moved past it: its place on the screen
               # worked out in 16 bits, and an entry written unless it is wholly off the screen or the
@@ -1283,7 +1282,29 @@ module VBlank
               asm.jump("rt_fault")
             end
 
-            OVERLAP_BYTES = 17
+            # A SPRITE PICTURE'S ENTRY IN +table+ (art_pictures, art_masks): three bytes for each
+            # picture, where its data is and the bank of the cartridge it is in (GBC::Art). With the
+            # picture's number in HL, this leaves DE where its data is, that bank in view, and the
+            # bank's number in A.
+            def emit_banked_entry(asm, table)
+              asm.load(:d, :h)
+              asm.load(:e, :l)
+              asm.add_hl(:hl)
+              asm.add_hl(:de)
+              asm.load(:de, table)
+              asm.add_hl(:de)
+              asm.load(:a, [:hli])
+              asm.load(:e, :a)
+              asm.load(:a, [:hli])
+              asm.load(:d, :a)
+              asm.load(:a, [:hl])
+              asm.load([Console::GBCHardware::MBC_ROM_BANK_LOW], :a)
+            end
+
+            # The collision's working memory: a record for each of the two masks (width, height,
+            # bytes a row, its bank, where its rows start), then the walk's own seven bytes.
+            MASK_RECORD_BYTES = 6
+            OVERLAP_BYTES = (2 * MASK_RECORD_BYTES) + 7
 
             # PIXELS TOUCHING. rt_pixels_overlap(a, b, dx, dy): 1 when sprite picture +a+ and
             # sprite picture +b+, b standing dx across and dy down from a, draw a pixel in the same
@@ -1291,17 +1312,15 @@ module VBlank
             # pixel, set where it draws; only the rectangle where the two pictures meet is walked,
             # and nothing at all when they do not meet. A picture is at most 64 pixels each way, so
             # two that meet are less than 64 apart and every number here fits a byte.
+            #
+            # The two masks can be in different banks of the cartridge (GBC::Art#picture_section),
+            # and only one bank is in view at a time, so each read of a mask puts its own bank in
+            # view (rt_overlap_bit), and the game's goes back at the end.
             def emit_overlap(asm, memory)
               at = memory[OVERLAP]
-              a_mask = at       # width, height, bytes a row, where its rows start
-              b_mask = at + 5
-              dx = at + 10
-              dy = at + 11
-              x_first = at + 12
-              x_past = at + 13
-              y_now = at + 14
-              y_past = at + 15
-              x_now = at + 16
+              a_mask = at # width, height, bytes a row, its bank, where its rows start
+              b_mask = at + MASK_RECORD_BYTES
+              dx, dy, x_first, x_past, y_now, y_past, x_now = (0...7).map { |i| at + (2 * MASK_RECORD_BYTES) + i }
               arg = ->(i) { Calls.arg(memory, i, 4) }
 
               asm.label("rt_pixels_overlap")
@@ -1398,11 +1417,11 @@ module VBlank
               asm.label("rt_overlap_yes")
               asm.load(:bc, 0)
               asm.load(:de, 1)
-              asm.ret
+              asm.jump("rt_bank_back")
               asm.label("rt_overlap_no")
               asm.load(:bc, 0)
               asm.load(:de, 0)
-              asm.ret
+              asm.jump("rt_bank_back")
 
               # Carry set when the 32-bit number at HL fits a signed byte, which is then in A.
               asm.label("rt_fits_byte")
@@ -1424,24 +1443,25 @@ module VBlank
               asm.ret
 
               # The mask of the picture whose number is at HL, into DE: its width, height and bytes
-              # a row, and where its rows start.
+              # a row, its bank, and where its rows start. Leaves its bank in view.
               asm.label("rt_overlap_mask")
               asm.load(:a, [:hli])
               asm.load(:h, [:hl])
               asm.load(:l, :a)
-              asm.add_hl(:hl)
               asm.push(:de)
-              asm.load(:de, "art_masks")
-              asm.add_hl(:de)
+              emit_banked_entry(asm, "art_masks")
+              asm.load(:b, :a)
+              asm.load(:h, :d)
+              asm.load(:l, :e) # HL = the mask
               asm.pop(:de)
-              asm.load(:a, [:hli])
-              asm.load(:h, [:hl])
-              asm.load(:l, :a)
               3.times do
                 asm.load(:a, [:hli])
                 asm.load([:de], :a)
                 asm.inc(:de)
               end
+              asm.load(:a, :b)
+              asm.load([:de], :a)
+              asm.inc(:de)
               asm.load(:a, :l)
               asm.load([:de], :a)
               asm.inc(:de)
@@ -1449,11 +1469,13 @@ module VBlank
               asm.load([:de], :a)
               asm.ret
 
-              # NZ when the pixel at (D, E) of a mask is drawn; HL is the mask's bytes a row, and
-              # where its rows start just after that.
+              # NZ when the pixel at (D, E) of a mask is drawn; HL is the mask's bytes a row, and its
+              # bank and where its rows start just after that. Leaves that bank in view.
               asm.label("rt_overlap_bit")
               asm.load(:a, [:hli])
               asm.load(:c, :a)
+              asm.load(:a, [:hli])
+              asm.load([Console::GBCHardware::MBC_ROM_BANK_LOW], :a)
               asm.load(:a, [:hli])
               asm.load(:h, [:hl])
               asm.load(:l, :a) # HL = its rows

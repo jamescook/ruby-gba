@@ -14,54 +14,67 @@ class TestGBCPictureGroups < Minitest::Test
   ROOMS = 6
   PICTURES_A_ROOM = 3
   PASSES_A_ROOM = 4
-  NAMES = (0...(ROOMS * PICTURES_A_ROOM)).map { |n| :"thing_#{n}" }.freeze
-  # A 32x32 picture in the three colours a Color sprite holds, whose every 8x8 tile differs from
-  # every other picture's — the Color keeps a tile two pictures share only once — from a run of
-  # numbers that start at +number+.
+  # Twenty rooms of three: sixty pictures of 32x32, which the Color's part of the cartridge always
+  # in view could not hold the pieces and outlines of when they were kept there.
+  MANY_ROOMS = 20
+
+  # The pictures of +count+ rooms, by name.
+  def self.names(count) = (0...(count * PICTURES_A_ROOM)).map { |n| :"thing_#{n}" }
+
+  # A 32x32 picture in the three colours a Color sprite holds and see-through pixels between them,
+  # so two pictures touch only where both draw. Its every 8x8 tile differs from every other
+  # picture's — the Color keeps a tile two pictures share only once — from a run of numbers that
+  # start at +number+.
   def self.art(number)
     seed = number + 1
     (0...32).map do |_|
       (0...32).map do
         seed = ((seed * 1_103_515_245) + 12_345) % (2**31)
-        "rg#"[(seed >> 16) % 3]
+        "rg#."[(seed >> 16) % 4]
       end.join
     end.join("\n")
   end
 
-  # The rooms, the room the game is in moving on every PASSES_A_ROOM passes, and the room after it up
-  # as well for the last pass of each. A thing of the room the game is in stands on the left; on the
-  # last pass, one of the next room's stands on the right. With +grouped+ false the same game without
+  # The rooms, +count+ of them, the room the game is in moving on every PASSES_A_ROOM passes, and the
+  # room after it up as well for the last pass of each. A thing of the room the game is in stands on
+  # the left; on the last pass, one of the next room's stands on the right, over the left one's edge,
+  # and whether the two touch is asked by their pixels. With +grouped+ false the same game without
   # picture groups.
-  private def rooms(grouped: true)
-    names = NAMES
+  private def rooms(grouped: true, count: ROOMS)
+    names = TestGBCPictureGroups.names(count)
     builder = Builder.new
     builder.instance_eval do
       screen :tiled
       names.each_with_index do |name, n|
-        image(name, "#" => :white, "r" => :red, "g" => :green) { TestGBCPictureGroups.art(n) }
+        image(name, "#" => :white, "r" => :red, "g" => :green, "." => :transparent) { TestGBCPictureGroups.art(n) }
       end
-      groups = (0...ROOMS).to_h { |room| [room, names[room * PICTURES_A_ROOM, PICTURES_A_ROOM]] }
-      together = (0...(ROOMS - 1)).map { |room| [room, room + 1] }
+      groups = (0...count).to_h { |room| [room, names[room * PICTURES_A_ROOM, PICTURES_A_ROOM]] }
+      together = (0...(count - 1)).map { |room| [room, room + 1] }
       shelf = picture_groups(:rooms, groups, up_together: together) if grouped
       passes = var :passes, 0
       here = var :here, 0
       beside = var :beside, 0
+      touching = var :touching, 0
       left = sprite :left, facing: names.to_h { |name| [name, name] }, at: [16, 40]
-      right = sprite :right, facing: names.to_h { |name| [name, name] }, at: [96, 40]
+      right = sprite :right, facing: names.to_h { |name| [name, name] }, at: [40, 40]
       right.hide
       shelf&.show here, beside
       game_loop do
         passes.add! 1
-        here.set!((passes / PASSES_A_ROOM).clamp(0, ROOMS - 1))
+        here.set!((passes / PASSES_A_ROOM).clamp(0, count - 1))
         beside.set! here
         right.hide
-        ((passes % PASSES_A_ROOM == PASSES_A_ROOM - 1) & (here < ROOMS - 1)).then do
+        right.x.set! 96
+        ((passes % PASSES_A_ROOM == PASSES_A_ROOM - 1) & (here < count - 1)).then do
           beside.set! here + 1
           right.show
+          right.x.set! 40
         end
         shelf&.show here, beside
         left.face names, showing: (here * PICTURES_A_ROOM) + (passes % PICTURES_A_ROOM)
         right.face names, showing: (beside * PICTURES_A_ROOM) + 1
+        touching.set! 0
+        left.overlaps?(right).then { touching.add! 1 }
       end
     end
     builder.finalize_program
@@ -74,10 +87,26 @@ class TestGBCPictureGroups < Minitest::Test
     assert_equal ROOMS - 1, player[:here], "the walk reached the last room"
   end
 
+  def test_sixty_grouped_pictures_build_and_play_as_the_interpreter_does
+    player = game_player.run(rooms(count: MANY_ROOMS), frames: MANY_ROOMS * PASSES_A_ROOM)
+
+    assert_equal MANY_ROOMS - 1, player[:here], "the walk reached the last room"
+  end
+
+  # The two things touch, by their pixels, on the pass the next room's stands over the left one's
+  # edge, and not on the pass after, when it has gone back off to the right.
+  def test_the_two_things_touch_while_both_are_up
+    touching = [PASSES_A_ROOM - 1, PASSES_A_ROOM].map do |frames|
+      game_player.run(rooms(count: MANY_ROOMS), frames: frames)[:touching]
+    end
+
+    assert_equal [1, 0], touching
+  end
+
   def test_the_same_pictures_without_groups_are_refused
     error = assert_raises(GBC::LoweringError) { GBC.new.build(rooms(grouped: false)) }
 
-    assert_match(/need #{NAMES.length * 16} tiles of 8×8/, error.message)
+    assert_match(/need #{TestGBCPictureGroups.names(ROOMS).length * 16} tiles of 8×8/, error.message)
     assert_match(/room for 256/, error.message)
   end
 end

@@ -349,8 +349,9 @@ module VBlank
           # --- the cartridge's copy ---
 
           # What each of the art's sections is to the author, for a cartridge too full for them (see
-          # Linker::TooBig). The tables hold every list of colours, and for each sprite picture the
-          # pieces it is cut into and the outline it collides by, so sprite pictures are what grow it.
+          # Linker::TooBig). The tables in the part always in view hold every list of colours and where
+          # each sprite picture's pieces and outline are; those are kept in the banks, a section a
+          # picture, under the same name. Sprite pictures are what grow both.
           SPRITE_PICTURES = SM83::Holding.new(what: "the game's sprite pictures", fix: "use fewer or smaller sprite pictures")
           PICTURE_TABLES = SM83::Holding.new(what: "the colours and outlines of the game's pictures",
                                              fix: "use fewer or smaller sprite pictures")
@@ -359,12 +360,13 @@ module VBlank
           BACKGROUND_MAPS = SM83::Holding.new(what: "the game's background maps",
                                               fix: "make its background maps smaller, or use fewer of them")
 
-          # The sections the art is kept in: the tiles and the grids in banks of their own (each a
-          # copy the runtime puts the bank in view for), and everything read as the game runs —
-          # the palettes, the pieces, the masks, where each grid is — in the part always in view.
+          # The sections the art is kept in: the tiles, the grids and each sprite picture's pieces
+          # and mask in banks (each read with its bank put in view), and the palettes and where
+          # each of the others is in the part always in view.
           def sections
             refuse_too_many_tiles!
             [tables_section,
+             *@sprite_pictures.each_value.map { |picture| picture_section(picture) },
              data_section("art sprite tiles", "art_sprite_tiles", @sprite_tiles.flatten, holds: SPRITE_PICTURES),
              *group_rooms.each_value.map { |room| group_tiles_section(room) },
              data_section("art background tiles", "art_background_tiles", @background_tiles.flatten,
@@ -400,11 +402,18 @@ module VBlank
               asm.label("art_lent_palettes")
               @sprite_palettes.each { |colors| asm.data_words(colors) }
             end
+            # Where each sprite picture's pieces and mask are, and the bank each is in (#picture_section).
             pictures = @sprite_pictures.values
             asm.label("art_pictures")
-            pictures.each { |picture| asm.data_words("art_pieces_#{picture.number}") }
+            pictures.each do |picture|
+              asm.data_words("art_pieces_#{picture.number}")
+              asm.data_bank_of("art_pieces_#{picture.number}")
+            end
             asm.label("art_masks")
-            pictures.each { |picture| asm.data_words("art_mask_#{picture.number}") }
+            pictures.each do |picture|
+              asm.data_words("art_mask_#{picture.number}")
+              asm.data_bank_of("art_mask_#{picture.number}")
+            end
             asm.label("art_grids")
             @grids.each_index do |i|
               asm.data_words("art_grid_#{i}")
@@ -430,26 +439,34 @@ module VBlank
               end
             end
             group_rooms.each_value { |room| emit_group_tables(asm, room) }
-            pictures.each do |picture|
-              asm.label("art_pieces_#{picture.number}")
-              asm.data_bytes(picture.pieces.length)
-              picture.pieces.each do |piece|
-                tile = tile_number(piece.tile)
-                bank = tile / 128
-                asm.data_bytes(piece.dx, piece.dy, tile % 128,
-                               piece.flips | (bank.zero? ? 0 : Console::GBCHardware::OBJ_TILE_BANK))
-              end
-              asm.label("art_mask_#{picture.number}")
-              stride = (picture.width + 7) / 8
-              asm.data_bytes(picture.width, picture.height, stride)
-              picture.height.times do |y|
-                stride.times do |byte|
-                  bits = (0...8).sum do |bit|
-                    x = (byte * 8) + bit
-                    x < picture.width && picture.mask[(y * picture.width) + x] ? 0x80 >> bit : 0
-                  end
-                  asm.data_bytes(bits)
+            asm.section
+          end
+
+          # A SPRITE PICTURE'S PIECES AND MASK, in a bank of the cartridge rather than the part always
+          # in view: four bytes a piece and a bit a pixel come to more than its tiles' own share of
+          # that part for a big picture, so a game of many rooms would fill it long before the
+          # pictures' tiles fill their banks. The runtime
+          # puts the bank in view while it reads them (rt_sprite, rt_pixels_overlap).
+          def picture_section(picture)
+            asm = SM83.new("art picture #{picture.number}", home: :banked, holds: PICTURE_TABLES)
+            asm.label("art_pieces_#{picture.number}")
+            asm.data_bytes(picture.pieces.length)
+            picture.pieces.each do |piece|
+              tile = tile_number(piece.tile)
+              bank = tile / 128
+              asm.data_bytes(piece.dx, piece.dy, tile % 128,
+                             piece.flips | (bank.zero? ? 0 : Console::GBCHardware::OBJ_TILE_BANK))
+            end
+            asm.label("art_mask_#{picture.number}")
+            stride = (picture.width + 7) / 8
+            asm.data_bytes(picture.width, picture.height, stride)
+            picture.height.times do |y|
+              stride.times do |byte|
+                bits = (0...8).sum do |bit|
+                  x = (byte * 8) + bit
+                  x < picture.width && picture.mask[(y * picture.width) + x] ? 0x80 >> bit : 0
                 end
+                asm.data_bytes(bits)
               end
             end
             asm.section
