@@ -500,6 +500,20 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # --record-sound keeps what the game handed the speaker, to listen to afterwards.
+  def test_run_records_the_sound_to_a_wav
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = run_in_dummy_window(dir, "demo.rb", "--pictures", "10", "--console", "gba", "--record-sound", "heard.wav")
+
+      assert status.success?, out
+      wav = File.join(dir, "heard.wav")
+      assert File.exist?(wav), out
+      assert_equal "RIFF", File.binread(wav, 4)
+      assert_match(/The sound the game made is in heard\.wav\./, out)
+    end
+  end
+
   # YJIT is on unless --no-yjit says not, so the speed can be measured both ways.
   def test_run_plays_without_yjit_when_told
     Dir.mktmpdir do |dir|

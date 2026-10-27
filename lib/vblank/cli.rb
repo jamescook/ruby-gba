@@ -666,6 +666,9 @@ module VBlank
         --no-yjit                Do not use YJIT, the part of Ruby that makes
                                  the game run faster. Use this to measure the
                                  speed without it. Default: --yjit.
+        --record-sound FILE      When the play stops, write the sound that the
+                                 game gave the speaker to FILE, a .wav file.
+                                 Use this to listen to a sound problem again.
         #{SET}
     TEXT
     option :console, banner: "NAME", enum: CONSOLES
@@ -673,6 +676,7 @@ module VBlank
     option :pictures, type: :numeric, banner: "N"
     option :uncapped, type: :boolean, default: false
     option :yjit, type: :boolean, default: true
+    option :record_sound, banner: "FILE"
     option :set, type: :array, banner: "NAME=VALUE", default: []
     def run_game(game_file)
       refuse_unless_whole_and_positive!("--scale", options[:scale])
@@ -812,11 +816,21 @@ module VBlank
                                      height: console.screen_height, menu: game.menu?)
       say "Playing #{game.title} for the #{console.title} in Ruby #{RUBY_VERSION} with #{jit_in_use}. " \
           "#{'Press F1 for the menu. ' if game.menu?}Press P to pause. Hold Tab to play fast. Press Escape to stop."
-      session.play(window)
+      recording = VBlank::Live::Recording.new(window, frame_seconds: console.frame_seconds) if options[:record_sound]
+      session.play(recording || window)
     rescue VBlank::Live::SDL::Missing, VBlank::Live::SDL::Failed, VBlank::IR::ProgramError => e
       raise Thor::Error, e.message
     ensure
       window&.close
+      write_recorded_sound(recording) if recording # a play that went wrong is the one most worth hearing
+    end
+
+    def write_recorded_sound(recording)
+      sound = recording.sound
+      return say("The game made no sound, so VBlank wrote no #{options[:record_sound]}.") unless sound
+
+      sound.write_wav(options[:record_sound])
+      say "The sound the game made is in #{options[:record_sound]}."
     end
 
     # A game that halted, or came to its end, kept its last picture up until the window was closed.
