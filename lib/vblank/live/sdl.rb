@@ -15,6 +15,17 @@ module VBlank
     #
     # The keys: the arrows are the pad, Z is A, X is B, Enter is Start, Backspace is Select, A and
     # S are the shoulder buttons L and R. Escape, or closing the window, stops the play.
+    #
+    # THE SOUND goes to the computer's speaker through an SDL audio stream, a queue the speaker
+    # plays from at its own steady rate while the game puts a frame's samples in at the end of
+    # each pass. The game and the speaker keep time by two different clocks, neither exactly
+    # right, so a little more sound is put in than played, or a little less, all the time; left
+    # alone that piles up until the sound lags the picture, or runs dry, and either is heard. So
+    # the speaker is played a shade faster the more is waiting past a few frames and a shade
+    # slower the less, never by more than a few parts in a hundred, which is too little to hear as
+    # a change of pitch. A game far ahead of the speaker has the frames past that thrown away, and
+    # one too slow to keep it fed gets a little silence ahead rather than a speaker stopped and
+    # started. A computer with no sound plays the game silent.
     class SDL
       # SDL3 or Fiddle could not be found, said in plain words with what to install.
       class Missing < StandardError; end
@@ -39,6 +50,17 @@ module VBlank
       EVENT_QUIT = 0x100
       EVENT_WINDOW_CLOSE_REQUESTED = 0x210
       EVENT_BYTES = 128 # an SDL_Event is a union of at most this many bytes
+      INIT_AUDIO = 0x10
+      AUDIO_S16 = 0x8010 # 16-bit samples, the low byte first
+      AUDIO_DEVICE_DEFAULT_PLAYBACK = 0xFFFFFFFF
+
+      # How many frames' worth of sound is kept waiting for the speaker: the silence put in ahead
+      # when it runs dry, the most kept before a frame is thrown away, the amount the speed is
+      # nudged to hold, and the most it is nudged by, in parts of a hundred.
+      SOUND_AHEAD_FRAMES = 2
+      SOUND_BEHIND_FRAMES = 6
+      SOUND_WAITING_FRAMES = SOUND_AHEAD_FRAMES + 1
+      SOUND_NUDGE_MOST_PERCENT = 3
 
       # The console's buttons, by the key that holds each (SDL's scancodes, which name a place on
       # the keyboard rather than a letter, so the layout of the keyboard does not move them).
@@ -92,6 +114,27 @@ module VBlank
         KEYS.filter_map { |button, code| button if keys[code] != 0 }
       end
 
+      # A frame's sound, +samples+ 16-bit numbers at +rate+ a second, into the speaker's queue. The
+      # speaker is opened the first time, at that rate.
+      def play_sound(samples, rate)
+        speaker = open_speaker_once(rate) or return
+        return if samples.empty?
+
+        bytes = samples.length * 2
+        waiting = @sdl.SDL_GetAudioStreamQueued(speaker)
+        keep_sound_in_step(speaker, waiting, bytes)
+        return if waiting > SOUND_BEHIND_FRAMES * bytes
+
+        if waiting < bytes
+          quiet = "\0" * bytes
+          SOUND_AHEAD_FRAMES.times { @sdl.SDL_PutAudioStreamData(speaker, quiet, bytes) }
+        end
+        @sdl.SDL_PutAudioStreamData(speaker, samples.pack("s<*"), bytes)
+      end
+
+      # How many samples are waiting for the speaker: none before any sound, or with no speaker.
+      def sound_waiting = live?(@speaker) ? @sdl.SDL_GetAudioStreamQueued(@speaker) / 2 : 0
+
       # The window was closed, or Escape is down, as SDL last heard it (#show reads what SDL has
       # heard, and Session shows each picture before it asks).
       def stop? = @closed || @sdl.SDL_GetKeyboardState(nil)[ESCAPE] != 0
@@ -105,6 +148,8 @@ module VBlank
 
       # The window goes, and SDL with it. Closing twice does nothing more.
       def close
+        @sdl.SDL_DestroyAudioStream(@speaker) if live?(@speaker)
+        @speaker = nil
         @sdl.SDL_DestroyTexture(@texture) if live?(@texture)
         @sdl.SDL_DestroyRenderer(@renderer) if live?(@renderer)
         @sdl.SDL_DestroyWindow(@window) if live?(@window)
@@ -176,6 +221,13 @@ module VBlank
           extern "char SDL_PollEvent(void*)"
           extern "char SDL_PushEvent(void*)"
           extern "void* SDL_GetKeyboardState(void*)"
+          extern "char SDL_InitSubSystem(unsigned int)"
+          extern "void* SDL_OpenAudioDeviceStream(unsigned int, void*, void*, void*)"
+          extern "char SDL_ResumeAudioStreamDevice(void*)"
+          extern "char SDL_PutAudioStreamData(void*, void*, int)"
+          extern "int SDL_GetAudioStreamQueued(void*)"
+          extern "char SDL_SetAudioStreamFrequencyRatio(void*, float)"
+          extern "void SDL_DestroyAudioStream(void*)"
         end
       end
 
@@ -199,6 +251,33 @@ module VBlank
       end
 
       def live?(pointer) = pointer && !pointer.null?
+
+      # The speaker, opened at +rate+ the first time and the same one every time after: one
+      # speaker's worth of 16-bit samples, which SDL turns into whatever the computer's own sound
+      # wants. Nil on a computer whose sound SDL cannot open, which then plays the game silent.
+      def open_speaker_once(rate)
+        return @speaker if @speaker_tried
+
+        @speaker_tried = true
+        return nil if @sdl.SDL_InitSubSystem(INIT_AUDIO).zero?
+
+        spec = [AUDIO_S16, 1, rate].pack("Lll")
+        speaker = @sdl.SDL_OpenAudioDeviceStream(AUDIO_DEVICE_DEFAULT_PLAYBACK, spec, nil, nil)
+        return nil if speaker.null?
+
+        @sdl.SDL_ResumeAudioStreamDevice(speaker)
+        @speaker = speaker
+      end
+
+      # The speaker played faster the more sound is waiting past SOUND_WAITING_FRAMES' worth, and
+      # slower the less, by at most SOUND_NUDGE_MOST_PERCENT. The nudge is all there is: the
+      # session keeps the console's own beat, so a second of the game's sound is a second, where
+      # the desktop build paces the game by the monitor and plays its sound at that pace too.
+      def keep_sound_in_step(speaker, waiting, frame_bytes)
+        wanted = SOUND_WAITING_FRAMES * frame_bytes.to_f
+        over = ((waiting - wanted) / wanted).clamp(-1.0, 1.0)
+        @sdl.SDL_SetAudioStreamFrequencyRatio(speaker, 1.0 + (SOUND_NUDGE_MOST_PERCENT / 100.0 * over))
+      end
 
       # Everything SDL has heard from the window: a closed window, or the last window gone, stops
       # the play.

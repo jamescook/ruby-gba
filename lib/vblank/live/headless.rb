@@ -2,9 +2,9 @@
 
 module VBlank
   module Live
-    # A DEVICE WITH NO SCREEN: it keeps every picture it is shown, holds the buttons a script
-    # gives it by frame (+buttons+, frame number to the buttons held on it), and stops the play
-    # after +frames+ pictures.
+    # A DEVICE WITH NO SCREEN: it keeps every picture it is shown and every frame's sound it is
+    # handed, holds the buttons a script gives it by frame (+buttons+, frame number to the buttons
+    # held on it), and stops the play after +frames+ pictures.
     #
     # ITS CLOCK MOVES ONLY WHEN SOMETHING SAYS IT DOES, so a test never waits for real time.
     # Waiting moves it straight to the moment waited for, and every pass then takes
@@ -13,19 +13,28 @@ module VBlank
     class Headless
       Picture = Data.define(:pixels, :width, :height)
 
-      attr_reader :pictures, :now
+      # +sounds+ is each frame's samples, in the order they were handed over, and +sound_rate+ the
+      # samples a second they were made at.
+      attr_reader :pictures, :sounds, :sound_rate, :now
 
       def initialize(frames:, buttons: {}, pass_seconds: 0)
         @frames = frames
         @buttons = buttons
         @pass_seconds = pass_seconds.to_r
         @pictures = []
+        @sounds = []
+        @sound_rate = nil # until the first frame's sound says it
         @now = 0r
       end
 
       # The picture is the game's own and is drawn over next frame, so a copy is kept.
       def show(pixels, width, height)
         @pictures << Picture.new(pixels: pixels.dup, width: width, height: height)
+      end
+
+      def play_sound(samples, rate)
+        @sounds << samples
+        @sound_rate = rate
       end
 
       def held_buttons(frame) = @buttons.fetch(frame, [])

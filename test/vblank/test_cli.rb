@@ -465,13 +465,14 @@ class TestCLI < Minitest::Test
     end
   end
 
-  # `vblank run` plays the game as Ruby in a window: here SDL's dummy driver, which makes windows
-  # nobody sees. It says which Ruby plays it, and when it stops, how fast it went.
+  # `vblank run` plays the game as Ruby in a window: here SDL's dummy drivers, which make windows
+  # nobody sees and sound nobody hears. It says which Ruby plays it, and when it stops, how fast
+  # it went.
   def test_run_plays_the_game_in_a_window_and_says_how_fast
     Dir.mktmpdir do |dir|
       cli("new", "demo", dir: dir)
-      out, status = Open3.capture2e({ "SDL_VIDEODRIVER" => "dummy" }, RUBY, BIN, "run", "demo.rb", "--pictures", "5",
-                                    chdir: dir)
+      drivers = { "SDL_VIDEODRIVER" => "dummy", "SDL_AUDIODRIVER" => "dummy" }
+      out, status = Open3.capture2e(drivers, RUBY, BIN, "run", "demo.rb", "--pictures", "5", chdir: dir)
       skip out.lines.first.chomp if out.include?("cannot find SDL3")
 
       assert status.success?, out

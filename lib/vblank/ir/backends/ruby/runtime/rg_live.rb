@@ -1,12 +1,10 @@
 # The driver a game played live runs on (Ruby::LiveGame): the game is a Ruby object in the same
-# process as whoever plays it, and at the end of every frame it hands them the picture and takes
-# back the buttons for the next pass, or nothing, which stops the play there.
+# process as whoever plays it, and at the end of every frame it hands them the picture and the
+# frame's sound and takes back the buttons for the next pass, or nothing, which stops the play
+# there.
 #
 # The game is told one frame went by each pass, whatever a clock says: a pass that runs late makes
 # the game run slow.
-#
-# The game plays its music and mixes its recordings every frame, but no one asks for the samples
-# yet (rg_sound_render_frame), so a game played live is silent and spends nothing on them.
 
 # What a game stops with when it does something its rules refuse (a push onto a full list); the
 # words say what, and LiveGame raises them as IR::ProgramError.
@@ -18,12 +16,14 @@ def rg_live_main(player)
   catch(:rg_live_stop) { rg_game_main }
 end
 
+# The sound of the frame the pass played is made first, before the next frame moves the music on.
 # The picture is shown as it stands once the next frame has begun, the way the screen shows it
 # once the frame boundary has passed, and the buttons the player answers are read for the pass
 # that starts.
 def rg_driver_wait_vblank
+  samples = rg_sound_render_frame
   rg_frame_begins
-  buttons = @rg_live.buttons_after(rg_screen_shown)
+  buttons = @rg_live.buttons_after(rg_screen_shown, samples)
   throw :rg_live_stop if buttons.nil?
 
   rg_buttons_read(buttons)

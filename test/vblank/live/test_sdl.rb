@@ -12,14 +12,41 @@ class TestSDL < Minitest::Test
   runs_on_the_main_ractor!
 
   SDL = VBlank::Live::SDL
+  RATE = 48_000
+  FRAME_SAMPLES = 804 # a frame's share of a second at RATE, near enough
 
   def setup
-    @driver_before = ENV.fetch("SDL_VIDEODRIVER", nil)
+    @drivers_before = ENV.to_h.slice("SDL_VIDEODRIVER", "SDL_AUDIODRIVER")
     ENV["SDL_VIDEODRIVER"] = "dummy"
+    ENV["SDL_AUDIODRIVER"] = "dummy"
   end
 
   def teardown
-    ENV["SDL_VIDEODRIVER"] = @driver_before
+    %w[SDL_VIDEODRIVER SDL_AUDIODRIVER].each { |name| ENV[name] = @drivers_before[name] }
+  end
+
+  # A frame's sound goes to the speaker, with a little silence ahead of it the first time, so the
+  # speaker has something to play while the next frame is made.
+  def test_the_sound_a_window_is_handed_waits_for_the_speaker
+    window = open_window
+    window.play_sound(Array.new(FRAME_SAMPLES, 1000), RATE)
+
+    assert_operator window.sound_waiting, :>, FRAME_SAMPLES
+  ensure
+    window&.close
+  end
+
+  # A game far ahead of the speaker — played faster than the console, say — has the sound past a
+  # few frames' worth thrown away, rather than heard ever later.
+  def test_sound_far_ahead_of_the_speaker_is_not_kept
+    window = open_window
+    30.times { window.play_sound(Array.new(FRAME_SAMPLES, 1000), RATE) }
+
+    kept = SDL::SOUND_BEHIND_FRAMES + SDL::SOUND_AHEAD_FRAMES
+    assert_operator window.sound_waiting, :>, 0, "the speaker was never opened"
+    assert_operator window.sound_waiting, :<=, kept * FRAME_SAMPLES
+  ensure
+    window&.close
   end
 
   def test_a_window_shows_a_picture_and_holds_no_buttons_until_one_is_pressed

@@ -620,7 +620,8 @@ module VBlank
       the game has a Gemfile, add `gem "fiddle"` to it.
 
       The window shows the Game Boy Advance screen. So the game must name gba in
-      consoles:. The game has no sound yet.
+      consoles:. The sound plays on this computer's speaker. When this computer
+      is too slow for the game, the sound has gaps.
 
       Examples:
         vblank run game.rb

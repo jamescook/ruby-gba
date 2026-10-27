@@ -10,9 +10,11 @@ module VBlank
         #
         # #play hands it whoever plays it, which is asked one thing at the end of every frame:
         #
-        #   buttons_after(pixels)  the picture as the screen shows it, a 15-bit colour a pixel, a row
-        #                          at a time, drawn over next frame; gives back the buttons held for
-        #                          the pass that starts (IR::Buttons.mask), or nil to stop the play
+        #   buttons_after(pixels, samples)  the picture as the screen shows it, a 15-bit colour a
+        #                          pixel, a row at a time, drawn over next frame, and the sound of
+        #                          the frame just played, one speaker's worth of 16-bit samples at
+        #                          #sound_rate; gives back the buttons held for the pass that starts
+        #                          (IR::Buttons.mask), or nil to stop the play
         class LiveGame
           def initialize(source)
             @game = Class.new { class_eval(source, "(the game, as Ruby)") }.new
@@ -21,6 +23,9 @@ module VBlank
           # The size of the picture it shows.
           def width = @game.class::RG_SCREEN_WIDTH
           def height = @game.class::RG_SCREEN_HEIGHT
+
+          # The samples a second its sound is made at.
+          def sound_rate = @game.class::RG_SOUND_RATE
 
           # Plays until +player+ says stop, or the game halts or ends. A game that does something the
           # interpreter refuses stops with IR::ProgramError, in the same words.

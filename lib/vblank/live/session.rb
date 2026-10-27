@@ -4,14 +4,17 @@ module VBlank
   module Live
     # A GAME PLAYED LIVE, A PASS AT A TIME, THROUGH A DEVICE. The game is built as Ruby and run in
     # this process (IR::Backends::Ruby#live_game). At the end of each of its frames it hands the
-    # session the picture; the session waits for that frame to end, shows the device the picture,
-    # asks it whether to stop, and gives the game the buttons for the next pass. The play ends when
-    # the device says so, or when the game itself ends.
+    # session the picture and the frame's sound; the session waits for that frame to end, shows
+    # the device the picture, hands it the sound, asks it whether to stop, and gives the game the
+    # buttons for the next pass. The play ends when the device says so, or when the game itself ends.
     #
     # A device answers:
     #
     #   show(pixels, width, height)  the picture, as the screen shows it (15-bit colours, a row at a time),
     #                                which the game draws over next frame: a device that keeps it copies it
+    #   play_sound(samples, rate)    the sound of the frame just shown, one speaker's worth of 16-bit
+    #                                samples, +rate+ a second; how far ahead of the speaker it lets
+    #                                the sound get is the device's own business
     #   held_buttons(pass)           the buttons held as picture number +pass+ is shown (1, 2, 3, …),
     #                                for the pass that starts then
     #   stop?                        asked once a pass, after the picture
@@ -52,13 +55,15 @@ module VBlank
         Rate.new(passes: @passes, frames: @frames, seconds: @frame_began - @started)
       end
 
-      # Asked by the game as each of its frames ends, with the picture as the screen shows it: waits
-      # for the frame to end, shows the device the picture, and gives back the buttons held for
-      # the pass that starts, a bit each — or nil when the device says stop.
-      def buttons_after(pixels)
+      # Asked by the game as each of its frames ends, with the picture as the screen shows it and
+      # the frame's sound: waits for the frame to end, shows the device the picture, hands it the
+      # sound, and gives back the buttons held for the pass that starts, a bit each — or nil when
+      # the device says stop.
+      def buttons_after(pixels, samples)
         wait_for_frame_end
         @passes += 1
         @device.show(pixels, @game.width, @game.height)
+        @device.play_sound(samples, @game.sound_rate)
         return nil if @device.stop? || @passes == @stop_after_passes
 
         IR::Buttons.mask(@device.held_buttons(@passes))

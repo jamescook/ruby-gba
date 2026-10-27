@@ -108,20 +108,27 @@ class TestSession < Minitest::Test
     assert_equal 3, rate.passes
   end
 
-  # A game that makes sound plays live, silent until the runtime makes sound; a test of the game
-  # itself still skips there, since nothing can be checked against silence.
-  def test_a_game_that_makes_sound_plays_silent
+  # A game's sound goes to the device with each picture: the samples of the frame the pass just
+  # played, a frame's share of a second at the rate they were made at. The first frame is the one
+  # the game sets itself up in, so a beep the loop's third pass starts is heard from the fourth
+  # frame's sound on, and the three before are silent.
+  def test_each_pass_hands_the_device_the_sound_of_its_frame
     program = game do
       enable_sound
       x = var :x, 0
       game_loop do
-        (x == 2).then { beep :blip }
+        (x == 2).then { beep 440, duty: :half, decay: :none, volume: 15 }
         x.add! 1
       end
     end
-    device = Headless.new(frames: 4)
+    device = Headless.new(frames: 5)
+    Session.new(program).play(device)
 
-    assert_equal 4, Session.new(program).play(device).passes
+    rate = device.sound_rate
+    frame = frame_seconds(program)
+    assert_equal 5, device.sounds.size
+    device.sounds.each { |samples| assert_in_delta rate * frame, samples.size, 1 }
+    assert_equal [true, true, true, false, false], device.sounds.map { |samples| samples.all?(&:zero?) }
   end
 
   # A game that saves to flash keeps its save in memory for the length of the play: the chip's
