@@ -93,6 +93,7 @@ module VBlank
       # begin with, and the keys that work the menu, which cannot be changed.
       ESCAPE = Settings::ESCAPE
       PAUSE = Settings.starting_key(:pause) # P
+      STEP = Settings.starting_key(:step) # N, while paused
       FAST_FORWARD = Settings.starting_key(:fast_forward) # Tab, held
       MENU = Settings.starting_key(:menu) # F1
       GRAVE = 53 # the key above Tab, which opens the menu too while no console button has it
@@ -281,12 +282,13 @@ module VBlank
       # picture up and the speaker emptied and silent, until P is pressed again, the menu is closed,
       # or the play is stopped. It waits on SDL for the next thing to happen to the window, so a
       # pause takes no time from the computer, and draws the picture again after each, so a window
-      # resized while paused is not left blank. Says whether it held.
+      # resized while paused is not left blank. A step (N) lets the game play one frame, and the
+      # pause holds again at the end of it. Says whether it held.
       def hold_while_paused
         return false unless held?
 
         empty_speaker
-        while held? && !stop?
+        while held? && !stop? && !consume_step
           read_event if @sdl.SDL_WaitEventTimeout(@event, wait_milliseconds) != 0
           write_settings_when_due
           redraw_window
@@ -519,6 +521,13 @@ module VBlank
       end
 
       def held? = @paused || @menu.open?
+
+      # Whether a step was asked for while paused, and the step cleared, as the desktop build does.
+      def consume_step
+        asked = @step && @paused && !@menu.open?
+        @step = false
+        asked
+      end
 
       # The picture last put in the window, drawn into it again, with the menu and what the window
       # is doing over it (Menu#drawing).
@@ -759,7 +768,7 @@ module VBlank
 
       # A key went down: what it does is the player's settings' (Settings), whose hotkeys the
       # desktop build has too — pause, fast forward held, the menu, and frame rate, fullscreen and
-      # mute switched on and off. Its step a frame at a time is the desktop build's alone.
+      # mute switched on and off, and a step of one frame while paused.
       def read_key_down(scancode, repeat)
         hotkey = @player_settings.hotkey_of_key(scancode)
         if menu_opener?(scancode, hotkey) && @has_menu
@@ -771,6 +780,8 @@ module VBlank
           @fast_forward = true
         elsif hotkey == :pause && !@menu.open?
           @paused = !@paused unless repeat
+        elsif hotkey == :step && !@menu.open?
+          @step = @paused # held down, it steps a frame at a time
         elsif SWITCHED.key?(hotkey) && !repeat
           switch = SWITCHED[hotkey]
           @menu.settings = @menu.settings.with(switch => !@menu.settings.public_send(switch))

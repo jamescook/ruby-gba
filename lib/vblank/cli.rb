@@ -633,6 +633,7 @@ module VBlank
                                  a heading, and Enter to choose. A game that
                                  says menu: false has no menu.
         P                        pause the game. Press P again to continue.
+        N                        while the game is paused, play one frame.
         Tab                      while you hold Tab, the game plays fast, at up
                                  to four times the speed of the console. You can
                                  change this speed in the menu. The game makes

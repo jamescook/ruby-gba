@@ -100,6 +100,25 @@ class TestSDL < Minitest::Test
     window&.close
   end
 
+  # N while paused lets the game play one frame and then holds again, as the desktop build's step
+  # does. Not paused, it does nothing. The window closed after the step is read only once the
+  # pause holds again, so a step that did not happen ends the play rather than waiting forever.
+  def test_n_steps_a_paused_window_one_frame
+    window = open_window
+    press_key(SDL::STEP)
+    press_key(SDL::PAUSE)
+    press_key(SDL::STEP)
+    window.show(Array.new(240 * 160, 0), 240, 160)
+    push_event([SDL::EVENT_QUIT].pack("L"))
+
+    assert window.hold_while_paused
+    refute window.stop?, "the step should have let one frame play before the pause held again"
+    assert window.hold_while_paused, "the pause should hold again after the step"
+    assert window.stop?
+  ensure
+    window&.close
+  end
+
   # Tab fast forwards for as long as it is held, as it does in the desktop build.
   def test_tab_fast_forwards_while_it_is_held
     window = open_window
