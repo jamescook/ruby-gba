@@ -637,6 +637,12 @@ module VBlank
                                  no sound until you release Tab.
         Escape                   stop the play. Closing the window stops it too.
 
+      A gamepad plays the game too, alongside the keyboard: the D-pad or the left
+      stick, the right face button for A and the bottom one for B, Start, Back
+      for Select, and the shoulder buttons for L and R. You can plug it in or
+      pull it out while the game plays. The menu, pause, fast forward and Escape
+      need the keyboard.
+
       The window needs SDL3 and the gem `fiddle`. To install SDL3 on macOS, run
       `brew install sdl3`. On Debian or Ubuntu, run `apt install libsdl3-dev`. If
       the game has a Gemfile, add `gem "fiddle"` to it.

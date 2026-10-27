@@ -14,7 +14,8 @@ module VBlank
     # with bars where the window is the wrong shape for it.
     #
     # The keys: the arrows are the pad, Z is A, X is B, Enter is Start, Backspace is Select, A and
-    # S are the shoulder buttons L and R. As in the desktop build, P pauses and carries on, Tab held
+    # S are the shoulder buttons L and R. A gamepad plugged in plays too (PAD_BUTTONS); the
+    # window's own keys below are the keyboard's alone. As in the desktop build, P pauses and carries on, Tab held
     # fast forwards, and F1 opens the menu (Menu), which holds the game while it is open and is
     # worked with the arrows and Enter. Escape, or closing the window, stops the play.
     #
@@ -82,6 +83,43 @@ module VBlank
       FAST_FORWARD = 43 # Tab, held, as in the desktop build and many an emulator
       MENU = 58 # F1, the desktop build's menu key too
 
+      # A GAMEPAD'S BUTTONS, by SDL's numbers for them, and the console's button each is: the
+      # console's own layout, as the desktop build sets it to begin with — A on the right (SDL's
+      # "east"), B below it ("south"), the back and start buttons, the shoulders, the D-pad.
+      PAD_SOUTH = 0 # SDL's numbers for a gamepad's buttons, from its headers
+      PAD_EAST = 1
+      PAD_BACK = 4
+      PAD_START = 6
+      PAD_LEFT_SHOULDER = 9
+      PAD_RIGHT_SHOULDER = 10
+      PAD_DPAD_UP = 11
+      PAD_DPAD_DOWN = 12
+      PAD_DPAD_LEFT = 13
+      PAD_DPAD_RIGHT = 14
+      PAD_BUTTONS = Ractor.make_shareable({ PAD_EAST => :a, PAD_SOUTH => :b, PAD_BACK => :select, PAD_START => :start,
+                                            PAD_DPAD_RIGHT => :right, PAD_DPAD_LEFT => :left, PAD_DPAD_UP => :up,
+                                            PAD_DPAD_DOWN => :down, PAD_RIGHT_SHOULDER => :r, PAD_LEFT_SHOULDER => :l })
+      PAD_LEFT_X = 0 # SDL's numbers for the left stick's two ways
+      PAD_LEFT_Y = 1
+      # How far the stick goes each way is a number up to 32767. A stick at rest seldom reads
+      # nought, so it moves the game only once pushed past this, about a third of the way.
+      STICK_DEAD_ZONE = 10_000
+      INIT_GAMEPAD = 0x2000
+      EVENT_GAMEPAD_ADDED = 0x653
+      EVENT_GAMEPAD_REMOVED = 0x654
+      PAD_ID_AT = 16 # where in a pad's event its number is (4 bytes)
+
+      # The console's buttons a gamepad holds: +down+, SDL's numbers for the buttons down on it, and
+      # the left stick's two ways, up being below nought.
+      def self.pad_buttons(down:, stick_x:, stick_y:)
+        held = down.filter_map { |button| PAD_BUTTONS[button] }
+        held << :right if stick_x > STICK_DEAD_ZONE
+        held << :left if stick_x < -STICK_DEAD_ZONE
+        held << :down if stick_y > STICK_DEAD_ZONE
+        held << :up if stick_y < -STICK_DEAD_ZONE
+        held.uniq
+      end
+
       # The keys the menu is worked with while it is open, by scancode: the pad's arrows, and Enter,
       # which is Start's key.
       MENU_KEYS = Ractor.make_shareable(KEYS.slice(:up, :down, :left, :right).invert.merge(KEYS[:start] => :enter))
@@ -107,6 +145,7 @@ module VBlank
         @settings = @menu.settings # as the window last made them so
         @has_menu = menu
         @kept_from_game = [] # keys pressed for the menu, kept from the game until they come up
+        @pads = {} # the gamepads plugged in, by SDL's number for each
         @shown_this_second = 0
         @second_began = now
         @frame_rate = 0 # pictures shown in the last whole second
@@ -135,9 +174,12 @@ module VBlank
       # The console's buttons whose keys are down now, as SDL last heard them (#show reads what
       # SDL has heard). The keyboard is read when it is asked, whichever pass it is asked for. A
       # key pressed for the menu is not the game's until it comes up: Enter on Resume is not Start.
+      #
+      # Every gamepad plugged in holds buttons too, alongside the keyboard (SDL.pad_buttons).
       def held_buttons(_pass)
         keys = @sdl.SDL_GetKeyboardState(nil)
-        KEYS.filter_map { |button, code| button if keys[code] != 0 && !@kept_from_game.include?(code) }
+        from_keys = KEYS.filter_map { |button, code| button if keys[code] != 0 && !@kept_from_game.include?(code) }
+        (from_keys + @pads.values.flat_map { |pad| pad_held(pad) }).uniq
       end
 
       # A frame's sound, +samples+ 16-bit numbers at +rate+ a second, into the speaker's queue. The
@@ -205,6 +247,8 @@ module VBlank
 
       # The window goes, and SDL with it. Closing twice does nothing more.
       def close
+        @pads.each_value { |pad| @sdl.SDL_CloseGamepad(pad) }
+        @pads = {}
         @sdl.SDL_DestroyAudioStream(@speaker) if live?(@speaker)
         @speaker = nil
         @sdl.SDL_DestroyTexture(@texture) if live?(@texture)
@@ -286,6 +330,10 @@ module VBlank
           extern "char SDL_WaitEvent(void*)"
           extern "char SDL_PushEvent(void*)"
           extern "void* SDL_GetKeyboardState(void*)"
+          extern "void* SDL_OpenGamepad(unsigned int)"
+          extern "void SDL_CloseGamepad(void*)"
+          extern "char SDL_GetGamepadButton(void*, int)"
+          extern "short SDL_GetGamepadAxis(void*, int)"
           extern "char SDL_InitSubSystem(unsigned int)"
           extern "void* SDL_OpenAudioDeviceStream(unsigned int, void*, void*, void*)"
           extern "char SDL_ResumeAudioStreamDevice(void*)"
@@ -316,6 +364,8 @@ module VBlank
         raise_failed!("make the picture") if @texture.null?
         raise_failed!("keep the pixels sharp") if @sdl.SDL_SetTextureScaleMode(@texture, SCALEMODE_NEAREST).zero?
         @event = Fiddle::Pointer.malloc(EVENT_BYTES, Fiddle::RUBY_FREE)
+        # Gamepads, where SDL can read them: a computer where it cannot plays with the keyboard alone.
+        @sdl.SDL_InitSubSystem(INIT_GAMEPAD)
       end
 
       def live?(pointer) = pointer && !pointer.null?
@@ -425,6 +475,7 @@ module VBlank
       def read_event
         type = @event[0, 4].unpack1("L")
         @closed = true if type == EVENT_QUIT || type == EVENT_WINDOW_CLOSE_REQUESTED
+        return open_or_close_pad(type) if type == EVENT_GAMEPAD_ADDED || type == EVENT_GAMEPAD_REMOVED
         return unless type == EVENT_KEY_DOWN || type == EVENT_KEY_UP
 
         scancode = @event[KEY_SCANCODE_AT, 4].unpack1("L")
@@ -434,6 +485,25 @@ module VBlank
         else
           read_key_down(scancode, @event[KEY_REPEAT_AT, 1].unpack1("C").nonzero?)
         end
+      end
+
+      # A gamepad plugged in is opened and read from then on, and one pulled out is let go. SDL
+      # says the same of every pad already plugged in when the window opens.
+      def open_or_close_pad(type)
+        id = @event[PAD_ID_AT, 4].unpack1("L")
+        if type == EVENT_GAMEPAD_ADDED
+          pad = @sdl.SDL_OpenGamepad(id)
+          @pads[id] = pad if live?(pad)
+        elsif (pad = @pads.delete(id))
+          @sdl.SDL_CloseGamepad(pad)
+        end
+      end
+
+      # The console's buttons one gamepad holds now.
+      def pad_held(pad)
+        down = PAD_BUTTONS.keys.select { |button| @sdl.SDL_GetGamepadButton(pad, button) != 0 }
+        self.class.pad_buttons(down: down, stick_x: @sdl.SDL_GetGamepadAxis(pad, PAD_LEFT_X),
+                               stick_y: @sdl.SDL_GetGamepadAxis(pad, PAD_LEFT_Y))
       end
 
       def read_key_down(scancode, repeat)

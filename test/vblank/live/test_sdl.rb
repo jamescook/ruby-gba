@@ -183,6 +183,24 @@ class TestSDL < Minitest::Test
     window&.close
   end
 
+  # A gamepad's buttons are the console's in its own layout, as the desktop build sets them to begin
+  # with: A on the right, B below it, and the D-pad the directions.
+  def test_a_gamepads_buttons_are_the_consoles
+    held = SDL.pad_buttons(down: [SDL::PAD_EAST, SDL::PAD_SOUTH, SDL::PAD_DPAD_UP, SDL::PAD_START], stick_x: 0, stick_y: 0)
+
+    assert_equal %i[a b up start].sort, held.sort
+  end
+
+  # The left stick moves too, once it is pushed past a little way from the middle, so a stick that
+  # rests slightly off centre moves nothing.
+  def test_the_left_stick_moves_past_its_dead_zone
+    resting = SDL.pad_buttons(down: [], stick_x: 4000, stick_y: -4000)
+    pushed = SDL.pad_buttons(down: [], stick_x: 30_000, stick_y: -30_000)
+
+    assert_empty resting
+    assert_equal %i[right up].sort, pushed.sort
+  end
+
   # A picture of a size the window was not opened for is refused in words, never read past.
   def test_a_picture_of_another_size_is_refused
     window = open_window
