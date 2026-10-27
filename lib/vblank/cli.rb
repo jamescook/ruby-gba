@@ -613,6 +613,7 @@ module VBlank
         Z, X                     A, B
         Enter, Backspace         Start, Select
         A key, S key             L, R
+        P                        pause the game. Press P again to continue.
         Escape                   stop the play. Closing the window stops it too.
 
       The window needs SDL3 and the gem `fiddle`. To install SDL3 on macOS, run
@@ -789,7 +790,7 @@ module VBlank
       window = VBlank::Live::SDL.new(title: game.title, scale: options[:scale], width: console.screen_width,
                                      height: console.screen_height)
       say "Playing #{game.title} for the #{console.title} in Ruby #{RUBY_VERSION}, YJIT #{yjit_on? ? 'on' : 'off'}. " \
-          "Press Escape to stop."
+          "Press P to pause. Press Escape to stop."
       session.play(window)
     rescue VBlank::Live::SDL::Missing, VBlank::Live::SDL::Failed, VBlank::IR::ProgramError => e
       raise Thor::Error, e.message

@@ -14,7 +14,8 @@ module VBlank
     # with bars where the window is the wrong shape for it.
     #
     # The keys: the arrows are the pad, Z is A, X is B, Enter is Start, Backspace is Select, A and
-    # S are the shoulder buttons L and R. Escape, or closing the window, stops the play.
+    # S are the shoulder buttons L and R. P pauses and carries on, as in the desktop build, and
+    # Escape, or closing the window, stops the play.
     #
     # THE SOUND goes to the computer's speaker through an SDL audio stream, a queue the speaker
     # plays from at its own steady rate while the game puts a frame's samples in at the end of
@@ -46,6 +47,10 @@ module VBlank
       LOGICAL_PRESENTATION_LETTERBOX = 2
       EVENT_QUIT = 0x100
       EVENT_WINDOW_CLOSE_REQUESTED = 0x210
+      EVENT_KEY_DOWN = 0x300
+      KEY_SCANCODE_AT = 24 # where in a key's event the key is, as a scancode (4 bytes)
+      KEY_DOWN_AT = 36 # ...whether it went down (1 byte)
+      KEY_REPEAT_AT = 37 # ...and whether it is a key held down, heard again (1 byte)
       EVENT_BYTES = 128 # an SDL_Event is a union of at most this many bytes
       INIT_AUDIO = 0x10
       AUDIO_S16 = 0x8010 # 16-bit samples, the low byte first
@@ -64,6 +69,7 @@ module VBlank
       KEYS = Ractor.make_shareable({ right: 79, left: 80, down: 81, up: 82, a: 29, b: 27, start: 40, select: 42,
                                      l: 4, r: 22 })
       ESCAPE = 41
+      PAUSE = 19 # P, the desktop build's pause key too
 
       # Whether SDL3 can be found and loaded here, without opening anything.
       def self.available?(library: nil)
@@ -99,9 +105,7 @@ module VBlank
 
         read_events
         @sdl.SDL_UpdateTexture(@texture, nil, pixels.pack("v*"), @width * 2)
-        @sdl.SDL_RenderClear(@renderer)
-        @sdl.SDL_RenderTexture(@renderer, @texture, nil, nil)
-        @sdl.SDL_RenderPresent(@renderer)
+        redraw_window
       end
 
       # The console's buttons whose keys are down now, as SDL last heard them (#show reads what
@@ -134,6 +138,23 @@ module VBlank
       # The window was closed, or Escape is down, as SDL last heard it (#show reads what SDL has
       # heard, and Session shows each picture before it asks).
       def stop? = @closed || @sdl.SDL_GetKeyboardState(nil)[ESCAPE] != 0
+
+      # P was pressed (#show reads what SDL has heard): the window holds, the picture up and the
+      # speaker emptied and silent, until P is pressed again or the play is stopped. It waits on
+      # SDL for the next thing to happen to the window, so a pause takes no time from the computer,
+      # and draws the picture again after each, so a window resized while paused is not left blank.
+      # Says whether it held.
+      def hold_while_paused
+        return false unless @paused
+
+        empty_speaker
+        while @paused && !stop?
+          read_event if @sdl.SDL_WaitEvent(@event) != 0
+          redraw_window
+        end
+        resume_speaker
+        true
+      end
 
       def now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
@@ -215,11 +236,14 @@ module VBlank
           extern "char SDL_RenderTexture(void*, void*, void*, void*)"
           extern "char SDL_RenderPresent(void*)"
           extern "char SDL_PollEvent(void*)"
+          extern "char SDL_WaitEvent(void*)"
           extern "char SDL_PushEvent(void*)"
           extern "void* SDL_GetKeyboardState(void*)"
           extern "char SDL_InitSubSystem(unsigned int)"
           extern "void* SDL_OpenAudioDeviceStream(unsigned int, void*, void*, void*)"
           extern "char SDL_ResumeAudioStreamDevice(void*)"
+          extern "char SDL_PauseAudioStreamDevice(void*)"
+          extern "char SDL_ClearAudioStream(void*)"
           extern "char SDL_PutAudioStreamData(void*, void*, int)"
           extern "int SDL_GetAudioStreamQueued(void*)"
           extern "void SDL_DestroyAudioStream(void*)"
@@ -265,13 +289,41 @@ module VBlank
         @speaker = speaker
       end
 
-      # Everything SDL has heard from the window: a closed window, or the last window gone, stops
-      # the play.
+      # The picture last put in the window, drawn into it again.
+      def redraw_window
+        @sdl.SDL_RenderClear(@renderer)
+        @sdl.SDL_RenderTexture(@renderer, @texture, nil, nil)
+        @sdl.SDL_RenderPresent(@renderer)
+      end
+
+      # The speaker stopped, with what it had waiting thrown away: it would otherwise play late.
+      def empty_speaker
+        return unless live?(@speaker)
+
+        @sdl.SDL_PauseAudioStreamDevice(@speaker)
+        @sdl.SDL_ClearAudioStream(@speaker)
+      end
+
+      def resume_speaker
+        @sdl.SDL_ResumeAudioStreamDevice(@speaker) if live?(@speaker)
+      end
+
+      # Everything SDL has heard from the window.
       def read_events
-        while @sdl.SDL_PollEvent(@event) != 0
-          type = @event[0, 4].unpack1("L")
-          @closed = true if type == EVENT_QUIT || type == EVENT_WINDOW_CLOSE_REQUESTED
-        end
+        read_event while @sdl.SDL_PollEvent(@event) != 0
+      end
+
+      # One thing SDL heard, in @event: a closed window, or the last window gone, stops the play,
+      # and P going down pauses or carries on. A key held down is heard again and again, and only
+      # the first time counts.
+      def read_event
+        type = @event[0, 4].unpack1("L")
+        @closed = true if type == EVENT_QUIT || type == EVENT_WINDOW_CLOSE_REQUESTED
+        return unless type == EVENT_KEY_DOWN
+
+        scancode = @event[KEY_SCANCODE_AT, 4].unpack1("L")
+        repeat = @event[KEY_REPEAT_AT, 1].unpack1("C")
+        @paused = !@paused if scancode == PAUSE && repeat.zero?
       end
 
       def raise_failed!(what)

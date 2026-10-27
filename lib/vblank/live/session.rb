@@ -18,7 +18,10 @@ module VBlank
     #                                device with no speaker (yet)
     #   held_buttons(pass)           the buttons held as picture number +pass+ is shown (1, 2, 3, …),
     #                                for the pass that starts then
-    #   stop?                        asked once a pass, after the picture
+    #   hold_while_paused            asked once a pass, after the picture: returns false at once unless
+    #                                the player paused; otherwise returns true once they carry on or
+    #                                stop, with what was waiting for the speaker thrown away
+    #   stop?                        asked once a pass, after the pause
     #   now                          the time, in seconds, from any start that does not move back
     #   wait_until(seconds)          returns at that time, or at once if it has gone; the next pass starts then
     #
@@ -62,10 +65,11 @@ module VBlank
         @device = device
         @passes = @frames = 0
         @paced_by_speaker = false
+        @seconds_paused = 0
         @started = @frame_began = @device.now
         @device.wait_until(@frame_began)
         @game.play(self)
-        Rate.new(passes: @passes, frames: @frames, seconds: @frame_began - @started)
+        Rate.new(passes: @passes, frames: @frames, seconds: @frame_began - @started - @seconds_paused)
       end
 
       # Asked by the game as each of its frames ends, with the picture as the screen shows it and
@@ -87,12 +91,28 @@ module VBlank
         else
           @paced_by_speaker = !@uncapped && !@device.sound_waiting.nil?
         end
+        leave_pause_out_of_pacing
         return nil if @device.stop? || @passes == @stop_after_passes
 
         IR::Buttons.mask(@device.held_buttons(@passes))
       end
 
       private
+
+      # A PAUSE holds the game between two passes, for as long as the device holds it. The time
+      # held is not the game's: the next frame begins when the pause ends, so the beat does not
+      # count it as frames missed, and the play's rate leaves it out. The device empties its
+      # speaker as the pause begins, so the game carries on with nothing queued from before, and
+      # the pass after is played on the clock, as the first pass of all is, until the speaker has
+      # the game's sound again.
+      def leave_pause_out_of_pacing
+        held_from = @device.now
+        return unless @device.hold_while_paused
+
+        @seconds_paused += @device.now - held_from
+        @frame_began = @device.now
+        @paced_by_speaker = false
+      end
 
       # WITH A SPEAKER, THE SPEAKER PACES THE PLAY, as an emulator's sound sync does. Its own clock
       # plays a second of samples in a second, so once a frame's sound is handed to it the next pass

@@ -75,11 +75,38 @@ class TestSDL < Minitest::Test
   # has read what it heard.
   def test_closing_the_window_stops_the_play
     window = open_window
-    event = Fiddle::Pointer.malloc(SDL::EVENT_BYTES, Fiddle::RUBY_FREE)
-    event[0, 4] = [SDL::EVENT_QUIT].pack("L")
-    SDL.binding_for(nil).SDL_PushEvent(event)
+    push_event([SDL::EVENT_QUIT].pack("L"))
     window.show(Array.new(240 * 160, 0), 240, 160)
 
+    assert window.stop?
+  ensure
+    window&.close
+  end
+
+  # P pauses, as it does in the desktop build: the window holds, with the sound queued before the
+  # pause thrown away, until P is pressed again.
+  def test_p_pauses_the_window_until_it_is_pressed_again
+    window = open_window
+    window.play_sound(Array.new(FRAME_SAMPLES, 1000), RATE)
+    press_key(SDL::PAUSE)
+    window.show(Array.new(240 * 160, 0), 240, 160)
+    press_key(SDL::PAUSE)
+
+    assert window.hold_while_paused
+    assert_equal 0, window.sound_waiting
+    refute window.hold_while_paused, "the second P should have ended the pause"
+  ensure
+    window&.close
+  end
+
+  # Closing the window while the game is paused ends the pause and stops the play.
+  def test_closing_a_paused_window_stops_the_play
+    window = open_window
+    press_key(SDL::PAUSE)
+    window.show(Array.new(240 * 160, 0), 240, 160)
+    push_event([SDL::EVENT_QUIT].pack("L"))
+
+    assert window.hold_while_paused
     assert window.stop?
   ensure
     window&.close
@@ -120,5 +147,20 @@ class TestSDL < Minitest::Test
     skip "SDL3 is not installed: #{SDL::INSTALL_LINE}" unless SDL.available?
 
     SDL.new(title: "TEST", scale: 1)
+  end
+
+  # SDL told a key went down, as a keyboard would tell it.
+  def press_key(scancode)
+    event = "\0".b * SDL::EVENT_BYTES
+    event[0, 4] = [SDL::EVENT_KEY_DOWN].pack("L")
+    event[SDL::KEY_SCANCODE_AT, 4] = [scancode].pack("L")
+    event[SDL::KEY_DOWN_AT] = "\1"
+    push_event(event)
+  end
+
+  def push_event(bytes)
+    event = Fiddle::Pointer.malloc(SDL::EVENT_BYTES, Fiddle::RUBY_FREE)
+    event[0, bytes.bytesize] = bytes
+    SDL.binding_for(nil).SDL_PushEvent(event)
   end
 end

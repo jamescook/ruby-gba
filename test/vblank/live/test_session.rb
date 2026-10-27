@@ -119,6 +119,32 @@ class TestSession < Minitest::Test
     assert_operator device.now, :>=, (30 - kept) * frame
   end
 
+  # A PAUSE HOLDS THE GAME WHERE IT IS. Paused for ten seconds after the third picture, the game
+  # carries on from the frame it was on, no frame is counted for the time held, and the play's rate
+  # is the game's while it was playing: the pause is not the game running late.
+  def test_a_pause_holds_the_game_where_it_is
+    program = counting_game
+    frame = frame_seconds(program)
+    device = Headless.new(frames: 6, pauses: { 3 => 10 })
+    rate = Session.new(program).play(device)
+
+    assert_equal [nil, 1, 2, 3, 4, 5], device.pictures.map { |picture| marked_frame(picture) }
+    assert_equal [6, 6], [rate.passes, rate.frames]
+    assert_in_delta 1 / frame, rate.frames_per_second, 0.001
+  end
+
+  # With a speaker, a pause empties it, and the game carries on with its sound whole from there:
+  # the time held is not heard as the speaker running dry, and no frame is skipped.
+  def test_with_a_speaker_a_pause_leaves_no_gap_in_the_sound
+    program = counting_game
+    frame = frame_seconds(program)
+    device = Headless.new(frames: 20, speaker: true, pass_seconds: frame / 4, pauses: { 10 => 10 })
+    rate = Session.new(program).play(device)
+
+    assert_equal 0, device.gaps
+    assert_equal [20, 20], [rate.passes, rate.frames]
+  end
+
   # Played uncapped, for measuring, the session never waits for a frame to end: each pass starts
   # the moment the last one ends, the game moves on a frame a pass, and the rate is the machine's
   # own. Four passes of a quarter of a frame each are four times the console's speed.
