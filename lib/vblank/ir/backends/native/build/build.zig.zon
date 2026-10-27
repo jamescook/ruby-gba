@@ -3,7 +3,7 @@
     .version = "0.0.0",
     // Together with the name, this tells zig this package is the same package
     // from one build to the next. zig made it up; never edit it by hand.
-    .fingerprint = 0xd2f77b24f63740f1, // Changing this has security and trust implications.
+    .fingerprint = 0x810bf6c882967e1, // Changing this has security and trust implications.
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         // SDL3, ported to zig's build system by Carl Åstholm, so zig compiles
