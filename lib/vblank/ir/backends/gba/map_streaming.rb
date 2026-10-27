@@ -78,21 +78,28 @@ module VBlank
 
           # The routine that brings one such background's view along its map (see
           # #emit_stream_view_routine). Named for the background, so a report and a measured
-          # profile can say whose it is.
-          def self.view_routine(name) = Messages::MadeNames.make(:view_along_map, background: name)
+          # profile can say whose it is — and for the +scene+ too, for a background declared in
+          # several, which has one for each scene's declaration (see
+          # ScreenLayout#declared_background).
+          def self.view_routine(name, scene: nil)
+            return Messages::MadeNames.make(:view_along_map, background: name) unless scene
 
-          # BRING THE CELLS AROUND THE VIEW IN, for the background +name+ whose map is brought
-          # into view a strip at a time, before its scroll registers are written. +x+ and +y+
-          # are the values that say where the view is now, in the map's own pixels.
+            Messages::MadeNames.make(:view_along_map_in_scene, background: name, scene: IR::Modes.strip_scene_prefix(scene))
+          end
+
+          # BRING THE CELLS AROUND THE VIEW IN, for a background whose map is brought into view a
+          # strip at a time (+stream+, its StreamedMaps), before its scroll registers are
+          # written. +x+ and +y+ are the values that say where the view is now, in the map's own
+          # pixels.
           #
           # What is written here is where the view is and a call. The work is a routine of the
           # background's own, because it is wanted in three places — the scroll write every
           # frame, the background going up, and an area's tiles coming in — and written out at
           # each it was the larger part of all three.
-          def emit_stream_view(name, x, y)
-            emit_view_cell(x, stream_var(name, :want_col))
-            emit_view_cell(y, stream_var(name, :want_row))
-            @lowering.statement(Build.call(MapStreaming.view_routine(name)))
+          def emit_stream_view(stream, x, y)
+            emit_view_cell(x, stream_var(stream.name, :want_col))
+            emit_view_cell(y, stream_var(stream.name, :want_row))
+            @lowering.statement(Build.call(stream.routine))
           end
 
           # THE BODY OF THAT ROUTINE: compare the cell the view is at now with the cell the grid
@@ -103,8 +110,8 @@ module VBlank
           # room. That matters most on the frame the whole view is filled: twenty-one rows of
           # thirty-one cells, a handful of instructions a cell, in a gap the layers are switched
           # off for.
-          def emit_stream_view_routine(name)
-            bg = @layout.screen.backgrounds.fetch(name)
+          def emit_stream_view_routine(bg)
+            name = bg.stream.name
             refill = gensym
             columns_left = gensym
             rows_down = gensym
@@ -156,7 +163,7 @@ module VBlank
             after = gensym
             emit_branch(:b, after)
             place_label(strip)
-            emit_strip_routine(name)
+            emit_strip_routine(bg.stream.routine)
             place_label(after)
           end
 
@@ -173,7 +180,7 @@ module VBlank
             emit_number(ACC, 0)
             store_var(ACC, IR::Nodes::Background.stream_vars(name).last)
             x, y = at_corner ? [Build.int(0), Build.int(0)] : IR::Nodes::Background.scroll_vars(name).map { |var| Build.var_ref(var) }
-            emit_stream_view(name, x, y)
+            emit_stream_view(bg.stream, x, y)
           end
 
           # HAND THE BACKGROUND ANOTHER MAP: say which map the strips come from now, and that the
@@ -303,10 +310,10 @@ module VBlank
           # registers. A cell outside the map gets the blank cell. A cell's place in the grid is
           # its column and row each taken round 32, which is what lets the grid come round again
           # under the view.
-          def emit_strip_routine(name)
+          def emit_strip_routine(routine)
             again = gensym
             blank = gensym
-            @emitter.note_video_copy(Messages::MadeNames.words_for_made_name(MapStreaming.view_routine(name)), 2)
+            @emitter.note_video_copy(Messages::MadeNames.words_for_made_name(routine), 2)
             place_label(again)
             emit(ASM.mov_reg(ACC, STREAM_BLANK))
             # One unsigned compare catches both ends: a negative column or row reads as a very

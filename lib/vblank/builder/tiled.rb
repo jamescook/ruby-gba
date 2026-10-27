@@ -53,12 +53,12 @@ module VBlank
       # rule that spans two would otherwise be a lookup in each, kept in step by hand —
       # the exact failure `pool` exists to spare a game writing its own data.
       #
-      # Every field but +node+, +scene_gate+, +bends_rows+ and +pivot+ holds the NAME of a hidden
+      # Every field but +node+, +scene_gates+, +bends_rows+ and +pivot+ holds the NAME of a hidden
       # variable the build allocated, and is nil until the program does the thing that
       # needs it. So a background that is never scrolled has no +scroll_x+, and asking
       # #scrolls? is the same question as asking whether the game ever scrolled it.
       DeclaredBackground = Struct.new(:node, :scroll_x, :scroll_y, :shown_map, :live_map,
-                                      :angle, :scale, :scene_gate, :bends_rows, :pivot,
+                                      :angle, :scale, :scene_gates, :bends_rows, :pivot,
                                       :shown_colors, :live_colors,
                                       keyword_init: true) do
         def scrolls? = !scroll_x.nil?
@@ -378,7 +378,11 @@ module VBlank
         # is a property of the console's LAYER rather than of the background, and scenes
         # take turns with the layers — so two backgrounds that share one would both write
         # its position every frame, and whichever was declared later would win.
-        declared.scene_gate ||= @current_scene_gate
+        #
+        # A name declared in several scenes belongs to each of them, and is written for while
+        # any of them is up. A declaration outside every scene (a nil gate) is there in all of
+        # them.
+        declared.scene_gates = (declared.scene_gates || []) | [@current_scene_gate]
 
         # The window's top-left, in pixels, tracked in two hidden variables (cleared at
         # boot since console RAM isn't zero at power-on). A background that never

@@ -35,8 +35,10 @@ class TestMadeNames < Minitest::Test
     pose_rows: { number: 2 },
     told_turn: { background: :field, part: :size },
     set_swap: { background: :ground },
+    set_swap_in_scene: { background: :ground, scene: :cave },
     shared_rooms: { number: 0, part: :take },
     view_along_map: { background: :ground },
+    view_along_map_in_scene: { background: :ground, scene: :cave },
     tile_run_tile: { run: :box, number: 3 },
     tile_run_pending: { number: 0 },
     painted_copies: {},
@@ -72,6 +74,10 @@ class TestMadeNames < Minitest::Test
       MadeNames.make(:draw_order, number: 1, part: :sort) => "putting the sprites of draw_in_order #1 in order",
       MadeNames.make(:set_swap, background: :ground) => "bringing background :ground another set of tiles",
       MadeNames.make(:view_along_map, background: :ground) => "bringing the view of background :ground along its map",
+      MadeNames.make(:set_swap_in_scene, background: :ground, scene: :cave) =>
+        "bringing background :ground of the scene :cave another set of tiles",
+      MadeNames.make(:view_along_map_in_scene, background: :ground, scene: :cave) =>
+        "bringing the view of background :ground of the scene :cave along its map",
       MadeNames.make(:shared_rooms, number: 0, part: :take) => "giving a sprite a room in sprite memory for the pose it shows",
       MadeNames.make(:shared_rooms, number: 0, part: :let_go) => "taking back the room of a sprite that is not shown",
       MadeNames.make(:pool_part, pool: :guard, part: :remove) => "removing an instance of pool :guard",

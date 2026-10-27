@@ -5,7 +5,7 @@
  *
  * What is NOT here is refused when the game is built rather than drawn wrongly (see
  * Picture#refuse_unsupported_picture!, which is the whole list): more of anything than there is
- * room for, and two backgrounds with one name told other colors.
+ * room for.
  *
  * A sprite's pictures and a background's tiles arrive ready to draw: which of their pixels show,
  * and the colors of each list they can be drawn with, are worked out when the game is built (see
@@ -137,11 +137,12 @@ static int32_t shown_count, shown_room;
  * written at the entry that keeps it for the name (keeper_of, RG_BG_KEPT_BY), and the slots of
  * the other entries are never used.
  *
- * WHAT A BACKGROUND'S CELLS HOLD NOW (Reference @bg_maps): which of its maps, and the run's own
- * copy of that map's cells, made the first time one of them is changed or another map is handed
- * over. Until then each background of the name shows its own first map, read where the game
- * declared it. */
-typedef struct { int32_t which; int16_t *cells; } background_cells;
+ * WHAT A BACKGROUND'S CELLS HOLD NOW (Reference @bg_maps): which map, of which entry's maps, and
+ * the run's own copy of that map's cells, made the first time one of them is changed or another
+ * map is handed over. The entry is the declaration that was up then (declaration_up), since two
+ * scenes' declarations of one name can each have maps of their own. Until then each background
+ * of the name shows its own first map, read where the game declared it. */
+typedef struct { int32_t which, of; int16_t *cells; } background_cells;
 static background_cells cells_now[RG_MAX_BACKGROUNDS];
 
 /* Where a background's window sits over its map, in pixels (Reference @bg_scroll): the screen's
@@ -155,10 +156,11 @@ static background_scroll scrolls[RG_MAX_BACKGROUNDS];
 static uint8_t from_corner[RG_MAX_BACKGROUNDS];
 static int32_t any_from_corner, corners_expired;
 
-/* Which set of its tiles a background is drawn from now (Reference @bg_colors): 0 for the
- * colors they were drawn in, which is where every background starts and what a number naming no
- * step means, or one more than the step the game last named. */
-static int32_t tile_set_now[RG_MAX_BACKGROUNDS];
+/* The step of colors the game last named for a background's name, one more than it (Reference
+ * @bg_colors): nought until the game names one. Which set of its tiles that draws each entry from
+ * is worked out for the entry (tile_set_now), since two scenes' declarations of one name can have
+ * different steps, or none. */
+static int64_t colors_told[RG_MAX_BACKGROUNDS];
 
 /* How a background is turned, once it has been turned or resized at all (Reference @bg_affine). */
 typedef struct { int32_t turned, angle, size, pivot_x, pivot_y; } background_turn;
@@ -692,6 +694,24 @@ int32_t rg_fade_steps(int32_t amount, int32_t fraction_bits, int32_t walked) {
  * unless another scene declared a background by the same name after it. */
 static int32_t keeper_of(int32_t background) { return background_field(background, RG_BG_KEPT_BY); }
 
+/* Reference#background_up: the declaration of this background's name a line naming it means: the
+ * one on the screen up now, where two scenes each declare one by the name, or the keeping entry
+ * where none of them is up. */
+static int32_t declaration_up(int32_t background) {
+  int32_t keeper = keeper_of(background);
+  for (int32_t bg = 0; bg < rg_game_picture_sizes[RG_SIZE_BACKGROUNDS]; bg++)
+    if (keeper_of(bg) == keeper && showing(bg)) return bg;
+  return keeper;
+}
+
+/* Reference#background_swap: which set of its tiles this entry is drawn from now. 0 for the
+ * colors they were drawn in, which is also what a number naming none of its steps means, or one
+ * more than the step the game last named. */
+static int32_t tile_set_now(int32_t background) {
+  int64_t step = colors_told[keeper_of(background)] - 1;
+  return step >= 0 && step < background_field(background, RG_BG_COLOR_STEPS) ? (int32_t)step + 1 : 0;
+}
+
 /* Reference#scroll_shown: where a background's window sits on the display now. */
 static background_scroll scroll_shown(int32_t background) {
   int32_t keeper = keeper_of(background);
@@ -719,11 +739,11 @@ static const int32_t *map_entry(int32_t background, int32_t which) {
 }
 
 /* Reference#map_of: the map a background's cells hold now. That is the run's own copy for the
- * name where there is one, which is a copy of one of the keeping entry's maps; and the first of
- * this background's own maps where there is none. */
+ * name where there is one, which is a copy of one of the maps of the entry it was made from; and
+ * the first of this background's own maps where there is none. */
 static const int32_t *map_now(int32_t background) {
   const background_cells *now = &cells_now[keeper_of(background)];
-  return now->cells ? map_entry(keeper_of(background), now->which) : map_entry(background, 0);
+  return now->cells ? map_entry(now->of, now->which) : map_entry(background, 0);
 }
 
 static int32_t map_cols(int32_t background) { return map_now(background)[RG_MAP_COLS]; }
@@ -745,24 +765,24 @@ static int32_t map_cell(int32_t background, int64_t row, int64_t col) {
   return cells[cell_place(background, row, col)];
 }
 
-/* The name's cells become the run's own copy of map number +which+ of the keeping entry's maps,
- * as that map was declared (Reference#mutable_map, and the copy in #exec_show_map). */
+/* The name's cells become the run's own copy of map number +which+ of the maps of the declaration
+ * up now, as that map was declared (Reference#mutable_map, and the copy in #exec_show_map). */
 static void copy_map(int32_t background, int32_t which) {
-  int32_t keeper = keeper_of(background);
-  const int32_t *map = map_entry(keeper, which);
+  int32_t keeper = keeper_of(background), up = declaration_up(background);
+  const int32_t *map = map_entry(up, which);
   size_t count = (size_t)map[RG_MAP_COLS] * (size_t)map[RG_MAP_ROWS];
   int16_t *copy = malloc((count ? count : 1) * sizeof *copy);
   if (!copy) rg_fault("no memory left for a background's own copy of its map");
   memcpy(copy, rg_game_map_cells + map[RG_MAP_CELLS], count * sizeof *copy);
   free(cells_now[keeper].cells);
-  cells_now[keeper] = (background_cells){which, copy};
+  cells_now[keeper] = (background_cells){which, up, copy};
 }
 
 /* Each background with the name is drawn from its own first map again, as declared
  * (Reference's @bg_maps.delete). */
 static void forget_own_cells(int32_t background) {
   free(cells_now[keeper_of(background)].cells);
-  cells_now[keeper_of(background)] = (background_cells){0, NULL};
+  cells_now[keeper_of(background)] = (background_cells){0, 0, NULL};
 }
 
 /* WHAT THE GAME HAS PAINTED (Reference @bitmaps, for the tiles and pictures of a run): every
@@ -791,11 +811,11 @@ static uint16_t tile_pixel(int32_t background, int32_t cell, int64_t tx, int64_t
   if (painted != RG_NOT_PAINTED && rg_game_painted_tiles[painted + 2 * cell] != RG_NOT_PAINTED) {
     int32_t run = rg_game_painted_tiles[painted + 2 * cell], which = rg_game_painted_tiles[painted + 2 * cell + 1];
     int32_t place = places_of(run)[which * RUN_TILE_PIXELS + ty * RUN_TILE_SIDE + tx];
-    int64_t set = (int64_t)tile_set_now[keeper_of(background)] * rg_game_picture_sizes[RG_SIZE_RUNS] + run;
+    int64_t set = (int64_t)tile_set_now(background) * rg_game_picture_sizes[RG_SIZE_RUNS] + run;
     return rg_game_run_colors[background_field(background, RG_BG_RUN_COLORS) + set * PLACES_IN_RUN_COLORS + place];
   }
   int32_t tile_w = background_field(background, RG_BG_TILE_W), tile_h = background_field(background, RG_BG_TILE_H);
-  int64_t tile = (int64_t)tile_set_now[keeper_of(background)] * background_field(background, RG_BG_TILES) + cell;
+  int64_t tile = (int64_t)tile_set_now(background) * background_field(background, RG_BG_TILES) + cell;
   int64_t at = background_field(background, RG_BG_TILES_START) + tile * tile_w * tile_h + ty * tile_w + tx;
   return rg_game_tile_pixels[at];
 }
@@ -954,6 +974,8 @@ static void stamp_in_stack_order(int32_t over) {
  * are stamped again over it. A turned background is painted through its turn at the next rebuild,
  * and a status bar from its own top,
  * rather than stamped as drawn. */
+void rg_background_forget_cells(int32_t background) { forget_own_cells(background); }
+
 void rg_background_put_up(int32_t background) {
   if (background_field(background, RG_BG_ON_ARRIVAL)) forget_own_cells(background);
   remember_put_up(background);
@@ -1022,6 +1044,8 @@ static int64_t scenery_rows(void) {
 
 /* Reference#exec_set_tile: the copy is made even when the cell turns out not to be there. */
 void rg_background_set_tile(int32_t background, int32_t col, int32_t row, int32_t tile) {
+  /* A tile only another scene's declaration of the name has changes nothing here. */
+  if (tile >= background_field(declaration_up(background), RG_BG_TILES)) return;
   if (!cells_now[keeper_of(background)].cells) copy_map(background, 0);
   if (!in_map(background, row, col)) return;
   int16_t *cell = &cells_now[keeper_of(background)].cells[cell_place(background, row, col)];
@@ -1030,18 +1054,19 @@ void rg_background_set_tile(int32_t background, int32_t col, int32_t row, int32_
   request_repaint();
 }
 
-/* Reference#exec_show_map */
+/* Reference#exec_show_map: of the maps of the declaration up now. */
 void rg_background_show_map(int32_t background, int32_t which) {
-  if (which < 0 || which >= background_field(background, RG_BG_SHOWABLE_MAPS)) return;
+  if (which < 0 || which >= background_field(declaration_up(background), RG_BG_SHOWABLE_MAPS)) return;
   copy_map(background, which);
   request_repaint();
 }
 
 /* Reference#exec_background_colors: nothing about the map or the pictures changes, and the next
- * rebuild reads the tiles in the colors named. The interpreter keeps the number and works out
- * what it names as it paints; which step a number names never changes, so it is worked out here. */
+ * rebuild reads the tiles in the colors named. The number is kept for the name, as the interpreter
+ * keeps it, and what it names is worked out for each entry as it is drawn (tile_set_now). A
+ * number below nought names no step, and is kept as nought, the same as none named. */
 void rg_background_draw_with(int32_t background, int32_t which) {
-  tile_set_now[keeper_of(background)] = rg_place_of_choice(which, background_field(background, RG_BG_COLOR_STEPS));
+  colors_told[keeper_of(background)] = which < 0 ? 0 : (int64_t)which + 1;
   request_repaint();
 }
 

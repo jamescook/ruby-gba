@@ -230,6 +230,63 @@ class TestBackgroundTileSetsOnTheAdvance < Minitest::Test
     end
   end
 
+  # --- one background walking between areas in two scenes, beside other scenery ---
+
+  # :ground walks between areas in two scenes, and the first scene shows a banner along the
+  # top row in front of it, in colours the second scene has no use for. So the two scenes lay
+  # their colours out differently, and :ground is declared between other scenery in one and
+  # alone in the other. The first scene walks into the clearing, the second takes over at the
+  # shrine and walks into the clearing, and the first comes back and walks home.
+  private def walking_beside_a_banner
+    program do
+      screen :tiled
+      solid = (["#" * 8] * 8).join("\n")
+      { shrine_floor: :red, clearing_grass: :green, banner_blue: :blue, banner_yellow: :yellow }.each do |name, color|
+        image(name, "#" => color) { solid }
+      end
+      tiles :shrine, "#" => :shrine_floor
+      tiles :clearing, "#" => :clearing_grass
+      tiles :banner, "#" => :banner_blue, "o" => :banner_yellow
+      grid = (0...20).map { "#" * 30 }
+      state = var :state, 0
+      tick = var :tick, 0
+      where = var :room, 0
+      ground = lambda do
+        background(:ground, tiles: { shrine: :shrine, clearing: :clearing },
+                            map: { shrine: { hall: grid }, clearing: { glade: grid } }).show_map where
+      end
+      scene(:one) do
+        ground.call
+        background :banner, tiles: :banner, map: ["#o" * 15] + ([" " * 30] * 19)
+      end
+      scene(:two) { ground.call }
+      game_loop do
+        tick.add! 1
+        (tick == 3).then { where.set! 1 }
+        (tick == 6).then do
+          state.set! 1
+          where.set! 0
+        end
+        (tick == 8).then { where.set! 1 }
+        (tick == 10).then { state.set! 0 }
+        (tick == 12).then { where.set! 0 }
+        case_var(:state) do
+          when_val 0, :one
+          when_val 1, :two
+        end
+      end
+    end
+  end
+
+  def test_a_background_walking_in_two_scenes_keeps_each_scenes_colours_and_depth
+    prog = walking_beside_a_banner
+    shown = ->(frames) { game_player.run(prog, frames: frames).screen }
+
+    assert_equal [BLUE, GREEN], [shown.call(5).pixel(0, 0), shown.call(5).pixel(0, 8)],
+                 "the banner in front of the clearing"
+    assert_backends_agree(prog, frames: [2, 5, 7, 9, 11, 14], name: "SETBANR")
+  end
+
   def test_a_recolored_layer_keeps_its_colours_when_an_area_comes_in
     oracle, console, = backend_pictures(recolored_sign_while_walking, frames: 4, name: "SETRC")
 

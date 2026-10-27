@@ -1153,4 +1153,144 @@ class TestSceneBackgrounds < Minitest::Test
     assert_equal BLUE, played.call(TILES_SWITCH_AT + 3).pixel(8, 0), "the second scene's"
     assert_backends_agree(prog, frames: [2, TILES_SWITCH_AT + 3, (TILES_SWITCH_AT * 2) + 3], name: "SCNTILES")
   end
+
+  # --- one background name in two scenes ---
+
+  # ONE NAME, A DECLARATION IN EACH SCENE, the way a game writes its levels: each level is a
+  # scene with a :world of its own, drawn from the same tiles in a different map, the second
+  # with a tile of its own as well. Each scene shows its own declaration, the game changes a
+  # cell of the second level's from the game loop, and the first level comes back as declared.
+  NAME_SWITCH_AT = 4
+
+  private def two_levels
+    test = self
+    program do
+      screen :tiled
+      image(:floor, "#" => :red) { SOLID_TILE }
+      image(:wall, "#" => :blue) { SOLID_TILE }
+      image(:door, "#" => :green) { SOLID_TILE }
+      tiles :world_tiles, "#" => :floor, "w" => :wall
+      tiles :world_and_door, "#" => :floor, "w" => :wall, "d" => :door
+      state = var :state, 0
+      tick = var :tick, 0
+      door_at = var :door_at, 1
+      scene(:level_one) { background :world, tiles: :world_tiles, map: Array.new(20) { "#w" * 15 } }
+      scene(:level_two) do
+        second = background :world, tiles: :world_and_door, map: Array.new(20) { "w#" * 15 }
+        (tick == test.class::NAME_SWITCH_AT + 2).then { second.set_tile door_at, 0, "d" }
+      end
+      game_loop do
+        tick.add! 1
+        (tick == test.class::NAME_SWITCH_AT).then { state.set! 1 }
+        (tick == test.class::NAME_SWITCH_AT * 2).then { state.set! 0 }
+        case_var(:state) do
+          when_val 0, :level_one
+          when_val 1, :level_two
+        end
+      end
+    end
+  end
+
+  def test_a_name_declared_in_two_scenes_shows_each_scenes_own_map
+    prog = two_levels
+    played = ->(frames) { game_player.run(prog, frames: frames).screen }
+
+    assert_equal [RED, BLUE], [played.call(2).pixel(0, 0), played.call(2).pixel(8, 0)], "the first level's map"
+    assert_equal [BLUE, RED], [played.call(NAME_SWITCH_AT + 1).pixel(0, 0), played.call(NAME_SWITCH_AT + 1).pixel(8, 0)],
+                 "the second level's map"
+    assert_equal VBlank::Graphics::Color.resolve(:green), played.call(NAME_SWITCH_AT + 3).pixel(8, 0), "its door"
+    assert_backends_agree(prog, frames: [2, NAME_SWITCH_AT + 1, NAME_SWITCH_AT + 3, (NAME_SWITCH_AT * 2) + 3],
+                          name: "SCNLEVEL")
+  end
+
+  # ...and the same from the FIRST scene to declare the name, which every line naming the
+  # background must reach while it is up, not the last declaration: the first level has two
+  # maps of its own and the second one, and the game hands the first level its second map and
+  # then changes a cell of it. Neither may read the second level's maps.
+  private def two_levels_changed_in_the_first
+    test = self
+    program do
+      screen :tiled
+      image(:floor, "#" => :red) { SOLID_TILE }
+      image(:wall, "#" => :blue) { SOLID_TILE }
+      image(:door, "#" => :green) { SOLID_TILE }
+      tiles :world_and_door, "#" => :floor, "w" => :wall, "d" => :door
+      tiles :world_tiles, "#" => :floor, "w" => :wall
+      state = var :state, 0
+      tick = var :tick, 0
+      room = var :room, 0
+      scene(:level_one) do
+        first = background :world, tiles: :world_and_door,
+                                   map: { hall: Array.new(20) { "#w" * 15 }, cellar: Array.new(20) { "ww" * 15 } }
+        first.show_map room
+        (tick == 2).then { room.set! 1 }
+        (tick == 4).then { first.set_tile 0, 0, "d" } # after the cellar is in, which writes every cell
+      end
+      scene(:level_two) do
+        background :world, tiles: :world_tiles, map: { attic: Array.new(20) { "##" * 15 }, roof: Array.new(20) { "w#" * 15 } }
+      end
+      game_loop do
+        tick.add! 1
+        (tick == test.class::NAME_SWITCH_AT * 2).then { state.set! 1 }
+        case_var(:state) do
+          when_val 0, :level_one
+          when_val 1, :level_two
+        end
+      end
+    end
+  end
+
+  # A ROUTINE BOTH LEVELS CALL opens the second level's door, a tile only the second level's
+  # :world has. Called while the first level is up, there is no such tile to put in its cells,
+  # and nothing changes; called while the second is up, the door opens.
+  private def a_door_only_one_level_has
+    test = self
+    program do
+      screen :tiled
+      image(:floor, "#" => :red) { SOLID_TILE }
+      image(:wall, "#" => :blue) { SOLID_TILE }
+      image(:door, "#" => :green) { SOLID_TILE }
+      tiles :world_tiles, "#" => :floor, "w" => :wall
+      tiles :world_and_door, "#" => :floor, "w" => :wall, "d" => :door
+      state = var :state, 0
+      tick = var :tick, 0
+      second = nil
+      scene(:level_one) do
+        background :world, tiles: :world_tiles, map: Array.new(20) { "#w" * 15 }
+        (tick == 3).then { call :open_door }
+      end
+      scene(:level_two) do
+        second = background :world, tiles: :world_and_door, map: Array.new(20) { "w#" * 15 }
+        (tick == test.class::NAME_SWITCH_AT + 2).then { call :open_door }
+      end
+      func(:open_door) { second.set_tile 0, 0, "d" }
+      game_loop do
+        tick.add! 1
+        (tick == test.class::NAME_SWITCH_AT).then { state.set! 1 }
+        case_var(:state) do
+          when_val 0, :level_one
+          when_val 1, :level_two
+        end
+      end
+    end
+  end
+
+  def test_a_tile_only_another_scenes_declaration_has_changes_nothing
+    prog = a_door_only_one_level_has
+    played = ->(frames) { game_player.run(prog, frames: frames).screen }
+
+    assert_equal RED, played.call(3).pixel(0, 0), "the first level, no door"
+    assert_equal GREEN, played.call(NAME_SWITCH_AT + 3).pixel(0, 0), "the second level's door"
+    assert_backends_agree(prog, frames: [3, NAME_SWITCH_AT + 3], name: "SCNDOOR")
+  end
+
+  def test_a_name_declared_in_two_scenes_is_changed_in_the_first_as_declared_there
+    prog = two_levels_changed_in_the_first
+    played = ->(frames) { game_player.run(prog, frames: frames).screen }
+
+    assert_equal [GREEN, BLUE], [played.call(5).pixel(0, 0), played.call(5).pixel(8, 0)],
+                 "the first level's cellar, with its door"
+    assert_equal RED, played.call((NAME_SWITCH_AT * 2) + 2).pixel(8, 0), "the second level's attic"
+    assert_backends_agree(prog, frames: [3, 5, (NAME_SWITCH_AT * 2) + 2], name: "SCNFIRST")
+  end
 end

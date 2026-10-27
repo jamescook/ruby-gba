@@ -48,7 +48,9 @@ module VBlank
       # what to call, and where the answer lands.
       def tile_collision_routine(cells, hit_x, hit_y, hit_w, hit_h)
         @tile_collisions ||= {}
-        key = [cells.name, hit_x, hit_y, hit_w, hit_h]
+        # By the table the walls are in, not the background's name: two scenes can each declare
+        # a background by one name, with walls of their own (see Background#walls_table_name).
+        key = [cells.table.name, hit_x, hit_y, hit_w, hit_h]
         @tile_collisions[key] ||=
           build_tile_collision(cells, hit_x, hit_y, hit_w, hit_h, @tile_collisions.size)
       end

@@ -234,8 +234,11 @@ module VBlank
           # The routine that brings each big map's view along, by the scene routine its
           # background was declared in (nil for one declared outside every scene).
           def scene_of_map_views(program)
-            declared = program.walk.select { |node| node.kind == :background }
-                              .to_h { |node| [MapStreaming.view_routine(node.name), node.scene] }
+            backgrounds = program.walk.select { |node| node.kind == :background }
+            several = ScreenLayout.names_in_several_scenes(backgrounds)
+            declared = backgrounds.to_h do |node|
+              [MapStreaming.view_routine(node.name, scene: (node.scene if several.include?(node.name))), node.scene]
+            end
             routines_placed_with_frame.to_h { |routine| [routine, declared[routine]] }
           end
 

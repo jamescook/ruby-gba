@@ -97,15 +97,8 @@ module VBlank
           # --- what this backend cannot draw yet, said before anything is written ---
 
           def refuse_unsupported_picture!
-            nodes = @program.walk.to_a
             refuse_picture!("more than #{MAX_SEE_THROUGH} see-through layers") if @see_through.size > MAX_SEE_THROUGH
             refuse_picture!("more than #{MAX_BACKGROUNDS} backgrounds") if @stacking.scenery.length > MAX_BACKGROUNDS
-            # Two backgrounds with one name share the colors they are told (RG_BG_KEPT_BY). The
-            # interpreter works out what a number names from the first of the two it paints and
-            # keeps that for both (Reference#background_swap), where the C works it out for each.
-            shared = @stacking.scenery.map(&:name).tally.select { |_, times| times > 1 }.keys
-            told = nodes.select { |n| n.kind == :background_colors }.map(&:name) & shared
-            refuse_picture!("two backgrounds with one name told other colors (#{told.first})") unless told.empty?
             refuse_picture!("more than #{MAX_SPRITES} sprites") if @sprites.size > MAX_SPRITES
           end
 
@@ -348,7 +341,7 @@ module VBlank
               end
               [bg.tile_w, bg.tile_h, first_map, Array(bg.maps).length, @backgrounds.fetch(bg.name),
                bg.streams? ? 1 : 0, tiles_start,
-               bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, bg.bar? ? NOT_A_BAR : @stacking.depths[bg.name],
+               bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, bg.bar? ? NOT_A_BAR : @stacking.depths.of_scenery(bg),
                @handover.on_arrival?(bg) ? 1 : 0, stack_place(bg.layer),
                see_through_number(bg), @bends.key?(bg.name) ? 1 : 0, fade_place(bg),
                bg.tiles.length, steps.length, shown_in_blocks?(bg) ? 1 : 0, bg.affine ? 1 : 0,
@@ -900,7 +893,9 @@ module VBlank
                        screen_change("rg_screen_cross_to", Modes::SCREEN_OF_MODE.fetch(arrival.mode),
                                      arrival.mode == Modes::BUFFERED)
                      end
-            [eval_call("rg_scene_enter", C::Int.new(@scenes.fetch(scene))), *screen,
+            [eval_call("rg_scene_enter", C::Int.new(@scenes.fetch(scene))),
+             *arrival.scenery.map { |bg| eval_call("rg_background_forget_cells", C::Int.new(entry_of(bg))) },
+             *screen,
              eval_call("rg_scene_take_down", C::Int.new(arrival.scenery.empty? ? 0 : 1)),
              *arrival.map_choices.map { |var| assign(var, C::Int.new(0)) },
              *(arrival.painted_tiles + arrival.painted_pictures).map { |run| tile_copy(run) },

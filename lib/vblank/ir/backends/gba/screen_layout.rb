@@ -62,8 +62,10 @@ module VBlank
           # row at its own size, one after another; +table+ holds four words a map — how far
           # into +maps+ it starts, its columns, its rows, and what a cell outside it holds (the
           # blank tile of the area it draws from) — so a map of any size is found by its number.
-          # +name+ is the background's.
-          StreamedMaps = Data.define(:name, :maps, :table)
+          # +name+ is the background's, and +routine+ the one that brings its view along (see
+          # MapStreaming#emit_stream_view_routine), which is one for each scene's declaration of
+          # a background declared in several.
+          StreamedMaps = Data.define(:name, :routine, :maps, :table)
 
           # BRINGING ANOTHER SET OF TILES IN, for a background that walks between areas. Every
           # set's tile pictures are in +tiles+, +stride+ bytes each, and one of them at a time
@@ -72,8 +74,9 @@ module VBlank
           # set's tiles from, for sets that need different starting points (nil where they all
           # start at one); +var+ says which set is in place now. +colors+ is the whole background
           # colour table of each set's area, +color_units+ entries each, which goes in with it.
+          # +routine+ is the one that brings a set in (see BackgroundDrawing#emit_set_swap_routines).
           TileSetSwap = Data.define(:tiles, :at, :stride, :sets_of_maps, :char_base_table, :var,
-                                    :colors, :color_units)
+                                    :colors, :color_units, :routine)
 
           # Does any background walk between areas, so that the background colour table in
           # place is one area's of several (see #assign_area_banks)?
@@ -81,7 +84,32 @@ module VBlank
 
           # The walking backgrounds of +nodes+, which take the first area's colours back as
           # they go up as declared.
-          def walking_placements(nodes) = nodes.filter_map { |node| @backgrounds[node.name]&.sets && @backgrounds[node.name] }
+          def walking_placements(nodes) = nodes.filter_map { |node| declared_background(node)&.then { |bg| bg if bg.sets } }
+
+          # A BACKGROUND OF ONE NAME DECLARED IN SEVERAL SCENES is a declaration in each, and
+          # each scene lays its own tiles, maps and colours out from the same starting place
+          # (see #place_each_scene and #assign_tile_banks). So the same name can land in a
+          # different place in each scene — after a scene's other backgrounds, which differ —
+          # and each declaration can hold a different map or different tiles, the way a game's
+          # levels each have a :world of their own. Each declaration is laid out on its own,
+          # and what it puts in the cartridge is named for its scene too.
+          #
+          # Where +node+, one declaration, landed.
+          def declared_background(node) = @declarations[[node.name, node.scene]] || @backgrounds[node.name]
+
+          # Each scene's own placement of the background +name+, by scene, for one declared in
+          # several scenes; empty for every other background, which has one placement whichever
+          # scene is up.
+          def declarations_of(name)
+            return {} unless @declared_in_several.include?(name)
+
+            @declarations.filter_map { |(each, scene), place| [scene, place] if each == name }.to_h
+          end
+
+          # The names of +backgrounds+ (their declarations) declared in more than one scene.
+          def self.names_in_several_scenes(backgrounds)
+            backgrounds.group_by(&:name).filter_map { |name, nodes| name if nodes.filter_map(&:scene).uniq.size > 1 }
+          end
 
           # THE OTHER LISTS OF COLOURS A LAYER CAN BE DRAWN FROM, for a background that was
           # told `draw_with`, and nil for every other one.
@@ -107,7 +135,6 @@ module VBlank
           # at all — its cells hold a tile number and nothing else, so it is nil there.
           MapGrid = Data.define(:cols, :rows, :cells) do
             def holds?(col, row) = col >= 0 && col < cols && row >= 0 && row < rows
-            def cell_for(tile) = cells.fetch(tile)
           end
 
           # WHAT ONE SCENE NEEDS OF THE TILED SCREEN: which layers are switched on, and which
@@ -280,6 +307,8 @@ module VBlank
             @blobs = {}           # cartridge data by name: colour tables, tile pictures, maps
             @codecs = {}          # names of the data that must stay unpacked in the cartridge
             @backgrounds = {}     # name -> where a background landed (see #prepare_one_background)
+            @declarations = {}    # [name, scene] -> where one declaration landed (see #declared_background)
+            @declared_in_several = ScreenLayout.names_in_several_scenes(@picture.scenery)
             @hardware_layers = {} # name -> which of the console's layers it uses
             @bg_shared = nil      # the one colour table and tile run every layer shares
             @objects = {}         # name -> where a sprite landed (see #object_record)
@@ -319,7 +348,7 @@ module VBlank
           # that scene is up.
           def bg_recolor_restore_banks
             @picture.scenery.flat_map do |node|
-              place = @backgrounds[node.name]
+              place = declared_background(node)
               next [] unless place&.colors
 
               place.colors.banks.each_with_index.map do |bank, at|
@@ -792,7 +821,7 @@ module VBlank
           def assign_tile_banks(regular_nodes, affine_nodes)
             (regular_nodes + affine_nodes).each { |node| validate_tile_sizes!(node.name, node.tiles) }
             walking, staying = regular_nodes.partition(&:several_sets?)
-            refuse_walking_layers_in_two_scenes!(walking)
+            refuse_walking_everywhere_and_in_scene!(walking)
             return one_table_for_every_scene(walking, staying, affine_nodes) if !walking.empty? && walking.first.scene.nil?
 
             shared, big = assign_fixed_tile_banks(staying.reject(&:scene), affine_nodes.reject(&:scene))
@@ -804,12 +833,13 @@ module VBlank
               by_scene[scene] = own
               big += own_big
             end
-            unless walking.empty?
-              scene = walking.first.scene
-              by_scene[scene] = assign_area_banks(walking, by_scene.fetch(scene))
+            # Each scene's walking backgrounds lay their areas' colours out in that scene's own
+            # table, past its other colours, and send them as they walk: one scene's areas are
+            # never up beside another's.
+            walking.group_by(&:scene).each do |scene, nodes|
+              by_scene[scene] = assign_area_banks(nodes, by_scene.fetch(scene))
             end
-            [SceneBanks.new(by_scene: by_scene, scene_of: (regular_nodes + affine_nodes).to_h { |node| [node.name, node.scene] }),
-             big]
+            [SceneBanks.new(by_scene: by_scene), big]
           end
 
           # ONE TABLE FOR THE WHOLE GAME, for one whose walking backgrounds every scene shows. An
@@ -820,20 +850,22 @@ module VBlank
           def one_table_for_every_scene(walking, staying, affine_nodes)
             fixed, big = assign_fixed_tile_banks(staying, affine_nodes)
             areas = assign_area_banks(walking, fixed)
-            [SceneBanks.new(by_scene: { nil => areas }, scene_of: {}), big]
+            [SceneBanks.new(by_scene: { nil => areas }), big]
           end
 
-          # Backgrounds that walk between areas read one table of the area they are in, so they
-          # all belong to the screen that table is sent with.
-          def refuse_walking_layers_in_two_scenes!(walking)
-            other = walking.find { |node| node.scene != walking.first.scene }
+          # Backgrounds that walk between areas on every screen lay their areas' colours out in the one
+          # table every screen shows, where a scene's own walking backgrounds would lay theirs too. So
+          # walking backgrounds are on every screen or in scenes, not both.
+          def refuse_walking_everywhere_and_in_scene!(walking)
+            everywhere = walking.find { |node| node.scene.nil? }
+            other = everywhere && walking.find(&:scene)
             return unless other
 
             raise LoweringError,
-                  "background :#{walking.first.name} walks between areas in #{scene_phrase(walking.first.scene, 'every scene')}, " \
-                  "and background :#{other.name} walks between areas in #{scene_phrase(other.scene, 'every scene')}. The " \
-                  "backgrounds that walk between areas use the colors of one area at a time, all of them together. To " \
-                  "fix this, declare them in the same scene."
+                  "background :#{everywhere.name} walks between areas on every screen, and background :#{other.name} " \
+                  "walks between areas in the scene :#{IR::Modes.strip_scene_prefix(other.scene)}. The two cannot " \
+                  "both keep the colors of their areas. To fix this, declare :#{everywhere.name} in each scene " \
+                  "that shows it."
           end
 
           # How a message names +scene+: "the scene :title", or +otherwise+ for the scenery every
@@ -849,9 +881,8 @@ module VBlank
           # Every table comes out the same length (#units), so the one in the console can be
           # walked with one count whichever it is, as the sprite tables are.
           class SceneBanks
-            def initialize(by_scene:, scene_of:)
+            def initialize(by_scene:)
               @by_scene = by_scene
-              @scene_of = scene_of
             end
 
             def placement(key) = table_of(key).placement(key)
@@ -866,8 +897,9 @@ module VBlank
             # One scene's whole table, padded to #units.
             def table(scene) = padded(@by_scene.fetch(scene).entries)
 
-            # One area's whole table, padded to #units, for the scene that walks between areas.
-            def area_entries(area) = padded(areas.area_entries(area))
+            # One area's whole table, padded to #units, for +scene+, which walks between areas (nil
+            # for walking backgrounds every scene shows).
+            def area_entries(area, scene) = padded(@by_scene.fetch(scene).area_entries(area))
 
             # An area's table is already as long as the longest area's, so a walking scene's
             # first table speaks for all of them.
@@ -875,15 +907,14 @@ module VBlank
 
             private
 
-            def areas = @by_scene.values.find { |banks| banks.is_a?(AreaBanks) }
-
             def padded(entries) = entries + ([0] * (units - entries.size))
 
-            # A tile's key is its background's name and its place; a background stored the big
-            # way is keyed by its name alone. A name +scene_of+ does not hold is in the table
-            # every scene shows, which is every background in a game kept to one table (see
+            # A tile's key ends with the scene its background was declared in (see
+            # ScreenLayout#tile_key), so one name declared in two scenes reads each scene's own
+            # table. A scene with no table of its own is in the one every scene shows, which is
+            # every background in a game kept to one table (see
             # ScreenLayout#one_table_for_every_scene).
-            def table_of(key) = @by_scene.fetch(@scene_of.fetch(key.is_a?(Array) ? key.first : key, nil))
+            def table_of(key) = @by_scene.fetch(key.last) { @by_scene.fetch(nil) }
           end
 
           # THE COLOURS OF A GAME THAT WALKS BETWEEN AREAS, which are one area's at a time.
@@ -1039,7 +1070,7 @@ module VBlank
             nodes.map do |node|
               if big.include?(node)
                 colors = node.tiles.each_index.flat_map { |i| tile_colors(node, i) }.uniq
-                PaletteBanks::Picture.new(key: node.name, colors: colors, authored: nil, wide: true)
+                PaletteBanks::Picture.new(key: big_layer_key(node), colors: colors, authored: nil, wide: true)
               else
                 # A layer that can be drawn with other colours keeps its bank to itself: the
                 # swap writes into that bank, so anything else reading it would change colour
@@ -1055,7 +1086,13 @@ module VBlank
                                       authored: @bitmaps.fetch(node.tiles[index]).colors, keeps_to: keeps_to)
           end
 
-          def tile_key(node, index) = [node.name, index]
+          # What a tile's colours are kept under: its background's name, its place in the
+          # tileset, and the scene the background was declared in, since one name can be
+          # declared in two scenes with colours laid out differently in each.
+          def tile_key(node, index) = [node.name, index, node.scene]
+
+          # ...and the whole of a layer stored the big way, whose tiles share an entry.
+          def big_layer_key(node) = [node.name, node.scene]
 
           # Does this sprite show a picture the game paints from a list? One that does shows
           # nothing else: a painted picture is a sprite's only pose.
@@ -1194,7 +1231,7 @@ module VBlank
 
             grids = every_map(node)
             map_sets = node.several_sets? ? node.map_sets : [0] * grids.size
-            map_blob = :"__bg_map_#{name}"
+            map_blob = :"__bg_map_#{declaration_tag(node)}"
             stream = (streamed_maps(node, grids, map_sets, set_stores, cells_of_sets) if streams)
             unless streams
               @blobs[map_blob] = grids.each_with_index.map do |map, k|
@@ -1205,7 +1242,7 @@ module VBlank
               keep_unpacked!(map_blob) if grids.size > 1
               keep_unpacked!(map_blob) if node.scene
             end
-            @backgrounds[name] = BackgroundPlacement.new(
+            record_background(node, BackgroundPlacement.new(
               sets: (tile_set_swap(node, laid, map_sets, banks) if node.several_sets?),
               map: map_blob, map_units: entries.size,
               bg: layer,                           # hardware layer (BG0..BG3), in stack order
@@ -1213,7 +1250,7 @@ module VBlank
               size: regular_map_size(cols, rows),
               # A status bar is drawn alone inside its window with the sprites, all of them in
               # front of it, so it sits at the back; and it is never in blocks.
-              priority: node.bar? ? BAR_PRIORITY : hardware_priority(name),
+              priority: node.bar? ? BAR_PRIORITY : hardware_priority(name, scene: own_scene(node)),
               in_blocks: node.bar? ? 0 : @pixelation.background_bit(name),
               affine: false,
               small: small,
@@ -1222,8 +1259,28 @@ module VBlank
               grid: (MapGrid.new(cols: cols, rows: rows, cells: cell_for) unless streams),
               colors: background_color_lists(node, banks, small),
               stream: stream
-            )
+            ))
           end
+
+          # Keep where +node+ landed, by its name and by its declaration (see #declared_background).
+          def record_background(node, placement)
+            @backgrounds[node.name] = placement
+            @declarations[[node.name, node.scene]] = placement
+          end
+
+          # What the cartridge data of +node+ is named by: the background's own name, and for one
+          # declared in several scenes, the scene of this declaration as well, since each scene's
+          # is laid out on its own (see #declared_background).
+          def declaration_tag(node)
+            return node.name unless @declared_in_several.include?(node.name)
+
+            :"#{node.name}__in_#{IR::Modes.strip_scene_prefix(node.scene)}"
+          end
+
+          # The scene +node+'s declaration is laid out for on its own, which names its routines
+          # along with its background and is the one screen its depth is read from; nil for a
+          # background with one layout whichever scene is up (see #declaration_tag).
+          def own_scene(node) = (node.scene if @declared_in_several.include?(node.name))
 
           # Every map of a background brought into view a strip at a time, kept whole: each one
           # row after row at its own size, and a table of where each starts and how big it is
@@ -1243,38 +1300,41 @@ module VBlank
               at += entries.size * 2
               entries.pack("v*")
             end
-            maps = :"__bg_map_#{node.name}"
+            maps = :"__bg_map_#{declaration_tag(node)}"
             @blobs[maps] = bytes.join
             keep_unpacked!(maps)
-            sizes = :"__bg_map_sizes_#{node.name}"
+            sizes = :"__bg_map_sizes_#{declaration_tag(node)}"
             @blobs[sizes] = table.pack("V*")
             keep_unpacked!(sizes)
-            StreamedMaps.new(name: node.name, maps: maps, table: sizes)
+            StreamedMaps.new(name: node.name, routine: MapStreaming.view_routine(node.name, scene: own_scene(node)),
+                             maps: maps, table: sizes)
           end
 
           # What it takes to bring one of a background's sets of tiles in (see TileSetSwap): every
           # set's bytes in one blob, the same length each, so set N starts N lengths along.
           def tile_set_swap(node, laid, map_sets, banks)
-            tiles = :"__bg_sets_#{node.name}"
+            tag = declaration_tag(node)
+            tiles = :"__bg_sets_#{tag}"
             @blobs[tiles] = laid.bytes.join
             keep_unpacked!(tiles) # read from the middle, by the set the game walked into
-            sets_of_maps = :"__bg_map_sets_#{node.name}"
+            sets_of_maps = :"__bg_map_sets_#{tag}"
             @blobs[sets_of_maps] = map_sets.pack("C*")
             keep_unpacked!(sets_of_maps)
             bases = laid.stored.map(&:char_base)
             unless bases.uniq.size == 1
-              base_table = :"__bg_set_bases_#{node.name}"
+              base_table = :"__bg_set_bases_#{tag}"
               @blobs[base_table] = bases.pack("C*")
               keep_unpacked!(base_table)
             end
-            colors = :"__bg_set_colors_#{node.name}"
-            tables = node.sets.map { |area| banks.area_entries(area) }
+            colors = :"__bg_set_colors_#{tag}"
+            tables = node.sets.map { |area| banks.area_entries(area, node.scene) }
             @blobs[colors] = tables.flatten.pack("v*")
             keep_unpacked!(colors)
             TileSetSwap.new(tiles: tiles, at: laid.start, stride: laid.bytes.first.bytesize,
                             sets_of_maps: sets_of_maps, char_base_table: base_table,
                             var: IR::Nodes::Background.set_var(node.name),
-                            colors: colors, color_units: tables.first.size)
+                            colors: colors, color_units: tables.first.size,
+                            routine: BackgroundDrawing.set_swap_routine(node.name, scene: own_scene(node)))
           end
 
           def refuse_painted_tiles_in_sets!(node)
@@ -1292,7 +1352,7 @@ module VBlank
             raise LoweringError, recolor_colors_message(node) unless small
 
             room = 1 << (node.palettes.length - 1).bit_length # lists a version takes, rounded up to a power of two
-            blob = :"__bg_colors_#{node.name}"
+            blob = :"__bg_colors_#{declaration_tag(node)}"
             @blobs[blob] = (node.recolors + [node.palettes]).flat_map do |version|
               version.flat_map { |list| pad_to_bank(list) } + ([0] * (PaletteBanks::BANK_SIZE * (room - version.length)))
             end.pack("v*")
@@ -1392,7 +1452,7 @@ module VBlank
           def tile_pictures(node, banks)
             node.tiles.each_index.map do |index|
               key = tile_key(node, index)
-              [@bitmaps.fetch(node.tiles[index]), banks.placement(banks.known?(key) ? key : node.name)]
+              [@bitmaps.fetch(node.tiles[index]), banks.placement(banks.known?(key) ? key : big_layer_key(node))]
             end
           end
 
@@ -1442,17 +1502,17 @@ module VBlank
             grids = every_map(node).map { |map| affine_map_entries(map, cols, rows, stored) }
             entries = grids.first
 
-            map_blob = :"__bg_map_#{name}"
+            map_blob = :"__bg_map_#{declaration_tag(node)}"
             @blobs[map_blob] = grids.map { |one| one.pack("C*") }.join
             keep_unpacked!(map_blob) if grids.size > 1
             keep_unpacked!(map_blob) if node.scene
             blocks = ((entries.size + SCREENBLOCK_BYTES - 1) / SCREENBLOCK_BYTES)
-            @backgrounds[name] = BackgroundPlacement.new(
+            record_background(node, BackgroundPlacement.new(
               map: map_blob, map_units: entries.size / 2, # DMA copies halfwords, so a byte map is half as many
               bg: AFFINE_BG,
               screen_block: store.vram.take_map(blocks),
               size: affine_map_size(cols, rows, name),
-              priority: hardware_priority(name), in_blocks: @pixelation.background_bit(name),
+              priority: hardware_priority(name, scene: own_scene(node)), in_blocks: @pixelation.background_bit(name),
               affine: true,
               small: false,
               char_base: stored.char_base,
@@ -1460,7 +1520,7 @@ module VBlank
               grid: nil, # its cells are one byte and hold a tile number alone: no grid of that shape
               colors: nil, # ...and its tiles read the whole table rather than a group of sixteen
               sets: nil, stream: nil
-            )
+            ))
           end
 
           # One rotate/scale map's cells, plain rows of the whole grid, one byte each.
@@ -1553,9 +1613,14 @@ module VBlank
           #
           # Pushing it further back can never disturb the quiet screen, because there is
           # nothing behind it there to get in the way of.
-          def hardware_priority(name)
+          #
+          # A background of one name declared in several scenes is a declaration in each, laid
+          # out on its own, so each takes the priority of its own +scene+'s screen alone (see
+          # #own_scene).
+          def hardware_priority(name, scene: nil)
             @screenfuls.filter_map do |screenful|
               next unless screenful.depths.of.key?(name)
+              next if scene && screenful.scene != scene
 
               screenful.depths.count - 1 - screenful.depths[name]
             end.max

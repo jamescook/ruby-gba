@@ -1352,6 +1352,10 @@ module VBlank
 
           @scene = scene
           arrival = @handover.arrival(scene)
+          # Its scenery goes up as declared, so the cells the game changed of a background by
+          # one of those names are forgotten now, before anything is painted: a background of
+          # the same name in the scene leaving can hold tiles this scene's declaration has not.
+          arrival.scenery.each { |bg| @bg_maps.delete(bg.name) }
           arrival.screen ? exec_screen(arrival.screen) : cross_to_scene_screen(arrival)
           if @bg_shown.any?(&:scene) || arrival.scenery.any?
             paint_owed_repaint
@@ -1483,6 +1487,10 @@ module VBlank
         # paints from then on. A coordinate outside the map is left alone rather than
         # growing the map or writing over a neighbour.
         def exec_set_tile(node)
+          # A tile only another scene's declaration of the name has, from a line written for that
+          # scene, changes nothing here.
+          return if node.tile && node.tile >= background_up(node.name).tiles.length
+
           map = mutable_map(node.name)
           col = eval_value(node.col)
           row = eval_value(node.row)
@@ -1503,7 +1511,7 @@ module VBlank
         # whatever was there). A number naming no map leaves the cells alone, the same
         # policy set_tile takes for a cell off the edge.
         def exec_show_map(node)
-          maps = @bg_by_name.fetch(node.name).maps
+          maps = background_up(node.name).maps
           which = eval_value(node.which)
           return unless maps && which >= 0 && which < maps.length
 
@@ -1595,8 +1603,12 @@ module VBlank
         end
 
         def mutable_map(name)
-          @bg_maps[name] ||= @bg_by_name.fetch(name).map.map(&:dup)
+          @bg_maps[name] ||= background_up(name).map.map(&:dup)
         end
+
+        # The declaration of the background +name+ a line that changes it by name means: the one
+        # on the screen up now, for a name declared in several scenes, each with maps of its own.
+        def background_up(name) = showing_scenery.find { |bg| bg.name == name } || @bg_by_name.fetch(name)
 
         # What a background's cells hold NOW: this run's own copy where any of them have
         # been changed, and the declared map where they have not.
@@ -1941,7 +1953,10 @@ module VBlank
           which = @bg_colors[bg.name] || Build::NO_RECOLOR
           return nil unless which >= 0 && which < lists.length
 
-          @bg_swaps[[bg.name, which]] ||= bg.palettes.zip(lists[which]).to_h
+          # Kept by declaration, not by name: two scenes can each declare a background by one
+          # name with lists of their own, and the number the game tells the name picks out of
+          # whichever is painted.
+          @bg_swaps[[bg.name, bg.scene, which]] ||= bg.palettes.zip(lists[which]).to_h
         end
 
         # Draw this background's tiles from the list of colours numbered +which+ from now on
@@ -2079,7 +2094,7 @@ module VBlank
             # over the scenery it sits with, which is what lets a picture put scenery in
             # front of one object and behind another.
             showing_scenery.each do |bg|
-              next if bg.bar? || levels[bg.name] != level
+              next if bg.bar? || levels.of_scenery(bg) != level
 
               set_blend_for(bg.name, kept)
               paint_scenery(bg)

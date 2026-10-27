@@ -62,9 +62,9 @@ class TestGBCTileRooms < Minitest::Test
 
   # ONE BACKGROUND WALKING BETWEEN TWO AREAS OF 300 TILES, declared in each of two scenes that show
   # it: each scene's areas have rooms of their own, and the second scene arrives in its first area
-  # after the first scene walked into its second. (The Advance refuses walking backgrounds in two
-  # scenes, so this is the Color's alone.) The run checks the cartridge against the interpreter
-  # after every pass.
+  # after the first scene walked into its second. Every lowering plays one such background with few
+  # tiles (test/vblank/builder/test_background_tile_sets.rb); this is the Color's rooms for it. The run
+  # checks the cartridge against the interpreter after every pass.
   def test_one_walking_background_of_many_tiles_in_two_scenes_plays_as_the_interpreter_does
     program = color_program do
       screen :tiled

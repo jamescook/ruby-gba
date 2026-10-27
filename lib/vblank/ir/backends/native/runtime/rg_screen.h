@@ -78,6 +78,9 @@ void rg_screen_digit(int32_t value, int32_t x, int32_t y, int32_t color, const i
 
 void rg_background_stamp(int32_t background);
 void rg_background_put_up(int32_t background);
+/* The start of Reference#take_over: a background coming up as a scene takes over goes up as
+ * declared, so the cells the game changed of its name are forgotten before anything is painted. */
+void rg_background_forget_cells(int32_t background);
 /* Put a background's window at (x, y) of its map, in pixels: the picture slides. Whether it comes
  * round again is the background's (RG_BG_NEVER_WRAPS, below). */
 void rg_background_scroll(int32_t background, int32_t x, int32_t y);

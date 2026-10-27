@@ -227,14 +227,14 @@ def rg_screen_setup
   # map its cells hold now and the run's own copy of them (Reference @bg_maps), its scroll
   # (@bg_scroll), whether it is shown from its corner this pass (@bg_from_corner), which set of
   # its tiles it is drawn from (@bg_colors) and its turn (@bg_affine).
-  @rg_cells_now = Array.new(RG_MAX_BACKGROUNDS) { [0, nil] }
+  @rg_cells_now = Array.new(RG_MAX_BACKGROUNDS) { [0, nil, 0] }
   @rg_scrolls = Array.new(RG_MAX_BACKGROUNDS) { [0, 0] }
   @rg_from_corner = Array.new(RG_MAX_BACKGROUNDS, false)
   @rg_bar_tops = Array.new(RG_MAX_BACKGROUNDS, 0) # where each status bar was last placed
   @rg_bar_placed = Array.new(RG_MAX_BACKGROUNDS, false) # ...and whether it has been
   @rg_any_from_corner = false
   @rg_corners_expired = false
-  @rg_tile_set_now = Array.new(RG_MAX_BACKGROUNDS, 0)
+  @rg_colors_told = Array.new(RG_MAX_BACKGROUNDS, 0) # one more than the step of colors last named, 0 for none
   @rg_turns = Array.new(RG_MAX_BACKGROUNDS) { RgTurn.new(false, 0, 0, 0, 0) }
   # The sprites on screen this frame: being said, and as the last rebuild draws them.
   @rg_drawing = []
@@ -777,6 +777,25 @@ end
 # unless another scene declared a background by the same name after it.
 def rg_keeper_of(background) = rg_background_field(background, RG_BG_KEPT_BY)
 
+# Reference#background_up: the declaration of this background's name a line naming it means: the
+# one on the screen up now, where two scenes each declare one by the name, or the keeping entry
+# where none of them is up.
+def rg_declaration_up(background)
+  keeper = rg_keeper_of(background)
+  @rg_game_picture_sizes[RG_SIZE_BACKGROUNDS].times do |bg|
+    return bg if rg_keeper_of(bg) == keeper && rg_showing?(bg)
+  end
+  keeper
+end
+
+# Reference#background_swap: which set of its tiles this entry is drawn from now. 0 for the colors
+# they were drawn in, which is also what a number naming none of its steps means, or one more than
+# the step the game last named.
+def rg_tile_set_now(background)
+  step = @rg_colors_told[rg_keeper_of(background)] - 1
+  step >= 0 && step < rg_background_field(background, RG_BG_COLOR_STEPS) ? step + 1 : 0
+end
+
 # Reference#scroll_shown: where a background's window sits on the display now.
 def rg_scroll_shown(background)
   keeper = rg_keeper_of(background)
@@ -803,12 +822,11 @@ end
 def rg_map_entry(background, which) = RG_MAP_FIELDS * (rg_background_field(background, RG_BG_FIRST_MAP) + which)
 
 # Reference#map_of: where the map a background's cells hold now starts in @rg_game_maps. That is
-# the run's own copy for the name where there is one, which is a copy of one of the keeping
-# entry's maps; and the first of this background's own maps where there is none.
+# the run's own copy for the name where there is one, which is a copy of one of the maps of the
+# entry it was made from; and the first of this background's own maps where there is none.
 def rg_map_now(background)
-  keeper = rg_keeper_of(background)
-  which, cells = @rg_cells_now[keeper]
-  cells ? rg_map_entry(keeper, which) : rg_map_entry(background, 0)
+  which, cells, of = @rg_cells_now[rg_keeper_of(background)]
+  cells ? rg_map_entry(of, which) : rg_map_entry(background, 0)
 end
 
 def rg_map_cols(background) = @rg_game_maps[rg_map_now(background) + RG_MAP_COLS]
@@ -832,20 +850,24 @@ def rg_map_cell(background, row, col)
   @rg_game_map_cells[@rg_game_maps[rg_map_now(background) + RG_MAP_CELLS] + rg_cell_place(background, row, col)]
 end
 
-# The name's cells become the run's own copy of map number +which+ of the keeping entry's maps, as
-# that map was declared (Reference#mutable_map, and the copy in #exec_show_map).
+# The name's cells become the run's own copy of map number +which+ of the maps of the declaration
+# up now, as that map was declared (Reference#mutable_map, and the copy in #exec_show_map).
 def rg_copy_map(background, which)
-  keeper = rg_keeper_of(background)
-  map = rg_map_entry(keeper, which)
+  up = rg_declaration_up(background)
+  map = rg_map_entry(up, which)
   count = @rg_game_maps[map + RG_MAP_COLS] * @rg_game_maps[map + RG_MAP_ROWS]
   first = @rg_game_maps[map + RG_MAP_CELLS]
-  @rg_cells_now[keeper] = [which, @rg_game_map_cells[first, count]]
+  @rg_cells_now[rg_keeper_of(background)] = [which, @rg_game_map_cells[first, count], up]
 end
 
 # Each background with the name is drawn from its own first map again, as declared.
 def rg_forget_own_cells(background)
-  @rg_cells_now[rg_keeper_of(background)] = [0, nil]
+  @rg_cells_now[rg_keeper_of(background)] = [0, nil, 0]
 end
+
+# The start of Reference#take_over: a background coming up as a scene takes over goes up as
+# declared, so the cells the game changed of its name are forgotten before anything is painted.
+def rg_background_forget_cells(background) = rg_forget_own_cells(background)
 
 def rg_run_field(run, field) = @rg_game_tile_runs[(RG_RUN_FIELDS * run) + field]
 
@@ -865,12 +887,12 @@ def rg_tile_pixel(background, cell, tx, ty)
     run = @rg_game_painted_tiles[painted + (2 * cell)]
     which = @rg_game_painted_tiles[painted + (2 * cell) + 1]
     place = rg_painted_places[rg_run_field(run, RG_RUN_PLACES) + (which * RG_RUN_TILE_PIXELS) + (ty * RG_RUN_TILE_SIDE) + tx]
-    set = (@rg_tile_set_now[rg_keeper_of(background)] * @rg_game_picture_sizes[RG_SIZE_RUNS]) + run
+    set = (rg_tile_set_now(background) * @rg_game_picture_sizes[RG_SIZE_RUNS]) + run
     return @rg_game_run_colors[rg_background_field(background, RG_BG_RUN_COLORS) + (set * RG_PLACES_IN_RUN_COLORS) + place]
   end
   tile_w = rg_background_field(background, RG_BG_TILE_W)
   tile_h = rg_background_field(background, RG_BG_TILE_H)
-  tile = (@rg_tile_set_now[rg_keeper_of(background)] * rg_background_field(background, RG_BG_TILES)) + cell
+  tile = (rg_tile_set_now(background) * rg_background_field(background, RG_BG_TILES)) + cell
   @rg_game_tile_pixels[rg_background_field(background, RG_BG_TILES_START) + (tile * tile_w * tile_h) + (ty * tile_w) + tx]
 end
 
@@ -1088,6 +1110,9 @@ end
 # Reference#exec_set_tile: the copy is made even when the cell turns out not to be there. A cell is
 # kept as a signed sixteen-bit number, as the map's cells are.
 def rg_background_set_tile(background, col, row, tile)
+  # A tile only another scene's declaration of the name has changes nothing here.
+  return if tile >= rg_background_field(rg_declaration_up(background), RG_BG_TILES)
+
   keeper = rg_keeper_of(background)
   rg_copy_map(background, 0) unless @rg_cells_now[keeper][1]
   return unless rg_in_map?(background, row, col)
@@ -1100,9 +1125,9 @@ def rg_background_set_tile(background, col, row, tile)
   rg_request_repaint
 end
 
-# Reference#exec_show_map
+# Reference#exec_show_map: of the maps of the declaration up now.
 def rg_background_show_map(background, which)
-  return if which < 0 || which >= rg_background_field(background, RG_BG_SHOWABLE_MAPS)
+  return if which < 0 || which >= rg_background_field(rg_declaration_up(background), RG_BG_SHOWABLE_MAPS)
 
   rg_copy_map(background, which)
   rg_request_repaint
@@ -1112,9 +1137,11 @@ end
 # number naming none of the others is its own.
 def rg_place_of_choice(which, others) = which >= 0 && which < others ? which + 1 : 0
 
-# Reference#exec_background_colors: the next rebuild reads the tiles in the colors named.
+# Reference#exec_background_colors: the next rebuild reads the tiles in the colors named. The number
+# is kept for the name, and what it names is worked out for each entry as it is drawn
+# (rg_tile_set_now).
 def rg_background_draw_with(background, which)
-  @rg_tile_set_now[rg_keeper_of(background)] = rg_place_of_choice(which, rg_background_field(background, RG_BG_COLOR_STEPS))
+  @rg_colors_told[rg_keeper_of(background)] = which.negative? ? 0 : which + 1
   rg_request_repaint
 end
 
@@ -1218,7 +1245,7 @@ def rg_paint_map_row(background, my, off_x, wrap_w, py)
   ty = my % tile_h
   tile_size = tile_w * tile_h
   set_start = rg_background_field(background, RG_BG_TILES_START) +
-              (@rg_tile_set_now[keeper] * rg_background_field(background, RG_BG_TILES) * tile_size) + (ty * tile_w)
+              (rg_tile_set_now(background) * rg_background_field(background, RG_BG_TILES) * tile_size) + (ty * tile_w)
   painted = rg_background_field(background, RG_BG_PAINTED)
   painted_tiles = @rg_game_painted_tiles
   pixels = @rg_game_tile_pixels
@@ -1331,7 +1358,7 @@ def rg_paint_turned_window(background)
   first = own ? 0 : @rg_game_maps[map + RG_MAP_CELLS]
   tile_size = tile_w * tile_h
   set_start = rg_background_field(background, RG_BG_TILES_START) +
-              (@rg_tile_set_now[keeper] * rg_background_field(background, RG_BG_TILES) * tile_size)
+              (rg_tile_set_now(background) * rg_background_field(background, RG_BG_TILES) * tile_size)
   painted = rg_background_field(background, RG_BG_PAINTED)
   painted_tiles = @rg_game_painted_tiles
   pixels = @rg_game_tile_pixels

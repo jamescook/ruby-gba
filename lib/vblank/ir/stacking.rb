@@ -169,9 +169,21 @@ module VBlank
 
       # Where everything sits: +of+ maps a name to its level (0 is the backmost), and
       # +count+ is how many levels the picture needs.
+      #
+      # A BACKGROUND OF ONE NAME DECLARED IN TWO SCENES is two declarations, at two places in
+      # the sequence, and only one of them can be its name's level: the later one, which in
+      # the earlier scene would put the background in front of everything declared between
+      # them. So each declaration's level is kept as well, under a Declaration, and anything
+      # that stacks a scene's scenery asks for that (#of_scenery).
       Depths = Data.define(:of, :count) do
         def [](name) = of.fetch(name)
+
+        # The level of +node+, one background's declaration.
+        def of_scenery(node) = of.fetch(Declaration.new(name: node.name, scene: node.scene)) { of.fetch(node.name) }
       end
+
+      # What +Depths+ keeps one background declaration's level under.
+      Declaration = Data.define(:name, :scene)
 
       # Work out the levels for a picture made of +scenery+ (background nodes) and
       # +objects+ (object nodes), each list already in its own drawing order, given the
@@ -192,6 +204,7 @@ module VBlank
           level += 1 if started && kind == :scenery
           started = true
           of[item.name] = level
+          of[Declaration.new(name: item.name, scene: item.scene)] = level if kind == :scenery
         end
 
         Depths.new(of: of, count: level + 1)
@@ -278,7 +291,7 @@ module VBlank
         return false if scenery.empty? || objects.empty?
 
         # A status bar takes no depth (see #depths), so it puts nothing in front of anything.
-        frontmost = scenery.reject(&:bar?).map { |node| depths[node.name] }.max
+        frontmost = scenery.reject(&:bar?).map { |node| depths.of_scenery(node) }.max
         return false if frontmost.nil?
 
         objects.any? { |node| levels_of(depths, node).min < frontmost }

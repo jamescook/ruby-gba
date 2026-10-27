@@ -1776,10 +1776,13 @@ module VBlank
         # routine only so that it is written once, so the chooser is told to keep it where
         # the frame's routine is kept (see Placement#beside_frame_routine).
         def prepare_map_view_routines(program)
-          streamed = program.walk.select { |node| node.kind == :background && @screen.backgrounds[node.name]&.stream }
-          @map_view_routines = streamed.map do |node|
-            MapStreaming.view_routine(node.name).tap do |routine|
-              @functions.define_generated_func(routine) { @background_drawing.emit_stream_view_routine(node.name) }
+          # One for each declaration, which is one for each background but one declared in
+          # several scenes (see ScreenLayout#declared_background).
+          streamed = program.walk.select { |node| node.kind == :background }
+                            .filter_map { |node| @screen.declared_background(node) }.select(&:stream).uniq
+          @map_view_routines = streamed.map do |bg|
+            bg.stream.routine.tap do |routine|
+              @functions.define_generated_func(routine) { @background_drawing.emit_stream_view_routine(bg) }
             end
           end
         end

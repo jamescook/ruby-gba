@@ -14,6 +14,7 @@ class TestBackgroundTileSets < Minitest::Test
   RED = Color.resolve(:red)
   GREEN = Color.resolve(:green)
   BLUE = Color.resolve(:blue)
+  WHITE = Color.resolve(:white)
 
   SPOT = [12, 12].freeze
 
@@ -349,5 +350,71 @@ class TestBackgroundTileSets < Minitest::Test
     assert_equal RED, played.call(2).pixel(8, 0), "the shrine's second tile"
     assert_equal BLUE, played.call(WALK_AT + 3).pixel(8, 0), "the clearing's"
     assert_backends_agree(prog, frames: [2, WALK_AT + 3, (WALK_AT * 2) + 3], name: "SETMANY")
+  end
+
+  # --- backgrounds walking between areas in two scenes ---
+
+  # Two scenes that each walk between areas: the same background declared in both
+  # (+same+), or a background of their own each. The first scene walks into its second area,
+  # the second takes over in its first area and walks into its second, and the first comes
+  # back and walks home. The same with a scene showing a second background beside it, which
+  # lays its colours out differently, is in the Advance's twin of this file.
+  private def two_scenes_walking(same:)
+    program do
+      screen :tiled
+      solid = (["#" * 8] * 8).join("\n")
+      { shrine_floor: :red, clearing_grass: :green, cave_rock: :blue, meadow_grass: :white }.each do |name, color|
+        image(name, "#" => color) { solid }
+      end
+      %i[shrine clearing cave meadow].zip(%i[shrine_floor clearing_grass cave_rock meadow_grass]).each do |set, art|
+        tiles set, "#" => art
+      end
+      grid = (0...20).map { "#" * 30 }
+      state = var :state, 0
+      tick = var :tick, 0
+      where = var :room, 0
+      ground = lambda do
+        background(:ground, tiles: { shrine: :shrine, clearing: :clearing },
+                            map: { shrine: { hall: grid }, clearing: { glade: grid } }).show_map where
+      end
+      scene(:one) { ground.call }
+      scene(:two) do
+        next ground.call if same
+
+        background(:path, tiles: { cave: :cave, meadow: :meadow },
+                          map: { cave: { tunnel: grid }, meadow: { field: grid } }).show_map where
+      end
+      game_loop do
+        tick.add! 1
+        (tick == 3).then { where.set! 1 }
+        (tick == 6).then do
+          state.set! 1
+          where.set! 0
+        end
+        (tick == 8).then { where.set! 1 }
+        (tick == 10).then { state.set! 0 }
+        (tick == 12).then { where.set! 0 }
+        case_var(:state) do
+          when_val 0, :one
+          when_val 1, :two
+        end
+      end
+    end
+  end
+
+  def test_one_background_walking_between_areas_in_two_scenes
+    prog = two_scenes_walking(same: true)
+
+    assert_equal [GREEN, RED, GREEN, RED], [5, 7, 9, 14].map { |frames| pixel(prog, frames: frames) },
+                 "the first scene walked into the clearing, the second arrived at the shrine and walked " \
+                 "there too, and the first came back and walked home"
+    assert_backends_agree(prog, frames: [2, 5, 7, 9, 11, 14], name: "SETSAME")
+  end
+
+  def test_backgrounds_of_their_own_walking_between_areas_in_two_scenes
+    prog = two_scenes_walking(same: false)
+
+    assert_equal WHITE, pixel(prog, frames: 9), "the second scene walked into its meadow"
+    assert_backends_agree(prog, frames: [2, 5, 7, 9, 11, 14], name: "SETOWN")
   end
 end

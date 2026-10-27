@@ -890,6 +890,26 @@ module VBlank
               @backgrounds.fetch(node.name) { raise LoweringError, "#{node.kind} of undeclared background #{node.name.inspect}" }
             end
 
+            # A LINE THAT CHANGES A BACKGROUND BY NAME, for a name declared in several scenes: each
+            # declaration has tiles, maps and colours of its own, and the line means the one on the
+            # screen up (Reference#background_up). So the line's code is written once for each
+            # declaration, each part run only while its scene is the one running — a compare a
+            # declaration. Every other background gets its one declaration and no compare.
+            def each_declaration(node)
+              declared = @program.walk.select { |each| each.kind == :background && each.name == node.name }
+              return yield(declared_background!(node)) unless declared.filter_map(&:scene).uniq.size > 1
+
+              declared.each do |bg|
+                next yield(bg) unless bg.scene
+                next unless @scenes.key?(bg.scene) # a scene nothing hands over to is never up
+
+                other = fresh("not_this_scene")
+                jump_unless(Build.binop(:==, Build.var_ref(@scene), Build.int(@scenes.fetch(bg.scene))), other)
+                yield bg
+                @asm.label(other)
+              end
+            end
+
             # Reference#exec_show_map: the background handed map number +which+ whole, as it was
             # declared — its grid put up — and a number naming no map leaves it as it is. A number
             # written in the program is looked up here; one worked out as the game runs, in a table
@@ -897,8 +917,9 @@ module VBlank
             #
             # A background bigger than the grid hands over its map kept whole (#big_map_of) and keeps
             # its view where it is (Runtime::BigMaps's rt_big_show).
-            def emit_show_map(node)
-              bg = declared_background!(node)
+            def emit_show_map(node) = each_declaration(node) { |bg| emit_show_map_of(bg, node) }
+
+            def emit_show_map_of(bg, node)
               return emit_show_changed_big_map(bg, node) if big?(bg) && changed_big?(bg)
 
               emit_area_room(bg, node.which) if bg.several_sets? && @tile_rooms
@@ -1035,7 +1056,14 @@ module VBlank
             # A big map's cell is changed where the map is kept while it is up (Runtime::BigMaps's
             # rt_big_set).
             def emit_set_tile(node)
-              bg = declared_background!(node)
+              each_declaration(node) do |bg|
+                # A tile only another scene's declaration of this name has, from a line written for
+                # that scene: this declaration's part of the line writes nothing.
+                emit_set_tile_of(bg, node) if node.tile.nil? || node.tile.negative? || node.tile < bg.tiles.length
+              end
+            end
+
+            def emit_set_tile_of(bg, node)
               tile = node.tile
               number, palette = tile.nil? || tile.negative? ? [0, 0] : background_tile_named(bg.tiles.fetch(tile), tile_room(bg))
               colours = palette | (number >= 256 ? Console::GBCHardware::ATTR_TILE_BANK : 0)
@@ -1093,8 +1121,9 @@ module VBlank
             # Color draws a tile in one of its palettes, so the background's palettes are written
             # with the colours its tiles show now (#background_colors_table), into the colours the
             # pictures are drawn in now, and the fade in force moves them from there.
-            def emit_background_colors(node)
-              bg = declared_background!(node)
+            def emit_background_colors(node) = each_declaration(node) { |bg| emit_background_colors_of(bg, node) }
+
+            def emit_background_colors_of(bg, node)
               steps = Array(bg.recolors)
               own = drawing_table("background_colors", 1, background_colors_table(bg, nil))
               tables = steps.each_index.map { |step| drawing_table("background_colors", 1, background_colors_table(bg, step)) }
@@ -1446,7 +1475,7 @@ module VBlank
             end
 
             # Whether a sprite at depth +level+ is behind the scenery: a background sits in front of it.
-            def behind_scenery?(level) = @stacking.scenery.any? { |bg| !bg.bar? && @stacking.depths[bg.name] > level }
+            def behind_scenery?(level) = @stacking.scenery.any? { |bg| !bg.bar? && @stacking.depths.of_scenery(bg) > level }
 
             # Which picture a sprite showing pose number +pose+ is drawn from, and the attributes its
             # pieces are drawn with — which palette, and whether behind the background — now. Its

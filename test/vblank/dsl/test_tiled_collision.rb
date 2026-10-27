@@ -92,4 +92,50 @@ class TestTiledCollision < Minitest::Test
     assert_equal Color.resolve(:red), s.pixel(28, 26),
                  "the right step is blocked by the wall, but the down step still slid the hero down"
   end
+
+  # ONE NAME IN TWO SCENES, WALLS OF ITS OWN IN EACH: each level declares a :world with a
+  # wall in a different column, and the hero walking right in each level is stopped by that
+  # level's own wall.
+  private def two_levels_with_walls_apart
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image(:wall_t, "#" => :blue) { SOLID_TILE }
+      image(:floor_t, "#" => rgb(8, 8, 8)) { SOLID_TILE }
+      image(:hero_t, "#" => :red) { SOLID_TILE }
+      tiles :dungeon, "#" => :wall_t, "." => :floor_t, solid: ["#"]
+      state = var :state, 0
+      tick = var :tick, 0
+      hero = sprite :hero_t, at: [16, 16]
+      { one: 4, two: 8 }.each do |level, wall_at|
+        scene(level) do
+          world = background :world, tiles: :dungeon, map: Array.new(5) { ("." * wall_at) + "#" + ("." * 10) }
+          hero.blocked_by world
+          hero.move :right, by: 2
+        end
+      end
+      game_loop do
+        tick.add! 1
+        (tick == 20).then do
+          state.set! 1
+          hero.x.set! 16
+        end
+        case_var(:state) do
+          when_val 0, :one
+          when_val 1, :two
+        end
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  def test_a_name_declared_in_two_scenes_stops_the_sprite_at_each_scenes_own_walls
+    prog = two_levels_with_walls_apart
+    at = ->(frames) { game_player.run(prog, frames: frames).screen }
+
+    assert_equal Color.resolve(:red), at.call(18).pixel(28, 20), "flush against the first level's wall, at x32"
+    assert_equal Color.resolve(:blue), at.call(18).pixel(36, 20), "the first level's wall"
+    assert_equal Color.resolve(:red), at.call(40).pixel(60, 20), "flush against the second level's wall, at x64"
+  end
 end

@@ -256,6 +256,40 @@ class TestBigMaps < Minitest::Test
     end
   end
 
+  # ONE NAME, A BIG ROOM IN EACH OF TWO SCENES: :ground is declared in both, each with a big map
+  # of its own, and each scene walks its view across its own. The view brought along is the one
+  # of the scene up, from its own map.
+  private def big_rooms_in_two_scenes
+    test = self
+    program do
+      screen :tiled
+      test.tileset(self)
+      var :mode, 0
+      pass = var :pass, 0
+      x = var :view_x, 0
+      %i[forest swamp].each_with_index do |name, seed|
+        scene(name) do
+          ground = background :ground, tiles: :ground, map: test.scrambled(100, 90, seed: seed + 3)
+          ground.scroll_to x, x
+        end
+      end
+      game_loop do
+        pass.add! 1
+        x.add! 6
+        (pass == 6).then { set! :mode, 1 }
+        (pass == 12).then { set! :mode, 0 }
+        case_var(:mode) do
+          when_val 0, :forest
+          when_val 1, :swamp
+        end
+      end
+    end
+  end
+
+  def test_a_name_in_two_scenes_brings_along_the_view_of_its_own_big_room
+    [4, 7, 10, 13, 16].each { |frames| assert_backends_agree(big_rooms_in_two_scenes, frames: frames, name: "BIGN") }
+  end
+
   # --- how much a view costs to put up ---
 
   VIEW_CELLS = 31 * 21

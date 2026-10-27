@@ -705,7 +705,7 @@ module VBlank
       background = declared_background(name)
       background.angle = angle_var
       background.scale = scale_var
-      background.scene_gate = @current_scene_gate
+      background.scene_gates = [@current_scene_gate]
     end
 
     # Does :+name+ turn and resize rather than scroll? True from the line that declares
@@ -965,6 +965,15 @@ module VBlank
     # thing declared outside every scene is there in all of them.
     def while_scene_up(gate, node) = gate ? Build.if_(scene_up(gate), node) : node
 
+    # +node+, run while any scene of +gates+ is up: a background of one name declared in
+    # several scenes is written for while any of them is. A nil among them is a declaration
+    # outside every scene, which is there in all of them.
+    def while_any_scene_up(gates, node)
+      return node if gates.include?(nil)
+
+      Build.if_(gates.map { |gate| scene_up(gate) }.reduce { |either, other| Build.binop(:or, either, other) }, node)
+    end
+
     # Gate a declaration's visibility on the conditions it was WRITTEN under, so a
     # blinking prompt is the plain thing an author would write:
     #
@@ -1045,7 +1054,7 @@ module VBlank
       write_between_frames(@inline_scroll_nodes, backgrounds_that(&:scrolls?)) do |name, background|
         scroll = Build.scroll_background(name, x: Build.var_ref(background.scroll_x),
                                                y: Build.var_ref(background.scroll_y))
-        while_scene_up(background.scene_gate, scroll)
+        while_any_scene_up(background.scene_gates, scroll)
       end
     end
 
@@ -1055,7 +1064,7 @@ module VBlank
     # or not, since its top is a variable (see Tiled#status_bar).
     def finalize_status_bars
       write_between_frames(@inline_bar_nodes, backgrounds_that { |background| background.node.bar? }) do |name, background|
-        while_scene_up(background.scene_gate,
+        while_any_scene_up(background.scene_gates,
                        Build.place_bar(name, top: Build.var_ref(IR::Nodes::Background.bar_top_var(name))))
       end
     end
@@ -1156,7 +1165,7 @@ module VBlank
         # Gated to the owning scene, as a scroll is: a scene's backgrounds draw from colour
         # groups other scenes use while they are up, so a list asked for from elsewhere waits
         # until its scene is back, and goes in then.
-        while_scene_up(background.scene_gate, write)
+        while_any_scene_up(background.scene_gates, write)
       end
     end
 
@@ -1217,7 +1226,7 @@ module VBlank
       # A background turned inside one scene says nothing at all while another scene is up:
       # the display has one turning layer and they share it, so a title screen's zoom must
       # not go on distorting the game that took over from it.
-      while_scene_up(background.scene_gate, write)
+      while_any_scene_up(background.scene_gates, write)
     end
 
     # The angle and the size the display was last told. They are declared here rather than

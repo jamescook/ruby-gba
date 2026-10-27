@@ -187,6 +187,36 @@ class TestVramLayout < Minitest::Test
     assert_match(/fewer/i, error.message, "and says what to do about it")
   end
 
+  # A BACKGROUND WALKING BETWEEN AREAS ON EVERY SCREEN lays its areas' colours out in the table
+  # every scene shows, and one walking in a scene lays its own in the same place after it, so
+  # the two cannot both be. Walking backgrounds of two scenes each have a table of their own
+  # (test/vblank/builder/test_background_tile_sets.rb); this one has nowhere, and says what to do.
+  def test_a_background_walking_on_every_screen_beside_one_walking_in_a_scene_is_refused
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      %i[red green blue white].each do |color|
+        image(:"#{color}_art", "#" => color) { SOLID_TILE }
+        tiles :"#{color}_set", "#" => :"#{color}_art"
+      end
+      grid = ["#" * 30] * 20
+      background :sky, tiles: { day: :red_set, night: :green_set },
+                       map: { day: { noon: grid }, night: { midnight: grid } }
+      scene(:cave) do
+        background :rock, tiles: { dry: :blue_set, wet: :white_set },
+                          map: { dry: { tunnel: grid }, wet: { pool: grid } }
+      end
+      var :state, 0
+      game_loop { case_var(:state) { when_val 0, :cave } }
+    end
+    builder.finalize_program
+
+    error = assert_raises(GBA::LoweringError) { GBA.new.lower(builder.program) }
+    assert_match(/:sky walks between areas on every screen/, error.message)
+    assert_match(/scene :cave/, error.message)
+    assert_match(/:sky in each scene/, error.message, "and says what to do about it")
+  end
+
   # --- The proof on hardware ---
 
   # The worst case the layout has to survive: every layer the console has, stacked

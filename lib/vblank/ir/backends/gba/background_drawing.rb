@@ -43,6 +43,22 @@ module VBlank
           # (see Placement#emit_call_cold_routine).
           def emit_call_cold_routine(label) = @call_cold_routine.call(label)
 
+          # A LINE THAT CHANGES A BACKGROUND BY NAME, for a name declared in several scenes: each
+          # scene's declaration sits in a place of its own (see ScreenLayout#declared_background),
+          # and the line is reached from the gap between frames, which every scene passes through.
+          # So the line's code is written once for each declaration, each part run only while its
+          # scene's scenery is up — a compare and a branch a declaration. For every other
+          # background the block gets its one placement, or nil where it has none (a background
+          # on a screen with no tiled layer), and nothing is compared.
+          #
+          # The block is run once for each declaration, so it leaves with `next`, never `return`.
+          def emit_for_each_declaration(name)
+            declared = @layout.screen.declarations_of(name)
+            return yield(@layout.screen.backgrounds[name]) if declared.empty?
+
+            declared.each { |scene, bg| @scene_entry.emit_if_scene_up(:scenery, scene) { yield bg } }
+          end
+
           # The per-layer control and scroll registers, indexed by BG number (0..3), so a
           # layer configures and scrolls its own hardware layer.
           BG_CNT_REGS  = [REG_BG0CNT, REG_BG1CNT, REG_BG2CNT, REG_BG3CNT].freeze
@@ -69,7 +85,7 @@ module VBlank
           # whole layer every frame for free, and composites the layers by priority so
           # nearer ones sit in front.
           def emit_background_hardware(node)
-            bg = @layout.screen.backgrounds.fetch(node.name)
+            bg = @layout.screen.declared_background(node)
             return emit_affine_background_hardware(bg) if bg.affine
 
             # A map brought in a strip at a time is put up as its first map, filled round the
@@ -174,15 +190,18 @@ module VBlank
           # where half the old room and half the new really would show at once. That wants
           # a verb of its own, handing over a map in one go between frames.
           def emit_set_tile(node)
-            bg = @layout.screen.backgrounds[node.name]
-            return if bg.nil? # a background with no tiled layer (a bitmap-mode program)
+            emit_for_each_declaration(node.name) do |bg|
+              next if bg.nil? # a background with no tiled layer (a bitmap-mode program)
 
-            grid = bg.grid or raise_no_cells_to_change(node.name)
-            entry = grid.cell_for(node.tile)
-            fixed = [const_int(node.col), const_int(node.row)]
-            return emit_fixed_tile_write(bg, grid, entry, *fixed) if fixed.all?
+              grid = bg.grid or raise_no_cells_to_change(node.name)
+              # A tile only another scene's declaration of this name has, from a line written
+              # for that scene: this declaration's part of the line writes nothing.
+              entry = grid.cells[node.tile] or next
+              fixed = [const_int(node.col), const_int(node.row)]
+              next emit_fixed_tile_write(bg, grid, entry, *fixed) if fixed.all?
 
-            emit_computed_tile_write(node, bg, grid, entry)
+              emit_computed_tile_write(node, bg, grid, entry)
+            end
           end
 
           # A background that turns and resizes holds a tile number in each cell and nothing
@@ -295,13 +314,14 @@ module VBlank
           # number the game worked out can be anything, and a game should not need a test
           # around it to stay safe.
           def emit_show_map(node)
-            bg = @layout.screen.backgrounds[node.name]
-            return if bg.nil? || bg.map_count < 2 # no tiled layer, or nothing else to show
+            emit_for_each_declaration(node.name) do |bg|
+              next if bg.nil? || bg.map_count < 2 # no tiled layer, or nothing else to show
 
-            done = gensym
-            emit_call_set_swap_if_changing(node, bg, done) if bg.sets
-            emit_map_copy(node, bg, done)
-            place_label(done)
+              done = gensym
+              emit_call_set_swap_if_changing(node, bg, done) if bg.sets
+              emit_map_copy(node, bg, done)
+              place_label(done)
+            end
           end
 
           def emit_map_copy(node, bg, done)
@@ -354,13 +374,22 @@ module VBlank
             place_label(same)
           end
 
-          # The label of the routine that brings one of +name+'s sets in, reserved the first
+          # The routine that brings one of background +name+'s sets in, named for the
+          # background, and for the +scene+ of its declaration too for a background declared in
+          # several (see ScreenLayout#declared_background).
+          def self.set_swap_routine(name, scene: nil)
+            return Messages::MadeNames.make(:set_swap, background: name) unless scene
+
+            Messages::MadeNames.make(:set_swap_in_scene, background: name, scene: IR::Modes.strip_scene_prefix(scene))
+          end
+
+          # The label of the routine that brings one of +bg+'s sets in, reserved the first
           # time a map of that background is shown and emitted once, later, by
           # #emit_set_swap_routines — however many places show it a map.
           def set_swap_routine_label(name, bg)
             @pending_set_swaps ||= {}
-            @pending_set_swaps[name] ||= bg
-            Messages::MadeNames.make(:set_swap, background: name)
+            @pending_set_swaps[bg.sets.routine] ||= [name, bg]
+            bg.sets.routine
           end
 
           # BRING IN THE SET OF TILES A MAP DRAWS FROM, for a background that walks between
@@ -383,8 +412,7 @@ module VBlank
           # running from the cartridge is the colours of a game that tints or fades, blended
           # one at a time.
           def emit_set_swap_routines
-            (@pending_set_swaps || {}).each do |name, bg|
-              label = Messages::MadeNames.make(:set_swap, background: name)
+            (@pending_set_swaps || {}).each do |label, (name, bg)|
               emit(ASM.loop_forever) # fall-through guard: only ever entered by the call
               place_label(label)
               emit(ASM.push(14))
@@ -415,8 +443,7 @@ module VBlank
             emit(ASM.mul(ACC, SET_PICKED, TMP)) # r0 = how far along the blob that set starts
             emit_load_data_address(TMP, swap.tiles)
             emit(ASM.add_reg(ACC, ACC, TMP))
-            routine = Messages::MadeNames.make(:set_swap, background: name)
-            @emitter.note_video_copy(Messages::MadeNames.words_for_made_name(routine), swap.stride)
+            @emitter.note_video_copy(Messages::MadeNames.words_for_made_name(swap.routine), swap.stride)
             emit_start_copy_engine(from: in_register(ACC), to: VRAM_START + swap.at,
                                    control: (swap.stride / 4) | DMA_ENABLE | DMA_32BIT)
             emit_set_char_base(bg, swap) if swap.char_base_table
@@ -684,9 +711,16 @@ module VBlank
           # last in the blob — so that case is a conditional move rather than a branch, and
           # a counter that has run off the end looks right rather than wrong.
           def emit_background_colors(node)
-            lists = @layout.screen.backgrounds[node.name]&.colors
-            return if lists.nil? # no tiled layer here, or nothing else to draw it with
+            emit_for_each_declaration(node.name) do |bg|
+              lists = bg&.colors
+              next if lists.nil? # no tiled layer here, or nothing else to draw it with
 
+              emit_color_list_send(node, lists)
+            end
+          end
+
+          # Send the list +node+ picks out of +lists+ into the groups the layer's tiles read.
+          def emit_color_list_send(node, lists)
             @lowering.value(node.which)
             # One unsigned compare catches both ends: a negative number reads as a very large
             # one, so anything outside 0...count fails the same test.
@@ -928,8 +962,8 @@ module VBlank
             # the scroll registers do nothing when that layer isn't on, matching the
             # interpreter's harmless handling.
             bg = @layout.screen.backgrounds[node.name]
-            bg_num = bg&.bg || 0
-            emit_view_along_map(node) if bg&.stream # the cells around the view, before the view moves
+            bg_num = bg&.bg || 0 # the same layer for every declaration of one name (see ScreenLayout#layer_slots)
+            emit_view_along_map(node) # the cells around the view, before the view moves
             # A bending layer's sideways position is settled row by row instead, and every
             # one of those rows already has this scroll in it (see Raster). Writing it here
             # too would only undo the top row's bend until the display asked for the next.
@@ -947,13 +981,22 @@ module VBlank
           # screen on START) has that variable naming the new scene in the gap before its first
           # pass: the view was filled there, into cells the scene had not put up yet and that may
           # still hold the scene leaving, and then filled again as the scene took over.
+          #
+          # A background of one name declared in several scenes has a view of its own for each
+          # declaration, and the scene up is the one whose view comes along.
           def emit_view_along_map(node)
-            declared = @layout.screen.picture.scenery.find { |scenery| scenery.name == node.name }
-            unless declared && @layout.screen.handover.on_arrival?(declared)
-              return emit_stream_view(node.name, node.x, node.y)
+            several = @layout.screen.declarations_of(node.name)
+            unless several.empty?
+              return several.each do |scene, bg|
+                @scene_entry.emit_if_scene_up(:scenery, scene) { emit_stream_view(bg.stream, node.x, node.y) } if bg.stream
+              end
             end
 
-            @scene_entry.emit_if_scene_up(:scenery, declared.scene) { emit_stream_view(node.name, node.x, node.y) }
+            stream = @layout.screen.backgrounds[node.name]&.stream or return
+            declared = @layout.screen.picture.scenery.find { |scenery| scenery.name == node.name }
+            return emit_stream_view(stream, node.x, node.y) unless declared && @layout.screen.handover.on_arrival?(declared)
+
+            @scene_entry.emit_if_scene_up(:scenery, declared.scene) { emit_stream_view(stream, node.x, node.y) }
           end
         end
       end

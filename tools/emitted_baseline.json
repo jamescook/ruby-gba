@@ -136,6 +136,10 @@
     "tiles": {
       "code": 7876,
       "data": 0
+    },
+    "tower": {
+      "code": 22068,
+      "data": 0
     }
   }
 }

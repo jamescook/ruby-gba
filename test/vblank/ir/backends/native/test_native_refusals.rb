@@ -34,29 +34,6 @@ class TestNativeRefusals < Minitest::Test
     assert_match(/more parts on the square wave than the 2 there are/, error.message)
   end
 
-  # What the desktop's picture cannot draw yet is refused, by name, rather than drawn wrong.
-  #
-  # Two backgrounds with one name share the colors they are told, and the interpreter works out
-  # what a number names from whichever of the two it paints first. The C would work it out for
-  # each, so a game that tells such a pair other colors is refused.
-  def test_two_backgrounds_with_one_name_told_other_colors_are_refused_by_name
-    assert_refused_picture(/two backgrounds with one name told other colors \(room\)/) do
-      screen :tiled
-      var :state, 0
-      colors :dusk, %i[transparent blue]
-      image :brick, "#" => :red, colors: %i[transparent red] do "########\n" * 8 end
-      tiles :wall, "#" => :brick
-      scene(:first) { background(:room, tiles: :wall, map: ["##  "]).draw_with :dusk }
-      scene(:second) { background :room, tiles: :wall, map: ["  ##"] }
-      game_loop do
-        case_var :state do
-          when_val 0, :first
-          when_val 1, :second
-        end
-      end
-    end
-  end
-
   # A run of sprites drawn in an order the game works out is swapped into the frame by position,
   # and the desktop build places its sprites by name. Those are the same thing in every game the
   # builder makes; a tree where they are not is refused rather than drawn some other way.
@@ -111,11 +88,5 @@ class TestNativeRefusals < Minitest::Test
       list :order, capacity: 4, width: :byte
       game_loop {}
     end
-  end
-
-  def assert_refused_picture(message, &block)
-    error = assert_raises(LoweringError) { Native.new.lower(program_of(&block)) }
-    assert_match message, error.message
-    assert_match(/desktop build cannot draw yet/, error.message)
   end
 end

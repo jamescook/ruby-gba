@@ -520,4 +520,52 @@ class TestSceneBackgroundsOnTheAdvance < Minitest::Test
 
     assert_equal [RED, BLUE, RED], [SECOND_SCENE_AT, FIRST_SCENE_AGAIN_AT, FIRST_SCENE_AGAIN_AT + 15].map { |at| shown(prog, at) }
   end
+
+  # ONE NAME IN TWO SCENES, BESIDE DIFFERENT SCENERY: :ground is declared behind a sky in the
+  # first scene and alone in the second, so each scene lays its colours out differently, and
+  # the second scene draws its :ground with other colours as it runs. Each scene shows its own
+  # declaration in its own colours, and the first comes back as declared.
+  private def one_ground_beside_other_scenery
+    test = self
+    program do
+      screen :tiled
+      colors :floor_own, %i[transparent red]
+      colors :floor_dusk, %i[transparent white]
+      image :floor, width: 8, height: 8, data: Array.new(64, :red), colors: :floor_own
+      image(:sky_blue, "#" => :blue) { SOLID_TILE }
+      image(:sky_yellow, "#" => :yellow) { SOLID_TILE }
+      tiles :floor_tiles, "#" => :floor
+      tiles :sky_tiles, "#" => :sky_blue, "o" => :sky_yellow
+      grid = Array.new(20) { "#" * 30 }
+      state = var :state, 0
+      tick = var :tick, 0
+      scene(:one) do
+        background :sky, tiles: :sky_tiles, map: ["#o" * 15] + ([" " * 30] * 19)
+        background :ground, tiles: :floor_tiles, map: [" " * 30] + grid.drop(1)
+      end
+      scene(:two) do
+        ground = background :ground, tiles: :floor_tiles, map: grid
+        (tick > test.class::SWITCH_AT + 2).then { ground.draw_with :floor_dusk }
+      end
+      game_loop do
+        tick.add! 1
+        (tick == test.class::SWITCH_AT).then { state.set! 1 }
+        (tick == test.class::SWITCH_AT * 3).then { state.set! 0 }
+        case_var(:state) do
+          when_val 0, :one
+          when_val 1, :two
+        end
+      end
+    end
+  end
+
+  def test_a_name_in_two_scenes_beside_different_scenery_keeps_each_scenes_colours
+    prog = one_ground_beside_other_scenery
+    shown = ->(frames) { game_player.run(prog, frames: frames).screen }
+    white = VBlank::Graphics::Color.resolve(:white)
+
+    assert_equal [BLUE, RED], [shown.call(2).pixel(0, 0), shown.call(2).pixel(0, 8)], "the sky over the ground"
+    assert_equal white, shown.call((SWITCH_AT * 2) + 2).pixel(0, 0), "the second scene's ground at dusk"
+    assert_backends_agree(prog, frames: [2, SWITCH_AT + 1, (SWITCH_AT * 2) + 2, (SWITCH_AT * 3) + 2], name: "SCNTWIN")
+  end
 end

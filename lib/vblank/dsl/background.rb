@@ -230,10 +230,13 @@ module VBlank
       # The grid ships as a byte per cell per map of read-only data (a 30x20 room is 600
       # bytes) and is built once however many movers consult it. nil when the tileset marked
       # nothing solid, which is the same thing #solid_boxes says with an empty list.
+      #
+      # The table is named for the scene the background was declared in as well, since two
+      # scenes can each declare a background by one name, with walls of their own.
       def solid_lookup
         return nil if @solid_cells.compact.empty?
 
-        @solid_lookup ||= SolidCells.new(table: @builder.table(:"__solid_#{@name}", flat_walls, width: :byte),
+        @solid_lookup ||= SolidCells.new(table: @builder.table(walls_table_name, flat_walls, width: :byte),
                                          cols: cols, rows: rows,
                                          tile_w: @tile_size[0], tile_h: @tile_size[1],
                                          name: @name, maps: @solid_cells.length,
@@ -425,6 +428,12 @@ module VBlank
         @solid_cells.flat_map do |grid|
           (0...rows).flat_map { |r| (0...cols).map { |c| grid&.dig(r, c) ? 1 : 0 } }
         end
+      end
+
+      # The name of the table #solid_lookup keeps the walls in.
+      def walls_table_name
+        scene = @declaration_tail&.scene
+        scene ? :"__solid_#{@name}__in_#{IR::Modes.strip_scene_prefix(scene)}" : :"__solid_#{@name}"
       end
 
       # A MAP BROUGHT INTO VIEW A STRIP AT A TIME IS COPIED IN AGAIN AS THE VIEW MOVES. Its

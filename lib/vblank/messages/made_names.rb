@@ -130,6 +130,14 @@ module VBlank
                              end),
         told_turn: Kind.new(spelling: "__bg_%{background}_told_%{part}", parts: { background: ANY, part: PLAIN },
                             words: nil),
+        # A background of one name declared in several scenes has a routine for each scene's
+        # declaration. These come before the plain ones, which would read them as a background
+        # with "__in_" in its name.
+        set_swap_in_scene: Kind.new(spelling: "__set_swap_%{background}__in_%{scene}", parts: { background: ANY, scene: ANY },
+                                    words: lambda do |parts|
+                                      "bringing background :#{parts[:background]} of the scene :#{parts[:scene]} " \
+                                        "another set of tiles"
+                                    end),
         set_swap: Kind.new(spelling: "__set_swap_%{background}", parts: { background: ANY },
                            words: ->(parts) { "bringing background :#{parts[:background]} another set of tiles" }),
         shared_rooms: Kind.new(spelling: "__shared_rooms_%{number}__%{part}", parts: { number: "\\d+", part: PLAIN },
@@ -140,6 +148,12 @@ module VBlank
                                    "taking back the room of a sprite that is not shown"
                                  end
                                end),
+        view_along_map_in_scene: Kind.new(spelling: "__view_along_map_%{background}__in_%{scene}",
+                                          parts: { background: ANY, scene: ANY },
+                                          words: lambda do |parts|
+                                            "bringing the view of background :#{parts[:background]} of the scene " \
+                                              ":#{parts[:scene]} along its map"
+                                          end),
         view_along_map: Kind.new(spelling: "__view_along_map_%{background}", parts: { background: ANY },
                                  words: ->(parts) { "bringing the view of background :#{parts[:background]} along its map" }),
         pool_stacking: Kind.new(spelling: "__stacking_pool_%{pool}", parts: { pool: ANY },
