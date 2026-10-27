@@ -12,6 +12,7 @@ require_relative "diagnostics/func_dumper"
 require_relative "diagnostics/emulator" # the one seam to the emulator backend; swap emulators here
 require_relative "diagnostics/recorded_sound" # the sound of a run, the older part of it in a scratch file
 require_relative "diagnostics/verifier" # ...and reading real pixels and real sound back through it
+require_relative "diagnostics/sound_recording" # what a game sounds like on the cartridge, the desktop build or as Ruby
 require_relative "diagnostics/advance_reading" # ...what an Advance cartridge keeps its own way
 require_relative "diagnostics/color_reading" # ...and what a Game Boy Color cartridge does
 require_relative "diagnostics/tearing"

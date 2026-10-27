@@ -81,7 +81,8 @@ require "native_comparison"
 module SoundComparison
   include NativeComparison
 
-  CONSOLE_RATE = 44_100 # what the emulator hands its sound over at
+  Recording = VBlank::Diagnostics::SoundRecording
+  CONSOLE_RATE = Recording::CARTRIDGE_RATE # what the emulator hands its sound over at
 
   # A frame of the console: this many ticks of a clock of 2^CLOCK_BITS a second.
   FRAME_TICKS = 280_896
@@ -89,7 +90,11 @@ module SoundComparison
 
   # The emulator's name for each voice the desktop build makes, and the build's number for it —
   # which is the console's own count of its voices.
-  VOICES = { square1: 1, square2: 2, wave: 3, noise: 4 }.freeze
+  VOICES = Recording::VOICES
+
+  # A frame is read for broken waves where the voice is at least this share as loud as at its
+  # loudest: quieter, the emulator's drift back to nought blurs the wave's edges.
+  READABLE_SHARE = 0.25
 
   # The voices a comparison listens to when it is not told which.
   SQUARE_VOICES = %i[square1 square2].freeze
@@ -266,6 +271,22 @@ module SoundComparison
     differences = [later, later - 1, later + 1].map { |apart| differences_lined_up(console, native, apart, frames) }.min_by(&:length)
 
     assert_empty differences.first(8), "the desktop build does not sound like the console (#{differences.length} frames differ)"
+    voices.select { |voice| kind_of(voice) == :square }.each do |voice|
+      assert_operator waves_broken_while_loud(native[voice]), :<=, waves_broken_while_loud(console[voice]),
+                      "the desktop build's #{voice} breaks more waves than the console's: it loses its place in its wave"
+    end
+  end
+
+  # THE WAVES THEMSELVES, on every frame, a note changing or not: how many waves a square voice
+  # breaks, going back to the start of its wave where the chip carries on (Diagnostics::SoundRecording
+  # says how one is found). Counted where the voice is loud enough to read (READABLE_SHARE), and as
+  # a total for the run, since the two do not break theirs on the same frame. The loudness, pitch
+  # and tone above are read only where a note is held still, so this is what hears a fade or a
+  # restarted note.
+  def waves_broken_while_loud(heard)
+    frames = Recording.new(samples: heard.samples, rate: heard.rate, frame_seconds: Rational(FRAME_TICKS, 1 << CLOCK_BITS)).frames
+    loudest = frames.map(&:loudness).max || 0
+    frames.select { |frame| loudest.positive? && frame.loudness >= loudest * READABLE_SHARE }.sum(&:waves_broken)
   end
 
   # One voice of the cartridge's sound in the emulator, with the other voices left out of the mix.
@@ -297,7 +318,7 @@ module SoundComparison
 
   # The same voice of the desktop build's sound.
   def native_voice(program, voice, frames:, buttons: {})
-    Heard.new(kind: kind_of(voice), samples: native_samples(program, frames: frames, buttons: buttons, only: VOICES.fetch(voice)),
+    Heard.new(kind: kind_of(voice), samples: native_samples(program, frames: frames, buttons: buttons, only: voice),
               rate: Native::HeadlessRun::SOUND_RATE, full_jump: full_jump(:native))
   end
 
@@ -318,17 +339,11 @@ module SoundComparison
   # the emulator directly, because here it is the answer key and not the thing under test
   # (`require_emulator!` skips on a native run, for a test that is about the cartridge).
   def console_samples(program, frames:, buttons: {}, only: nil)
-    VBlank::Diagnostics::Emulator.load!
-    keys = ->(frame) { VBlank::IR::Buttons.mask(buttons.fetch(frame + 1, [])) }
-    verifier = VBlank::Diagnostics::Verifier.new(assemble_rom(program), frames: 0, keys: keys)
-    verifier.hearing(only: only) if only
-    verifier.step(frames)
-    verifier.audio_samples.each_slice(2).map(&:first)
+    Recording.of(program, on: :cartridge, frames: frames, buttons: buttons, only: only).samples
   end
 
   def native_samples(program, frames:, buttons: {}, only: nil)
-    run = Native::HeadlessRun.new.recording_sound(only: only)
-    run.input_each_frame { |frame| buttons.fetch(frame, []) }.run(program, frames: frames).sound
+    Recording.of(program, on: :native, frames: frames, buttons: buttons, only: only).samples
   end
 
   # How far the wave jumps on a square note at full volume, on the console or the desktop build:
