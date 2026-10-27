@@ -25,7 +25,7 @@ Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`,
 
 ## Build / screen — `.claude/dsl/screen.md`
 
-- `VBlank.game "NAME", consoles: %i[gba]` — the game and the consoles it is for (`%i[gba gbc]` for the Color too); `vblank build` makes a cartridge for each. Its code is worked out from the name. `stack_room:`.
+- `VBlank.game "NAME", consoles: %i[gba]` — the game and the consoles it is for (`%i[gba gbc]` for the Color too); `vblank build` makes a cartridge for each. Its code is worked out from the name. `stack_room:`; `menu: false` (no menu in a computer's window).
 - `screen :bitmap` / `:tiled` / `:rotozoom` (`tear_free:`, `colors:`, `late:`, `pace:`) — the display, per scene; `:bitmap` by default.
 - `screen_width` / `screen_height` — the screen the game is being built for, to lay it out from.
 - `setting :floors, 60` — a value handed to one build (`settings:`, `--set`).

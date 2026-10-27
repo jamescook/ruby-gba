@@ -145,9 +145,10 @@ class TestSession < Minitest::Test
     assert_equal [20, 20], [rate.passes, rate.frames]
   end
 
-  # FAST FORWARD plays several of the game's frames for each picture shown, four at most, so a
-  # machine that can goes four times the console's speed and no faster: sixteen frames in the time
-  # of four, one picture for every four, and nothing handed to the speaker meanwhile.
+  # FAST FORWARD plays several of the game's frames for each picture shown, as many as its speed
+  # (four, here), so a machine that can goes that many times the console's speed and no faster:
+  # sixteen frames in the time of four, one picture for every four, and nothing handed to the
+  # speaker meanwhile.
   def test_fast_forward_plays_four_frames_a_picture
     program = counting_game
     frame = frame_seconds(program)
@@ -158,6 +159,16 @@ class TestSession < Minitest::Test
     assert_equal [4, 8, 12, 16], device.pictures.map { |picture| marked_frame(picture) + 1 }
     assert_empty device.sounds
     assert_in_delta 4 / frame, rate.passes_per_second, 0.001
+  end
+
+  # The speed is the player's: at twice the console's, two frames a picture.
+  def test_fast_forward_goes_at_the_speed_the_player_chose
+    program = counting_game
+    device = Headless.new(frames: 3, fast_forward: 1.., fast_forward_speed: 2)
+    rate = Session.new(program).play(device)
+
+    assert_equal [2, 4, 6], device.pictures.map { |picture| marked_frame(picture) + 1 }
+    assert_equal [6, 3], [rate.passes, rate.frames]
   end
 
   # A machine that cannot play four frames in the time of one still shows a picture a frame: here

@@ -20,13 +20,18 @@ module VBlank
       # wrote them. A game built for one it is not for is refused.
       attr_reader :consoles
 
+      # Whether the game's window, played on a computer, has a menu: it does unless the game says not.
+      def menu? = @menu
+
       # +options+ is part of what the cartridge is — how much save memory it has, how quickly
-      # it reads — so like +code+ it is said where the game is named.
-      def initialize(title, consoles:, code: nil, maker: nil, block:, options: Options.new)
+      # it reads — so like +code+ it is said where the game is named. +menu+ false is a game whose
+      # window, played on a computer, opens no menu over the picture.
+      def initialize(title, consoles:, code: nil, maker: nil, block:, options: Options.new, menu: true)
         @title = title
         @code = code
         @maker = maker
         @options = options
+        @menu = menu
         @consoles = Console.refuse_unknown_consoles!(consoles, setting: "consoles:")
         Console.refuse_unusable_console_settings!(console_settings_said, consoles: @consoles, title: title,
                                                                          named_in: "consoles:")
@@ -247,16 +252,23 @@ module VBlank
     # A console setting, one only some consoles have (+code+, +maker+, +fast_cartridge+,
     # +fast_code+, +stack_room+; see Cartridge::AdvanceBuild::SETTINGS), is for the consoles of the
     # game's that have it, and a game none of whose consoles has it is refused here.
+    #
+    # +menu+ false leaves out the menu a window played on a computer opens over the picture.
     def game(title, code: nil, maker: nil, frame_sync: :auto, fast_cartridge: nil, fast_code: nil,
-             save_memory: nil, stack_room: nil, consoles: nil, &block)
+             save_memory: nil, stack_room: nil, consoles: nil, menu: true, &block)
       unless block
         raise ArgumentError, %(VBlank.game needs a block: VBlank.game("NAME", consoles: %i[gba]) { ... })
       end
       refuse_unsaid_consoles!(title) if consoles.nil?
+      unless [true, false].include?(menu)
+        raise ArgumentError, "#{title} says menu: #{menu.inspect}. menu: must be true or false. Write menu: false " \
+                             "to leave out the menu."
+      end
 
       options = Cartridge::Options.new(frame_sync: frame_sync, fast_cartridge: fast_cartridge,
                                        fast_code: fast_code, save_memory: save_memory, stack_room: stack_room)
-      handle = Cartridge::Game.new(title, code: code, maker: maker, block: block, options: options, consoles: consoles)
+      handle = Cartridge::Game.new(title, code: code, maker: maker, block: block, options: options, consoles: consoles,
+                                          menu: menu)
       Ractor.current[:vblank_registered_games] = registered_games + [handle]
       handle
     end

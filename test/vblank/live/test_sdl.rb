@@ -104,12 +104,68 @@ class TestSDL < Minitest::Test
     window = open_window
     press_key(SDL::FAST_FORWARD)
     window.show(Array.new(240 * 160, 0), 240, 160)
-    held = window.fast_forward?(1)
+    held = window.fast_forward_speed(1)
     press_key(SDL::FAST_FORWARD, down: false)
     window.show(Array.new(240 * 160, 0), 240, 160)
 
-    assert held
-    refute window.fast_forward?(1)
+    assert_equal 4, held
+    assert_equal 1, window.fast_forward_speed(1)
+  ensure
+    window&.close
+  end
+
+  # F1 opens the menu, as in the desktop build, and the game is held while it is open: Enter on
+  # Resume, the line it opens on, carries on.
+  def test_f1_opens_the_menu_and_holds_the_game_until_resume
+    window = open_window
+    press_key(SDL::MENU)
+    window.show(Array.new(240 * 160, 0), 240, 160)
+    press_key(SDL::MENU_KEYS.key(:enter))
+
+    assert window.hold_while_paused
+    refute window.hold_while_paused, "Resume should have closed the menu"
+  ensure
+    window&.close
+  end
+
+  # What the menu changes, the window does: here it is made twice the picture's size and quieter.
+  def test_the_menu_changes_the_window
+    window = open_window
+    window.play_sound(Array.new(FRAME_SAMPLES, 0), RATE)
+    press_key(SDL::MENU)
+    window.show(Array.new(240 * 160, 0), 240, 160)
+    # Fast forward two less, the window's size one more, the volume one step down.
+    %i[down left left down right down down left].each { |key| press_key(SDL::MENU_KEYS.key(key)) }
+    press_key(SDL::MENU)
+    window.hold_while_paused
+
+    assert_equal [480, 320], window.window_size
+    assert_in_delta 0.9, window.speaker_volume, 0.001
+  ensure
+    window&.close
+  end
+
+  # Quit in the menu stops the play.
+  def test_quit_in_the_menu_stops_the_play
+    window = open_window
+    press_key(SDL::MENU)
+    window.show(Array.new(240 * 160, 0), 240, 160)
+    press_key(SDL::MENU_KEYS.key(:up))
+    press_key(SDL::MENU_KEYS.key(:enter))
+    window.hold_while_paused
+
+    assert window.stop?
+  ensure
+    window&.close
+  end
+
+  # A game that says it has no menu has none: F1 does nothing.
+  def test_a_window_with_no_menu_ignores_f1
+    window = open_window(menu: false)
+    press_key(SDL::MENU)
+    window.show(Array.new(240 * 160, 0), 240, 160)
+
+    refute window.hold_while_paused
   ensure
     window&.close
   end
@@ -158,10 +214,10 @@ class TestSDL < Minitest::Test
 
   private
 
-  def open_window
+  def open_window(menu: true)
     skip "SDL3 is not installed: #{SDL::INSTALL_LINE}" unless SDL.available?
 
-    SDL.new(title: "TEST", scale: 1)
+    SDL.new(title: "TEST", scale: 1, menu: menu)
   end
 
   # SDL told a key went down, or came up, as a keyboard would tell it.

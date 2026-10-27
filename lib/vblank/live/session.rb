@@ -18,8 +18,9 @@ module VBlank
     #                                device with no speaker (yet)
     #   held_buttons(pass)           the buttons held as picture number +pass+ is shown (1, 2, 3, …),
     #                                for the pass that starts then
-    #   fast_forward?(pass)          whether the player is holding fast forward through pass number
-    #                                +pass+, asked before it is played (never, played uncapped)
+    #   fast_forward_speed(pass)     how many of the game's frames to play in the time of one through
+    #                                pass number +pass+: 1, or more while the player holds fast
+    #                                forward; asked before the pass is played (never, played uncapped)
     #   hold_while_paused            asked once a pass, after the picture: returns false at once unless
     #                                the player paused; otherwise returns true once they carry on or
     #                                stop, with what was waiting for the speaker thrown away
@@ -49,10 +50,6 @@ module VBlank
       # or a wait that wakes late, uses up some of it and never empties it; and few, since what is
       # waiting is how far what a person sees and hears trails the buttons they press.
       SPEAKER_AHEAD_FRAMES = 4
-
-      # The most of the game's frames fast forward plays in the time of one, as the desktop build's
-      # does to begin with: fast, and the game still followable.
-      FAST_FORWARD_TIMES = 4
 
       # The game is built as Ruby here, before any device is opened, so a game the Ruby runtime
       # cannot play yet is refused (IR::Backends::Ruby::RuntimeGap) before a window comes up.
@@ -90,8 +87,9 @@ module VBlank
       # paces the play from the second on. The first pass is the frame the game sets itself up in,
       # and counts the frames it took on the clock, which can be more than one.
       def buttons_after(pixels, samples)
-        if !@uncapped && @device.fast_forward?(@passes + 1)
-          play_fast_forward(pixels)
+        speed = @uncapped ? 1 : @device.fast_forward_speed(@passes + 1)
+        if speed > 1
+          play_fast_forward(pixels, speed)
         else
           end_fast_forward if @fast_frame_began
           play_at_console_speed(pixels, samples)
@@ -116,19 +114,19 @@ module VBlank
         end
       end
 
-      # FAST FORWARD plays up to FAST_FORWARD_TIMES of the game's frames for each picture shown,
-      # in the time of one: a machine that can goes that many times the console's speed and no
-      # faster. A picture is shown, and the next frame's time waited for, once that many passes
+      # FAST FORWARD plays up to +speed+ of the game's frames for each picture shown, in the time
+      # of one: a machine that can goes that many times the console's speed and no faster. A
+      # picture is shown, and the next frame's time waited for, once that many passes
       # have been played or the frame's time is up, so a machine that cannot go that fast still
       # shows a picture a frame. The frames counted are the frames of time that went by, as on
       # the beat, and not the game's, which are its passes. The game's sound is not handed to the
       # speaker: it would be several times what the speaker can play, and heard later and later.
       # What the speaker holds as fast forward begins is a few frames, and plays out.
-      def play_fast_forward(pixels)
+      def play_fast_forward(pixels, speed)
         @fast_frame_began ||= @frame_began
         @passes += 1
         @fast_forward_passes += 1
-        if @fast_forward_passes == FAST_FORWARD_TIMES || @device.now - @fast_frame_began >= @frame_seconds
+        if @fast_forward_passes >= speed || @device.now - @fast_frame_began >= @frame_seconds
           @device.show(pixels, @game.width, @game.height)
           frames = [((@device.now - @fast_frame_began) / @frame_seconds).ceil, 1].max
           @frames += frames

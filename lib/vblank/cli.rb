@@ -613,10 +613,18 @@ module VBlank
         Z, X                     A, B
         Enter, Backspace         Start, Select
         A key, S key             L, R
+        F1                       open the menu. The game pauses while the menu
+                                 is open. In the menu, you can change the speed
+                                 of fast forward, the size of the window,
+                                 fullscreen, the volume, mute and the frame
+                                 rate, and you can stop the play. Use the arrows
+                                 and Enter. A game that says menu: false has no
+                                 menu.
         P                        pause the game. Press P again to continue.
         Tab                      while you hold Tab, the game plays fast, at up
-                                 to four times the speed of the console. The
-                                 game makes no sound until you release Tab.
+                                 to four times the speed of the console. You can
+                                 change this speed in the menu. The game makes
+                                 no sound until you release Tab.
         Escape                   stop the play. Closing the window stops it too.
 
       The window needs SDL3 and the gem `fiddle`. To install SDL3 on macOS, run
@@ -792,9 +800,9 @@ module VBlank
     def play_in_window(game, program, session)
       console = program.described_console
       window = VBlank::Live::SDL.new(title: game.title, scale: options[:scale], width: console.screen_width,
-                                     height: console.screen_height)
+                                     height: console.screen_height, menu: game.menu?)
       say "Playing #{game.title} for the #{console.title} in Ruby #{RUBY_VERSION}, YJIT #{yjit_on? ? 'on' : 'off'}. " \
-          "Press P to pause. Hold Tab to play fast. Press Escape to stop."
+          "#{'Press F1 for the menu. ' if game.menu?}Press P to pause. Hold Tab to play fast. Press Escape to stop."
       session.play(window)
     rescue VBlank::Live::SDL::Missing, VBlank::Live::SDL::Failed, VBlank::IR::ProgramError => e
       raise Thor::Error, e.message

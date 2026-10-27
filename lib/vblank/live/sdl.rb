@@ -14,8 +14,13 @@ module VBlank
     # with bars where the window is the wrong shape for it.
     #
     # The keys: the arrows are the pad, Z is A, X is B, Enter is Start, Backspace is Select, A and
-    # S are the shoulder buttons L and R. As in the desktop build, P pauses and carries on, and Tab
-    # held fast forwards. Escape, or closing the window, stops the play.
+    # S are the shoulder buttons L and R. As in the desktop build, P pauses and carries on, Tab held
+    # fast forwards, and F1 opens the menu (Menu), which holds the game while it is open and is
+    # worked with the arrows and Enter. Escape, or closing the window, stops the play.
+    #
+    # THE MENU is drawn over the picture with SDL's own drawing: a dark box, and its lines in the
+    # little font SDL carries inside itself, eight of the console's pixels a letter, so it needs no
+    # font file and grows with the window as the picture does.
     #
     # THE SOUND goes to the computer's speaker through an SDL audio stream, a queue the speaker
     # plays from at its own steady rate while the game puts a frame's samples in at the end of
@@ -53,6 +58,9 @@ module VBlank
       KEY_DOWN_AT = 36 # ...whether it went down (1 byte)
       KEY_REPEAT_AT = 37 # ...and whether it is a key held down, heard again (1 byte)
       EVENT_BYTES = 128 # an SDL_Event is a union of at most this many bytes
+      BLENDMODE_BLEND = 0x1 # what is drawn lets what is under it show through, as much as it is clear
+      WINDOW_FLAGS_FULLSCREEN = 0x1
+      LETTER = 8 # SDL's own font: each letter 8 pixels square
       INIT_AUDIO = 0x10
       AUDIO_S16 = 0x8010 # 16-bit samples, the low byte first
       SAMPLE_BYTES = 2 # ...so two bytes each
@@ -72,6 +80,11 @@ module VBlank
       ESCAPE = 41
       PAUSE = 19 # P, the desktop build's pause key too
       FAST_FORWARD = 43 # Tab, held, as in the desktop build and many an emulator
+      MENU = 58 # F1, the desktop build's menu key too
+
+      # The keys the menu is worked with while it is open, by scancode: the pad's arrows, and Enter,
+      # which is Start's key.
+      MENU_KEYS = Ractor.make_shareable(KEYS.slice(:up, :down, :left, :right).invert.merge(KEYS[:start] => :enter))
 
       # Whether SDL3 can be found and loaded here, without opening anything.
       def self.available?(library: nil)
@@ -82,13 +95,21 @@ module VBlank
       end
 
       # A window +scale+ times a +width+ by +height+ picture, titled +title+. +library+ names the
-      # SDL3 file to load, in place of looking for it. A window that cannot be opened all the way
-      # is closed again before the error comes out.
-      def initialize(title:, scale: 3, width: 240, height: 160, library: nil)
+      # SDL3 file to load, in place of looking for it. +menu+ false is a window F1 opens no menu
+      # in, for a game that says it has none. A window that cannot be opened all the way is closed
+      # again before the error comes out.
+      def initialize(title:, scale: 3, width: 240, height: 160, library: nil, menu: true)
         @sdl = self.class.binding_for(library)
         @width = width
         @height = height
         @closed = false
+        @menu = Menu.new(scale: scale.clamp(Menu::SCALES))
+        @settings = @menu.settings # as the window last made them so
+        @has_menu = menu
+        @kept_from_game = [] # keys pressed for the menu, kept from the game until they come up
+        @shown_this_second = 0
+        @second_began = now
+        @frame_rate = 0 # pictures shown in the last whole second
         begin
           open_window(title, scale)
         rescue Failed
@@ -106,15 +127,17 @@ module VBlank
         end
 
         read_events
+        count_frame_rate
         @sdl.SDL_UpdateTexture(@texture, nil, pixels.pack("v*"), @width * 2)
         redraw_window
       end
 
       # The console's buttons whose keys are down now, as SDL last heard them (#show reads what
-      # SDL has heard). The keyboard is read when it is asked, whichever pass it is asked for.
+      # SDL has heard). The keyboard is read when it is asked, whichever pass it is asked for. A
+      # key pressed for the menu is not the game's until it comes up: Enter on Resume is not Start.
       def held_buttons(_pass)
         keys = @sdl.SDL_GetKeyboardState(nil)
-        KEYS.filter_map { |button, code| button if keys[code] != 0 }
+        KEYS.filter_map { |button, code| button if keys[code] != 0 && !@kept_from_game.include?(code) }
       end
 
       # A frame's sound, +samples+ 16-bit numbers at +rate+ a second, into the speaker's queue. The
@@ -141,26 +164,37 @@ module VBlank
       # heard, and Session shows each picture before it asks).
       def stop? = @closed || @sdl.SDL_GetKeyboardState(nil)[ESCAPE] != 0
 
-      # Tab is held, as SDL last heard it (#show reads what SDL has heard), whichever pass it is
-      # asked for.
-      def fast_forward?(_pass) = @fast_forward == true
+      # The speed the menu says while Tab is held, as SDL last heard it (#show reads what SDL has
+      # heard), and 1 while it is not, whichever pass it is asked for.
+      def fast_forward_speed(_pass) = @fast_forward ? @settings.fast_forward_speed : 1
 
-      # P was pressed (#show reads what SDL has heard): the window holds, the picture up and the
-      # speaker emptied and silent, until P is pressed again or the play is stopped. It waits on
-      # SDL for the next thing to happen to the window, so a pause takes no time from the computer,
-      # and draws the picture again after each, so a window resized while paused is not left blank.
-      # Says whether it held.
+      # P was pressed, or F1 opened the menu (#show reads what SDL has heard): the window holds, the
+      # picture up and the speaker emptied and silent, until P is pressed again, the menu is closed,
+      # or the play is stopped. It waits on SDL for the next thing to happen to the window, so a
+      # pause takes no time from the computer, and draws the picture again after each, so a window
+      # resized while paused is not left blank. Says whether it held.
       def hold_while_paused
-        return false unless @paused
+        return false unless held?
 
         empty_speaker
-        while @paused && !stop?
+        while held? && !stop?
           read_event if @sdl.SDL_WaitEvent(@event) != 0
           redraw_window
         end
         resume_speaker
         true
       end
+
+      # The window's size on the screen, in the computer's pixels, as SDL says it is.
+      def window_size
+        size = Fiddle::Pointer.malloc(8, Fiddle::RUBY_FREE)
+        @sdl.SDL_GetWindowSize(@window, size, size + 4)
+        size[0, 8].unpack("l2")
+      end
+
+      # How loud the speaker plays, from 0 (silent) to 1 (as loud as the game made it), as SDL
+      # says; nil before the first frame's sound opens it.
+      def speaker_volume = (@sdl.SDL_GetAudioStreamGain(@speaker) if live?(@speaker))
 
       def now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
@@ -231,6 +265,9 @@ module VBlank
           extern "const char* SDL_GetError()"
           extern "void* SDL_CreateWindow(const char*, int, int, unsigned long long)"
           extern "void SDL_DestroyWindow(void*)"
+          extern "char SDL_SetWindowSize(void*, int, int)"
+          extern "char SDL_GetWindowSize(void*, void*, void*)"
+          extern "char SDL_SetWindowFullscreen(void*, char)"
           extern "void* SDL_CreateRenderer(void*, const char*)"
           extern "void SDL_DestroyRenderer(void*)"
           extern "char SDL_SetRenderLogicalPresentation(void*, int, int, int)"
@@ -241,6 +278,10 @@ module VBlank
           extern "char SDL_RenderClear(void*)"
           extern "char SDL_RenderTexture(void*, void*, void*, void*)"
           extern "char SDL_RenderPresent(void*)"
+          extern "char SDL_SetRenderDrawBlendMode(void*, unsigned int)"
+          extern "char SDL_SetRenderDrawColor(void*, unsigned char, unsigned char, unsigned char, unsigned char)"
+          extern "char SDL_RenderFillRect(void*, void*)"
+          extern "char SDL_RenderDebugText(void*, float, float, const char*)"
           extern "char SDL_PollEvent(void*)"
           extern "char SDL_WaitEvent(void*)"
           extern "char SDL_PushEvent(void*)"
@@ -250,6 +291,8 @@ module VBlank
           extern "char SDL_ResumeAudioStreamDevice(void*)"
           extern "char SDL_PauseAudioStreamDevice(void*)"
           extern "char SDL_ClearAudioStream(void*)"
+          extern "char SDL_SetAudioStreamGain(void*, float)"
+          extern "float SDL_GetAudioStreamGain(void*)"
           extern "char SDL_PutAudioStreamData(void*, void*, int)"
           extern "int SDL_GetAudioStreamQueued(void*)"
           extern "void SDL_DestroyAudioStream(void*)"
@@ -293,13 +336,68 @@ module VBlank
         @sdl.SDL_ResumeAudioStreamDevice(speaker)
         @speaker_rate = rate
         @speaker = speaker
+        set_speaker_volume
+        speaker
       end
 
-      # The picture last put in the window, drawn into it again.
+      def held? = @paused || @menu.open?
+
+      # The picture last put in the window, drawn into it again, with the frame rate and the menu
+      # over it when they are up.
       def redraw_window
         @sdl.SDL_RenderClear(@renderer)
         @sdl.SDL_RenderTexture(@renderer, @texture, nil, nil)
+        draw_lines([@frame_rate.to_s], 0, 0) if @settings.frame_rate
+        draw_menu if @menu.open?
         @sdl.SDL_RenderPresent(@renderer)
+      end
+
+      # The menu's lines in a dark box in the middle of the picture.
+      def draw_menu
+        lines = @menu.lines
+        width = ((Menu::WIDTH + 2) * LETTER) + 4
+        draw_lines(lines, (@width - width) / 2, (@height - (lines.size * (LETTER + 2))) / 2)
+      end
+
+      # +lines+ of words in white on a box of see-through dark, the box's corner at +x+, +y+ in the
+      # console's pixels and two pixels wider than the words each side. A line is a letter and a
+      # little more high, so lines do not touch.
+      def draw_lines(lines, x, y)
+        step = LETTER + 2
+        width = lines.map(&:length).max * LETTER
+        @sdl.SDL_SetRenderDrawBlendMode(@renderer, BLENDMODE_BLEND)
+        @sdl.SDL_SetRenderDrawColor(@renderer, 0, 0, 0, 200)
+        @sdl.SDL_RenderFillRect(@renderer, [x, y, width + 4, (lines.size * step) + 2].pack("e4"))
+        @sdl.SDL_SetRenderDrawColor(@renderer, 255, 255, 255, 255)
+        lines.each_with_index { |line, row| @sdl.SDL_RenderDebugText(@renderer, x + 2, y + 2 + (row * step), line) }
+      end
+
+      # Pictures shown in the last whole second, for the frame rate the menu can put up.
+      def count_frame_rate
+        @shown_this_second += 1
+        return if now - @second_began < 1
+
+        @frame_rate = @shown_this_second
+        @shown_this_second = 0
+        @second_began = now
+      end
+
+      # The window made as the menu now says, where that is not as it was.
+      def apply_menu_settings
+        was = @settings
+        @settings = @menu.settings
+        @closed = true if @menu.quit?
+        if @settings.scale != was.scale
+          @sdl.SDL_SetWindowSize(@window, @width * @settings.scale, @height * @settings.scale)
+        end
+        @sdl.SDL_SetWindowFullscreen(@window, @settings.fullscreen ? 1 : 0) if @settings.fullscreen != was.fullscreen
+        set_speaker_volume
+      end
+
+      def set_speaker_volume
+        return unless live?(@speaker)
+
+        @sdl.SDL_SetAudioStreamGain(@speaker, @settings.muted ? 0.0 : @settings.volume / 100.0)
       end
 
       # The speaker stopped, with what it had waiting thrown away: it would otherwise play late.
@@ -320,17 +418,37 @@ module VBlank
       end
 
       # One thing SDL heard, in @event: a closed window, or the last window gone, stops the play;
-      # P going down pauses or carries on; and Tab fast forwards from going down to coming up. A
-      # key held down is heard going down again and again, and only the first time counts.
+      # F1 opens or closes the menu, and while it is open the arrows and Enter work it; P going
+      # down pauses or carries on; and Tab fast forwards from going down to coming up. A key held
+      # down is heard going down again and again: only the first time counts, but for the arrows
+      # in the menu, which then move on as a held key does in any list.
       def read_event
         type = @event[0, 4].unpack1("L")
         @closed = true if type == EVENT_QUIT || type == EVENT_WINDOW_CLOSE_REQUESTED
         return unless type == EVENT_KEY_DOWN || type == EVENT_KEY_UP
 
         scancode = @event[KEY_SCANCODE_AT, 4].unpack1("L")
-        down = type == EVENT_KEY_DOWN
-        @fast_forward = down if scancode == FAST_FORWARD
-        @paused = !@paused if scancode == PAUSE && down && @event[KEY_REPEAT_AT, 1].unpack1("C").zero?
+        if type == EVENT_KEY_UP
+          @kept_from_game.delete(scancode)
+          @fast_forward = false if scancode == FAST_FORWARD
+        else
+          read_key_down(scancode, @event[KEY_REPEAT_AT, 1].unpack1("C").nonzero?)
+        end
+      end
+
+      def read_key_down(scancode, repeat)
+        if scancode == MENU && @has_menu
+          @menu.toggle unless repeat
+        elsif @menu.open? && MENU_KEYS.key?(scancode)
+          @kept_from_game << scancode
+          @menu.press(MENU_KEYS[scancode]) unless repeat && scancode == MENU_KEYS.key(:enter)
+          @paused = false unless @menu.open? # Resume carries on, even from a pause before the menu
+          apply_menu_settings
+        elsif scancode == FAST_FORWARD
+          @fast_forward = true
+        elsif scancode == PAUSE && !@menu.open?
+          @paused = !@paused unless repeat
+        end
       end
 
       def raise_failed!(what)
