@@ -155,7 +155,7 @@ end
 
 namespace :speed do
   desc "How fast each example plays as Ruby, with no JIT, YJIT and ZJIT (rake speed:ruby ONLY=pong PICTURES=600; " \
-       "GAMES=path.rb SET=name=value)"
+       "GAMES=path.rb GAME_SETTINGS=name=value)"
   task :ruby do
     ruby "tools/ruby_speed.rb"
   end

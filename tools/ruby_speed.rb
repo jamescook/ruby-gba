@@ -7,13 +7,13 @@
 #   ruby tools/ruby_speed.rb                       every example
 #   ruby tools/ruby_speed.rb ../ruby-wolf3d/wolf3d.rb
 #   rake speed:ruby ONLY=pong,breakout PICTURES=600 JITS=none,yjit
-#   rake speed:ruby GAMES=../ruby-wolf3d/wolf3d.rb SET=screen=floor,start=1
+#   rake speed:ruby GAMES=../ruby-wolf3d/wolf3d.rb GAME_SETTINGS=screen=floor,start=1
 #
 # Each game is played by `vblank run --uncapped`, which plays it as fast as this computer can and
 # says how many pictures a second that was, in a program of its own for each compiler: a Ruby
 # cannot turn a compiler off once it is on, and the two compilers cannot both be on. The window
 # and the speaker are SDL's dummy ones, which show and play nothing, so nothing opens. The game
-# is played as the first console it names, with no buttons held; SET hands it settings, as
+# is played as the first console it names, with no buttons held; GAME_SETTINGS hands it settings, as
 # `vblank run --set` does, so a game that starts where a setting says can be measured there.
 #
 # The compilers turn the Ruby that runs most often into machine code as the game plays. YJIT is
@@ -83,5 +83,5 @@ if $PROGRAM_NAME == __FILE__
   games = games.select { |game| only.include?(File.basename(game, ".rb")) } if only
   RubySpeed.measure(games, jits: (ENV["JITS"] || "none,yjit,zjit").split(","),
                            pictures: Integer(ENV.fetch("PICTURES", "300")),
-                           settings: ENV.fetch("SET", "").split(","))
+                           settings: ENV.fetch("GAME_SETTINGS", "").split(","))
 end
