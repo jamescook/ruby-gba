@@ -288,6 +288,7 @@ module VBlank
         vblank build game.rb --console gbc      the Game Boy Color cartridge alone
         vblank build game.rb --format=native    a program for this computer
         vblank build game.rb --format=web       a web page that plays the game
+        vblank build game.rb --format=ruby      one Ruby file that plays the game
         vblank build game.rb -o roms/pong.gba   a cartridge, written to roms/
         vblank build game.rb --set floors=3     with `setting :floors` as 3
 
@@ -296,10 +297,11 @@ module VBlank
       Options:
         -o, --output PATH        Where to write what is built. PATH is one file,
                                  so a game for two consoles needs --console too.
-        --format FORMAT          game, native or web. Default: game.
+        --format FORMAT          game, ir, native, ruby or web. Default: game.
         --console NAME           gba or gbc: build that console's cartridge
                                  alone. Default: one for each console the game
-                                 names.
+                                 names. With --format ruby: the console to
+                                 play the game as. Default: the first one.
         #{SET}
 
       Measuring (see vblank profile --help):
@@ -331,6 +333,11 @@ module VBlank
                                  separate: the game's big tables go in a .data
                                  file beside the page, which must be served.
 
+      --format ruby, one Ruby file: the game as Ruby, with the window that vblank
+        run plays it in. To play it, run `ruby` with the file's name. It needs
+        Ruby, the gem `fiddle` and SDL3. It does not need VBlank, the game's
+        files or its pictures, so you can copy it to another computer.
+
       --format ir prints the game's IR as Ruby, for work on VBlank itself.
 
       A program, a web page and the IR are made from the game as the Advance
@@ -352,8 +359,9 @@ module VBlank
     def build(game_file)
       refuse_web_options_out_of_place!
       # (--format=gbc is let through here so that it gets its own message, below.)
-      if options[:console] && !%w[game gbc].include?(options[:format])
-        raise Thor::Error, "--console works only with cartridges (--format=game). Remove --console, or remove --format."
+      if options[:console] && !%w[game gbc ruby].include?(options[:format])
+        raise Thor::Error, "--console works only with cartridges (--format=game) and --format=ruby. Remove " \
+                           "--console, or remove --format."
       end
 
       case options[:format]
@@ -361,10 +369,12 @@ module VBlank
       when "ir" then build_ir(game_file)
       when "native" then build_native(game_file)
       when "web" then build_web(game_file)
+      when "ruby" then build_ruby(game_file)
       when "gbc"
         raise Thor::Error, "There is no --format=gbc now. To build a Game Boy Color cartridge, use --console gbc."
       else
-        raise Thor::Error, "#{options[:format].inspect} is not a build format. The formats are: game, ir, native, web."
+        raise Thor::Error, "#{options[:format].inspect} is not a build format. The formats are: game, ir, native, " \
+                           "ruby, web."
       end
     rescue ArgumentError, VBlank::BuildError => e
       # A setting the game does not ask for, or one it cannot read, or a build that stopped (the
@@ -773,8 +783,7 @@ module VBlank
     # names, saying so when there was a choice. The Ruby runtime draws whichever console's screen
     # the program is for.
     def program_to_run(game)
-      console = options[:console]&.to_sym || game.consoles.first
-      say_console_chosen(game, console) unless options[:console]
+      console = console_to_play(game)
       # A big game takes a while to build, and somebody is waiting for the window.
       game.build_rom(profile: false, progress: VBlank::Messages::Progress.to($stderr),
                      settings: given_settings, console: console).source_program
@@ -789,6 +798,14 @@ module VBlank
     # `play` and `compare` ask instead (#console_to_run), since they make a cartridge somebody
     # will compare. A window is somebody wanting to see the game, so it plays the console the game
     # names first, and says so.
+    # The console a game is played as in Ruby: the one --console names, or the first the game names,
+    # which is said when there were others to choose.
+    def console_to_play(game)
+      console = options[:console]&.to_sym || game.consoles.first
+      say_console_chosen(game, console) unless options[:console]
+      console
+    end
+
     def say_console_chosen(game, console)
       others = game.consoles - [console]
       return if others.empty?
@@ -1004,6 +1021,21 @@ module VBlank
       say "Built #{path}"
     rescue VBlank::BuildError, VBlank::IR::Backends::Native::Zig::Error => e
       raise Thor::Error, e.message
+    end
+
+    # The "ruby" format: the game as one Ruby file that plays in a window with Ruby, fiddle and SDL3
+    # alone (IR::Backends::Ruby#script), written beside the game file and named like its cartridge
+    # with "-ruby.rb" in place of the cartridge's ending. It is played as the console --console
+    # names, or the first the game names, as vblank run plays it.
+    def build_ruby(game_file)
+      game = load_game(game_file)
+      console = console_to_play(game)
+      path = options[:output] || file_beside(game, game_file, console, "-ruby.rb")
+      VBlank::IR::Backends::Ruby.new.build_script(game, path, console: console, settings: given_settings)
+      say "Built #{path}. To play it, run: ruby #{File.basename(path)}"
+    rescue VBlank::IR::Backends::Ruby::RuntimeGap => e
+      raise Thor::Error, "VBlank cannot write #{game.title} as Ruby yet. The game needs a part of VBlank " \
+                         "that does not work in Ruby yet: #{e.part}."
     end
 
     # An option for the web build given where it does nothing — on another format, or beside an

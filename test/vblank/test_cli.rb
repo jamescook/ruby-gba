@@ -500,6 +500,29 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # --format=ruby writes the game as one Ruby file that plays in a window with Ruby alone: copied
+  # to a folder with nothing of vblank's, run by a Ruby that cannot load the gem, it plays.
+  def test_build_format_ruby_writes_a_game_that_plays_with_ruby_alone
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = cli("build", "demo.rb", "--format=ruby", "--console", "gba", dir: dir)
+      assert status.success?, out
+      assert_match(/Built .*demo-ruby\.rb/, out)
+
+      Dir.mktmpdir do |elsewhere|
+        FileUtils.cp(File.join(dir, "demo-ruby.rb"), elsewhere)
+        alone = { "SDL_VIDEODRIVER" => "dummy", "SDL_AUDIODRIVER" => "dummy", "RUBYOPT" => nil, "RUBYLIB" => nil,
+                  "BUNDLE_GEMFILE" => nil, "BUNDLER_SETUP" => nil, "BUNDLER_VERSION" => nil, "RUBY_YJIT_ENABLE" => nil }
+        played, status = Open3.capture2e(alone, RUBY, "demo-ruby.rb", "--pictures", "3", chdir: elsewhere)
+        skip played.lines.first.chomp if played.include?("cannot find SDL3")
+
+        assert status.success?, played
+        assert_match(/Playing DEMO/, played)
+        assert_match(/Showed 3 pictures/, played)
+      end
+    end
+  end
+
   # --record-sound keeps what the game handed the speaker, to listen to afterwards.
   def test_run_records_the_sound_to_a_wav
     Dir.mktmpdir do |dir|

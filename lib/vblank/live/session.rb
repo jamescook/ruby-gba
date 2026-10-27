@@ -51,14 +51,17 @@ module VBlank
       # waiting is how far what a person sees and hears trails the buttons they press.
       SPEAKER_AHEAD_FRAMES = 4
 
-      # The game is built as Ruby here, before any device is opened, so a game the Ruby runtime
-      # cannot play yet is refused (IR::Backends::Ruby::RuntimeGap) before a window comes up.
-      # +stop_after_passes+ is how many passes to play at most, whatever the device says.
-      def initialize(program, uncapped: false, stop_after_passes: nil)
-        @game = IR::Backends::Ruby.new.live_game(program)
+      # The game is built as Ruby here from +program+, before any device is opened, so a game the
+      # Ruby runtime cannot play yet is refused (IR::Backends::Ruby::RuntimeGap) before a window
+      # comes up.
+      # +stop_after_passes+ is how many passes to play at most, whatever the device says. +game+, in
+      # place of a program, is a game built as Ruby already (IR::Backends::Ruby::LiveGame), which is
+      # how a game written out as one Ruby file (Ruby#script) plays with no builder to hand.
+      def initialize(program = nil, game: nil, uncapped: false, stop_after_passes: nil)
+        @game = game || IR::Backends::Ruby.new.live_game(program)
         @uncapped = uncapped
         @stop_after_passes = stop_after_passes
-        @frame_seconds = program.described_console.frame_seconds
+        @frame_seconds = @game.frame_seconds
       end
 
       # Plays once, on +device+, until it says stop or the game ends, and gives back how fast it

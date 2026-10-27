@@ -83,14 +83,56 @@ module VBlank
 
         # THE GAME AS AN OBJECT IN THIS PROCESS, to be played live (LiveGame). Anything its runtime
         # lacks is refused, as a test would skip.
-        def live_game(program)
+        def live_game(program) = LiveGame.new(live_source(program))
+
+        # THE GAME WRITTEN OUT AS ONE RUBY FILE that plays in a window with Ruby alone — Ruby,
+        # fiddle and SDL3, and no vblank gem, no game source, no art: the game as Ruby, and the
+        # library's own window, menu and session (lib/vblank/live/) copied in after the few
+        # library files they need, then runtime/rg_script_main.rb, which plays it. One file, since
+        # that is what a person copies and hands on.
+        #
+        # The library files are carried as they are, so a fix to the window or the session reaches
+        # the next script built; SCRIPT_PARTS lists them, and a script that names something none of
+        # them defines fails when it gets there (test_ruby_script.rb plays one).
+        def build_script(game, path, console:, settings: {}, err: $stderr)
+          program = game.build_rom(profile: false, settings: settings, console: console, err: err).source_program
+          File.write(path, script(program, title: game.title, menu: game.menu?))
+          path
+        end
+
+        # ...the file's text, for +program+ in a window titled +title+, with a menu or not.
+        def script(program, title:, menu: true)
+          source = live_source(program)
+          raise BuildError, "the game's Ruby has a line #{SCRIPT_END}, which ends it early in a script" if source.lines.include?("#{SCRIPT_END}\n")
+
+          [SCRIPT_TOP, *SCRIPT_PARTS.map { |part| File.read(VBlank.root.join("lib", part), encoding: Encoding::UTF_8) },
+           "module VBlankScript\n  TITLE = #{title.to_s.inspect}\n  MENU = #{menu}\n",
+           "  SOURCE = <<'#{SCRIPT_END}'\n#{source}\n#{SCRIPT_END}\nend\n",
+           File.read(File.join(RUNTIME_DIR, SCRIPT_MAIN), encoding: Encoding::UTF_8).delete_prefix(MAGIC_COMMENT)].join
+        end
+
+        MAGIC_COMMENT = "# frozen_string_literal: true\n" # the first line of every file of the library's
+        SCRIPT_TOP = "#!/usr/bin/env ruby\n#{MAGIC_COMMENT}#{WRITTEN_BY}" \
+                     "# Play it with `ruby` and this file's name. It needs Ruby 4.0 or newer, fiddle and SDL3.\n"
+        # The library files a script carries, in the order they load: what the play code names
+        # first, then the play code itself.
+        SCRIPT_PARTS = %w[vblank/ir/buttons.rb vblank/ir/program_error.rb vblank/ir/backends/ruby/live_game.rb
+                          vblank/live/rate.rb vblank/live/menu.rb vblank/live/session.rb vblank/live/sdl.rb].freeze
+        SCRIPT_MAIN = "rg_script_main.rb" # in RUNTIME_DIR: what plays the game, last in a script
+        # The line the game's Ruby ends at in a script, which no line of the game's can be.
+        SCRIPT_END = "RG_END_OF_THE_GAME"
+        private_constant :MAGIC_COMMENT, :SCRIPT_TOP, :SCRIPT_END
+
+        private
+
+        # The game as Ruby with its runtime and the live driver: the body of a LiveGame's class.
+        # Anything the runtime lacks is refused.
+        def live_source(program)
           lowering = Lowering.new(program)
           text, gaps = lowering.text_and_gaps(LIVE_FUNCTIONS)
           refuse_runtime_gaps!(gaps)
-          LiveGame.new([lowering.console_text, *runtime_text(RUNTIME + [LIVE_DRIVER]), text].join)
+          [lowering.console_text, *runtime_text(RUNTIME + [LIVE_DRIVER]), text].join
         end
-
-        private
 
         def refuse_runtime_gaps!(gaps)
           return if gaps.empty?

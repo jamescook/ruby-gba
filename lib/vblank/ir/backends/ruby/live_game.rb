@@ -27,6 +27,9 @@ module VBlank
           # The samples a second its sound is made at.
           def sound_rate = @game.class::RG_SOUND_RATE
 
+          # How long one of its console's frames lasts, in seconds.
+          def frame_seconds = Rational(@game.class::RG_CONSOLE_CYCLES_PER_FRAME, @game.class::RG_CONSOLE_CYCLES_PER_SECOND)
+
           # Plays until +player+ says stop, or the game halts or ends, and gives back the picture a
           # game that stopped itself stopped on (nil when the player stopped it). A game that does
           # something the interpreter refuses stops with IR::ProgramError, in the same words.
