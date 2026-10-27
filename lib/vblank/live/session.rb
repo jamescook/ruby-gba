@@ -13,26 +13,38 @@ module VBlank
     #   show(pixels, width, height)  the picture, as the screen shows it (15-bit colours, a row at a time),
     #                                which the game draws over next frame: a device that keeps it copies it
     #   play_sound(samples, rate)    the sound of the frame just shown, one speaker's worth of 16-bit
-    #                                samples, +rate+ a second; how far ahead of the speaker it lets
-    #                                the sound get is the device's own business
+    #                                samples, +rate+ a second
+    #   sound_waiting                seconds of sound the speaker has still to play, or nil for a
+    #                                device with no speaker (yet)
     #   held_buttons(pass)           the buttons held as picture number +pass+ is shown (1, 2, 3, …),
     #                                for the pass that starts then
     #   stop?                        asked once a pass, after the picture
     #   now                          the time, in seconds, from any start that does not move back
     #   wait_until(seconds)          returns at that time, or at once if it has gone; the next pass starts then
     #
-    # THE FRAMES KEEP THE CONSOLE'S BEAT. On the console the screen ends a frame every sixtieth of
-    # a second or so whether the game is ready or not: a pass that finishes early waits for the end
-    # of its frame, and one that finishes late has missed the end of one or more and waits for the
-    # next. The session keeps the time the current frame began on that even beat, and as each pass
-    # ends counts how many frames have begun since — at least the one the pass ran in — moves the
-    # beat on by that many and waits for it. A machine faster than the console waits, and plays
-    # exactly as fast; a slower one shows fewer pictures, and the game, which counts one frame a
-    # pass, runs that much slower.
+    # A DEVICE WITH A SPEAKER IS PACED BY IT (#wait_for_speaker): the speaker plays a second of
+    # sound in a second, so the play waits on it, a frame a pass, keeping a few frames of sound
+    # waiting. That is what keeps the sound whole: on the clock's beat below, a pass that missed
+    # its frame skips one, and the speaker is a frame's sound short.
+    #
+    # WITH NO SPEAKER, THE FRAMES KEEP THE CONSOLE'S BEAT. On the console the screen ends a frame
+    # every sixtieth of a second or so whether the game is ready or not: a pass that finishes early
+    # waits for the end of its frame, and one that finishes late has missed the end of one or more
+    # and waits for the next. The session keeps the time the current frame began on that even
+    # beat, and as each pass ends counts how many frames have begun since — at least the one the
+    # pass ran in — moves the beat on by that many and waits for it. A machine faster than the
+    # console waits, and plays exactly as fast; a slower one shows fewer pictures, and the game,
+    # which counts one frame a pass, runs that much slower.
     #
     # UNCAPPED, for measuring, there is no beat: each pass starts the moment the last one ends, a
     # frame a pass, so the rate is how fast the machine can play the game.
     class Session
+      # Frames of sound kept waiting for the speaker while it paces the play: enough that a pass
+      # that runs late — a scene setting itself up as it arrives can take four frames over one —
+      # or a wait that wakes late, uses up some of it and never empties it; and few, since what is
+      # waiting is how far what a person sees and hears trails the buttons they press.
+      SPEAKER_AHEAD_FRAMES = 4
+
       # The game is built as Ruby here, before any device is opened, so a game the Ruby runtime
       # cannot play yet is refused (IR::Backends::Ruby::RuntimeGap) before a window comes up.
       # +stop_after_passes+ is how many passes to play at most, whatever the device says.
@@ -49,6 +61,7 @@ module VBlank
       def play(device)
         @device = device
         @passes = @frames = 0
+        @paced_by_speaker = false
         @started = @frame_began = @device.now
         @device.wait_until(@frame_began)
         @game.play(self)
@@ -56,20 +69,42 @@ module VBlank
       end
 
       # Asked by the game as each of its frames ends, with the picture as the screen shows it and
-      # the frame's sound: waits for the frame to end, shows the device the picture, hands it the
-      # sound, and gives back the buttons held for the pass that starts, a bit each — or nil when
-      # the device says stop.
+      # the frame's sound: shows the device the picture, hands it the sound, and gives back the
+      # buttons held for the pass that starts, a bit each — or nil when the device says stop. The
+      # pass waits once: on the speaker, after its sound, where the device has one; on the clock,
+      # for its frame to end, before its picture, where it has none.
+      #
+      # A speaker opens with the first frame's sound, so the first pass is played on the clock, and
+      # paces the play from the second on. The first pass is the frame the game sets itself up in,
+      # and counts the frames it took on the clock, which can be more than one.
       def buttons_after(pixels, samples)
-        wait_for_frame_end
+        wait_for_frame_end unless @paced_by_speaker
         @passes += 1
         @device.show(pixels, @game.width, @game.height)
         @device.play_sound(samples, @game.sound_rate)
+        if @paced_by_speaker
+          wait_for_speaker
+        else
+          @paced_by_speaker = !@uncapped && !@device.sound_waiting.nil?
+        end
         return nil if @device.stop? || @passes == @stop_after_passes
 
         IR::Buttons.mask(@device.held_buttons(@passes))
       end
 
       private
+
+      # WITH A SPEAKER, THE SPEAKER PACES THE PLAY, as an emulator's sound sync does. Its own clock
+      # plays a second of samples in a second, so once a frame's sound is handed to it the next pass
+      # waits only while more than SPEAKER_AHEAD_FRAMES of sound are waiting. A pass is a frame:
+      # no frame is skipped, and a late pass, or a wait that wakes late, only uses up some of what is
+      # waiting.
+      def wait_for_speaker
+        @frames += 1
+        over = (@device.sound_waiting || 0) - (SPEAKER_AHEAD_FRAMES * @frame_seconds)
+        @device.wait_until(@device.now + (over.positive? ? over : 0))
+        @frame_began = @device.now
+      end
 
       # Moves the beat past the frames the pass just ended took, and waits for it. Uncapped, the
       # pass took one frame and the next starts now.

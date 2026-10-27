@@ -4,9 +4,10 @@ require "test_helper"
 require "vblank/live"
 
 # A game built as Ruby and played live a pass at a time through a device: the session shows the
-# device each pass's picture, asks it which buttons are held and whether to stop, and keeps the
-# frames on the console's beat by its clock. These play through the headless device, whose clock moves only
-# when the test says a pass took so long, so nothing here waits for real time to pass.
+# device each pass's picture and hands it the sound, asks it which buttons are held and whether to
+# stop, and paces the play by the device's speaker, or with none by the console's beat on its
+# clock. These play through the headless device, whose clock moves only when the test says a pass
+# took so long, so nothing here waits for real time to pass.
 class TestSession < Minitest::Test
   Session = VBlank::Live::Session
   Headless = VBlank::Live::Headless
@@ -77,6 +78,45 @@ class TestSession < Minitest::Test
     assert_equal 8 * frame, rate.seconds
     assert_in_delta 1 / frame, rate.frames_per_second, 0.001
     assert_in_delta 1 / (2 * frame), rate.passes_per_second, 0.001
+  end
+
+  # WITH A SPEAKER, THE SPEAKER PACES THE PLAY. A pass that runs two frames long uses up two frames
+  # of the sound waiting for the speaker, and since a few frames' worth is kept waiting, the speaker
+  # never runs dry: every frame's sound is heard with no gap, and the game is moved on a frame a
+  # pass, no frame skipped. On the clock's beat the same late pass would skip a frame and leave the
+  # speaker a frame short.
+  def test_with_a_speaker_a_late_pass_leaves_no_gap_in_the_sound
+    program = counting_game
+    frame = frame_seconds(program)
+    device = Headless.new(frames: 12, speaker: true, pass_seconds: ->(pass) { pass == 8 ? 2 * frame : frame / 4 })
+    rate = Session.new(program).play(device)
+
+    assert_equal 0, device.gaps
+    assert_equal [12, 12], [rate.passes, rate.frames]
+  end
+
+  # A scene that sets itself up as it arrives can take four frames over one pass — picori's title
+  # does — and enough is kept waiting that even that is heard with no gap.
+  def test_with_a_speaker_a_pass_four_frames_long_leaves_no_gap
+    program = counting_game
+    frame = frame_seconds(program)
+    device = Headless.new(frames: 16, speaker: true, pass_seconds: ->(pass) { pass == 12 ? 4 * frame : frame / 4 })
+    Session.new(program).play(device)
+
+    assert_equal 0, device.gaps
+  end
+
+  # A machine faster than the console waits on the speaker, so the play goes at the speaker's pace
+  # and keeps only a few frames of sound waiting, never running further ahead.
+  def test_with_a_speaker_a_quick_machine_keeps_only_a_few_frames_waiting
+    program = counting_game
+    frame = frame_seconds(program)
+    device = Headless.new(frames: 30, speaker: true, pass_seconds: frame / 4)
+    Session.new(program).play(device)
+
+    kept = Session::SPEAKER_AHEAD_FRAMES + 1 # and the frame just handed over
+    assert_operator device.most_waiting, :<=, kept * frame
+    assert_operator device.now, :>=, (30 - kept) * frame
   end
 
   # Played uncapped, for measuring, the session never waits for a frame to end: each pass starts

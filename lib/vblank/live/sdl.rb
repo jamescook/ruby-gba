@@ -18,14 +18,11 @@ module VBlank
     #
     # THE SOUND goes to the computer's speaker through an SDL audio stream, a queue the speaker
     # plays from at its own steady rate while the game puts a frame's samples in at the end of
-    # each pass. The game and the speaker keep time by two different clocks, neither exactly
-    # right, so a little more sound is put in than played, or a little less, all the time; left
-    # alone that piles up until the sound lags the picture, or runs dry, and either is heard. So
-    # the speaker is played a shade faster the more is waiting past a few frames and a shade
-    # slower the less, never by more than a few parts in a hundred, which is too little to hear as
-    # a change of pitch. A game far ahead of the speaker has the frames past that thrown away, and
-    # one too slow to keep it fed gets a little silence ahead rather than a speaker stopped and
-    # started. A computer with no sound plays the game silent.
+    # each pass. The window says how much is waiting (#sound_waiting), and the session paces the
+    # play by it, so the game keeps the speaker's time and the queue holds steady at a few frames:
+    # one clock, the speaker's, and nothing to drift. A game far ahead of the speaker — played
+    # uncapped — has the frames past a few thrown away. A computer with no sound plays the game
+    # silent, on the session's clock.
     class SDL
       # SDL3 or Fiddle could not be found, said in plain words with what to install.
       class Missing < StandardError; end
@@ -52,15 +49,15 @@ module VBlank
       EVENT_BYTES = 128 # an SDL_Event is a union of at most this many bytes
       INIT_AUDIO = 0x10
       AUDIO_S16 = 0x8010 # 16-bit samples, the low byte first
+      SAMPLE_BYTES = 2 # ...so two bytes each
       AUDIO_DEVICE_DEFAULT_PLAYBACK = 0xFFFFFFFF
 
-      # How many frames' worth of sound is kept waiting for the speaker: the silence put in ahead
-      # when it runs dry, the most kept before a frame is thrown away, the amount the speed is
-      # nudged to hold, and the most it is nudged by, in parts of a hundred.
-      SOUND_AHEAD_FRAMES = 2
+      # The most frames' worth of sound kept waiting before a frame is thrown away. Played live, the
+      # speaker paces the play and keeps a few frames waiting (Session::SPEAKER_AHEAD_FRAMES), so
+      # the queue grows past this only uncapped. Where the speaker runs out — a machine too slow for
+      # the game — SDL plays silence until the next frame's sound comes, and nothing here adds any:
+      # the speaker may still be playing what it took last, and silence put in then is a gap.
       SOUND_BEHIND_FRAMES = 6
-      SOUND_WAITING_FRAMES = SOUND_AHEAD_FRAMES + 1
-      SOUND_NUDGE_MOST_PERCENT = 3
 
       # The console's buttons, by the key that holds each (SDL's scancodes, which name a place on
       # the keyboard rather than a letter, so the layout of the keyboard does not move them).
@@ -120,20 +117,19 @@ module VBlank
         speaker = open_speaker_once(rate) or return
         return if samples.empty?
 
-        bytes = samples.length * 2
-        waiting = @sdl.SDL_GetAudioStreamQueued(speaker)
-        keep_sound_in_step(speaker, waiting, bytes)
-        return if waiting > SOUND_BEHIND_FRAMES * bytes
+        bytes = samples.length * SAMPLE_BYTES
+        return if @sdl.SDL_GetAudioStreamQueued(speaker) > SOUND_BEHIND_FRAMES * bytes
 
-        if waiting < bytes
-          quiet = "\0" * bytes
-          SOUND_AHEAD_FRAMES.times { @sdl.SDL_PutAudioStreamData(speaker, quiet, bytes) }
-        end
         @sdl.SDL_PutAudioStreamData(speaker, samples.pack("s<*"), bytes)
       end
 
-      # How many samples are waiting for the speaker: none before any sound, or with no speaker.
-      def sound_waiting = live?(@speaker) ? @sdl.SDL_GetAudioStreamQueued(@speaker) / 2 : 0
+      # Seconds of sound waiting for the speaker, or nil before the first frame's sound opens one,
+      # or where it cannot be opened.
+      def sound_waiting
+        return nil unless live?(@speaker)
+
+        @sdl.SDL_GetAudioStreamQueued(@speaker) / SAMPLE_BYTES / @speaker_rate.to_f
+      end
 
       # The window was closed, or Escape is down, as SDL last heard it (#show reads what SDL has
       # heard, and Session shows each picture before it asks).
@@ -226,7 +222,6 @@ module VBlank
           extern "char SDL_ResumeAudioStreamDevice(void*)"
           extern "char SDL_PutAudioStreamData(void*, void*, int)"
           extern "int SDL_GetAudioStreamQueued(void*)"
-          extern "char SDL_SetAudioStreamFrequencyRatio(void*, float)"
           extern "void SDL_DestroyAudioStream(void*)"
         end
       end
@@ -266,17 +261,8 @@ module VBlank
         return nil if speaker.null?
 
         @sdl.SDL_ResumeAudioStreamDevice(speaker)
+        @speaker_rate = rate
         @speaker = speaker
-      end
-
-      # The speaker played faster the more sound is waiting past SOUND_WAITING_FRAMES' worth, and
-      # slower the less, by at most SOUND_NUDGE_MOST_PERCENT. The nudge is all there is: the
-      # session keeps the console's own beat, so a second of the game's sound is a second, where
-      # the desktop build paces the game by the monitor and plays its sound at that pace too.
-      def keep_sound_in_step(speaker, waiting, frame_bytes)
-        wanted = SOUND_WAITING_FRAMES * frame_bytes.to_f
-        over = ((waiting - wanted) / wanted).clamp(-1.0, 1.0)
-        @sdl.SDL_SetAudioStreamFrequencyRatio(speaker, 1.0 + (SOUND_NUDGE_MOST_PERCENT / 100.0 * over))
       end
 
       # Everything SDL has heard from the window: a closed window, or the last window gone, stops

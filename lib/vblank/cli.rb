@@ -633,9 +633,12 @@ module VBlank
                                                  how fast this computer can play
                                                  600 pictures of the game
 
-      The window shows a picture each time the game finishes a frame. When
-      this computer is too slow to finish a frame in time, the window shows
-      fewer pictures than the game has frames.
+      The window shows a picture each time the game finishes a frame. The
+      speaker sets the speed of the game: the game makes each frame's sound,
+      and waits while the speaker has enough to play. When this computer is
+      too slow for the game, the game runs slower than the console. With no
+      speaker, the window keeps the speed of the console by the clock, and
+      shows fewer pictures than the game has frames.
 
       Options:
         --console NAME           gba or gbc: which console to play the game as.

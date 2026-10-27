@@ -25,26 +25,38 @@ class TestSDL < Minitest::Test
     %w[SDL_VIDEODRIVER SDL_AUDIODRIVER].each { |name| ENV[name] = @drivers_before[name] }
   end
 
-  # A frame's sound goes to the speaker, with a little silence ahead of it the first time, so the
-  # speaker has something to play while the next frame is made.
+  # A frame's sound goes to the speaker as it is, with no silence put in ahead of it: the speaker
+  # may still be playing what it took last, and silence put in then is a gap a person hears. The
+  # session keeps a few frames waiting itself, and where the speaker does run out, SDL plays silence.
   def test_the_sound_a_window_is_handed_waits_for_the_speaker
     window = open_window
     window.play_sound(Array.new(FRAME_SAMPLES, 1000), RATE)
 
-    assert_operator window.sound_waiting, :>, FRAME_SAMPLES
+    assert_operator window.sound_waiting, :>, 0
+    assert_operator window.sound_waiting, :<=, FRAME_SAMPLES.fdiv(RATE)
   ensure
     window&.close
   end
 
-  # A game far ahead of the speaker — played faster than the console, say — has the sound past a
-  # few frames' worth thrown away, rather than heard ever later.
+  # Before any sound there is no speaker, so the session plays the window on the clock until the
+  # first frame's sound opens one.
+  def test_a_window_has_no_speaker_until_it_is_handed_sound
+    window = open_window
+
+    assert_nil window.sound_waiting
+  ensure
+    window&.close
+  end
+
+  # A game far ahead of the speaker — played uncapped, for measuring — has the sound past a few
+  # frames' worth thrown away, rather than heard ever later.
   def test_sound_far_ahead_of_the_speaker_is_not_kept
     window = open_window
     30.times { window.play_sound(Array.new(FRAME_SAMPLES, 1000), RATE) }
 
-    kept = SDL::SOUND_BEHIND_FRAMES + SDL::SOUND_AHEAD_FRAMES
+    kept = SDL::SOUND_BEHIND_FRAMES + 1 # the frame that takes it past the most is still kept
     assert_operator window.sound_waiting, :>, 0, "the speaker was never opened"
-    assert_operator window.sound_waiting, :<=, kept * FRAME_SAMPLES
+    assert_operator window.sound_waiting, :<=, (kept * FRAME_SAMPLES).fdiv(RATE)
   ensure
     window&.close
   end
