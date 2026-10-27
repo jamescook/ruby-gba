@@ -22,19 +22,23 @@ module VBlank
             [text, runtime_gaps(items, printer.called, runtime_functions)]
           end
 
+          # THE CONSOLE THE GAME IS PLAYED AS, in the numbers the runtime needs from it, as the
+          # first lines of the game's class, so the runtime keeps none of any one console's and
+          # reads each as a constant: the size of its screen, the cycles its clock counts a second,
+          # the cycles a frame lasts, and whether its cartridge's clock keeps the date. A frame's
+          # share of a second is what decides how many samples of sound a frame makes, and how far
+          # the cartridge's clock moves on.
+          def console_text
+            console = @program.described_console
+            { "RG_SCREEN_WIDTH" => console.screen_width, "RG_SCREEN_HEIGHT" => console.screen_height,
+              "RG_CONSOLE_CYCLES_PER_SECOND" => console.cycles_a_second,
+              "RG_CONSOLE_CYCLES_PER_FRAME" => console.cycles_a_frame,
+              "RG_CLOCK_KEEPS_DATE" => console.clock_keeps_date }.map { |name, value| "#{name} = #{value}\n" }.join
+          end
+
           private
 
           def build_name = "the Ruby build"
-
-          # THE CONSOLE THE GAME IS PLAYED AS, in the numbers the runtime needs from it, so the
-          # runtime keeps none of any one console's: the cycles its clock counts a second, and the
-          # cycles a frame lasts. A frame's share of a second is what decides how many samples of
-          # sound a frame makes, and how far the cartridge's clock moves on.
-          def top_level
-            console = @program.described_console
-            super + [Native::C::ConstArray.new(name: @names.own("console"), type: "int32_t",
-                                               values: [console.cycles_a_second, console.cycles_a_frame], exported: true)]
-          end
 
           # WHAT THE RUNTIME CANNOT DO YET, found before the game is played rather than part way
           # through it: every function the printed game calls that is neither the runtime's nor

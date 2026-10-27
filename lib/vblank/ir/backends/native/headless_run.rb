@@ -34,17 +34,17 @@ module VBlank
           # gives the colour at (x, y) as the player would see it, nil off the screen, #shown
           # every pixel that way row by row, and #stored_pixel and #to_a as it is STORED — no
           # window moved over the picture and no fade mixed in. #camera_x and #camera_y are where
-          # that window sits.
-          Picture = Data.define(:shown, :stored, :camera_x, :camera_y) do
-            def pixel(x, y) = on_screen?(x, y) ? shown[(y * Screen::WIDTH) + x] : nil
+          # that window sits. #width and #height are the screen's, which is the program's console's.
+          Picture = Data.define(:shown, :stored, :width, :height, :camera_x, :camera_y) do
+            def pixel(x, y) = on_screen?(x, y) ? shown[(y * width) + x] : nil
 
-            def stored_pixel(x, y) = on_screen?(x, y) ? stored[(y * Screen::WIDTH) + x] : nil
+            def stored_pixel(x, y) = on_screen?(x, y) ? stored[(y * width) + x] : nil
 
             def to_a = stored.dup
 
             private
 
-            def on_screen?(x, y) = x.between?(0, Screen::WIDTH - 1) && y.between?(0, Screen::HEIGHT - 1)
+            def on_screen?(x, y) = x.between?(0, width - 1) && y.between?(0, height - 1)
           end
 
           # Where the game had got to at one frame boundary (RunComparison::Moment).
@@ -217,6 +217,7 @@ module VBlank
             raise CannotAnswer, "the native lowering keeps no step budget, so it cannot run with max_steps" if max_steps
 
             @save.use_memory!(SaveLayout.memory_of(program))
+            @console = program.described_console
             @keeps_save = Saving.named_by?(program)
             @vars = {}
             @lists = {}
@@ -359,13 +360,14 @@ module VBlank
 
           # The clock's moment as the program takes it: the date and the hour the Time says, as
           # seconds from the start of 1970 with no time zone (see IR::Clock.reading), and its part
-          # of a second as the console's ticks: the Advance's, which the runtime counts in
-          # (RG_CONSOLE_TICKS_A_SECOND).
+          # of a second as the ticks of the program's console. The Ruby runtime counts in whichever
+          # console the program is for; the C and JavaScript ones are only ever handed the
+          # Advance's programs (Native.console_for), and count in its ticks.
           def clock_options
             return [] unless @clock_started
 
             said = IR::Clock.moved_on(@clock_started, 0)
-            ticks = (said.subsec * Console::ADVANCE.cycles_a_second).floor
+            ticks = (said.subsec * @console.cycles_a_second).floor
             ["--clock-at", said.to_i.to_s, ticks.to_s, @clock_set ? "1" : "0"]
           end
 
@@ -379,13 +381,16 @@ module VBlank
           # printed: every pixel as shown and then every pixel as stored, two bytes each with the
           # low byte first.
           def picture_now
-            each = Screen::WIDTH * Screen::HEIGHT
+            width = @console.screen_width
+            height = @console.screen_height
+            each = width * height
             pixels = @pictures.pread(each * 4, 0).unpack("v*")
             unless pixels.length == each * 2
               raise Zig::Error, "the program's picture file holds #{pixels.length} pixels, where two pictures are #{each * 2}"
             end
 
-            Picture.new(shown: pixels.first(each), stored: pixels.last(each), camera_x: @camera[0], camera_y: @camera[1])
+            Picture.new(shown: pixels.first(each), stored: pixels.last(each), width: width, height: height,
+                        camera_x: @camera[0], camera_y: @camera[1])
           end
 
           def play_frames(exe, frames, options)

@@ -11,7 +11,9 @@
 # save memory), how many are wiped together (nought for memory that takes any byte at any time),
 # what a byte nothing has written reads, and what a byte of a block still being wiped reads.
 
-RG_SAVE_MOST_BYTES = 128 * 1024 # the biggest chip a cartridge has
+# The biggest chip any console's cartridge has (the Advance's largest flash), which is the most a
+# game can ask for. A ceiling and not a console's size: the game's size is its table's.
+RG_SAVE_MOST_BYTES = 128 * 1024
 
 def rg_save_setup
   @rg_save_bytes = nil   # made a fresh chip's the first time anything asks

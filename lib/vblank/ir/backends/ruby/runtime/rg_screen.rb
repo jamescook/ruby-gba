@@ -1,4 +1,4 @@
-# THE GAME'S PICTURE, drawn in software: the console's 240x160 screen as an array of colors, and
+# THE GAME'S PICTURE, drawn in software: the console's screen as an array of colors, and
 # everything the game does to it — drawing, backgrounds, sprites, the window over the picture,
 # fades and tints, a picture in blocks, see-through layers, bends and the light.
 #
@@ -16,9 +16,10 @@
 # A sprite's pictures and a background's tiles arrive ready to draw, in the game's tables
 # (@rg_game_images, @rg_game_tile_pixels and the rest): which pixels show, and the colors of each
 # list they can be drawn with, were worked out when the game was built.
+#
+# The screen's size is the console's the game is built for: RG_SCREEN_WIDTH and RG_SCREEN_HEIGHT
+# come first in the game's class, written by the lowering (Lowering#console_text).
 
-RG_SCREEN_WIDTH = 240
-RG_SCREEN_HEIGHT = 160
 RG_SCREEN_CELLS = RG_SCREEN_WIDTH * RG_SCREEN_HEIGHT
 RG_SWITCHED_OFF = 0x7FFF # what a switched-off display shows: plain white
 

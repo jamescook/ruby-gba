@@ -60,7 +60,8 @@ module NativeComparison
     %i[checked fast].each do |mode|
       actual = lowered_snapshots(program, frames: frames, buttons: buttons, mode: mode)
       assert_equal expected.map(&:heading), actual.map(&:heading), "the frame boundaries differ (#{mode} build)"
-      expected.zip(actual).each { |want, got| assert_same_moment(want, got, mode) }
+      width = program.described_console.screen_width
+      expected.zip(actual).each { |want, got| assert_same_moment(want, got, mode, width) }
     end
     expected.last
   end
@@ -87,9 +88,9 @@ module NativeComparison
 
   # Everything that differs at one moment, said together: a wrong variable usually explains a
   # wrong picture, and seeing both at once says which.
-  def assert_same_moment(want, got, mode)
+  def assert_same_moment(want, got, mode, width)
     differences = variable_differences(want.variables, got.variables) +
-                  [picture_difference(want.picture, got.picture), sounds_difference(want.sounds, got.sounds),
+                  [picture_difference(want.picture, got.picture, width), sounds_difference(want.sounds, got.sounds),
                    sprites_difference(want.sprites, got.sprites)].compact
     assert_empty differences, "at #{got.heading} (#{mode} build)"
   end

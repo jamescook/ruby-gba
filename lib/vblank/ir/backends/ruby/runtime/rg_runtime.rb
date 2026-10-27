@@ -3,9 +3,13 @@
 # whether there is a window: the driver is the methods named rg_driver_*, which the driver's own
 # file gives the game's class (rg_headless.rb, the one with no window).
 
+# Every button a program can name (IR::Buttons), a bit each. That is the same ten on every
+# console: a console with fewer has a build that refuses the ones it lacks before there is a game
+# to play, so nothing here needs to know which console it is.
 RG_ALL_BUTTONS = 0x3FF
 RG_MAX_TIMERS = 32
 RG_SECONDS_A_DAY = 86400
+RG_UNDATED_FIRST_DAY = 10957 # 1 January 2000, in days from the start of 1970
 
 # The readings of the clock, in IR::Clock::READINGS's order, which is the number the game asks by.
 RG_CLOCK_HOUR = 0
@@ -74,11 +78,6 @@ def rg_held(button) = rg_button_down(@rg_held, button)
 def rg_pressed(button) = rg_button_down(@rg_pressed, button)
 
 # --- frames ---
-
-# How long a frame is, as the console the game is built for counts it (@rg_game_console, written
-# from its description): the cycles of its clock a second, and the cycles one frame lasts.
-def rg_console_cycles_per_second = @rg_game_console[0]
-def rg_console_cycles_per_frame = @rg_game_console[1]
 
 # The frame the game drew has ended, whoever is driving and whether or not the run stops here.
 def rg_wait_vblank
@@ -187,13 +186,17 @@ end
 
 # The windowless driver starts the clock at a moment of the test's: +seconds+ from the start of
 # 1970 as such a clock counts them, +ticks+ more in cycles of the console's own clock
-# (rg_console_cycles_per_second), and whether the clock was ever set. From then it moves on one of
+# (RG_CONSOLE_CYCLES_PER_SECOND), and whether the clock was ever set. From then it moves on one of
 # the console's frames at each frame boundary.
+#
+# A CHIP THAT KEEPS NO DATE (RG_CLOCK_KEEPS_DATE false, the Color's; IR::Clock.undated) counts
+# only the days and the time of day since it started, taken as that many days on from 1 January
+# 2000: so it starts on that day, at the time of day it was started at.
 def rg_clock_starts_at(seconds, ticks, set)
   @rg_clock_present = 1
   @rg_clock_set = set != 0 ? 1 : 0
   @rg_clock_counts_frames = 1
-  @rg_clock_seconds = seconds
+  @rg_clock_seconds = RG_CLOCK_KEEPS_DATE ? seconds : (RG_UNDATED_FIRST_DAY * RG_SECONDS_A_DAY) + (seconds % RG_SECONDS_A_DAY)
   @rg_clock_ticks = ticks
 end
 
@@ -238,15 +241,18 @@ end
 def rg_clock_frame
   return if @rg_clock_counts_frames == 0
 
-  @rg_clock_ticks += rg_console_cycles_per_frame
-  @rg_clock_seconds += @rg_clock_ticks / rg_console_cycles_per_second
-  @rg_clock_ticks %= rg_console_cycles_per_second
+  @rg_clock_ticks += RG_CONSOLE_CYCLES_PER_FRAME
+  @rg_clock_seconds += @rg_clock_ticks / RG_CONSOLE_CYCLES_PER_SECOND
+  @rg_clock_ticks %= RG_CONSOLE_CYCLES_PER_SECOND
 end
 
+# A chip that keeps no date has no date of its own to give, so it reads as never set until the
+# game has set a time on it: an offset of anything but nought (IR::Clock.undated_set?).
 def rg_clock_reading(reading, offset_days, offset_seconds)
   return 0 if @rg_clock_present == 0
   return 1 if reading == RG_CLOCK_PRESENT
   return 0 if @rg_clock_set == 0
+  return 0 if !RG_CLOCK_KEEPS_DATE && offset_days == 0 && offset_seconds == 0
   return 1 if reading == RG_CLOCK_SET
 
   now = @rg_clock_seconds + (offset_days * RG_SECONDS_A_DAY) + offset_seconds

@@ -446,12 +446,13 @@ module VBlank
           end
 
           # Reference#work_out_bends: every bend's line 0, then the rest of each bend in turn,
-          # which leaves each bend's row one past the bottom of the screen. Called last in every
-          # frame boundary (rg_screen_work_out_bends).
+          # which leaves each bend's row one past the bottom of the screen, the program's console's.
+          # Called last in every frame boundary (rg_screen_work_out_bends).
           def work_out_bends
+            height = @program.described_console.screen_height
             first_lines = @bends.each_key.map { |name| work_out_bend_lines(name, 0, 1) }
             the_rest = @bends.flat_map do |name, bend|
-              [work_out_bend_lines(name, 1, Screen::HEIGHT), assign(bend.row, C::Int.new(Screen::HEIGHT))]
+              [work_out_bend_lines(name, 1, height), assign(bend.row, C::Int.new(height))]
             end
             C::Function.new(name: @names.own("work_out_bends"), body: first_lines + the_rest, exported: true)
           end

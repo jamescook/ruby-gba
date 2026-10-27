@@ -276,13 +276,6 @@ module VBlank
       # hat.
       def self.noise_register_bits(metallic) = metallic ? 7 : 15
 
-      # HOW OFTEN THE CONSOLE HANDS ITS VOICES ON TO THE SPEAKER: 32,768 times a second. It
-      # matters to the hiss alone. A hiss can step far faster than that, and what is heard of one
-      # that does is whichever way it stood at each of those moments, which is a hiss of its own
-      # and a lower one. A backend that makes the sound itself has to look at the hiss at the
-      # same moments to make the same one.
-      VOICE_OUTPUT_HZ = 32_768
-
       # WHAT THE WAVE VOICE PLAYS, which is one of two things a game can say.
       #
       # A NAME is the usual answer — `wave :triangle, :C4`, `plays: :sine` — and the samples are

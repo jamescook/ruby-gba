@@ -37,7 +37,11 @@ module VBlank
     # which anything that keeps real seconds by counting frames needs. Neither console shows
     # exactly sixty a second. +samples_a_copy+ is how many samples of mixed sound one copy hands
     # the console's sound hardware, which decides the rates a mix can run at
-    # (Console::SampleClock), or nil where it mixes no recordings. +largest_memory_bytes+ is how
+    # (Console::SampleClock), or nil where it mixes no recordings. +voice_output_hz+ is how often
+    # it hands its sound chip's voices on to the speaker, which matters to the noise voice alone:
+    # a hiss can step faster than that, and what is heard of one that does is whichever way it
+    # stood at each of those moments, a hiss of its own and a lower one. A backend that makes the
+    # sound itself looks at the hiss at the same moments to make the same one. +largest_memory_bytes+ is how
     # many bytes the largest memory a game's lists and pools are kept in holds: one pool is kept
     # whole in one memory, so no pool can be bigger.
     #
@@ -50,7 +54,7 @@ module VBlank
                               :sprites_a_row, :turning_sprites, :backgrounds, :turning_backgrounds,
                               :backgrounds_beside_turning, :blends, :list_colors, :painted_pages,
                               :clock_keeps_date, :cycles_a_second, :cycles_a_frame, :samples_a_copy,
-                              :largest_memory_bytes, :work_memory_bytes, :work_memory_kept_bytes,
+                              :voice_output_hz, :largest_memory_bytes, :work_memory_bytes, :work_memory_kept_bytes,
                               :roomier_memory_bytes, :extension) do
       def screen_size = [screen_width, screen_height]
 
@@ -93,6 +97,9 @@ module VBlank
                               cycles_a_second: 16_777_216, cycles_a_frame: 280_896,
                               # The sound copy moves four 32-bit words at a time: sixteen 8-bit samples.
                               samples_a_copy: 16,
+                              # The voices are mixed into the speaker's output at the rate the
+                              # sound's bias register starts at, which no cartridge built here changes.
+                              voice_output_hz: 32_768,
                               # The 256K of roomier memory beside the 32K quick one.
                               largest_memory_bytes: 256 * 1024,
                               # The 32K quick memory, 4K of it the stack and the framework's own.
@@ -110,6 +117,12 @@ module VBlank
                             # 154 lines of 456 cycles: the Advance's frame exactly, on a clock a
                             # quarter as fast. Double speed doubles the cycles, not the frames.
                             cycles_a_second: 4_194_304, cycles_a_frame: 70_224, samples_a_copy: nil,
+                            # Nothing stands between the voices and the speaker: every step of the
+                            # hiss is heard, which is every tick of the noise voice's own clock
+                            # (Audio::Sound::NOISE_CLOCK_HZ) at the most. The emulator the tests
+                            # play in takes a sample every 32 cycles instead and averages the hiss
+                            # over each, which is its own approximation of the same thing.
+                            voice_output_hz: 524_288,
                             # The 8K of work memory in view at once (see Backends::GBC::Memory),
                             # and nothing beside. The stack, the copy of the sprite table and the
                             # runtime's own state are in it before any variable, which the Color

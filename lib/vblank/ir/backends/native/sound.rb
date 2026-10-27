@@ -179,15 +179,16 @@ module VBlank
             C::ConstArray.new(name: @names.own(name), type: "int32_t", values: values, exported: true)
           end
 
-          # The rules every voice keeps: how fast each one's clock ticks, how often the console
-          # hands its voices on to the speaker, the music volume a part sounds at in full and how
-          # far to shift back down by it, the wave voice's loudness for each written volume, and
-          # the part of a rank that tells a sound effect from the song.
+          # The rules every voice keeps: how fast each one's clock ticks, how often the program's
+          # console hands its voices on to the speaker, the music volume a part sounds at in full
+          # and how far to shift back down by it, the wave voice's loudness for each written
+          # volume, and the part of a rank that tells a sound effect from the song.
           def sound_rules_table
             sound = VBlank::Audio::Sound
             quarters = (0..15).map { |volume| sound.wave_level_quarters(sound.wave_level(volume)) }
             sound_table("sound_rules", [sound::SQUARE_CLOCK_HZ, sound::WAVE_CLOCK_HZ, sound::NOISE_CLOCK_HZ,
-                                        sound::VOICE_OUTPUT_HZ, Tunes::FULL_LEVEL, Tunes::LEVEL_SHIFT, *quarters,
+                                        @program.described_console.voice_output_hz, Tunes::FULL_LEVEL,
+                                        Tunes::LEVEL_SHIFT, *quarters,
                                         Tunes::ORDER_MASK])
           end
 

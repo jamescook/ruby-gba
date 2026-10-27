@@ -22,9 +22,10 @@ module VBlank
       # rg_int32.rb) that gives IR::Int32's answer, because a Ruby Integer never wraps. Printer
       # writes the tree as one Ruby class per game, and runtime/*.rb is the rest of that class:
       # the lists, the buttons, the timers, the clock, the screen, the sound, and the driver the
-      # game runs on. The sound and the clock take every number that belongs to one console from
-      # the game's own tables, written from the console it is built for (Console::Description);
-      # the screen is still the Advance's size, so a game is played as the Advance.
+      # game runs on. Every number that belongs to one console — the screen's size, how long a
+      # frame is, what kind of clock the cartridge has, how the sound chip hands the noise voice on
+      # — is written into the game from the console it is built for (Console::Description), so the
+      # runtime plays a game as whichever console that is.
       #
       # A FRAME CAN END ANYWHERE, deep inside a routine the game called from a routine. Waiting
       # for the next one (rg_wait_vblank) calls the driver, which does the frame's work — prints
@@ -73,18 +74,20 @@ module VBlank
         # The program built to run with no window, and the path to it: a script a Ruby plays (see
         # runtime/rg_headless.rb for how it is run and what it prints).
         def build_headless(program)
-          text, gaps = Lowering.new(program).text_and_gaps(HEADLESS_FUNCTIONS)
+          lowering = Lowering.new(program)
+          text, gaps = lowering.text_and_gaps(HEADLESS_FUNCTIONS)
           refuse_runtime_gaps!(gaps)
-          write_program([WRITTEN_BY, "class RgGame\n", *runtime_text(RUNTIME + [HEADLESS_DRIVER]), text, "end\n",
-                         "RgGame.new.rg_headless_main(ARGV)\n"].join)
+          write_program([WRITTEN_BY, "class RgGame\n", lowering.console_text, *runtime_text(RUNTIME + [HEADLESS_DRIVER]),
+                         text, "end\n", "RgGame.new.rg_headless_main(ARGV)\n"].join)
         end
 
         # THE GAME AS AN OBJECT IN THIS PROCESS, to be played live (LiveGame). Anything its runtime
         # lacks is refused, as a test would skip.
         def live_game(program)
-          text, gaps = Lowering.new(program).text_and_gaps(LIVE_FUNCTIONS)
+          lowering = Lowering.new(program)
+          text, gaps = lowering.text_and_gaps(LIVE_FUNCTIONS)
           refuse_runtime_gaps!(gaps)
-          LiveGame.new([*runtime_text(RUNTIME + [LIVE_DRIVER]), text].join)
+          LiveGame.new([lowering.console_text, *runtime_text(RUNTIME + [LIVE_DRIVER]), text].join)
         end
 
         private

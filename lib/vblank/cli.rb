@@ -619,12 +619,15 @@ module VBlank
       `brew install sdl3`. On Debian or Ubuntu, run `apt install libsdl3-dev`. If
       the game has a Gemfile, add `gem "fiddle"` to it.
 
-      The window shows the Game Boy Advance screen. So the game must name gba in
-      consoles:. The sound plays on this computer's speaker. When this computer
-      is too slow for the game, the sound has gaps.
+      The window shows the screen of the console that the game is for. If the
+      game names more than one console in consoles:, the window shows the first
+      one. To play the game as a different console, add --console. The sound
+      plays on this computer's speaker. When this computer is too slow for the
+      game, the sound has gaps.
 
       Examples:
         vblank run game.rb
+        vblank run game.rb --console gbc         the game as the Game Boy Color
         vblank run game.rb --scale 4             a bigger window
         vblank run game.rb --uncapped --pictures 600
                                                  how fast this computer can play
@@ -635,6 +638,8 @@ module VBlank
       fewer pictures than the game has frames.
 
       Options:
+        --console NAME           gba or gbc: which console to play the game as.
+                                 Default: the first console in consoles:.
         --scale N                The window is N times the size of the screen.
                                  Default: 3. You can change the size of the
                                  window when it is open.
@@ -644,6 +649,7 @@ module VBlank
                                  Use this to measure the speed.
         #{SET}
     TEXT
+    option :console, banner: "NAME", enum: CONSOLES
     option :scale, type: :numeric, banner: "N", default: 3
     option :pictures, type: :numeric, banner: "N"
     option :uncapped, type: :boolean, default: false
@@ -657,7 +663,7 @@ module VBlank
       # a game several times faster. A Ruby built without it plays the game slower.
       RubyVM::YJIT.enable if defined?(RubyVM::YJIT) && !yjit_on?
       require_relative "live"
-      rate = play_in_window(game, live_session(game, program))
+      rate = play_in_window(game, program, live_session(game, program))
       # The game moves on one frame for each picture, so the pictures a second are its speed.
       say format("Showed %<pictures>d pictures in %<seconds>.1f seconds, %<per_second>.1f a second. " \
                  "The console shows %<console>.1f a second.",
@@ -734,15 +740,33 @@ module VBlank
 
     # --- run ---
 
-    # The checked program of +game+, as the Advance plays it: the Ruby runtime draws the Advance's
-    # screen, so a game for the Color alone is refused, saying what to write.
+    # The checked program of +game+, as the console --console names plays it, or the first the game
+    # names, saying so when there was a choice. The Ruby runtime draws whichever console's screen
+    # the program is for.
     def program_to_run(game)
-      console = console_drawn_by_runtimes(game, "A game played in a window")
+      console = options[:console]&.to_sym || game.consoles.first
+      say_console_chosen(game, console) unless options[:console]
       # A big game takes a while to build, and somebody is waiting for the window.
       game.build_rom(profile: false, progress: VBlank::Messages::Progress.to($stderr),
                      settings: given_settings, console: console).source_program
     rescue ArgumentError, VBlank::BuildError => e
       raise Thor::Error, e.message
+    end
+
+    # "DEMO is for the Game Boy Advance and the Game Boy Color. This plays it as the Game Boy
+    # Advance. To play it as the Game Boy Color, add --console gbc." Said only for a game that
+    # names more than one console, since a person who did not choose should know they can.
+    #
+    # `play` and `compare` ask instead (#console_to_run), since they make a cartridge somebody
+    # will compare. A window is somebody wanting to see the game, so it plays the console the game
+    # names first, and says so.
+    def say_console_chosen(game, console)
+      others = game.consoles - [console]
+      return if others.empty?
+
+      ways = others.map { |name| "as the #{VBlank::Console.described(name).title}, add --console #{name}" }
+      say "#{game.title} is for the #{consoles_named(game)}. This plays it as the " \
+          "#{VBlank::Console.described(console).title}. To play it #{ways.join('. To play it ')}."
     end
 
     # The game built as Ruby, ready to play: a game that needs something the Ruby runtime cannot do
@@ -757,9 +781,12 @@ module VBlank
     # +session+ played in a window until the player stops it, or --pictures are shown; the window
     # is closed however the play ends. Something the game does that its rules refuse (a push onto a
     # full list) is said in words.
-    def play_in_window(game, session)
-      window = VBlank::Live::SDL.new(title: game.title, scale: options[:scale])
-      say "Playing #{game.title} in Ruby #{RUBY_VERSION}, YJIT #{yjit_on? ? 'on' : 'off'}. Press Escape to stop."
+    def play_in_window(game, program, session)
+      console = program.described_console
+      window = VBlank::Live::SDL.new(title: game.title, scale: options[:scale], width: console.screen_width,
+                                     height: console.screen_height)
+      say "Playing #{game.title} for the #{console.title} in Ruby #{RUBY_VERSION}, YJIT #{yjit_on? ? 'on' : 'off'}. " \
+          "Press Escape to stop."
       session.play(window)
     rescue VBlank::Live::SDL::Missing, VBlank::Live::SDL::Failed, VBlank::IR::ProgramError => e
       raise Thor::Error, e.message
@@ -855,9 +882,12 @@ module VBlank
     # "PONG is for the Game Boy Advance and the Game Boy Color. Say which cartridge to play: add
     # --console gba or --console gbc."
     def consoles_choice_message(game, doing, offered)
-      named = game.consoles.map { |name| VBlank::Console.described(name).title }.join(" and the ")
-      "#{game.title} is for the #{named}. Say which cartridge to #{doing}: add --console #{offered.join(' or --console ')}."
+      "#{game.title} is for the #{consoles_named(game)}. Say which cartridge to #{doing}: add --console " \
+        "#{offered.join(' or --console ')}."
     end
+
+    # The consoles +game+ is for, as a person names them: "Game Boy Advance and the Game Boy Color".
+    def consoles_named(game) = game.consoles.map { |name| VBlank::Console.described(name).title }.join(" and the ")
 
     # A web page, a desktop program and the IR dump are all made from the game as one console plays
     # it, since the two runtimes draw one screen size (Native.console_for chooses which). A game for

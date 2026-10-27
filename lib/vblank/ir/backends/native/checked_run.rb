@@ -197,7 +197,10 @@ module VBlank
             want = reference_snapshots(program, frames: frames, buttons: @played, held: @held)
             got = lowered_snapshots(program, frames: frames, buttons: @played, mode: :checked, held: @held)
             first = want.zip(got).find { |reference, native| reference.picture != native.picture }
-            first ? "#{message} (#{first.last.heading}: #{picture_difference(first.first.picture, first.last.picture)})" : message
+            return message unless first
+
+            where = picture_difference(first.first.picture, first.last.picture, program.described_console.screen_width)
+            "#{message} (#{first.last.heading}: #{where})"
           end
         end
       end

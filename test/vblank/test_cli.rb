@@ -471,28 +471,59 @@ class TestCLI < Minitest::Test
   def test_run_plays_the_game_in_a_window_and_says_how_fast
     Dir.mktmpdir do |dir|
       cli("new", "demo", dir: dir)
-      drivers = { "SDL_VIDEODRIVER" => "dummy", "SDL_AUDIODRIVER" => "dummy" }
-      out, status = Open3.capture2e(drivers, RUBY, BIN, "run", "demo.rb", "--pictures", "5", chdir: dir)
-      skip out.lines.first.chomp if out.include?("cannot find SDL3")
+      out, status = run_in_dummy_window(dir, "demo.rb", "--pictures", "5")
 
       assert status.success?, out
-      assert_match(/Ruby #{Regexp.escape(RUBY_VERSION)}, YJIT (on|off)/o, out)
+      assert_match(/DEMO for the Game Boy Advance in Ruby #{Regexp.escape(RUBY_VERSION)}, YJIT (on|off)/o, out)
+      assert_match(/DEMO is for the Game Boy Advance and the Game Boy Color\. This plays it as the Game Boy Advance\. To play it as the Game Boy Color, add --console gbc\./, out)
       assert_match(/Showed 5 pictures in [\d.]+ seconds/, out)
       assert_match(/The console shows 59\.7 a second/, out)
     end
   end
 
-  # The Ruby runtime draws the Advance's screen, so a game for the Color alone is refused before
-  # any window opens, saying what to write.
-  def test_run_refuses_a_game_for_the_color_alone
+  # A game for the Color alone plays as the Color, on a window the size of its screen.
+  def test_run_plays_a_game_for_the_color_alone_as_the_color
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "coloronly.rb"), COLOR_ONLY)
-      out, status = cli("run", "coloronly.rb", dir: dir)
+      out, status = run_in_dummy_window(dir, "coloronly.rb", "--pictures", "3")
+
+      assert status.success?, out
+      assert_match(/COLORONLY for the Game Boy Color/, out)
+      assert_match(/Showed 3 pictures/, out)
+    end
+  end
+
+  # A game for both consoles plays as the one --console names.
+  def test_run_plays_the_console_said
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = run_in_dummy_window(dir, "demo.rb", "--console", "gbc", "--pictures", "3")
+
+      assert status.success?, out
+      assert_match(/DEMO for the Game Boy Color/, out)
+      refute_match(/This plays it as/, out, "the console was said, so there is nothing to tell")
+    end
+  end
+
+  # A console the game does not name is refused in words, before any window opens.
+  def test_run_refuses_a_console_the_game_is_not_for
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "coloronly.rb"), COLOR_ONLY)
+      out, status = cli("run", "coloronly.rb", "--console", "gba", dir: dir)
 
       refute status.success?, out
-      assert_match(/COLORONLY is not for the Game Boy Advance/i, out)
+      assert_match(/COLORONLY/, out)
+      assert_match(/Game Boy Advance/, out)
       refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
     end
+  end
+
+  # `vblank run` on SDL's dummy drivers, skipped where SDL3 is not installed.
+  private def run_in_dummy_window(dir, *args)
+    drivers = { "SDL_VIDEODRIVER" => "dummy", "SDL_AUDIODRIVER" => "dummy" }
+    out, status = Open3.capture2e(drivers, RUBY, BIN, "run", *args, chdir: dir)
+    skip out.lines.first.chomp if out.include?("cannot find SDL3")
+    [out, status]
   end
 
   # When every console's build fails for one reason, it is said once, with no advice about

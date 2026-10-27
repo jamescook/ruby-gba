@@ -49,12 +49,14 @@ module VBlank
                          sounds: interpreter.audio.dup, sprites: interpreter.sprites)
           end
 
-          def picture_difference(want, got)
+          # Where two pictures of a screen +width+ pixels wide differ.
+          def picture_difference(want, got, width)
             return nil if want == got
+            return "#{lowered_side} shows #{got.size} pixels, Reference #{want.size}" unless want.size == got.size
 
             first = want.each_index.find { |i| want[i] != got[i] }
             differing = want.each_index.count { |i| want[i] != got[i] }
-            "the pictures differ in #{differing} pixels, the first at (#{first % Screen::WIDTH}, #{first / Screen::WIDTH}): " \
+            "the pictures differ in #{differing} pixels, the first at (#{first % width}, #{first / width}): " \
               "#{lowered_side} shows #{format('%04x', got[first])}, Reference #{format('%04x', want[first])}"
           end
 
