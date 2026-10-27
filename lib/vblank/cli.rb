@@ -614,6 +614,9 @@ module VBlank
         Enter, Backspace         Start, Select
         A key, S key             L, R
         P                        pause the game. Press P again to continue.
+        Tab                      while you hold Tab, the game plays fast, at up
+                                 to four times the speed of the console. The
+                                 game makes no sound until you release Tab.
         Escape                   stop the play. Closing the window stops it too.
 
       The window needs SDL3 and the gem `fiddle`. To install SDL3 on macOS, run
@@ -650,7 +653,8 @@ module VBlank
         --pictures N             Stop after the window has shown N pictures.
         --uncapped               Do not wait for the end of each frame. The game
                                  then runs as fast as this computer can play it.
-                                 Use this to measure the speed.
+                                 Use this to measure the speed. Tab does nothing
+                                 then.
         #{SET}
     TEXT
     option :console, banner: "NAME", enum: CONSOLES
@@ -790,7 +794,7 @@ module VBlank
       window = VBlank::Live::SDL.new(title: game.title, scale: options[:scale], width: console.screen_width,
                                      height: console.screen_height)
       say "Playing #{game.title} for the #{console.title} in Ruby #{RUBY_VERSION}, YJIT #{yjit_on? ? 'on' : 'off'}. " \
-          "Press P to pause. Press Escape to stop."
+          "Press P to pause. Hold Tab to play fast. Press Escape to stop."
       session.play(window)
     rescue VBlank::Live::SDL::Missing, VBlank::Live::SDL::Failed, VBlank::IR::ProgramError => e
       raise Thor::Error, e.message

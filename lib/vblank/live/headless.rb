@@ -17,7 +17,8 @@ module VBlank
     # times sound arrived after the speaker had run out (a gap a person would hear), and
     # #most_waiting the most there ever was waiting. Without one, #sound_waiting is nil.
     #
-    # +pauses+ maps a picture's number to the seconds the player pauses for after it is shown.
+    # +pauses+ maps a picture's number to the seconds the player pauses for after it is shown, and
+    # +fast_forward+ holds the numbers of the passes (1, 2, 3, …) fast forward is held through.
     class Headless
       Picture = Data.define(:pixels, :width, :height)
 
@@ -25,10 +26,11 @@ module VBlank
       # samples a second they were made at.
       attr_reader :pictures, :sounds, :sound_rate, :now, :gaps, :most_waiting
 
-      def initialize(frames:, buttons: {}, pass_seconds: 0, speaker: false, pauses: {})
+      def initialize(frames:, buttons: {}, pass_seconds: 0, speaker: false, pauses: {}, fast_forward: [])
         @frames = frames
         @buttons = buttons
         @pauses = pauses
+        @fast_forward = fast_forward
         @held_after = nil # the picture the last pause came after
         @pass_seconds = pass_seconds.respond_to?(:call) ? pass_seconds : ->(_pass) { pass_seconds }
         @speaker = speaker
@@ -67,6 +69,8 @@ module VBlank
       def held_buttons(frame) = @buttons.fetch(frame, [])
 
       def stop? = @pictures.size >= @frames
+
+      def fast_forward?(pass) = @fast_forward.include?(pass)
 
       # Held for the seconds +pauses+ gives the picture just shown, once, with the speaker emptied
       # as the pause begins.

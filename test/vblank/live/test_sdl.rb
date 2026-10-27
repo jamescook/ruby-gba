@@ -99,6 +99,21 @@ class TestSDL < Minitest::Test
     window&.close
   end
 
+  # Tab fast forwards for as long as it is held, as it does in the desktop build.
+  def test_tab_fast_forwards_while_it_is_held
+    window = open_window
+    press_key(SDL::FAST_FORWARD)
+    window.show(Array.new(240 * 160, 0), 240, 160)
+    held = window.fast_forward?(1)
+    press_key(SDL::FAST_FORWARD, down: false)
+    window.show(Array.new(240 * 160, 0), 240, 160)
+
+    assert held
+    refute window.fast_forward?(1)
+  ensure
+    window&.close
+  end
+
   # Closing the window while the game is paused ends the pause and stops the play.
   def test_closing_a_paused_window_stops_the_play
     window = open_window
@@ -149,12 +164,12 @@ class TestSDL < Minitest::Test
     SDL.new(title: "TEST", scale: 1)
   end
 
-  # SDL told a key went down, as a keyboard would tell it.
-  def press_key(scancode)
+  # SDL told a key went down, or came up, as a keyboard would tell it.
+  def press_key(scancode, down: true)
     event = "\0".b * SDL::EVENT_BYTES
-    event[0, 4] = [SDL::EVENT_KEY_DOWN].pack("L")
+    event[0, 4] = [down ? SDL::EVENT_KEY_DOWN : SDL::EVENT_KEY_UP].pack("L")
     event[SDL::KEY_SCANCODE_AT, 4] = [scancode].pack("L")
-    event[SDL::KEY_DOWN_AT] = "\1"
+    event[SDL::KEY_DOWN_AT] = down ? "\1" : "\0"
     push_event(event)
   end
 

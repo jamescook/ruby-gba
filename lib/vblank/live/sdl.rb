@@ -14,8 +14,8 @@ module VBlank
     # with bars where the window is the wrong shape for it.
     #
     # The keys: the arrows are the pad, Z is A, X is B, Enter is Start, Backspace is Select, A and
-    # S are the shoulder buttons L and R. P pauses and carries on, as in the desktop build, and
-    # Escape, or closing the window, stops the play.
+    # S are the shoulder buttons L and R. As in the desktop build, P pauses and carries on, and Tab
+    # held fast forwards. Escape, or closing the window, stops the play.
     #
     # THE SOUND goes to the computer's speaker through an SDL audio stream, a queue the speaker
     # plays from at its own steady rate while the game puts a frame's samples in at the end of
@@ -48,6 +48,7 @@ module VBlank
       EVENT_QUIT = 0x100
       EVENT_WINDOW_CLOSE_REQUESTED = 0x210
       EVENT_KEY_DOWN = 0x300
+      EVENT_KEY_UP = 0x301
       KEY_SCANCODE_AT = 24 # where in a key's event the key is, as a scancode (4 bytes)
       KEY_DOWN_AT = 36 # ...whether it went down (1 byte)
       KEY_REPEAT_AT = 37 # ...and whether it is a key held down, heard again (1 byte)
@@ -70,6 +71,7 @@ module VBlank
                                      l: 4, r: 22 })
       ESCAPE = 41
       PAUSE = 19 # P, the desktop build's pause key too
+      FAST_FORWARD = 43 # Tab, held, as in the desktop build and many an emulator
 
       # Whether SDL3 can be found and loaded here, without opening anything.
       def self.available?(library: nil)
@@ -138,6 +140,10 @@ module VBlank
       # The window was closed, or Escape is down, as SDL last heard it (#show reads what SDL has
       # heard, and Session shows each picture before it asks).
       def stop? = @closed || @sdl.SDL_GetKeyboardState(nil)[ESCAPE] != 0
+
+      # Tab is held, as SDL last heard it (#show reads what SDL has heard), whichever pass it is
+      # asked for.
+      def fast_forward?(_pass) = @fast_forward == true
 
       # P was pressed (#show reads what SDL has heard): the window holds, the picture up and the
       # speaker emptied and silent, until P is pressed again or the play is stopped. It waits on
@@ -313,17 +319,18 @@ module VBlank
         read_event while @sdl.SDL_PollEvent(@event) != 0
       end
 
-      # One thing SDL heard, in @event: a closed window, or the last window gone, stops the play,
-      # and P going down pauses or carries on. A key held down is heard again and again, and only
-      # the first time counts.
+      # One thing SDL heard, in @event: a closed window, or the last window gone, stops the play;
+      # P going down pauses or carries on; and Tab fast forwards from going down to coming up. A
+      # key held down is heard going down again and again, and only the first time counts.
       def read_event
         type = @event[0, 4].unpack1("L")
         @closed = true if type == EVENT_QUIT || type == EVENT_WINDOW_CLOSE_REQUESTED
-        return unless type == EVENT_KEY_DOWN
+        return unless type == EVENT_KEY_DOWN || type == EVENT_KEY_UP
 
         scancode = @event[KEY_SCANCODE_AT, 4].unpack1("L")
-        repeat = @event[KEY_REPEAT_AT, 1].unpack1("C")
-        @paused = !@paused if scancode == PAUSE && repeat.zero?
+        down = type == EVENT_KEY_DOWN
+        @fast_forward = down if scancode == FAST_FORWARD
+        @paused = !@paused if scancode == PAUSE && down && @event[KEY_REPEAT_AT, 1].unpack1("C").zero?
       end
 
       def raise_failed!(what)

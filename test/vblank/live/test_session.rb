@@ -145,6 +145,58 @@ class TestSession < Minitest::Test
     assert_equal [20, 20], [rate.passes, rate.frames]
   end
 
+  # FAST FORWARD plays several of the game's frames for each picture shown, four at most, so a
+  # machine that can goes four times the console's speed and no faster: sixteen frames in the time
+  # of four, one picture for every four, and nothing handed to the speaker meanwhile.
+  def test_fast_forward_plays_four_frames_a_picture
+    program = counting_game
+    frame = frame_seconds(program)
+    device = Headless.new(frames: 4, speaker: true, fast_forward: 1..)
+    rate = Session.new(program).play(device)
+
+    assert_equal [16, 4], [rate.passes, rate.frames]
+    assert_equal [4, 8, 12, 16], device.pictures.map { |picture| marked_frame(picture) + 1 }
+    assert_empty device.sounds
+    assert_in_delta 4 / frame, rate.passes_per_second, 0.001
+  end
+
+  # A machine that cannot play four frames in the time of one still shows a picture a frame: here
+  # each pass takes half a frame, so fast forward goes twice the console's speed, a picture for
+  # every two.
+  def test_fast_forward_on_a_slower_machine_shows_a_picture_a_frame
+    program = counting_game
+    frame = frame_seconds(program)
+    device = Headless.new(frames: 4, fast_forward: 1.., pass_seconds: frame / 2)
+    rate = Session.new(program).play(device)
+
+    assert_equal [2, 4, 6, 8], device.pictures.map { |picture| marked_frame(picture) + 1 }
+    assert_equal [8, 4], [rate.passes, rate.frames]
+  end
+
+  # A pause while fast forward is held starts its frames afresh as it ends: the passes played
+  # before the pause are not counted toward the first picture after it.
+  def test_a_pause_in_fast_forward_starts_its_frames_afresh
+    program = counting_game
+    device = Headless.new(frames: 3, fast_forward: 1.., pauses: { 1 => 10 })
+    Session.new(program).play(device)
+
+    assert_equal [4, 8, 12], device.pictures.map { |picture| marked_frame(picture) + 1 }
+  end
+
+  # Let go, fast forward hands the speaker the game's sound again, a frame a pass, and the speaker
+  # paces the play with only a few frames waiting. The one gap is the fast forward's own silence.
+  def test_after_fast_forward_the_speaker_paces_the_play_again
+    program = counting_game
+    frame = frame_seconds(program)
+    device = Headless.new(frames: 30, speaker: true, pass_seconds: frame / 4, fast_forward: 5..20)
+    rate = Session.new(program).play(device)
+
+    assert_equal 42, rate.passes # 4, then 16 four to a picture, then 22
+    assert_equal 26, device.sounds.size
+    assert_equal 1, device.gaps
+    assert_operator device.most_waiting, :<=, (Session::SPEAKER_AHEAD_FRAMES + 1) * frame
+  end
+
   # Played uncapped, for measuring, the session never waits for a frame to end: each pass starts
   # the moment the last one ends, the game moves on a frame a pass, and the rate is the machine's
   # own. Four passes of a quarter of a frame each are four times the console's speed.

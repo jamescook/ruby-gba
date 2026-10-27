@@ -18,6 +18,8 @@ module VBlank
     #                                device with no speaker (yet)
     #   held_buttons(pass)           the buttons held as picture number +pass+ is shown (1, 2, 3, …),
     #                                for the pass that starts then
+    #   fast_forward?(pass)          whether the player is holding fast forward through pass number
+    #                                +pass+, asked before it is played (never, played uncapped)
     #   hold_while_paused            asked once a pass, after the picture: returns false at once unless
     #                                the player paused; otherwise returns true once they carry on or
     #                                stop, with what was waiting for the speaker thrown away
@@ -48,6 +50,10 @@ module VBlank
       # waiting is how far what a person sees and hears trails the buttons they press.
       SPEAKER_AHEAD_FRAMES = 4
 
+      # The most of the game's frames fast forward plays in the time of one, as the desktop build's
+      # does to begin with: fast, and the game still followable.
+      FAST_FORWARD_TIMES = 4
+
       # The game is built as Ruby here, before any device is opened, so a game the Ruby runtime
       # cannot play yet is refused (IR::Backends::Ruby::RuntimeGap) before a window comes up.
       # +stop_after_passes+ is how many passes to play at most, whatever the device says.
@@ -66,6 +72,8 @@ module VBlank
         @passes = @frames = 0
         @paced_by_speaker = false
         @seconds_paused = 0
+        @fast_frame_began = nil # when the frame being fast forwarded through began, or nil
+        @fast_forward_passes = 0 # passes played in it
         @started = @frame_began = @device.now
         @device.wait_until(@frame_began)
         @game.play(self)
@@ -82,14 +90,11 @@ module VBlank
       # paces the play from the second on. The first pass is the frame the game sets itself up in,
       # and counts the frames it took on the clock, which can be more than one.
       def buttons_after(pixels, samples)
-        wait_for_frame_end unless @paced_by_speaker
-        @passes += 1
-        @device.show(pixels, @game.width, @game.height)
-        @device.play_sound(samples, @game.sound_rate)
-        if @paced_by_speaker
-          wait_for_speaker
+        if !@uncapped && @device.fast_forward?(@passes + 1)
+          play_fast_forward(pixels)
         else
-          @paced_by_speaker = !@uncapped && !@device.sound_waiting.nil?
+          end_fast_forward if @fast_frame_began
+          play_at_console_speed(pixels, samples)
         end
         leave_pause_out_of_pacing
         return nil if @device.stop? || @passes == @stop_after_passes
@@ -99,19 +104,67 @@ module VBlank
 
       private
 
+      def play_at_console_speed(pixels, samples)
+        wait_for_frame_end unless @paced_by_speaker
+        @passes += 1
+        @device.show(pixels, @game.width, @game.height)
+        @device.play_sound(samples, @game.sound_rate)
+        if @paced_by_speaker
+          wait_for_speaker
+        else
+          @paced_by_speaker = !@uncapped && !@device.sound_waiting.nil?
+        end
+      end
+
+      # FAST FORWARD plays up to FAST_FORWARD_TIMES of the game's frames for each picture shown,
+      # in the time of one: a machine that can goes that many times the console's speed and no
+      # faster. A picture is shown, and the next frame's time waited for, once that many passes
+      # have been played or the frame's time is up, so a machine that cannot go that fast still
+      # shows a picture a frame. The frames counted are the frames of time that went by, as on
+      # the beat, and not the game's, which are its passes. The game's sound is not handed to the
+      # speaker: it would be several times what the speaker can play, and heard later and later.
+      # What the speaker holds as fast forward begins is a few frames, and plays out.
+      def play_fast_forward(pixels)
+        @fast_frame_began ||= @frame_began
+        @passes += 1
+        @fast_forward_passes += 1
+        if @fast_forward_passes == FAST_FORWARD_TIMES || @device.now - @fast_frame_began >= @frame_seconds
+          @device.show(pixels, @game.width, @game.height)
+          frames = [((@device.now - @fast_frame_began) / @frame_seconds).ceil, 1].max
+          @frames += frames
+          @fast_frame_began += frames * @frame_seconds
+          @fast_forward_passes = 0
+          @device.wait_until(@fast_frame_began)
+        else
+          @device.wait_until(@device.now)
+        end
+        @frame_began = @fast_frame_began
+      end
+
+      # Back to the console's speed from fast forward. The speaker has had nothing for as long as
+      # fast forward was held, so it has little or nothing waiting, as after a pause.
+      def end_fast_forward = restart_pacing
+
+      # The next frame begins now, and the pass that ends it is played on the clock, as the first
+      # pass of all is, until the speaker has the game's sound again. Fast forward, if it is
+      # still held, starts its frames afresh too.
+      def restart_pacing
+        @frame_began = @device.now
+        @paced_by_speaker = false
+        @fast_frame_began = nil
+        @fast_forward_passes = 0
+      end
+
       # A PAUSE holds the game between two passes, for as long as the device holds it. The time
       # held is not the game's: the next frame begins when the pause ends, so the beat does not
       # count it as frames missed, and the play's rate leaves it out. The device empties its
-      # speaker as the pause begins, so the game carries on with nothing queued from before, and
-      # the pass after is played on the clock, as the first pass of all is, until the speaker has
-      # the game's sound again.
+      # speaker as the pause begins, so the game carries on with nothing queued from before.
       def leave_pause_out_of_pacing
         held_from = @device.now
         return unless @device.hold_while_paused
 
         @seconds_paused += @device.now - held_from
-        @frame_began = @device.now
-        @paced_by_speaker = false
+        restart_pacing
       end
 
       # WITH A SPEAKER, THE SPEAKER PACES THE PLAY, as an emulator's sound sync does. Its own clock
