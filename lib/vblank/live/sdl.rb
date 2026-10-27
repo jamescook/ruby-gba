@@ -15,14 +15,18 @@ module VBlank
     #
     # The keys, as mGBA and the desktop build have them: the arrows are the pad, X is A, Z is B,
     # Enter is Start, Backspace is Select, A and S are the shoulder buttons L and R. A gamepad
-    # plugged in plays too (PAD_BUTTONS); the window's own keys are the keyboard's alone. As in
-    # the desktop build, P pauses and carries on, Tab held fast forwards, and F1 opens the menu
-    # (Menu), which holds the game while it is open and is worked with the arrows and Enter.
-    # Escape, or closing the window, stops the play.
+    # plugged in plays too (PAD_BUTTONS). As in the desktop build, P pauses and carries on, Tab
+    # held fast forwards, and F1 opens the menu (Menu, WindowMenu), which holds the
+    # game while it is open; so does the key above Tab, and on a gamepad the guide button, or Back
+    # and Start together. Escape, or closing the window, stops the play.
     #
-    # THE MENU is drawn over the picture with SDL's own drawing: a dark box, and its lines in the
-    # little font SDL carries inside itself, eight of the console's pixels a letter, so it needs no
-    # font file and grows with the window as the picture does.
+    # THE MENU is drawn over the picture in the window's own pixels, not the game's: the picture is
+    # the console's few pixels made big and square, and the menu over it is as sharp as the screen
+    # can show, a Retina screen's two pixels a point included (the window asks SDL for them). Menu
+    # says where each box and word goes; the boxes are drawn here as triangles with their edges
+    # faded over a pixel, as Dear ImGui draws them, and each letter is copied out of the menu
+    # font's picture (Graphics::MenuFont), which is put on the screen's card when the window
+    # opens.
     #
     # THE SOUND goes to the computer's speaker through an SDL audio stream, a queue the speaker
     # plays from at its own steady rate while the game puts a frame's samples in at the end of
@@ -38,6 +42,7 @@ module VBlank
       # SDL could not do something it was asked, said with SDL's own words.
       class Failed < StandardError; end
 
+
       # Where SDL3 is looked for when neither +library:+ nor VBLANK_SDL3 names it: the names each
       # system's loader finds by itself, then the folders Homebrew installs into on a Mac.
       LIBRARIES = Ractor.make_shareable(%w[libSDL3.dylib libSDL3.0.dylib libSDL3.so.0 libSDL3.so SDL3.dll
@@ -48,9 +53,14 @@ module VBlank
       # SDL's own numbers, from its headers.
       INIT_VIDEO = 0x20
       WINDOW_RESIZABLE = 0x20
+      WINDOW_HIGH_PIXEL_DENSITY = 0x2000 # a Retina screen's own pixels, not one a point
       PIXELFORMAT_XBGR1555 = 0x15530f02
+      PIXELFORMAT_ABGR8888 = 0x16762004 # red, green, blue, opacity: a byte each, in that order
+      TEXTUREACCESS_STATIC = 0
       TEXTUREACCESS_STREAMING = 1
       SCALEMODE_NEAREST = 0
+      SCALEMODE_LINEAR = 1
+      LOGICAL_PRESENTATION_DISABLED = 0
       LOGICAL_PRESENTATION_LETTERBOX = 2
       EVENT_QUIT = 0x100
       EVENT_WINDOW_CLOSE_REQUESTED = 0x210
@@ -62,7 +72,6 @@ module VBlank
       EVENT_BYTES = 128 # an SDL_Event is a union of at most this many bytes
       BLENDMODE_BLEND = 0x1 # what is drawn lets what is under it show through, as much as it is clear
       WINDOW_FLAGS_FULLSCREEN = 0x1
-      LETTER = 8 # SDL's own font: each letter 8 pixels square
       INIT_AUDIO = 0x10
       AUDIO_S16 = 0x8010 # 16-bit samples, the low byte first
       SAMPLE_BYTES = 2 # ...so two bytes each
@@ -83,6 +92,9 @@ module VBlank
       PAUSE = 19 # P, the desktop build's pause key too
       FAST_FORWARD = 43 # Tab, held, as in the desktop build and many an emulator
       MENU = 58 # F1, the desktop build's menu key too
+      # The keys the menu names (WindowMenu), by scancode.
+      KEY_CODES = Ractor.make_shareable({ f1: MENU, grave: 53, up: 82, down: 81, left: 80, right: 79, enter: 40 })
+      MENU_OPENERS = Ractor.make_shareable(WindowMenu::OPEN_KEYS.map { |name| KEY_CODES.fetch(name) })
 
       # A GAMEPAD'S BUTTONS, by SDL's numbers for them, and the console's button each is: the
       # console's own layout, as the desktop build sets it to begin with — A on the right (SDL's
@@ -106,9 +118,24 @@ module VBlank
       # nought, so it moves the game only once pushed past this, about a third of the way.
       STICK_DEAD_ZONE = 10_000
       INIT_GAMEPAD = 0x2000
+      EVENT_PAD_BUTTON_DOWN = 0x651 # (0x650 is a stick moving)
+      EVENT_PAD_BUTTON_UP = 0x652
       EVENT_GAMEPAD_ADDED = 0x653
       EVENT_GAMEPAD_REMOVED = 0x654
       PAD_ID_AT = 16 # where in a pad's event its number is (4 bytes)
+      PAD_BUTTON_AT = 20 # ...and in a button's event, which button (1 byte)
+      # The gamepad buttons the menu names (WindowMenu), by SDL's number: A and B are
+      # the console's, east and south, as PAD_BUTTONS has them.
+      PAD_CODES = Ractor.make_shareable({ guide: 5, back: PAD_BACK, start: PAD_START, dpad_up: PAD_DPAD_UP,
+                                          dpad_down: PAD_DPAD_DOWN, dpad_left: PAD_DPAD_LEFT,
+                                          dpad_right: PAD_DPAD_RIGHT, a: PAD_EAST, b: PAD_SOUTH })
+      PAD_MENU_KEYS = Ractor.make_shareable(WindowMenu::MOVE_PAD.to_h do |name, key|
+        [PAD_CODES.fetch(name), key]
+      end)
+      PAD_OPENERS = Ractor.make_shareable(WindowMenu::OPEN_PAD.map { |name| PAD_CODES.fetch(name) })
+      PAD_OPENERS_TOGETHER = Ractor.make_shareable(WindowMenu::OPEN_PAD_TOGETHER.map do |name|
+        PAD_CODES.fetch(name)
+      end)
 
       # The console's buttons a gamepad holds: +down+, SDL's numbers for the buttons down on it, and
       # the left stick's two ways, up being below nought.
@@ -121,9 +148,10 @@ module VBlank
         held.uniq
       end
 
-      # The keys the menu is worked with while it is open, by scancode: the pad's arrows, and Enter,
-      # which is Start's key.
-      MENU_KEYS = Ractor.make_shareable(KEYS.slice(:up, :down, :left, :right).invert.merge(KEYS[:start] => :enter))
+      # The keys the menu is worked with while it is open, by scancode: the arrows, and Enter.
+      MENU_KEYS = Ractor.make_shareable(WindowMenu::MOVE_KEYS.to_h do |name, key|
+        [KEY_CODES.fetch(name), key]
+      end)
 
       # Whether SDL3 can be found and loaded here, without opening anything.
       def self.available?(library: nil)
@@ -142,11 +170,11 @@ module VBlank
         @width = width
         @height = height
         @closed = false
-        @menu = Menu.new(scale: scale.clamp(Menu::SCALES))
-        @settings = @menu.settings # as the window last made them so
         @has_menu = menu
         @kept_from_game = [] # keys pressed for the menu, kept from the game until they come up
         @pads = {} # the gamepads plugged in, by SDL's number for each
+        @pad_down = Hash.new { |downs, id| downs[id] = [] } # the buttons down on each, as SDL said
+        @pad_kept = [] # gamepad buttons pressed for the menu, kept from the game until they come up
         @shown_this_second = 0
         @second_began = now
         @frame_rate = 0 # pictures shown in the last whole second
@@ -156,6 +184,9 @@ module VBlank
           close
           raise
         end
+        @menu = Menu.new(settings: WindowMenu::STARTING.with(scale: scale), picture: [width, height],
+                         scales: WindowMenu::SCALES.min..[largest_scale_that_fits, scale].max)
+        @settings = @menu.settings # as the window last made them so
       end
 
       # The picture into the window, and whatever SDL has heard from the window since. The
@@ -176,7 +207,8 @@ module VBlank
       # SDL has heard). The keyboard is read when it is asked, whichever pass it is asked for. A
       # key pressed for the menu is not the game's until it comes up: Enter on Resume is not Start.
       #
-      # Every gamepad plugged in holds buttons too, alongside the keyboard (SDL.pad_buttons).
+      # Every gamepad plugged in holds buttons too, alongside the keyboard (SDL.pad_buttons), and
+      # a gamepad button pressed for the menu is kept from the game the same way.
       def held_buttons(_pass)
         keys = @sdl.SDL_GetKeyboardState(nil)
         from_keys = KEYS.filter_map { |button, code| button if keys[code] != 0 && !@kept_from_game.include?(code) }
@@ -252,10 +284,11 @@ module VBlank
         @pads = {}
         @sdl.SDL_DestroyAudioStream(@speaker) if live?(@speaker)
         @speaker = nil
+        @sdl.SDL_DestroyTexture(@letters) if live?(@letters)
         @sdl.SDL_DestroyTexture(@texture) if live?(@texture)
         @sdl.SDL_DestroyRenderer(@renderer) if live?(@renderer)
         @sdl.SDL_DestroyWindow(@window) if live?(@window)
-        @texture = @renderer = @window = nil
+        @letters = @texture = @renderer = @window = nil
         @sdl.SDL_Quit
       end
 
@@ -325,8 +358,14 @@ module VBlank
           extern "char SDL_RenderPresent(void*)"
           extern "char SDL_SetRenderDrawBlendMode(void*, unsigned int)"
           extern "char SDL_SetRenderDrawColor(void*, unsigned char, unsigned char, unsigned char, unsigned char)"
-          extern "char SDL_RenderFillRect(void*, void*)"
-          extern "char SDL_RenderDebugText(void*, float, float, const char*)"
+          extern "char SDL_RenderGeometry(void*, void*, void*, int, void*, int)"
+          extern "char SDL_GetRenderOutputSize(void*, void*, void*)"
+          extern "float SDL_GetWindowPixelDensity(void*)"
+          extern "unsigned int SDL_GetDisplayForWindow(void*)"
+          extern "char SDL_GetDisplayUsableBounds(unsigned int, void*)"
+          extern "char SDL_SetTextureColorMod(void*, unsigned char, unsigned char, unsigned char)"
+          extern "char SDL_SetTextureAlphaMod(void*, unsigned char)"
+          extern "char SDL_SetTextureBlendMode(void*, unsigned int)"
           extern "char SDL_PollEvent(void*)"
           extern "char SDL_WaitEvent(void*)"
           extern "char SDL_PushEvent(void*)"
@@ -354,7 +393,8 @@ module VBlank
 
       def open_window(title, scale)
         raise_failed!("start its video") if @sdl.SDL_Init(INIT_VIDEO).zero?
-        @window = @sdl.SDL_CreateWindow(title, @width * scale, @height * scale, WINDOW_RESIZABLE)
+        @window = @sdl.SDL_CreateWindow(title, @width * scale, @height * scale,
+                                        WINDOW_RESIZABLE | WINDOW_HIGH_PIXEL_DENSITY)
         raise_failed!("open the window") if @window.null?
         @renderer = @sdl.SDL_CreateRenderer(@window, nil)
         raise_failed!("draw in the window") if @renderer.null?
@@ -365,8 +405,42 @@ module VBlank
         raise_failed!("make the picture") if @texture.null?
         raise_failed!("keep the pixels sharp") if @sdl.SDL_SetTextureScaleMode(@texture, SCALEMODE_NEAREST).zero?
         @event = Fiddle::Pointer.malloc(EVENT_BYTES, Fiddle::RUBY_FREE)
+        upload_menu_letters
         # Gamepads, where SDL can read them: a computer where it cannot plays with the keyboard alone.
         @sdl.SDL_InitSubSystem(INIT_GAMEPAD)
+      end
+
+      # The menu font's picture of every letter at the screen's density, on the screen's card (an
+      # SDL texture), from which each letter of the menu's words is copied: white, as opaque as the
+      # letter covers each pixel, and coloured as it is copied. A window moved to a screen of
+      # another density has it put there again.
+      def upload_menu_letters
+        density = pixel_density
+        atlas = Graphics::MenuFont.load.atlas(density)
+        return if @letters_density == atlas.density
+
+        @sdl.SDL_DestroyTexture(@letters) if live?(@letters)
+        @letters = @sdl.SDL_CreateTexture(@renderer, PIXELFORMAT_ABGR8888, TEXTUREACCESS_STATIC, atlas.width,
+                                          atlas.height)
+        raise_failed!("make the menu's letters") if @letters.null?
+
+        pixels = atlas.alpha.unpack("C*").flat_map { |covered| [255, 255, 255, covered] }.pack("C*")
+        @sdl.SDL_UpdateTexture(@letters, nil, pixels, atlas.width * 4)
+        @sdl.SDL_SetTextureBlendMode(@letters, BLENDMODE_BLEND)
+        @sdl.SDL_SetTextureScaleMode(@letters, SCALEMODE_LINEAR)
+        @letters_density = atlas.density
+      end
+
+      # How many of the screen's pixels a point of the window is: two on a Retina screen.
+      def pixel_density = [@sdl.SDL_GetWindowPixelDensity(@window), 1.0].max
+
+      # The biggest the window can be made, in times the picture's size, on the screen it is on.
+      def largest_scale_that_fits
+        room = Fiddle::Pointer.malloc(16, Fiddle::RUBY_FREE)
+        return WindowMenu::SCALES.max if @sdl.SDL_GetDisplayUsableBounds(@sdl.SDL_GetDisplayForWindow(@window), room).zero?
+
+        _, _, wide, high = room[0, 16].unpack("l4")
+        [[wide / @width, high / @height].min, WindowMenu::SCALES.max].min
       end
 
       def live?(pointer) = pointer && !pointer.null?
@@ -393,34 +467,88 @@ module VBlank
 
       def held? = @paused || @menu.open?
 
-      # The picture last put in the window, drawn into it again, with the frame rate and the menu
-      # over it when they are up.
+      # The picture last put in the window, drawn into it again, with the menu and what the window
+      # is doing over it (Menu#drawing).
       def redraw_window
         @sdl.SDL_RenderClear(@renderer)
         @sdl.SDL_RenderTexture(@renderer, @texture, nil, nil)
-        draw_lines([@frame_rate.to_s], 0, 0) if @settings.frame_rate
-        draw_menu if @menu.open?
+        draw_menu_and_status
         @sdl.SDL_RenderPresent(@renderer)
       end
 
-      # The menu's lines in a dark box in the middle of the picture.
-      def draw_menu
-        lines = @menu.lines
-        width = ((Menu::WIDTH + 2) * LETTER) + 4
-        draw_lines(lines, (@width - width) / 2, (@height - (lines.size * (LETTER + 2))) / 2)
+      # What the menu says to draw, in the window's own pixels: the picture was drawn through the
+      # game's own size (the logical presentation, which scales it by a whole number with bars where
+      # the window is the wrong shape), which is put aside while the menu draws and put back after.
+      def draw_menu_and_status
+        return unless held? || @fast_forward || @settings.frame_rate
+
+        drawing = @menu.drawing(width: output_size.first, density: pixel_density, held: held?,
+                                fast_forward: (@settings.fast_forward_speed if @fast_forward && !held?),
+                                frame_rate: (@frame_rate if @settings.frame_rate))
+        upload_menu_letters
+        @sdl.SDL_SetRenderLogicalPresentation(@renderer, 0, 0, LOGICAL_PRESENTATION_DISABLED)
+        begin
+          drawing.each { |part| part.is_a?(WindowMenu::Box) ? draw_box(part) : draw_words(part) }
+        ensure
+          @sdl.SDL_SetRenderLogicalPresentation(@renderer, @width, @height, LOGICAL_PRESENTATION_LETTERBOX)
+        end
       end
 
-      # +lines+ of words in white on a box of see-through dark, the box's corner at +x+, +y+ in the
-      # console's pixels and two pixels wider than the words each side. A line is a letter and a
-      # little more high, so lines do not touch.
-      def draw_lines(lines, x, y)
-        step = LETTER + 2
-        width = lines.map(&:length).max * LETTER
-        @sdl.SDL_SetRenderDrawBlendMode(@renderer, BLENDMODE_BLEND)
-        @sdl.SDL_SetRenderDrawColor(@renderer, 0, 0, 0, 200)
-        @sdl.SDL_RenderFillRect(@renderer, [x, y, width + 4, (lines.size * step) + 2].pack("e4"))
-        @sdl.SDL_SetRenderDrawColor(@renderer, 255, 255, 255, 255)
-        lines.each_with_index { |line, row| @sdl.SDL_RenderDebugText(@renderer, x + 2, y + 2 + (row * step), line) }
+      # The window's size in the screen's own pixels.
+      def output_size
+        size = Fiddle::Pointer.malloc(8, Fiddle::RUBY_FREE)
+        @sdl.SDL_GetRenderOutputSize(@renderer, size, size + 4)
+        size[0, 8].unpack("l2")
+      end
+
+      # A box with round corners as triangles: a fan from its middle out to its edge, and round the
+      # edge a band a pixel wide that fades from its colour to clear, so the edge is not jagged.
+      # SDL takes each corner of a triangle as eight floats: where it is, its red, green, blue and
+      # opacity from 0 to 1, and where on a texture it is (none here).
+      def draw_box(box)
+        ring = box_edge(box)
+        red, green, blue, opacity = box.color.map { |part| part / 255.0 }
+        corner = ->(x, y, alpha) { [x, y, red, green, blue, alpha, 0, 0] }
+        points = [corner.call(box.x + (box.width / 2.0), box.y + (box.height / 2.0), opacity)]
+        ring.each do |x, y, out_x, out_y|
+          points << corner.call(x - (out_x / 2), y - (out_y / 2), opacity)
+          points << corner.call(x + (out_x / 2), y + (out_y / 2), 0.0)
+        end
+        triangles = ring.each_index.flat_map do |at|
+          inner = 1 + (2 * at)
+          next_inner = 1 + (2 * ((at + 1) % ring.size))
+          [0, inner, next_inner, inner, inner + 1, next_inner + 1, inner, next_inner + 1, next_inner]
+        end
+        @sdl.SDL_RenderGeometry(@renderer, nil, points.flatten.pack("e*"), points.size, triangles.pack("l*"),
+                                triangles.size)
+      end
+
+      CORNER_STEPS = 8 # straight pieces a round corner is drawn with
+
+      # The edge of +box+, a point at a time, each with which way is out from it: round the four
+      # corners, top left first.
+      def box_edge(box)
+        radius = box.radius.clamp(0, [box.width, box.height].min / 2.0)
+        steps = radius < 1 ? 1 : CORNER_STEPS
+        middles = [[box.x + radius, box.y + radius, 180], [box.x + box.width - radius, box.y + radius, 270],
+                   [box.x + box.width - radius, box.y + box.height - radius, 0],
+                   [box.x + radius, box.y + box.height - radius, 90]]
+        middles.flat_map do |middle_x, middle_y, from|
+          (0..steps).map do |step|
+            angle = (from + (90.0 * step / steps)) * Math::PI / 180
+            [middle_x + (Math.cos(angle) * radius), middle_y + (Math.sin(angle) * radius), Math.cos(angle), Math.sin(angle)]
+          end
+        end
+      end
+
+      # Each letter of +words+ copied from the letters' card to where Menu said, in its colour.
+      def draw_words(words)
+        red, green, blue, opacity = words.color
+        @sdl.SDL_SetTextureColorMod(@letters, red, green, blue)
+        @sdl.SDL_SetTextureAlphaMod(@letters, opacity)
+        words.letters.each do |letter|
+          @sdl.SDL_RenderTexture(@renderer, @letters, letter.from.pack("e4"), letter.to.pack("e4"))
+        end
       end
 
       # Pictures shown in the last whole second, for the frame rate the menu can put up.
@@ -469,14 +597,16 @@ module VBlank
       end
 
       # One thing SDL heard, in @event: a closed window, or the last window gone, stops the play;
-      # F1 opens or closes the menu, and while it is open the arrows and Enter work it; P going
-      # down pauses or carries on; and Tab fast forwards from going down to coming up. A key held
-      # down is heard going down again and again: only the first time counts, but for the arrows
-      # in the menu, which then move on as a held key does in any list.
+      # F1 (or the key above Tab) opens or closes the menu, and while it is open the arrows and
+      # Enter work it; P going down pauses or carries on; and Tab fast forwards from going down to
+      # coming up. A key held down is heard going down again and again: only the first time counts,
+      # but for the arrows in the menu, which then move on as a held key does in any list. A
+      # gamepad's buttons work the menu too (#read_pad_button).
       def read_event
         type = @event[0, 4].unpack1("L")
         @closed = true if type == EVENT_QUIT || type == EVENT_WINDOW_CLOSE_REQUESTED
         return open_or_close_pad(type) if type == EVENT_GAMEPAD_ADDED || type == EVENT_GAMEPAD_REMOVED
+        return read_pad_button(type == EVENT_PAD_BUTTON_DOWN) if type == EVENT_PAD_BUTTON_DOWN || type == EVENT_PAD_BUTTON_UP
         return unless type == EVENT_KEY_DOWN || type == EVENT_KEY_UP
 
         scancode = @event[KEY_SCANCODE_AT, 4].unpack1("L")
@@ -502,19 +632,55 @@ module VBlank
 
       # The console's buttons one gamepad holds now.
       def pad_held(pad)
-        down = PAD_BUTTONS.keys.select { |button| @sdl.SDL_GetGamepadButton(pad, button) != 0 }
+        down = (PAD_BUTTONS.keys - @pad_kept).select { |button| @sdl.SDL_GetGamepadButton(pad, button) != 0 }
         self.class.pad_buttons(down: down, stick_x: @sdl.SDL_GetGamepadAxis(pad, PAD_LEFT_X),
                                stick_y: @sdl.SDL_GetGamepadAxis(pad, PAD_LEFT_Y))
       end
 
+      # A gamepad's button went down, or came up. The guide button, or Back and Start together,
+      # opens or closes the menu, and while it is open the D-pad, A and B work it. Back and Start
+      # each come as an event of their own, and only the second of them, with the first still
+      # down, opens it. A button pressed for the menu is kept from the game until it comes up.
+      def read_pad_button(down)
+        id = @event[PAD_ID_AT, 4].unpack1("L")
+        button = @event[PAD_BUTTON_AT, 1].unpack1("C")
+        unless down
+          @pad_down[id].delete(button)
+          return @pad_kept.delete(button)
+        end
+
+        @pad_down[id] << button
+        return unless @has_menu
+
+        if PAD_OPENERS.include?(button) || pad_openers_together?(id, button)
+          @menu.toggle
+          @pad_kept.concat(PAD_OPENERS.include?(button) ? [button] : PAD_OPENERS_TOGETHER)
+        elsif @menu.open? && PAD_MENU_KEYS.key?(button)
+          @pad_kept << button
+          press_menu(PAD_MENU_KEYS[button])
+        end
+      end
+
+      def pad_openers_together?(id, button)
+        PAD_OPENERS_TOGETHER.include?(button) && (PAD_OPENERS_TOGETHER - @pad_down[id]).empty? &&
+          !(PAD_OPENERS_TOGETHER - @pad_kept).empty?
+      end
+
+      # A key meant for the menu, and the window made as the menu then says. Resume carries on,
+      # even from a pause before the menu was opened; closing the menu (the gamepad's B) leaves
+      # such a pause as it was, as F1 does.
+      def press_menu(key)
+        @menu.press(key)
+        @paused = false unless @menu.open? || key == :close
+        apply_menu_settings
+      end
+
       def read_key_down(scancode, repeat)
-        if scancode == MENU && @has_menu
+        if MENU_OPENERS.include?(scancode) && @has_menu
           @menu.toggle unless repeat
         elsif @menu.open? && MENU_KEYS.key?(scancode)
           @kept_from_game << scancode
-          @menu.press(MENU_KEYS[scancode]) unless repeat && scancode == MENU_KEYS.key(:enter)
-          @paused = false unless @menu.open? # Resume carries on, even from a pause before the menu
-          apply_menu_settings
+          press_menu(MENU_KEYS[scancode]) unless repeat && MENU_KEYS[scancode] == :enter
         elsif scancode == FAST_FORWARD
           @fast_forward = true
         elsif scancode == PAUSE && !@menu.open?

@@ -38,6 +38,15 @@ class TestRubyScript < Minitest::Test
     assert_match(/Showed 3 pictures/, played)
   end
 
+  # A game with a menu carries it, and the menu's letters, and says how to open it.
+  def test_a_game_with_a_menu_plays_alone
+    game = VBlank.game("MENUSCRIPT", consoles: %i[gba]) { game_loop { clear_screen :blue } }
+    played, status = play_alone(game, :gba, "--pictures", "3")
+
+    assert status.success?, played
+    assert_match(/Press F1 or ` for the menu/, played)
+  end
+
   # A number of pictures that could never be reached is refused in words, rather than played forever.
   def test_a_script_refuses_no_pictures
     played, status = play_alone(color_game, :gbc, "--pictures", "0")

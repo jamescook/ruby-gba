@@ -623,13 +623,15 @@ module VBlank
         X, Z                     A, B
         Enter, Backspace         Start, Select
         A key, S key             L, R
-        F1                       open the menu. The game pauses while the menu
-                                 is open. In the menu, you can change the speed
-                                 of fast forward, the size of the window,
-                                 fullscreen, the volume, mute and the frame
-                                 rate, and you can stop the play. Use the arrows
-                                 and Enter. A game that says menu: false has no
-                                 menu.
+        F1 or `                  open the menu. On a Mac keyboard, ` (the key
+                                 above Tab) needs no fn key. The game pauses
+                                 while the menu is open. In the menu, you can
+                                 change the speed of fast forward, the size of
+                                 the window, fullscreen, the volume, mute and
+                                 the frame rate, and you can stop the play. Use
+                                 the arrows to move along the bar and down into
+                                 a heading, and Enter to choose. A game that
+                                 says menu: false has no menu.
         P                        pause the game. Press P again to continue.
         Tab                      while you hold Tab, the game plays fast, at up
                                  to four times the speed of the console. You can
@@ -640,8 +642,10 @@ module VBlank
       A gamepad plays the game too, alongside the keyboard: the D-pad or the left
       stick, the right face button for A and the bottom one for B, Start, Back
       for Select, and the shoulder buttons for L and R. You can plug it in or
-      pull it out while the game plays. The menu, pause, fast forward and Escape
-      need the keyboard.
+      pull it out while the game plays. To open the menu with a gamepad, press
+      Back and Start together, or the guide button in the middle (macOS can keep
+      that button for itself). In the menu, the D-pad moves, A chooses and B
+      closes the menu. Pause, fast forward and Escape need the keyboard.
 
       The window needs SDL3 and the gem `fiddle`. To install SDL3 on macOS, run
       `brew install sdl3`. On Debian or Ubuntu, run `apt install libsdl3-dev`. If
@@ -838,7 +842,7 @@ module VBlank
       window = VBlank::Live::SDL.new(title: game.title, scale: options[:scale], width: console.screen_width,
                                      height: console.screen_height, menu: game.menu?)
       say "Playing #{game.title} for the #{console.title} in Ruby #{RUBY_VERSION} with #{jit_in_use}. " \
-          "#{'Press F1 for the menu. ' if game.menu?}Press P to pause. Hold Tab to play fast. Press Escape to stop."
+          "#{'Press F1 or ` for the menu. ' if game.menu?}Press P to pause. Hold Tab to play fast. Press Escape to stop."
       recording = VBlank::Live::Recording.new(window, frame_seconds: console.frame_seconds) if options[:record_sound]
       session.play(recording || window)
     rescue VBlank::Live::SDL::Missing, VBlank::Live::SDL::Failed, VBlank::IR::ProgramError => e

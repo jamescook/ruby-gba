@@ -114,16 +114,28 @@ class TestSDL < Minitest::Test
     window&.close
   end
 
-  # F1 opens the menu, as in the desktop build, and the game is held while it is open: Enter on
-  # Resume, the line it opens on, carries on.
+  # F1 opens the menu, as in the desktop build, and the game is held while it is open: Enter goes
+  # into the first heading's lines, and Enter on Resume, the first of them, carries on.
   def test_f1_opens_the_menu_and_holds_the_game_until_resume
     window = open_window
     press_key(SDL::MENU)
     window.show(Array.new(240 * 160, 0), 240, 160)
-    press_key(SDL::MENU_KEYS.key(:enter))
+    2.times { press_key(SDL::MENU_KEYS.key(:enter)) }
 
     assert window.hold_while_paused
     refute window.hold_while_paused, "Resume should have closed the menu"
+  ensure
+    window&.close
+  end
+
+  # The key above Tab opens it too, which a Mac keyboard presses without fn.
+  def test_the_key_above_tab_opens_the_menu
+    window = open_window
+    press_key(SDL::KEY_CODES.fetch(:grave))
+    window.show(Array.new(240 * 160, 0), 240, 160)
+    press_key(SDL::KEY_CODES.fetch(:grave))
+
+    assert window.hold_while_paused
   ensure
     window&.close
   end
@@ -134,8 +146,8 @@ class TestSDL < Minitest::Test
     window.play_sound(Array.new(FRAME_SAMPLES, 0), RATE)
     press_key(SDL::MENU)
     window.show(Array.new(240 * 160, 0), 240, 160)
-    # Fast forward two less, the window's size one more, the volume one step down.
-    %i[down left left down right down down left].each { |key| press_key(SDL::MENU_KEYS.key(key)) }
+    # To Window, into Size, one bigger; back up to the bar, on to Sound, into Volume, one step down.
+    %i[right down right up right down left].each { |key| press_key(SDL::MENU_KEYS.key(key)) }
     press_key(SDL::MENU)
     window.hold_while_paused
 
@@ -150,11 +162,67 @@ class TestSDL < Minitest::Test
     window = open_window
     press_key(SDL::MENU)
     window.show(Array.new(240 * 160, 0), 240, 160)
-    press_key(SDL::MENU_KEYS.key(:up))
+    3.times { press_key(SDL::MENU_KEYS.key(:down)) }
     press_key(SDL::MENU_KEYS.key(:enter))
     window.hold_while_paused
 
     assert window.stop?
+  ensure
+    window&.close
+  end
+
+  # A gamepad works the menu: Back and Start pressed together open it, the D-pad moves, A does what
+  # a line says. Here: into Game's lines, and Resume.
+  def test_a_gamepad_opens_and_works_the_menu
+    window = open_window
+    press_pad(:back)
+    press_pad(:start)
+    window.show(Array.new(240 * 160, 0), 240, 160)
+    press_pad(:dpad_down)
+    press_pad(:a)
+
+    assert window.hold_while_paused
+    refute window.hold_while_paused, "Resume should have closed the menu"
+  ensure
+    window&.close
+  end
+
+  # The guide button opens it alone, and B closes it.
+  def test_the_guide_button_opens_the_menu_and_b_closes_it
+    window = open_window
+    press_pad(:guide)
+    window.show(Array.new(240 * 160, 0), 240, 160)
+    press_pad(:b)
+
+    assert window.hold_while_paused
+    refute window.hold_while_paused
+  ensure
+    window&.close
+  end
+
+  # B closes the menu and leaves a pause from before it as it was; only Resume carries on. Still
+  # paused, the window goes on waiting, and so reads the window being closed after B.
+  def test_b_leaves_a_pause_from_before_the_menu
+    window = open_window
+    press_key(SDL::PAUSE)
+    press_pad(:guide)
+    window.show(Array.new(240 * 160, 0), 240, 160)
+    press_pad(:b)
+    push_event([SDL::EVENT_QUIT].pack("L"))
+
+    assert window.hold_while_paused
+    assert window.stop?, "B ended the pause from before the menu"
+  ensure
+    window&.close
+  end
+
+  # Back alone is the console's Select, and opens nothing.
+  def test_back_alone_opens_no_menu
+    window = open_window
+    press_pad(:back)
+    window.show(Array.new(240 * 160, 0), 240, 160)
+
+    refute window.hold_while_paused
   ensure
     window&.close
   end
@@ -244,6 +312,16 @@ class TestSDL < Minitest::Test
     event[0, 4] = [down ? SDL::EVENT_KEY_DOWN : SDL::EVENT_KEY_UP].pack("L")
     event[SDL::KEY_SCANCODE_AT, 4] = [scancode].pack("L")
     event[SDL::KEY_DOWN_AT] = down ? "\1" : "\0"
+    push_event(event)
+  end
+
+  # SDL told a gamepad's button went down, or came up, as a gamepad would tell it.
+  def press_pad(button, down: true)
+    event = "\0".b * SDL::EVENT_BYTES
+    event[0, 4] = [down ? SDL::EVENT_PAD_BUTTON_DOWN : SDL::EVENT_PAD_BUTTON_UP].pack("L")
+    event[SDL::PAD_ID_AT, 4] = [7].pack("L")
+    event[SDL::PAD_BUTTON_AT] = [SDL::PAD_CODES.fetch(button)].pack("C")
+    event[SDL::PAD_BUTTON_AT + 1] = down ? "\1" : "\0"
     push_event(event)
   end
 

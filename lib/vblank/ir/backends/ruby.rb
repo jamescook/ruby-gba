@@ -88,8 +88,8 @@ module VBlank
         # THE GAME WRITTEN OUT AS ONE RUBY FILE that plays in a window with Ruby alone — Ruby,
         # fiddle and SDL3, and no vblank gem, no game source, no art: the game as Ruby, and the
         # library's own window, menu and session (lib/vblank/live/) copied in after the few
-        # library files they need, then runtime/rg_script_main.rb, which plays it. One file, since
-        # that is what a person copies and hands on.
+        # library files they need, with the menu's letters, then runtime/rg_script_main.rb, which
+        # plays it. One file, since that is what a person copies and hands on.
         #
         # The library files are carried as they are, so a fix to the window or the session reaches
         # the next script built; SCRIPT_PARTS lists them, and a script that names something none of
@@ -106,6 +106,7 @@ module VBlank
           raise BuildError, "the game's Ruby has a line #{SCRIPT_END}, which ends it early in a script" if source.lines.include?("#{SCRIPT_END}\n")
 
           [SCRIPT_TOP, *SCRIPT_PARTS.map { |part| File.read(VBlank.root.join("lib", part), encoding: Encoding::UTF_8) },
+           "VBlank::Graphics::MenuFont::CARRIED = <<'#{FONT_END}'\n#{File.read(Graphics::MenuFont::PATH, encoding: Encoding::UTF_8)}#{FONT_END}\n",
            "module VBlankScript\n  TITLE = #{title.to_s.inspect}\n  MENU = #{menu}\n",
            "  SOURCE = <<'#{SCRIPT_END}'\n#{source}\n#{SCRIPT_END}\nend\n",
            File.read(File.join(RUNTIME_DIR, SCRIPT_MAIN), encoding: Encoding::UTF_8).delete_prefix(MAGIC_COMMENT)].join
@@ -117,11 +118,14 @@ module VBlank
         # The library files a script carries, in the order they load: what the play code names
         # first, then the play code itself.
         SCRIPT_PARTS = %w[vblank/ir/buttons.rb vblank/ir/program_error.rb vblank/ir/backends/ruby/live_game.rb
-                          vblank/live/rate.rb vblank/live/menu.rb vblank/live/session.rb vblank/live/sdl.rb].freeze
+                          vblank/graphics/menu_font.rb vblank/live/window_menu.rb vblank/live/rate.rb
+                          vblank/live/menu.rb vblank/live/session.rb vblank/live/sdl.rb].freeze
         SCRIPT_MAIN = "rg_script_main.rb" # in RUNTIME_DIR: what plays the game, last in a script
-        # The line the game's Ruby ends at in a script, which no line of the game's can be.
+        # The line the game's Ruby ends at in a script, which no line of the game's can be, and the
+        # line the menu's letters (Graphics::MenuFont::PATH, carried after the parts) end at.
         SCRIPT_END = "RG_END_OF_THE_GAME"
-        private_constant :MAGIC_COMMENT, :SCRIPT_TOP, :SCRIPT_END
+        FONT_END = "RG_END_OF_THE_LETTERS"
+        private_constant :MAGIC_COMMENT, :SCRIPT_TOP, :SCRIPT_END, :FONT_END
 
         private
 

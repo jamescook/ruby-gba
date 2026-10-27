@@ -35,7 +35,7 @@ module VBlankScript
     game = VBlank::IR::Backends::Ruby::LiveGame.new(SOURCE)
     window = VBlank::Live::SDL.new(title: TITLE, scale: options[:scale], width: game.width, height: game.height,
                                    menu: MENU)
-    puts "Playing #{TITLE}. #{'Press F1 for the menu. ' if MENU}Press P to pause. Hold Tab to play fast. " \
+    puts "Playing #{TITLE}. #{'Press F1 or ` for the menu. ' if MENU}Press P to pause. Hold Tab to play fast. " \
          "Press Escape to stop."
     rate = VBlank::Live::Session.new(game: game, uncapped: options[:uncapped], stop_after_passes: options[:pictures])
                                 .play(window)
