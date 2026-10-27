@@ -20,14 +20,6 @@ module VBlank
             raise RuntimeGap.new("sound", "the Ruby lowering cannot record sound yet: its runtime makes none")
           end
 
-          def run(program, max_steps: nil, frames: nil)
-            if Native::Saving.named_by?(program)
-              raise RuntimeGap.new("save memory", "the Ruby lowering cannot keep save memory yet: its runtime has none")
-            end
-
-            super
-          end
-
           private
 
           def headless_program(program) = Ruby.new.build_headless(program)

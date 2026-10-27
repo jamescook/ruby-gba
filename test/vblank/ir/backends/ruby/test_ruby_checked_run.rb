@@ -101,4 +101,20 @@ class TestRubyCheckedRun < Minitest::Test
     run = CheckedRun.new.input_each_frame { |frame| frame >= 2 ? [:a] : [] }.run(program, frames: 4)
     assert_equal 1 + 1 + 10 + 10, run[:x]
   end
+
+  # A game that saves is played both ways from the same save memory, and what the Ruby left in it
+  # is there for the next run, as a power cycle.
+  def test_save_memory_outlasts_a_run
+    program = program_of do
+      count = save_var :count, 0
+      count.add! 1
+      game_loop {}
+    end
+    store = SaveImage.new
+
+    CheckedRun.new(save: store).run(program, frames: 2)
+    again = CheckedRun.new(save: store).run(program, frames: 2)
+
+    assert_equal 2, again[:count]
+  end
 end

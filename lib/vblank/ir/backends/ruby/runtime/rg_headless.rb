@@ -31,6 +31,12 @@
 #   --clock-at SECONDS TICKS SET  the cartridge has a clock, reading SECONDS from the start of
 #                               1970 and TICKS of the console's 2^24 a second more at power-on,
 #                               set when SET is 1; without it the cartridge has no clock
+#   --save FILE                 the game starts with the save memory FILE holds (the bytes of a
+#                               .sav file, as many as the game has), and when the run ends its
+#                               save memory is written back to FILE, whole; no file there yet is a
+#                               new cartridge, and a game with no save memory leaves FILE alone
+#   --save-cut-after N          the power goes off N steps into the game's saving, which ends the
+#                               run there, as it does in the interpreter
 
 require "zlib"
 
@@ -45,6 +51,7 @@ def rg_headless_main(argv)
   @rg_frame = 0 # frames started so far
   @rg_every_picture = false
   @rg_picture_out = nil
+  @rg_save_path = nil # the file save memory is read from and written back to, if any
   i = 1
   while i < argv.length
     case argv[i]
@@ -58,6 +65,15 @@ def rg_headless_main(argv)
     when "--clock-at"
       rg_clock_starts_at(argv[i + 1].to_i, argv[i + 2].to_i, argv[i + 3].to_i)
       i += 3
+    when "--save"
+      i += 1
+      if rg_save_size > 0 # a game with no save memory keeps nothing there
+        @rg_save_path = argv[i]
+        rg_headless_read_save_file
+      end
+    when "--save-cut-after"
+      i += 1
+      rg_save_cut_power_after(argv[i].to_i)
     end
     i += 1
   end
@@ -136,5 +152,33 @@ def rg_headless_finish
   $stdout.write("pages #{rg_screen_two_pages != 0 ? 2 : 1}\n")
   $stdout.flush
   @rg_picture_out&.close
+  rg_headless_write_save_file if @rg_save_path
   exit 0
+end
+
+# Save memory as its file holds it. No file, or one that cannot be read, is a new cartridge; a file
+# of any other size than the game's save memory is somebody else's save, and the run stops before
+# the game starts.
+def rg_headless_read_save_file
+  kept = begin
+    File.binread(@rg_save_path)
+  rescue SystemCallError
+    return
+  end
+  if kept.bytesize != rg_save_size
+    $stderr.puts "the file at #{@rg_save_path} is not this game's save memory, which is #{rg_save_size} bytes"
+    exit 2
+  end
+  rg_save_bytes.replace(kept.bytes)
+end
+
+# Save memory written to its file: to a new file beside it, which then takes its place, so a run
+# stopped part way through leaves the old file whole.
+def rg_headless_write_save_file
+  writing = "#{@rg_save_path}.writing"
+  File.binwrite(writing, rg_save_bytes.pack("C*"))
+  File.rename(writing, @rg_save_path)
+rescue SystemCallError
+  $stderr.puts "the save memory could not be written to #{@rg_save_path}"
+  exit 1
 end
