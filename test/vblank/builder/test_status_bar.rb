@@ -136,6 +136,37 @@ class TestStatusBar < Minitest::Test
     end
   end
 
+  # A bar every screen shows stays at its row on the frame a scene takes over with a field of its
+  # own: the interpreter once drew it from the screen's corner as it put the scenes' scenery back.
+  def test_a_bar_every_screen_shows_stays_put_as_a_scene_takes_over
+    prog = program do
+      screen :tiled
+      image(:red_art, "#" => :red) { SOLID_TILE }
+      image(:blue_art, "#" => :blue) { SOLID_TILE }
+      image(:green_art, "#" => :green) { SOLID_TILE }
+      tiles :red_tiles, "#" => :red_art
+      tiles :blue_tiles, "#" => :blue_art
+      tiles :bar_tiles, "#" => :green_art
+      status_bar :score, tiles: :bar_tiles, map: ["#" * 32, "#" * 32], top: screen_height - 16
+      state = var :state, 0
+      tick = var :tick, 0
+      scene(:one) { background :one, tiles: :red_tiles, map: Array.new(32) { "#" * 32 } }
+      scene(:two) { background :two, tiles: :blue_tiles, map: Array.new(32) { "#" * 32 } }
+      game_loop do
+        tick.add! 1
+        (tick == 4).then { state.set! 1 }
+        case_var(:state) do
+          when_val 0, :one
+          when_val 1, :two
+        end
+      end
+    end
+
+    assert_equal BLUE, picture(prog, 4).pixel(8, 8), "the second scene's field, at the top"
+    assert_equal GREEN, picture(prog, 4).pixel(8, screen_height - 4), "and the bar, at the bottom"
+    assert_backends_agree(prog, frames: [3, 4, 5], name: "BARTAKE")
+  end
+
   # A bar declared in one scene is up in that scene alone: the scene after it shows its field to
   # the bottom of the screen.
   def test_a_bar_belongs_to_the_scene_that_declares_it

@@ -37,7 +37,7 @@ module VBlank
           # bars fill, or nil for a game with none (Picture#emit_bar).
           def reserve(memory, art:, effects: [], together: false, bar_rows: nil)
             Frame.reserve(memory, together: together)
-            Picture.reserve(memory, lends: art.lends?, groups: art.groups?, bar_rows: bar_rows)
+            Picture.reserve(memory, lends: art.lends?, groups: art.groups?, bar_rows: bar_rows, rooms: art.rooms.any?)
             BigMaps.reserve(memory)
             Paint.reserve(memory, painting: art.painting?)
             Music.reserve(memory, effects: effects)
@@ -66,7 +66,8 @@ module VBlank
             Lists.emit(asm, memory)
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length,
                                       runs: runs, drawn_palettes: drawn_palettes, lends: art.lends?,
-                                      palettes_in_use: art.palettes_in_use, groups: art.groups?, bar_rows: bar_rows)
+                                      palettes_in_use: art.palettes_in_use, groups: art.groups?, bar_rows: bar_rows,
+                                      rooms: art.rooms.any?)
             BigMaps.emit(asm, memory, buffer: big_maps&.first, staged: big_maps&.last)
             Paint.emit(asm, memory, painting: art.painting?, map_count: art.square_maps.length, bar: !bar_rows.nil?)
             Sound.emit(asm)

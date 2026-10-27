@@ -3,6 +3,7 @@
 require "test_helper"
 require "differential"
 require "tmpdir"
+require "many_tiles"
 
 # A SCENE OWNS THE BACKGROUNDS DECLARED INSIDE IT, the way it already owns the sprites
 # and the HUD text declared there: they are on screen while that scene is the active
@@ -1112,5 +1113,44 @@ class TestSceneBackgrounds < Minitest::Test
 
     assert_equal [RED, BLUE, RED],
                  [[SECOND_SCENE_AT, "SCNMEM1"], [FIRST_SCENE_AGAIN_AT, "SCNMEM2"], [FIRST_SCENE_AGAIN_AT + 15, "SCNMEM3"]].map { |at, name| on_console(prog, name, at) }
+  end
+
+  # EACH SCENE'S TILES ARE ITS OWN TO COUNT: two scenes of 300 different tiles each, with a status
+  # bar every screen shows, are more tiles than the Color holds at once, and each screen
+  # alone is fewer. The scenes take turns twice, so the first comes back after the second's tiles
+  # went in where its own had been.
+  private def two_scenes_of_many_tiles_each
+    test = self
+    program do
+      screen :tiled
+      first = ManyTiles.declare(self, :first_tiles, 300, :red)
+      second = ManyTiles.declare(self, :second_tiles, 300, :blue, from: 300)
+      under = ManyTiles.declare(self, :shared_tiles, 20, :green, from: 600)
+      status_bar :border, tiles: :shared_tiles, map: under, top: 120
+      scene(:one) { background :one, tiles: :first_tiles, map: first }
+      scene(:two) { background :two, tiles: :second_tiles, map: second }
+      state = var :state, 0
+      tick = var :tick, 0
+      game_loop do
+        tick.add! 1
+        (tick == test.class::TILES_SWITCH_AT).then { state.set! 1 }
+        (tick == test.class::TILES_SWITCH_AT * 2).then { state.set! 0 }
+        case_var(:state) do
+          when_val 0, :one
+          when_val 1, :two
+        end
+      end
+    end
+  end
+
+  TILES_SWITCH_AT = 4
+
+  def test_scenes_whose_tiles_together_are_more_than_the_console_holds_each_show_their_own
+    prog = two_scenes_of_many_tiles_each
+    played = ->(frames) { game_player.run(prog, frames: frames).screen }
+
+    assert_equal RED, played.call(2).pixel(8, 0), "the first scene's second tile"
+    assert_equal BLUE, played.call(TILES_SWITCH_AT + 3).pixel(8, 0), "the second scene's"
+    assert_backends_agree(prog, frames: [2, TILES_SWITCH_AT + 3, (TILES_SWITCH_AT * 2) + 3], name: "SCNTILES")
   end
 end

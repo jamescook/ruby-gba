@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "differential"
+require "many_tiles"
 
 # A BACKGROUND WHOSE MAPS DRAW FROM MORE THAN ONE SET OF TILES, which is how a game moves
 # between areas: every room of an area draws from the one set the area loads, and going
@@ -12,6 +13,7 @@ class TestBackgroundTileSets < Minitest::Test
 
   RED = Color.resolve(:red)
   GREEN = Color.resolve(:green)
+  BLUE = Color.resolve(:blue)
 
   SPOT = [12, 12].freeze
 
@@ -315,5 +317,37 @@ class TestBackgroundTileSets < Minitest::Test
 
   def test_two_sets_too_big_to_share_the_memory_build
     refute_empty VBlank::IR::Backends::GBA.new.lower(two_big_areas(0))
+  end
+
+  # TWO AREAS WHOSE TILES TOGETHER ARE MORE THAN THE COLOR HOLDS AT ONCE, 300 each, walked into
+  # and back out of while the game plays: each area's tiles come in as a map of it is shown.
+  WALK_AT = 4
+
+  private def walk_between_areas_of_many_tiles
+    test = self
+    program do
+      screen :tiled
+      shrine = ManyTiles.declare(self, :shrine, 300, :red)
+      clearing = ManyTiles.declare(self, :clearing, 300, :blue, from: 300)
+      ground = background :ground, tiles: { shrine: :shrine, clearing: :clearing },
+                                   map: { shrine: { hall: shrine }, clearing: { glade: clearing } }
+      tick = var :tick, 0
+      where = var :room, 0
+      game_loop do
+        tick.add! 1
+        (tick == test.class::WALK_AT).then { where.set! 1 }
+        (tick == test.class::WALK_AT * 2).then { where.set! 0 }
+        ground.show_map where
+      end
+    end
+  end
+
+  def test_areas_whose_tiles_together_are_more_than_the_console_holds_each_show_their_own
+    prog = walk_between_areas_of_many_tiles
+    played = ->(frames) { game_player.run(prog, frames: frames).screen }
+
+    assert_equal RED, played.call(2).pixel(8, 0), "the shrine's second tile"
+    assert_equal BLUE, played.call(WALK_AT + 3).pixel(8, 0), "the clearing's"
+    assert_backends_agree(prog, frames: [2, WALK_AT + 3, (WALK_AT * 2) + 3], name: "SETMANY")
   end
 end

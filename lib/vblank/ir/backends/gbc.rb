@@ -112,17 +112,25 @@ module VBlank
         # +program+ as a cartridge (Cartridge::GBCROM), carrying its Places.
         # A game whose sprites wear more lists of colours than the console holds is built again
         # with the lists borrowing them as it runs (Art::TooManySpriteLists).
+        # A game whose backgrounds need more tiles than the console holds at once is built again with
+        # each screen bringing its own tiles in (Art::TooManyBackgroundTiles).
         def build(program, title: "RUBYGBA")
-          build_cartridge(program, title, lends: false)
-        rescue Art::TooManySpriteLists
-          build_cartridge(program, title, lends: true)
+          build_lending_if_needed(program, title, tile_rooms: false)
+        rescue Art::TooManyBackgroundTiles
+          build_lending_if_needed(program, title, tile_rooms: true)
         end
 
         private
 
-        def build_cartridge(program, title, lends:)
+        def build_lending_if_needed(program, title, tile_rooms:)
+          build_cartridge(program, title, lends: false, tile_rooms: tile_rooms)
+        rescue Art::TooManySpriteLists
+          build_cartridge(program, title, lends: true, tile_rooms: tile_rooms)
+        end
+
+        def build_cartridge(program, title, lends:, tile_rooms:)
           memory = Memory.new
-          lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends)
+          lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends, tile_rooms: tile_rooms)
           # The runtime's places first, so they are in the half of work memory always in view.
           Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?,
                                   bar_rows: lowering.bar_rows)

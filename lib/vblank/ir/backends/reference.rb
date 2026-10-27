@@ -1440,8 +1440,9 @@ module VBlank
           # the picture back as originally drawn and throw the turn away. It still counts
           # as up: being on screen is what says whose scene is showing, and a scene whose
           # only scenery turns had nothing else to say it.
-          # ...and so is a status bar, which is painted from its own top rather than the screen's.
-          return request_repaint if @bg_affine.key?(node.name) || node.bar?
+          # ...and so is a status bar, which is painted from its own top rather than the screen's,
+          # and anything put up while one shows, which a stamp would paint over the bar's rows.
+          return request_repaint if @bg_affine.key?(node.name) || node.bar? || bar_showing
 
           stamp_background(node)
           in_stack_order(over).each { |bg| stamp_background(bg) }
@@ -1603,6 +1604,10 @@ module VBlank
 
         # Paint one background's whole map onto the screen, cell by cell.
         def stamp_background(node)
+          # A status bar is painted from its own top, with nothing under it, as the whole view is
+          # built (#repaint_view), never stamped from the screen's corner.
+          return request_repaint if node.bar?
+
           tiles = node.tiles
           tile_w = node.tile_w
           tile_h = node.tile_h

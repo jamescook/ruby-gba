@@ -104,6 +104,125 @@ module VBlank
               @drawing_tables = [] # DrawingTable each, for the data
               @picture_checks = [] # what each check asks, by its number (#picture_checks)
               @together_checks = [] # [set, the numbers naming a group, the slots] each (#together_checks)
+              plan_tile_rooms if @plans_tile_rooms
+            end
+
+            # --- the tiles each screen brings in ---
+
+            # WHICH TILES EACH SCREEN BRINGS IN AS IT COMES UP (GBC::Art::Room), for a game whose
+            # backgrounds need more tiles than the Color holds at once (GBC#build). The tiles every
+            # screen shows are kept from power-on: those of the backgrounds declared in no scene, and
+            # the tiles the game paints from lists, which it may paint while any screen is up. Each
+            # scene's own backgrounds' tiles are a room of that scene's, numbered from past those, so
+            # two scenes' rooms take turns with the same picture memory. A background that walks
+            # between areas has a room for each area, past its scene's own tiles, and the room of the
+            # area a map is in comes in as that map is shown.
+            #
+            # A background counts the tiles its maps show and the ones `set_tile` puts in its cells, as
+            # a game whose tiles all fit counts them (a tile is numbered as something first names it),
+            # not every tile of its tileset.
+            def plan_tile_rooms
+              tile_runs.each_value { |run| run.tiles.each { |tile| @art.run_tile(tile, run.colors) } unless run.picture }
+              every = tiled_scenery.reject(&:scene)
+              every.reject(&:several_sets?).each { |bg| tiles_shown(bg).each { |name| background_tile_named(name) } }
+              @art.keep_tiles_asked_so_far
+              @tile_rooms = {} # [scene, area] -> the Room brought in for a screen of that scene, at that area
+              @scene_rooms = {} # a scene -> the Room its own tiles are numbered in
+              tiled_scenery.filter_map(&:scene).uniq.each { |scene| plan_scene_room(scene) }
+              walking = every.find(&:several_sets?)
+              return unless walking
+
+              refuse_rooms_of_two_kinds!(walking)
+              plan_area_rooms(walking, nil)
+            end
+
+            # A scene's own tiles: a room brought in as it arrives, or, where it has a background that
+            # walks between areas, the tiles each of its areas' rooms brings in first.
+            def plan_scene_room(scene)
+              own = tiled_scenery.select { |bg| bg.scene == scene }
+              walking = own.find(&:several_sets?)
+              room = @art.add_room(scene_words(scene), brought_in: walking.nil?)
+              own.reject(&:several_sets?).each { |bg| tiles_shown(bg).each { |name| background_tile_named(name, room) } }
+              @scene_rooms[scene] = room
+              walking ? plan_area_rooms(walking, room) : @tile_rooms[[scene, nil]] = room
+            end
+
+            # A room for each area of +bg+, which walks between areas, past +parent+'s tiles.
+            def plan_area_rooms(bg, parent)
+              bg.sets.each_with_index do |set, area|
+                whose = "the area #{set.inspect} of the background #{bg.name.inspect}"
+                room = @art.add_room(bg.scene ? "#{whose} in #{scene_words(bg.scene)}" : whose, parent: parent)
+                tiles_shown(bg, area).each { |name| background_tile_named(name, room) }
+                @tile_rooms[[bg.scene, area]] = room
+              end
+            end
+
+            def scene_words(scene) = "the scene :#{Modes.strip_scene_prefix(scene)}"
+
+            # The tile pictures +bg+ shows: the ones its maps name — the maps of area number +area+ alone,
+            # for a background that walks between areas — and the ones `set_tile` puts in its cells.
+            def tiles_shown(bg, area = nil)
+              maps = bg.every_map.each_index.select { |which| area.nil? || bg.map_sets.fetch(which) == area }
+              named = maps.flat_map { |which| bg.every_map.fetch(which).flat_map { |row| Array(row) } }
+              named += @reachable.filter_map { |node| node.tile if node.kind == :set_tile && node.name == bg.name }
+              named.compact.reject(&:negative?).uniq.map { |index| bg.tiles.fetch(index) }
+            end
+
+            # A background that walks between areas on every screen has its areas' rooms numbered past
+            # the tiles every screen keeps, where a scene's own tiles would be too.
+            def refuse_rooms_of_two_kinds!(walking)
+              owning = @scene_rooms.find { |_, room| room.tiles.any? }
+              return unless owning
+
+              raise LoweringError, "the background #{walking.name.inspect} walks between areas on every screen, and " \
+                                   "#{scene_words(owning.first)} has backgrounds of its own. Together they need more " \
+                                   "tiles than a Game Boy Color holds at one time. To fix this, declare " \
+                                   "#{walking.name.inspect} in each scene that shows it."
+            end
+
+            # The backgrounds drawn from tiles, every declaration of each: what a screen of tiles shows.
+            def tiled_scenery = @tiled_scenery ||= @program.walk.select { |node| node.kind == :background && !painted_screen_for?(node) }
+
+            # The room +bg+'s tiles are numbered in when it shows its map number +which+: its area's, its
+            # scene's own, or none, for the tiles every screen keeps. None in a game whose tiles all fit.
+            def tile_room(bg, which = 0)
+              return unless @tile_rooms
+              return @tile_rooms[[bg.scene, bg.map_sets.fetch(which)]] if bg.several_sets?
+
+              @scene_rooms[bg.scene] if bg.scene
+            end
+
+            # The room +scene+ brings in as it arrives: its own, or its first area's, or nil for a scene
+            # whose tiles are all ones every screen keeps.
+            def arrival_room(scene)
+              return unless @tile_rooms
+
+              @tile_rooms[[scene, nil]] || @tile_rooms[[scene, 0]]
+            end
+
+            # The room of the area +bg+'s map number +which+ is in, brought in before that map's grid
+            # goes up; a number naming no map brings nothing in, as it shows nothing new.
+            def emit_area_room(bg, which)
+              known = folded(which)
+              if known
+                emit_tile_room(tile_room(bg, known)) if known.between?(0, bg.every_map.length - 1)
+                return
+              end
+
+              chosen = keep_local(:map)
+              value(which)
+              store(chosen)
+              bg.every_map.each_index do |at|
+                other = fresh("not_area_of_map")
+                jump_unless(Build.binop(:==, Build.var_ref(chosen), Build.int(at)), other)
+                emit_tile_room(tile_room(bg, at))
+                @asm.label(other)
+              end
+            end
+
+            # Bring +room+ in, from the blank after this pass (Runtime::Picture#emit_rooms).
+            def emit_tile_room(room)
+              runtime_call("rt_tiles_put_up", [Build.int(room.number)]) if room&.number && room.chain.any? { |link| link.tiles.any? }
             end
 
             # Each colour list's own number, saying which of its sets it holds now (Reference
@@ -418,6 +537,7 @@ module VBlank
               arrival = @handover.arrival(scene)
               screen = arrival_screen(arrival)
               emit_screen_change(screen)
+              emit_tile_room(arrival_room(scene)) # its own tiles, before its grids name them
               arrival.map_choices.each do |var|
                 load_constant(0)
                 store(var)
@@ -719,6 +839,8 @@ module VBlank
             def background_put_up(bg)
               return bar_put_up(bg) if bg.bar?
 
+              emit_tile_room(tile_room(bg)) if bg.several_sets? # up as declared: its first area
+
               emit_bends_shown(bg)
               return big_put_up(bg, 0, "rt_big_put_up") if big?(bg)
 
@@ -741,7 +863,7 @@ module VBlank
               @big_maps[[bg, which]] ||= begin
                 refuse_background!(bg)
                 @art.big_map(bg.every_map.fetch(which).map do |row|
-                  Array(row).map { |tile| tile.nil? || tile.negative? ? nil : background_tile_named(bg.tiles.fetch(tile)) }
+                  Array(row).map { |tile| tile.nil? || tile.negative? ? nil : background_tile_named(bg.tiles.fetch(tile), tile_room(bg, which)) }
                 end)
               end
             end
@@ -778,6 +900,8 @@ module VBlank
             def emit_show_map(node)
               bg = declared_background!(node)
               return emit_show_changed_big_map(bg, node) if big?(bg) && changed_big?(bg)
+
+              emit_area_room(bg, node.which) if bg.several_sets? && @tile_rooms
 
               routine = big?(bg) ? "rt_big_show" : "rt_background_put_up"
               grids = bg.every_map.each_index.map { |which| big?(bg) ? big_map_of(bg, which) : grid_of(bg, which) }
@@ -913,7 +1037,7 @@ module VBlank
             def emit_set_tile(node)
               bg = declared_background!(node)
               tile = node.tile
-              number, palette = tile.nil? || tile.negative? ? [0, 0] : background_tile_named(bg.tiles.fetch(tile))
+              number, palette = tile.nil? || tile.negative? ? [0, 0] : background_tile_named(bg.tiles.fetch(tile), tile_room(bg))
               colours = palette | (number >= 256 ? Console::GBCHardware::ATTR_TILE_BANK : 0)
               cell = Build.int((number & 0xFF) | (colours << 8))
               return runtime_call("rt_big_set", [node.col, node.row, cell]) if big?(bg)
@@ -1003,7 +1127,7 @@ module VBlank
               swaps = step && bg.palettes.zip(bg.recolors.fetch(step)).to_h
               palettes = {}
               bg.tiles.compact.uniq.each do |name|
-                _, palette = background_tile_named(name)
+                _, palette = background_tile_named(name, tile_room(bg))
                 colors = tile_colors_with(name, swaps)
                 if palettes.key?(palette) && palettes[palette] != colors
                   raise LoweringError, "the background #{bg.name.inspect} draws two of its tiles from one list of colours " \
@@ -1068,7 +1192,7 @@ module VBlank
                     tile = map[row] && map[row][col]
                     next nil if tile.nil? || tile.negative?
 
-                    background_tile_named(bg.tiles.fetch(tile))
+                    background_tile_named(bg.tiles.fetch(tile), tile_room(bg, which))
                   end
                 end
                 @art.grid(cells)

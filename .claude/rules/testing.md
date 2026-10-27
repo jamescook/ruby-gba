@@ -54,7 +54,9 @@ The shared helpers stay at `test/` — `test_helper.rb`, `differential.rb`, `emu
 again in another language is held to), `runtime_sounds.rb` (the sound such a runtime is held
 to, sample for sample against the native one's), `midpoint_circle.rb` (the answer key for a light's
 rows), `many_rooms_game.rb` (a scene of many rooms with sprite pictures grouped by room),
-`status_bar_games.rb` (small games with a status bar, for the verb's and its handle's tests), and the
+`status_bar_games.rb` (small games with a status bar, for the verb's and its handle's tests),
+`many_tiles.rb` (backgrounds of many different tiles, for what a console does when they are too many to
+hold at once), and the
 helpers a test file shares with its `_on_the_advance.rb` twin (`fade_watch.rb`,
 `tinted_handover.rb`) — and are loaded by bare name (`require "differential"`), never
 `require_relative`.

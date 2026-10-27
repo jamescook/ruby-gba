@@ -135,7 +135,12 @@ module VBlank
                           "row by row with `scroll_each_row`. The console holds 32×32 cells of a map at " \
                           "once, so a bigger map is brought into view as the view moves. A second " \
                           "background showing at once is refused, and so are `rotate` and `scale`: a " \
-                          "Game Boy Color cannot turn or resize a background."),
+                          "Game Boy Color cannot turn or resize a background. The console holds 512 " \
+                          "different background tiles at once. When a game needs more, each scene's own " \
+                          "tiles come in as the scene takes over, and each area's tiles of a background " \
+                          "that walks between areas come in as a map of the area is shown. The display is " \
+                          "off for that one frame. A scene or an area that needs more than 512 tiles is " \
+                          "refused."),
         status_bar: works("the bar is a layer of its own beside the one background, so a game with a bar " \
                           "still has its background. The bar's tiles and the background's tiles share the " \
                           "room for 512 tiles. A game with a bar cannot have a `screen :bitmap`, because the " \

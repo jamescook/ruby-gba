@@ -876,6 +876,10 @@ end
 
 # Reference#stamp_background: the whole map onto the picture, cell by cell.
 def rg_background_stamp(background)
+  # Reference#stamp_background: a status bar is painted from its own top as the view is built.
+  return rg_request_repaint if rg_bar?(background)
+
+
   tile_w = rg_background_field(background, RG_BG_TILE_W)
   tile_h = rg_background_field(background, RG_BG_TILE_H)
   rg_mix_as_layer(rg_background_field(background, RG_BG_SEE_THROUGH))
@@ -1018,7 +1022,7 @@ def rg_background_put_up(background)
   @rg_shown_backgrounds << background
   rg_mark_from_corner(background)
   @rg_scenery_kept = false
-  return rg_request_repaint if @rg_turns[rg_keeper_of(background)].turned || rg_bar?(background)
+  return rg_request_repaint if @rg_turns[rg_keeper_of(background)].turned || rg_bar?(background) || rg_bar_showing
 
   rg_background_stamp(background)
   rg_stamp_in_stack_order(background)

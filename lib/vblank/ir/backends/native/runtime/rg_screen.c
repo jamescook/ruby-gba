@@ -431,6 +431,7 @@ void rg_screen_digit(int32_t value, int32_t x, int32_t y, int32_t color, const i
 /* --- see-through layers --- */
 
 static int32_t showing(int32_t background);
+static int32_t bar_showing(void);
 static void request_repaint(void);
 static void repaint_view(void);
 
@@ -801,6 +802,11 @@ static uint16_t tile_pixel(int32_t background, int32_t cell, int64_t tx, int64_t
 
 /* Reference#stamp_background: the whole map onto the picture, cell by cell. */
 void rg_background_stamp(int32_t background) {
+  /* Reference#stamp_background: a status bar is painted from its own top as the view is built. */
+  if (background_field(background, RG_BG_BAR_TOP) != RG_NOT_A_BAR) {
+    request_repaint();
+    return;
+  }
   int32_t tile_w = background_field(background, RG_BG_TILE_W), tile_h = background_field(background, RG_BG_TILE_H);
   mix_as_layer(background_field(background, RG_BG_SEE_THROUGH));
   for (int32_t row = 0; row < map_rows(background); row++) {
@@ -953,7 +959,8 @@ void rg_background_put_up(int32_t background) {
   remember_put_up(background);
   mark_from_corner(background);
   scenery_kept = 0;
-  if (turns[keeper_of(background)].turned || background_field(background, RG_BG_BAR_TOP) != RG_NOT_A_BAR) {
+  if (turns[keeper_of(background)].turned || background_field(background, RG_BG_BAR_TOP) != RG_NOT_A_BAR ||
+      bar_showing() >= 0) {
     request_repaint();
     return;
   }

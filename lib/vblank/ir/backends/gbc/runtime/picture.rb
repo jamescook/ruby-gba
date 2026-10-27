@@ -80,6 +80,15 @@ module VBlank
             # The window's left edge, which the console counts from seven pixels left of the screen.
             WINDOW_LEFT = 7
 
+            # A GAME WHOSE SCREENS BRING THEIR OWN TILES IN (GBC::Art::Room): the number of the room
+            # asked for last (nought for none), which is in picture memory once the blank after the
+            # asking has brought it in; the one waiting for that blank (nought for none); and 1 while
+            # the display is held off for it. rt_upload is then rt_tiles_bring_in around the plain
+            # upload, which #emit_upload labels rt_upload_now.
+            ROOMS = "rt picture rooms"
+            ROOM_PENDING = 1
+            ROOM_DISPLAY_OFF = 2
+
             # The display's switch that raises its interrupt as each line ends (STAT's mode-0 bit).
             STAT_HBLANK = 0x08
 
@@ -89,7 +98,8 @@ module VBlank
 
             module_function
 
-            def reserve(memory, lends: false, groups: false, bar_rows: nil)
+            def reserve(memory, lends: false, groups: false, bar_rows: nil, rooms: false)
+              memory.reserve(ROOMS, 3) if rooms
               if bar_rows
                 memory.reserve(BAR, 3)
                 memory.reserve(BAR_JOB, 6)
@@ -123,11 +133,13 @@ module VBlank
             # moves those alone. +groups+ says it has pictures grouped by room (Runtime::PictureGroups).
             # +bar_rows+ is how many rows of the window's grid a game's status bars fill, the most of
             # any of them, or nil for a game with none.
+            # +rooms+ says its screens bring their own tiles in (#emit_rooms).
             def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false,
-                     palettes_in_use:, groups: false, bar_rows: nil)
+                     palettes_in_use:, groups: false, bar_rows: nil, rooms: false)
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
                                       drawn_palettes: drawn_palettes, bar: !bar_rows.nil?)
-              emit_upload(asm, memory, groups: groups, bar: !bar_rows.nil?)
+              emit_rooms(asm, memory) if rooms
+              emit_upload(asm, memory, groups: groups, bar: !bar_rows.nil?, label: rooms ? "rt_upload_now" : "rt_upload")
               PictureGroups.emit(asm, memory) if groups
               emit_tile_runs(asm, runs)
               emit_sprites(asm, memory, lends: lends)
@@ -529,10 +541,10 @@ module VBlank
             # In a game with pictures grouped by room (+groups+), the groups the sprites placed need
             # are copied in too (Runtime::PictureGroups), before the screen's switches, which keep the
             # sprite layer off while one is still being copied in.
-            def emit_upload(asm, memory, groups: false, bar: false)
+            def emit_upload(asm, memory, groups: false, bar: false, label: "rt_upload")
               h = Console::GBCHardware
               pending = memory[PictureGroups::JOB] + PictureGroups::PENDING if groups
-              asm.label("rt_upload")
+              asm.label(label)
               asm.load(:a, [memory[Paint::SCREEN_KIND]])
               asm.cp_a(Paint::PAINTED)
               asm.call(:nz, Memory::OAM_DMA)
@@ -1143,6 +1155,99 @@ module VBlank
                 asm.load([big + want + 1], :a)
               end
               asm.jump("rt_big_prepare")
+            end
+
+            # A SCREEN'S OWN TILES (GBC::Art::Room), brought in as it comes up.
+            #
+            # rt_tiles_put_up(room) says the room numbered +room+ is the one wanted, and does nothing
+            # when it is in picture memory already. Its tiles are thousands of bytes — more than one
+            # blank can copy while the display draws — so the blank after the pass that wanted it
+            # holds the display off, copies them in at once, does the rest of its work (a grid put up
+            # whole then, since the display is off) and switches the display back on (rt_upload, around
+            # rt_upload_now). The picture is the screen's, whole, from the frame after: the one frame
+            # the display is off shows nothing, which is the cut a game moving between two parts of a
+            # big world makes anyway, rather than a picture half of old tiles and half of new.
+            def emit_rooms(asm, memory)
+              h = Console::GBCHardware
+              asm.label("rt_tiles_put_up")
+              asm.load_hl_sp(2)
+              asm.load(:a, [:hl]) # the room's number
+              asm.load(:hl, memory[ROOMS])
+              asm.cp_a([:hl])
+              asm.ret(:z)
+              asm.load([:hl], :a)
+              asm.load([memory[ROOMS] + ROOM_PENDING], :a)
+              asm.ret
+
+              asm.label("rt_upload")
+              asm.load(:a, [memory[ROOMS] + ROOM_PENDING])
+              asm.and_a(:a)
+              asm.call(:nz, "rt_tiles_bring_in")
+              asm.call("rt_upload_now")
+              asm.push(:af)
+              asm.load(:a, [memory[ROOMS] + ROOM_DISPLAY_OFF])
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_upload_display_on")
+              asm.xor_a(:a)
+              asm.load([memory[ROOMS] + ROOM_DISPLAY_OFF], :a)
+              asm.load_high(:a, h::LCDC)
+              asm.set(7, :a)
+              asm.load_high(h::LCDC, :a)
+              asm.label("rt_upload_display_on")
+              asm.pop(:af)
+              asm.ret
+
+              # A = the room wanted: the display off, in the blank, and every chunk of the room's list
+              # copied in by the console's own copy.
+              asm.label("rt_tiles_bring_in")
+              asm.add_a(:a) # its entry in the rooms' table, a word, one up
+              asm.load(:e, :a)
+              asm.load(:d, 0)
+              asm.load(:hl, "art_rooms")
+              asm.add_hl(:de)
+              asm.dec(:hl)
+              asm.dec(:hl)
+              asm.load(:a, [:hli])
+              asm.load(:h, [:hl])
+              asm.load(:l, :a)
+              asm.xor_a(:a)
+              asm.load([memory[ROOMS] + ROOM_PENDING], :a)
+              asm.load_high(:a, h::LCDC)
+              asm.bit(7, :a)
+              asm.jump_relative(:z, "rt_tiles_chunk") # off already
+              asm.res(7, :a)
+              asm.load_high(h::LCDC, :a)
+              asm.load(:a, 1)
+              asm.load([memory[ROOMS] + ROOM_DISPLAY_OFF], :a)
+              asm.label("rt_tiles_chunk")
+              asm.load(:a, [:hli]) # how many tiles: nought after the last chunk
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_tiles_brought_in")
+              asm.dec(:a)
+              asm.load(:c, :a) # blocks of 16, less one
+              asm.load(:a, [:hli])
+              asm.load(:e, :a)
+              asm.load(:a, [:hli])
+              asm.load(:d, :a) # DE = where they are
+              asm.load(:a, [:hli])
+              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.load(:a, [:hli])
+              asm.load_high(h::VBK, :a)
+              asm.load(:a, [:hli])
+              asm.load(:b, :a)
+              asm.load(:a, [:hli]) # where they go: B low, A high
+              asm.push(:hl)
+              asm.load(:h, :d)
+              asm.load(:l, :e)
+              asm.load(:d, :a)
+              asm.load(:e, :b)
+              asm.call("rt_gdma")
+              asm.pop(:hl)
+              asm.jump_relative("rt_tiles_chunk")
+              asm.label("rt_tiles_brought_in")
+              asm.xor_a(:a)
+              asm.load_high(h::VBK, :a)
+              asm.jump("rt_bank_back")
             end
 
             # A GRID BEING PUT UP, a few rows a blank: +job+ is where it is kept — the rows left,

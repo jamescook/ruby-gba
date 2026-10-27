@@ -76,6 +76,29 @@ module VBlank
           # the eight holds in a byte, one up so that nought is none.
           MOST_LENT = 254
 
+          # MORE BACKGROUND TILES THAN THE COLOR HOLDS AT ONCE. A game whose backgrounds between
+          # them need more tiles than its picture memory holds still fits when no one screen needs
+          # more: each screen then BRINGS ITS OWN TILES IN as it comes up (a Room, and
+          # Runtime::Picture#emit_rooms). A game is first built with every tile in memory from
+          # power-on, which costs nothing as it runs; this is raised when that runs out, and the
+          # build is made again with rooms (GBC#build).
+          class TooManyBackgroundTiles < LoweringError; end
+
+          # THE TILES ONE SCREEN BRINGS IN, past the ones every screen keeps from power-on: a scene's
+          # own backgrounds' tiles, or one area's of a background that walks between areas. +number+
+          # is the one the runtime brings it in by (one up, so that nought is none), or nil for a
+          # scene's tiles that only its areas' rooms bring in (+parent+ of each of those). +base+ is
+          # its first tile's number, +tiles+ its own tiles (16 bytes each) and +numbers+ which number
+          # each is by its bytes. +what+ says whose it is, for a message, and +id+ which it is among
+          # every room the game has, which labels its tiles in the cartridge.
+          Room = Struct.new(:id, :number, :base, :parent, :tiles, :numbers, :what) do
+            # The number its tiles take up to, past every room it carries.
+            def reach = base + tiles.length
+
+            # The rooms whose tiles it brings in, its parent's first.
+            def chain = parent ? [*parent.chain, self] : [self]
+          end
+
           attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids
 
           # A tile of a picture grouped by room: the +index+th of the picture's own, whose number is
@@ -95,6 +118,9 @@ module VBlank
             @square_colors = square_colors
             @lends = lends
             @grouped = grouped
+            @rooms = [] # the Rooms the runtime brings in, by their number less one
+            @all_rooms = [] # ...and every Room, the ones only carried by another too
+            @shared_tiles = nil # how many tiles every screen keeps, once rooms are planned
             @grouped_tiles = {} # a grouped picture's name -> its own tiles, 16 bytes each
             @sprite_tiles = []        # 16 bytes each
             @sprite_tile_numbers = {} # bytes -> [number, flips]
@@ -258,9 +284,48 @@ module VBlank
 
           # --- backgrounds ---
 
-          # The tile number and palette number a background's tile picture +name+ is drawn with.
-          def background_tile(name, image)
-            @background_tile_of[name] ||= begin
+          # --- rooms: the tiles a screen brings in (TooManyBackgroundTiles) ---
+
+          # The Rooms the runtime brings in, in the order of their numbers.
+          attr_reader :rooms
+
+          # Whether the tiles every screen keeps are settled, so the rest go in rooms.
+          def shared_tiles_settled? = !@shared_tiles.nil?
+
+          # Settle the tiles every screen keeps: those asked for so far. Every tile asked for after
+          # this is asked for in a room.
+          def keep_tiles_asked_so_far = @shared_tiles = @background_tiles.length
+
+          # A room for the tiles +what+ brings in (see Room), numbered from +base+: from its parent's
+          # last, or past the tiles every screen keeps. +brought_in+ says the runtime brings it in by
+          # a number of its own; a scene's tiles carried by its areas' rooms are not.
+          def add_room(what, parent: nil, base: nil, brought_in: true)
+            base ||= parent ? parent.reach : @shared_tiles
+            refuse_too_many_rooms! if brought_in
+            made = Room.new(id: @all_rooms.length, number: brought_in ? @rooms.length + 1 : nil, base: base,
+                            parent: parent, tiles: [], numbers: {}, what: what)
+            @rooms << made if brought_in
+            @all_rooms << made
+            made
+          end
+
+          # The most rooms the runtime brings in by number: it finds a room's list by a word a room,
+          # its number doubled in a byte (Runtime::Picture#emit_rooms).
+          MOST_ROOMS = 127
+
+          def refuse_too_many_rooms!
+            return if @rooms.length < MOST_ROOMS
+
+            raise LoweringError, "this game has more than #{MOST_ROOMS} scenes and areas that bring their own tiles in, " \
+                                 "and a Game Boy Color build brings in #{MOST_ROOMS}. To fix this, use fewer scenes " \
+                                 "or areas with tiles of their own."
+          end
+
+          # The tile number and palette number a background's tile picture +name+ is drawn with, as
+          # +room+ numbers it: one every screen keeps where there is one the same, or else the room's
+          # own. Without a room, in the tiles every screen keeps.
+          def background_tile(name, image, room: nil)
+            @background_tile_of[[room&.id, name]] ||= begin
               unless image.width == 8 && image.height == 8
                 raise LoweringError, "the tile #{name.inspect} is #{image.width}×#{image.height}; the Game Boy Color " \
                                      "build makes 8×8 tiles only so far."
@@ -274,7 +339,7 @@ module VBlank
 
               colors = [BACKDROP, *drawn]
               places = Array.new(64) { |i| image.tile_see_through_at?(i) ? 0 : drawn.index(image.color_at(i) & 0x7FFF) + 1 }
-              [background_tile_number(encode(places)), palette_number(@background_palettes, padded(colors), "backgrounds")]
+              [tile_number_in(room, encode(places)), palette_number(@background_palettes, padded(colors), "backgrounds")]
             end
           end
 
@@ -371,6 +436,9 @@ module VBlank
              *group_rooms.each_value.map { |room| group_tiles_section(room) },
              data_section("art background tiles", "art_background_tiles", @background_tiles.flatten,
                           holds: BACKGROUND_TILES),
+             *@all_rooms.flat_map do |room|
+               room_chunks(room).map { |chunk| data_section(chunk.label, chunk.label, chunk.tiles.flatten, holds: BACKGROUND_TILES) }
+             end,
              *@grids.each_with_index.map do |bytes, i|
                data_section("art grid #{i}", "art_grid_#{i}", bytes, holds: BACKGROUND_MAPS)
              end,
@@ -439,7 +507,30 @@ module VBlank
               end
             end
             group_rooms.each_value { |room| emit_group_tables(asm, room) }
+            emit_room_tables(asm) unless @rooms.empty?
             asm.section
+          end
+
+          # Where each Room's tiles are, as Runtime::Picture#emit_rooms reads them: a word for each
+          # room, by its number, saying where its list is; then each list, a chunk to an entry —
+          # how many tiles, where they are in the cartridge and in which bank, which bank of picture
+          # memory they go to and where — its parents' chunks first, and nought after the last.
+          def emit_room_tables(asm)
+            asm.label("art_rooms")
+            @rooms.each { |room| asm.data_words("art_room_list_#{room.number}") }
+            @rooms.each do |room|
+              asm.label("art_room_list_#{room.number}")
+              room.chain.each do |link|
+                room_chunks(link).each do |chunk|
+                  asm.data_bytes(chunk.tiles.length)
+                  asm.data_words(chunk.label)
+                  asm.data_bank_of(chunk.label)
+                  asm.data_bytes(chunk.bank)
+                  asm.data_words(chunk.to)
+                end
+              end
+              asm.data_bytes(0)
+            end
           end
 
           # A SPRITE PICTURE'S PIECES AND MASK, in a bank of the cartridge rather than the part always
@@ -555,10 +646,45 @@ module VBlank
                                    "or smaller pictures."
             end
             most = painting? ? PAINTING_BACKGROUND_TILES : MOST_BACKGROUND_TILES
+            beside = painting? ? " beside a painted screen" : ""
+            full = @rooms.find { |room| room.reach > most }
+            if full
+              raise LoweringError, "the backgrounds of #{full.what} need #{full.reach} different tiles, with the tiles " \
+                                   "that every scene shows. A Game Boy Color has room for #{most}#{beside} at one " \
+                                   "time. To fix this, use fewer different tiles there."
+            end
             return unless @background_tiles.length > most
 
-            raise LoweringError, "this game's backgrounds need #{@background_tiles.length} different tiles, and a Game " \
-                                 "Boy Color has room for #{most}#{painting? ? ' beside a painted screen' : ''}."
+            # Every tile in memory at once does not fit; tiles a screen brings in as it comes up may.
+            error = shared_tiles_settled? ? LoweringError : TooManyBackgroundTiles
+            raise error, "this game's backgrounds need #{@background_tiles.length} different tiles, and a Game " \
+                         "Boy Color has room for #{most}#{beside} at one time. To fix this, use fewer different tiles. " \
+                         "Or declare each background in the scene that shows it. Then each scene brings its own tiles in."
+          end
+
+          # A run of a room's tiles as the runtime copies it in (Runtime::Picture#emit_rooms): its label
+          # in the cartridge, its tiles, and the bank of picture memory and the place they go. At most
+          # 128 tiles, never across from one half of picture memory to the next.
+          RoomChunk = Data.define(:label, :tiles, :bank, :to)
+
+          # Each of +room+'s own tiles in chunks: a tile numbered +n+ is in bank n / 256 of picture
+          # memory, the first 128 of a bank from 0x9000 and the rest from 0x8800, as the background's
+          # cells count them (Runtime::Picture#emit_start).
+          def room_chunks(room)
+            @room_chunks ||= {}
+            @room_chunks[room.id] ||= begin
+              chunks = []
+              at = 0
+              while at < room.tiles.length
+                tile = room.base + at
+                count = [room.tiles.length - at, 128 - (tile % 128)].min
+                half = tile / 128
+                chunks << RoomChunk.new(label: "art_room_#{room.id}_#{chunks.length}", tiles: room.tiles[at, count],
+                                        bank: half / 2, to: (half.even? ? 0x9000 : 0x8800) + ((tile % 128) * 16))
+                at += count
+              end
+              chunks
+            end
           end
 
           # The place each pixel of a sprite's picture is drawn from: its own list's, where it came
@@ -636,6 +762,20 @@ module VBlank
 
           def background_tile_number(bytes)
             @background_tile_numbers[bytes] ||= (@background_tiles << bytes).length - 1
+          end
+
+          # A tile's number in +room+ (see #background_tile).
+          def tile_number_in(room, bytes)
+            return background_tile_number(bytes) unless room
+
+            kept = @background_tile_numbers[bytes]
+            return kept if kept
+
+            room.chain.each do |link|
+              number = link.numbers[bytes]
+              return number if number
+            end
+            room.numbers[bytes] = room.base + (room.tiles << bytes).length - 1
           end
 
           def padded(colors) = colors + ([BACKDROP] * (PLACES - colors.length))
