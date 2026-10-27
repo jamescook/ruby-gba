@@ -55,6 +55,15 @@ module VBlank
     # only the tests that play the cartridge, which say so when they run.
     Diagnostics::Emulator.available?
 
+    # STANDARD OUTPUT UNBUFFERED, so a test in a Ractor can start a program. In Ruby 4.0, before
+    # it starts one it flushes the process's standard output, and if words are waiting it takes the
+    # lock of an object the main Ractor owns. When the main Ractor is writing the run's progress
+    # at that moment, the test waits on a lock no thread of its own can release, and Ruby stops
+    # it as a deadlock (or, now and then, the whole process crashes). With nothing ever left
+    # waiting in the buffer, the flush has nothing to do and takes no lock. Building a game whose
+    # art is read from a file starts ImageMagick, so this reaches far more tests than it sounds.
+    $stdout.sync = true
+
     # Whether this run plays the game built for another machine (as C, as JavaScript, or as a Game
     # Boy Color cartridge) and checks it against the interpreter, rather than playing the
     # interpreter alone. Such a run has no Advance cartridge to check.
