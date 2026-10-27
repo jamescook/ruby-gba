@@ -24,6 +24,32 @@ module VBlank
       include DisagreementFailsTest
     end
 
+    # The same, on the Ruby lowering's run: the game played as Ruby (Ruby::CheckedRun), checked
+    # against the interpreter on every frame by the same check. What its runtime cannot do yet is a
+    # skip naming it, so the run's count of skips by reason says what is left to do.
+    class RubyCheckedPlayer < IR::Backends::Ruby::CheckedRun
+      include DisagreementFailsTest
+
+      def run(program, max_steps: nil, frames: nil)
+        super
+      rescue IR::Backends::Ruby::RuntimeGap => e
+        raise Minitest::Skip, gap_reason(e)
+      end
+
+      # What the runtime cannot do yet a test asks of the run before or after it, a skip too.
+      def method_missing(name, ...)
+        super
+      rescue IR::Backends::Ruby::RuntimeGap => e
+        raise Minitest::Skip, gap_reason(e)
+      end
+
+      def respond_to_missing?(name, include_private = false) = super
+
+      private
+
+      def gap_reason(gap) = "Ruby's runtime does not have yet: #{gap.part}"
+    end
+
     # The same, on the Game Boy Color lowering's run: the game built as a Game Boy Color cartridge
     # and played in the emulator (GBC::CheckedRun), checked against the interpreter after every
     # pass, each test's program played as a Color program. A test of what the Color's hardware

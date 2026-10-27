@@ -14,6 +14,8 @@ class TestSuitesSplit < Minitest::Test
   PLAYERS = [Reference, CheckedPlayer, VBlank::IR::Backends::Native::CheckedRun,
              VBlank::IR::Backends::Native::HeadlessRun, VBlank::Testing::JSCheckedPlayer,
              VBlank::IR::Backends::JS::CheckedRun, VBlank::IR::Backends::JS::HeadlessRun,
+             VBlank::Testing::RubyCheckedPlayer, VBlank::IR::Backends::Ruby::CheckedRun,
+             VBlank::IR::Backends::Ruby::HeadlessRun,
              VBlank::Testing::GBCCheckedPlayer, VBlank::IR::Backends::GBC::CheckedRun,
              VBlank::IR::Backends::GBC::HeadlessRun].freeze
 
@@ -62,7 +64,7 @@ class TestSuitesSplit < Minitest::Test
     advance_test = Dir.glob("#{TestSuites::ADVANCE_DIR}/**/test_*.rb").first
 
     refute_nil advance_test, "the Advance's folder holds tests"
-    %i[gba native js].each { |lowering| assert_includes files_for(lowering), advance_test, lowering }
+    %i[gba native js ruby].each { |lowering| assert_includes files_for(lowering), advance_test, lowering }
     refute_includes files_for(:gbc), advance_test
   end
 
@@ -101,6 +103,15 @@ class TestSuitesSplit < Minitest::Test
       assert_raises(Minitest::Skip) { skip_on_js "only says something on a JavaScript run" }
     else
       skip_on_js "only says something on a JavaScript run"
+      pass
+    end
+  end
+
+  def test_the_ruby_guard_skips_on_the_ruby_run_alone
+    if VBlank::Testing.lowering == :ruby
+      assert_raises(Minitest::Skip) { skip_on_ruby "only says something on a Ruby run" }
+    else
+      skip_on_ruby "only says something on a Ruby run"
       pass
     end
   end

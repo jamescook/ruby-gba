@@ -9,6 +9,10 @@ AllCops:
     - "coverage/**/*"
     - "vendor/**/*"
     - "tmp/**/*"
+    # The Ruby lowering, its runtime and its printer, is judged by how fast the game runs once it
+    # is right, and a style fix often reads better and costs the Ruby VM more instructions.
+    - "lib/vblank/ir/backends/ruby.rb"
+    - "lib/vblank/ir/backends/ruby/**/*"
 
 Performance:
   Enabled: true

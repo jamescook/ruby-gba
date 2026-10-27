@@ -18,18 +18,19 @@ module VBlank
     #     t.test_files = FileList["test/**/test_*.rb"]   # the default
     #   end
     #
-    # That defines four tasks:
+    # That defines five tasks:
     #
     #   rake test                    every lowering, one after the other, ending with a line each
     #   rake test:lowering:gba       the game on the interpreter, which the cartridge is checked against
     #   rake test:lowering:native    the game built as C, checked against the interpreter (needs zig)
     #   rake test:lowering:js        the game built as JavaScript, checked the same way (needs node)
+    #   rake test:lowering:ruby      the game built as Ruby, checked the same way
     #
     # Each takes TEST= for one file, and `rake test` plays it on each lowering whose run loads it.
     #
     # The Rakefile names the consoles the game is for, as the game does where it is named:
     # `t.consoles = %i[gba]` for the Advance alone, `t.consoles = %i[gba gbc]` for the Game Boy Color
-    # too. The Color adds a fifth task, `rake test:lowering:gbc`, the game built as a Color cartridge
+    # too. The Color adds a sixth task, `rake test:lowering:gbc`, the game built as a Color cartridge
     # and checked against the interpreter, and `rake test` plays it too; a game for the Advance alone
     # gets no Color run it could never pass. The Rakefile cannot see which games its tests build, so
     # it is told the same list the games are, and it takes and refuses exactly what `consoles:` does,

@@ -1,9 +1,10 @@
-# The native, JavaScript and Game Boy Color runs — the game as C, as JavaScript, as a Color cartridge
+# The native, JavaScript, Ruby and Game Boy Color runs — the game as C, as JavaScript, as Ruby, as a Color cartridge
 
 `rake test` plays the suite once per lowering (`test/support/suites.rb`): the GBA run (the
 interpreter, the cartridge checked in the emulator), the native run (the game built as C by
 `Backends::Native`, checked against the interpreter on every frame), the JavaScript run (the
-game as JavaScript by `Backends::JS`, played by node, checked the same way), and last the Game Boy
+game as JavaScript by `Backends::JS`, played by node, checked the same way), the Ruby run (the game
+as Ruby by `Backends::Ruby`, played by a Ruby of its own, checked the same way), and last the Game Boy
 Color run (the game built as a Color cartridge by `Backends::GBC`, played in the emulator and
 checked against the interpreter after every pass). A test that fails on any of them fails the run.
 It needs zig 0.17 and node 18 or later besides the emulator.
@@ -17,7 +18,7 @@ added to it: the emulator records the processor at each of the runtime's sound r
 each was handed says what it played (`GBC::SoundLog`). What the Color's hardware cannot do — fading
 part of the screen, a recording in a song, a save on flash, more colours in one 8×8 square of a
 painted screen, more tiles or memory than it holds — is tested in `test/advance/`
-(`TestSuites::ADVANCE_DIR`), which every run of an Advance game loads (GBA, native, JavaScript) and
+(`TestSuites::ADVANCE_DIR`), which every run of an Advance game loads (GBA, native, JavaScript, Ruby) and
 the Color's never does; so is every example whose game says it is for the Advance alone. A new test
 of such a thing goes there, mirroring test/ (`test/advance/vblank/builder/`), in a file of its own
 beside the shared one (`test_fade_held_to_area_on_the_advance.rb`), rather than skipping on the
@@ -30,7 +31,7 @@ call its run cannot answer (`GBC::HeadlessRun::CannotAnswer`), counted by reason
 (`consoles: %i[gba gbc]`) is played there as a Color game, as `examples/pacman.rb` and
 `examples/breakout.rb` are; `examples/pong_gbc.rb` is a game for the Color alone, a copy of
 `examples/pong.rb` changed for it, since the Advance's title zooms on a screen the Color cannot turn.
-`test/advance/` is owned by the GBA, native and JavaScript lowerings together; a folder several
+`test/advance/` is owned by the GBA, native, JavaScript and Ruby lowerings together; a folder several
 lowerings name in `TestSuites::LOWERING_FOLDERS` is loaded by each of them
 (`Testing::Lowering.files_for`).
 
@@ -41,6 +42,13 @@ all of this file holds for it too, with `skip_on_js` for its own skip and
 `test/vblank/ir/backends/js/` for its own folder. The sound a speaker would make is compared
 with the cartridge's on the native run alone (`.claude/testing/native-sound.md`); the JavaScript
 runtime's voices are the native one's, function for function.
+
+**The Ruby run is played and read the same way.** Its windowless program, a Ruby script run by a
+Ruby of its own, prints the same lines, and its player (`RubyCheckedPlayer`, `Ruby::CheckedRun`)
+compares the same things. `skip_on_ruby` is its own skip and `test/vblank/ir/backends/ruby/` its
+own folder. While its runtime is still being written, a game that needs a part it lacks is found
+when the game is built (`Ruby::Lowering#runtime_gaps`) and the test skips naming the part; the
+run's count of skips by reason is the list of what is left.
 
 ## What `game_player` is on each run
 

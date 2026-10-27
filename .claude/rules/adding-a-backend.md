@@ -19,13 +19,16 @@ guardrails) and either runs it or writes it out as something else that runs. It 
 IR does not say: the IR is target-neutral, and a backend never reaches back into the DSL or the
 builder.
 
-There are five today:
+There are six today:
 
 - `Backends::Reference` runs the tree in Ruby. **It is the answer key**: what a program means is
-  what Reference does with it. It is named for that role, not for its language.
+  what Reference does with it. It is named for that role, not for its language, and it is never
+  made faster at the cost of being plainly correct: a game played fast in Ruby is
+  `Backends::Ruby`'s job.
 - `Backends::GBA` lowers the tree to ARM and a cartridge.
 - `Backends::Native` writes the tree out as C, built by zig into a desktop program.
 - `Backends::JS` writes the tree out as JavaScript, for a web page, and for node in the tests.
+- `Backends::Ruby` writes the tree out as Ruby, played by a runtime written in Ruby.
 - `Backends::GBC` lowers the tree to SM83 code and a Game Boy Color cartridge (MBC5).
 
 ## A second console
@@ -180,7 +183,7 @@ Each of these is what Reference does; check the line before relying on it.
 
 ## Joining the test runs
 
-`rake test` plays the suite once for each lowering; a new one is a fifth run.
+`rake test` plays the suite once for each lowering; a new one is a sixth run.
 `VBlank::Testing` (lib/vblank/testing/) is where that is decided, and it is the same code a
 game's own suite uses:
 
@@ -189,11 +192,10 @@ game's own suite uses:
   is checked, what `rake -T` says it does, the program it needs, and its player. A new lowering
   is a record there.
 - `VBlank::Testing#game_player` hands a test the record's player: Reference on the GBA run,
-  the checked player on the native, JavaScript and Game Boy Color ones. A checked player raises
+  the checked player on the native, JavaScript, Ruby and Game Boy Color ones. A checked player raises
   `IR::Backends::RunComparison::Disagreement` when it disagrees with the interpreter, which the
   testing kit turns into a failed test.
-- `Testing::TestTask` says how a run is started (the native and JavaScript ones in several
-  processes, never in Ractors, since they start programs); `Testing::RakeTasks` makes `rake test` and a
+- `Testing::TestTask` says how a run is started (every checked one in several processes, never in Ractors, since they start programs); `Testing::RakeTasks` makes `rake test` and a
   `test:lowering:<name>` task for each.
 - `TestSuites::LOWERING_FOLDERS` (test/support/suites.rb) names the folders only one lowering's
   run loads: put the new backend's own tests in `test/vblank/ir/backends/<name>/`.
@@ -202,16 +204,16 @@ game's own suite uses:
   cartridge skips on every run but the GBA one), `Testing::Pictures` and `test/mixed_sound.rb`
   (on a checked run they compare the lowered game instead of the cartridge), and the process
   runner `Testing::TestTask` starts such a run with. A test skips on one run with
-  `skip_on_lowering(:name, why)` (`skip_on_native`, `skip_on_js` and `skip_on_gbc` are its
-  three), and the lowering's test folder goes in `TestSuites::LOWERING_FOLDERS`.
+  `skip_on_lowering(:name, why)` (`skip_on_native`, `skip_on_js`, `skip_on_ruby` and `skip_on_gbc`
+  are its four), and the lowering's test folder goes in `TestSuites::LOWERING_FOLDERS`.
 - **`Testing::Pictures` plays the cartridge of the program's console**, which that console's
   kit builds (`builder.cartridge_for`) and the one reader reads back, so a new console's programs
   are compared pixel for pixel once its kit names them.
 - **Reuse the native checked run.** `Native::HeadlessRun` reads a program that prints
   runtime/rg_headless.c's lines, and `Native::CheckedRun` compares it with the interpreter; a
   windowless program of the new lowering that prints the same lines is read and checked by
-  them, through a subclass that says how its program is built (`JS::HeadlessRun`,
-  `JS::CheckedRun`).
+  them, through a subclass that says how its program is built (`JS::HeadlessRun` and
+  `JS::CheckedRun`, `Ruby::HeadlessRun` and `Ruby::CheckedRun`).
 
 ## What done means
 

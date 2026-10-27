@@ -70,6 +70,7 @@ class TestClockOnTheAdvance < Minitest::Test
   def test_a_late_pass_lets_its_frames_of_time_go_by
     skip_on_native "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
     skip_on_js "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
+    skip_on_ruby "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
     player = game_player.clock_at(THURSDAY).frames_each_pass { 3 }.run(program, frames: 20)
 
     assert_equal 6, player[:second]

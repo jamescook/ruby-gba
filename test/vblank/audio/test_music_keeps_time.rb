@@ -49,6 +49,7 @@ class TestMusicKeepsTime < Minitest::Test
   def test_a_late_game_hears_the_same_notes_in_the_same_time
     skip_on_native "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
     skip_on_js "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
+    skip_on_ruby "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
     on_time = game_player.run(scale_game, frames: 30)
     late = game_player.frames_each_pass { 2 }.run(scale_game, frames: 15)
 
@@ -100,6 +101,7 @@ class TestMusicKeepsTime < Minitest::Test
   def test_a_late_game_hears_a_recording_end_after_the_same_number_of_frames
     skip_on_native "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
     skip_on_js "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
+    skip_on_ruby "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
     program = clip_game
     sounding = ->(passes, each_pass) { game_player.frames_each_pass { each_pass }.run(program, frames: passes).active_samples }
 

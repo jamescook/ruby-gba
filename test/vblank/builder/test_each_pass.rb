@@ -70,6 +70,7 @@ class TestEachPass < Minitest::Test
   def test_a_slow_pass_takes_one_step
     skip_on_native "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
     skip_on_js "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
+    skip_on_ruby "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
     b = Builder.new
     b.instance_eval do
       screen :bitmap

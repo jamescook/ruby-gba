@@ -51,10 +51,11 @@ class TestGameSuite < Minitest::Test
     out, passed, lowerings = rake("test")
 
     assert passed, "the game's rake test failed:\n#{out}"
-    assert_equal %w[gba js native], lowerings
+    assert_equal %w[gba js native ruby], lowerings
     assert_match(/^GBA lowering\s+passed/, out)
     assert_match(/^native lowering\s+passed/, out)
     assert_match(/^JavaScript lowering\s+passed/, out)
+    assert_match(/^Ruby lowering\s+passed/, out)
     refute_match(/Game Boy Color/, out)
     refute_match(/test:lowering:gbc/, rake("-T").first)
   end
@@ -64,7 +65,7 @@ class TestGameSuite < Minitest::Test
     out, passed, lowerings = rake("test", env: { "GAME_SUITE_CONSOLES" => "gba gbc" })
 
     assert passed, "the game's rake test failed:\n#{out}"
-    assert_equal %w[gba gbc js native], lowerings
+    assert_equal %w[gba gbc js native ruby], lowerings
     assert_match(/^Game Boy Color lowering\s+passed/, out)
   end
 
@@ -98,7 +99,8 @@ class TestGameSuite < Minitest::Test
   # An interpreter made to draw one pixel differently fails the game's tests on each run, as
   # failed assertions and not as errors in the library: on the native run the game as C differs
   # from it at a frame, on the JavaScript run the game as JavaScript does, and on the GBA
-  # lowering's run the cartridge does, at the pixel named.
+  # lowering's run the cartridge does, at the pixel named. (The Ruby lowering's runtime draws
+  # nothing yet, so its run skips the drawing test.)
   def test_a_disagreement_fails_the_games_test_on_each_run
     out, passed, = rake("test", env: { "GAME_SUITE_DISAGREE" => "1" })
 
@@ -109,7 +111,7 @@ class TestGameSuite < Minitest::Test
     assert_match(/disagree at frame 1: the picture differs/, out)
     assert_match(/the backends drew different screens: 1 of 38400 pixels differ/, out)
     assert_match(/\(  0,  0\)/, out)
-    assert_equal %w[0 0 0], out.scan(/(\d+) errors/).flatten, "no run's tests stopped with an error"
+    assert_equal %w[0 0 0 0], out.scan(/(\d+) errors/).flatten, "no run's tests stopped with an error"
   end
 
   WALKING = "test_holding_right_walks_the_walker"

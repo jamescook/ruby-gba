@@ -9,6 +9,7 @@ require_relative "backends/sprite_names"
 require_relative "backends/gba"
 require_relative "backends/native"
 require_relative "backends/js"
+require_relative "backends/ruby"
 require_relative "backends/gbc"
 
 module VBlank
@@ -26,15 +27,17 @@ module VBlank
     #
     # `Reference` is deliberately not named that way, because it isn't a platform
     # anyone ships to. It's the answer key: the implementation that defines what a
-    # program means, which the others are checked against. Naming it for its role
-    # rather than for the language it happens to be written in also keeps it from
-    # reading as "the Ruby one" in a project where every backend is written in Ruby.
+    # program means, which the others are checked against. It is named for its role
+    # rather than for the language it happens to be written in: `Ruby` is the lowering
+    # that writes a game out as a Ruby program to play fast, which Reference never
+    # tries to be.
     #
     # EVERY BACKEND IS FIRST-CLASS. `rake test` plays the suite once for each lowering — GBA (the
-    # cartridge), Native (the game as a desktop program) and JS (the game as a web page) — and
-    # checks each against Reference, so a feature is not done until it works on all four: a test
-    # that one of them cannot pass fails the run. A test of one lowering's own output (the ARM it
-    # emits, the C it writes, the JavaScript it prints) lives in that lowering's own test folder
+    # cartridge), Native (the game as a desktop program), JS (the game as a web page), Ruby (the
+    # game as a Ruby program) and GBC (the Color cartridge) — and checks each against Reference, so
+    # a feature is not done until it works on all of them: a test that one of them cannot pass fails
+    # the run. A test of one lowering's own output (the ARM it emits, the C it writes, the Ruby it
+    # prints) lives in that lowering's own test folder
     # and is played by its run alone. (IR::Portability's
     # "tier" is a different thing: which kinds of node can run anywhere at all.)
     module Backends

@@ -13,6 +13,7 @@
 module TestSuites
   NATIVE_DIR = "test/vblank/ir/backends/native"
   JS_DIR = "test/vblank/ir/backends/js"
+  RUBY_DIR = "test/vblank/ir/backends/ruby"
   GBC_DIR = "test/vblank/ir/backends/gbc"
 
   # WHAT ONLY THE GAME BOY ADVANCE CAN DO: fading part of the screen, a recording in a song, a
@@ -35,6 +36,7 @@ module TestSuites
                                              gba: ["test/vblank/ir/backends/gba", "test/vblank/diagnostics",
                                                    "test/vblank/playthroughs", ADVANCE_DIR],
                                              native: [NATIVE_DIR, ADVANCE_DIR], js: [JS_DIR, ADVANCE_DIR],
+                                             ruby: [RUBY_DIR, ADVANCE_DIR],
                                              gbc: [GBC_DIR]
                                            })
 

@@ -71,7 +71,7 @@ module VBlank
         super
       end
 
-      # The test options this run is played with. A native or JavaScript run leaves out --ractor.
+      # The test options this run is played with. A checked run leaves out --ractor.
       def option_list(...)
         checked? ? without_ractor(super) : super
       end
@@ -105,7 +105,7 @@ module VBlank
 
       def without_ractor(options) = (options.split - %w[--ractor]).join(" ")
 
-      # What the run is handed. A native or JavaScript run's own copy of TESTOPTS loses --ractor
+      # What the run is handed. A checked run's own copy of TESTOPTS loses --ractor
       # too, since a test that starts a run of its own hands that copy on. YJIT as #yjit? says.
       def run_settings
         yjit = { "RUBY_YJIT_ENABLE" => yjit? ? "1" : nil }

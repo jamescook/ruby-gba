@@ -315,6 +315,11 @@ module VBlank
           # game as JavaScript instead, which prints the same lines, and builds that here.
           def headless_program(program) = Native.new.build_headless(program)
 
+          # How the program at +exe+ is started: the settings it gets besides this process's own,
+          # and the command. A program built as C is started as itself; Ruby::HeadlessRun's is a
+          # script, started by a Ruby.
+          def program_command(exe) = [{}, exe]
+
           # What the program prints is read a line at a time, so the two big things it makes go
           # to files of their own, in a folder that lasts as long as the run: every moment's
           # picture, written over the one before and read when it is asked for (#screen), and
@@ -385,7 +390,7 @@ module VBlank
 
           def play_frames(exe, frames, options)
             @moments = []
-            Open3.popen3(exe, frames.to_s, *options) do |stdin, stdout, stderr, waiter|
+            Open3.popen3(*program_command(exe), frames.to_s, *options) do |stdin, stdout, stderr, waiter|
               complaint = Thread.new { stderr.read }
               # A program that is stopped has its streams closed under this reader, which is
               # reported where the program is (#next_line) and not a second time from here.

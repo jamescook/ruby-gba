@@ -50,7 +50,8 @@ class is `private def`, except one a game block calls back through (`test = self
 goes in a shared helper at `test/`.
 
 The shared helpers stay at `test/` — `test_helper.rb`, `differential.rb`, `emulator_blend.rb`,
-`mixed_sound.rb`, `conformance_fixture.rb`, `midpoint_circle.rb` (the answer key for a light's
+`mixed_sound.rb`, `conformance_fixture.rb`, `int32_cases.rb` (the calculations a runtime written
+again in another language is held to), `midpoint_circle.rb` (the answer key for a light's
 rows), `many_rooms_game.rb` (a scene of many rooms with sprite pictures grouped by room), and the
 helpers a test file shares with its `_on_the_advance.rb` twin (`fade_watch.rb`,
 `tinted_handover.rb`) — and are loaded by bare name (`require "differential"`), never
@@ -83,17 +84,18 @@ time; in a worktree set `VBLANK_SUITE_LOCK=checkout`.
 
 A test makes its player with `game_player`, never `Reference.new`, when the question is what the
 game does: on the GBA run it is the interpreter, on the native run the game as C, on the
-JavaScript run the game as JavaScript, each checked against the interpreter on every frame, and
-on the Game Boy Color run the Color cartridge, checked against the interpreter after every pass.
-`Reference.new` by name is for a test of the interpreter itself. A test that reaches for the
-Advance's cartridge in the emulator skips itself on the native, JavaScript and Color runs. A test
-one of them cannot play yet says `skip_on_native "why"` (or `skip_on_js`, `skip_on_gbc`). A test
-of one lowering's own output lives in a folder that lowering owns and is played by its run alone
-(`TestSuites::LOWERING_FOLDERS`: `ir/backends/gba/`, `diagnostics/` and `playthroughs/` for GBA,
-`ir/backends/native/`, `ir/backends/js/`, `ir/backends/gbc/`). See `lowerings.md`.
+JavaScript run the game as JavaScript, on the Ruby run the game as Ruby, each checked against the
+interpreter on every frame, and on the Game Boy Color run the Color cartridge, checked against the
+interpreter after every pass. `Reference.new` by name is for a test of the interpreter itself. A
+test that reaches for the Advance's cartridge in the emulator skips itself on the native,
+JavaScript, Ruby and Color runs. A test one of them cannot play yet says `skip_on_native "why"`
+(or `skip_on_js`, `skip_on_ruby`, `skip_on_gbc`). A test of one lowering's own output lives in a
+folder that lowering owns and is played by its run alone (`TestSuites::LOWERING_FOLDERS`:
+`ir/backends/gba/`, `diagnostics/` and `playthroughs/` for GBA, `ir/backends/native/`,
+`ir/backends/js/`, `ir/backends/ruby/`, `ir/backends/gbc/`). See `lowerings.md`.
 
-**What only the Advance can do is tested in `test/advance/`**, which the GBA, native and
-JavaScript runs load and the Color's never does: fading part of the screen, a recording in a song,
+**What only the Advance can do is tested in `test/advance/`**, which the GBA, native, JavaScript
+and Ruby runs load and the Color's never does: fading part of the screen, a recording in a song,
 more colours in one 8×8 square of a painted screen than the Color holds, and every example whose
 game is for the Advance alone. A new test of such a thing goes there, mirroring `test/`, in a file
 of its own beside the shared one (`test_fade_held_to_area_on_the_advance.rb`), rather than skipping

@@ -6,11 +6,12 @@ module VBlank
     # loads. Both the rake tasks (RakeTasks) and the tests themselves (Testing.lowering) read it
     # from here, so the two cannot answer differently.
     #
-    # A game is played three ways, or four when it is for the Game Boy Color too (see
+    # A game is played four ways, or five when it is for the Game Boy Color too (see
     # Run#console). The GBA lowering's run plays it on the interpreter
     # (Backends::Reference), which is what the cartridge is checked against; the native
     # lowering's run builds it as C and plays that, the JavaScript lowering's run builds it as
-    # JavaScript and plays that under node, and the Game Boy Color lowering's builds it as a
+    # JavaScript and plays that under node, the Ruby lowering's builds it as Ruby and plays that
+    # in a Ruby of its own, and the Game Boy Color lowering's builds it as a
     # Game Boy Color cartridge and plays that in the emulator, each checked against the
     # interpreter on every frame. A test written once plays on whichever the run is for.
     #
@@ -58,6 +59,9 @@ module VBlank
                                      Run.new(name: :js, title: "JavaScript", console: :gba, checked: true,
                                              does: "the game built as JavaScript, checked against the interpreter",
                                              needs: "node", player: "Testing::JSCheckedPlayer", yjit: true),
+                                     Run.new(name: :ruby, title: "Ruby", console: :gba, checked: true,
+                                             does: "the game built as Ruby, checked against the interpreter",
+                                             needs: nil, player: "Testing::RubyCheckedPlayer", yjit: true),
                                      Run.new(name: :gbc, title: "Game Boy Color", console: :gbc, checked: true,
                                              does: "the game built as a Game Boy Color cartridge, played in the " \
                                                    "emulator and checked against the interpreter",

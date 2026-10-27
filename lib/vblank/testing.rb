@@ -98,6 +98,9 @@ module VBlank
     # The same, for the JavaScript lowering's run.
     def skip_on_js(why) = skip_on_lowering(:js, why)
 
+    # The same, for the Ruby lowering's run.
+    def skip_on_ruby(why) = skip_on_lowering(:ruby, why)
+
     # The same, for the Game Boy Color lowering's run.
     def skip_on_gbc(why) = skip_on_lowering(:gbc, why)
 

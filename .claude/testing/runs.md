@@ -7,6 +7,7 @@ rake test TEST=test/vblank/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one 
 rake test:lowering:gba                                          # the GBA lowering's run alone (TEST= too)
 rake test:lowering:native                                       # the native lowering's run alone (TEST= too)
 rake test:lowering:js                                           # the JavaScript lowering's run alone (TEST= too)
+rake test:lowering:ruby                                         # the Ruby lowering's run alone (TEST= too)
 rake test:lowering:gbc                                          # the Game Boy Color lowering's run alone (TEST= too)
 rake test:playthroughs                                          # every test in test/vblank/playthroughs/
 bundle exec ruby -Itest test/vblank/dsl/test_thing.rb           # one file, plain minitest (needs bundle exec)
@@ -16,7 +17,8 @@ bundle exec ruby -Itest test/vblank/dsl/test_thing.rb           # one file, plai
 |---|---|
 | the native lowering's C runtime | `rake test:lowering:native` |
 | the JavaScript lowering's own code: its printer, its runtime | `rake test:lowering:js` |
-| the native lowering's statements (`Native::Lowering`, `Picture`, `Sound`, `Saving`), which the JavaScript lowering prints too | `rake test:lowering:native` and `rake test:lowering:js` |
+| the Ruby lowering's own code: its printer, its runtime | `rake test:lowering:ruby` |
+| the native lowering's statements (`Native::Lowering`, `Picture`, `Sound`, `Saving`), which the JavaScript and Ruby lowerings print too | `rake test:lowering:native`, `rake test:lowering:js` and `rake test:lowering:ruby` |
 | the GBA lowering's own code: the ARM it emits | `rake test:lowering:gba` |
 | the Game Boy Color lowering's own code: the SM83 it emits, its runtime, its art | `rake test:lowering:gbc` |
 | anything every lowering reads: the DSL, the IR, the interpreter, the build checks, the test helpers | `rake test` |

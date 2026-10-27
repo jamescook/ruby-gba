@@ -88,9 +88,10 @@ end
 # GBA lowering's run (the interpreter, with the cartridge checked in the emulator), then the
 # native lowering's (the game built as C, checked against the interpreter, in several processes),
 # then the JavaScript lowering's (the game built as JavaScript and played by node, checked the same
-# way), then the Game Boy Color's (the game built as a Color cartridge, checked the same way), and
-# ends with a line for each. `rake test:lowering:gba`, `rake test:lowering:native`,
-# `rake test:lowering:js` and `rake test:lowering:gbc` play one. TEST= names one file, played by each lowering whose run loads
+# way), then the Ruby lowering's (the game built as Ruby and played by a Ruby of its own, checked
+# the same way), then the Game Boy Color's (the game built as a Color cartridge, checked the same
+# way), and ends with a line for each. `rake test:lowering:gba`, `rake test:lowering:native`,
+# `rake test:lowering:js`, `rake test:lowering:ruby` and `rake test:lowering:gbc` play one. TEST= names one file, played by each lowering whose run loads
 # it (a file in one lowering's own folder is played by that one alone; see
 # TestSuites::LOWERING_FOLDERS).
 VBlank::Testing::RakeTasks.new do |t|
