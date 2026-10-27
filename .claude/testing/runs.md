@@ -49,3 +49,17 @@ failures and skips by reason a single process would. A process that dies under a
 test, reported as an error saying how it died, and a new one takes its place. Not threads: a
 native test is nearly all Ruby work, and threads take turns at that. The native run never checks
 for shared state; the GBA run plays the same file and does.
+
+## YJIT is on where it makes a run faster
+
+Measured, YJIT made the native and JavaScript runs faster, the Game Boy Color's slower, and the
+GBA run, in Ractors, many times slower. Each run's record says whether it gets YJIT
+(`Testing::Lowering::Run#yjit`), a run in Ractors never does, and `Testing::TestTask#yjit?` says
+how; a `--yjit` in RUBYOPT does not turn it back on where it is off. Re-measure after a change
+to Ruby or to what a run spends its time on.
+
+## Standard output is unbuffered, so a test in a Ractor can start a program
+
+`vblank/testing` sets `$stdout.sync`; the comment beside it says why. Taken out, a test in a
+Ractor that starts a program (ImageMagick, for a game whose art is read from a file) stops as a
+deadlock now and then, as the Pac-Man example's tests did.

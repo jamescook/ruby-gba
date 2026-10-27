@@ -85,19 +85,33 @@ module VBlank
         needs = Lowering.run_named(lowering).needs
         refuse_native_run_without_zig! if needs == "zig"
         refuse_js_run_without_node! if needs == "node"
-        sh(run_settings, "#{FileUtils::RUBY} #{args.join(' ')}", **options, &block)
+        sh(run_settings, [FileUtils::RUBY, *yjit_switch, *args].join(" "), **options, &block)
       end
 
       def checked? = Lowering.run_named(lowering).checked?
 
+      # A run whose tests are played in Ractors: one that is not checked, told --ractor.
+      def in_ractors? = !checked? && option_list.split.include?("--ractor")
+
+      # Is the run played with YJIT, Ruby's compiler of hot methods to machine code? Where its
+      # record says YJIT makes it faster (Lowering::Run#yjit), and never in Ractors: with several
+      # running at once it makes a run many times slower. Off is said on Ruby's command line,
+      # which wins over a --yjit in RUBYOPT; on is said in the environment (#run_settings), which
+      # the processes a checked run starts for its tests inherit. A Ruby built without YJIT takes
+      # both and ignores them.
+      def yjit? = Lowering.run_named(lowering).yjit? && !in_ractors?
+
+      def yjit_switch = yjit? ? [] : ["--disable-yjit"]
+
       def without_ractor(options) = (options.split - %w[--ractor]).join(" ")
 
       # What the run is handed. A native or JavaScript run's own copy of TESTOPTS loses --ractor
-      # too, since a test that starts a run of its own hands that copy on.
+      # too, since a test that starts a run of its own hands that copy on. YJIT as #yjit? says.
       def run_settings
-        return { Lowering::SETTING => "gba" } unless checked?
+        yjit = { "RUBY_YJIT_ENABLE" => yjit? ? "1" : nil }
+        return { Lowering::SETTING => "gba", **yjit } unless checked?
 
-        { Lowering::SETTING => lowering.to_s, "MT_RACTOR" => nil, "MT_CPU" => "1",
+        { Lowering::SETTING => lowering.to_s, "MT_RACTOR" => nil, "MT_CPU" => "1", **yjit,
           "TESTOPTS" => ENV["TESTOPTS"] && without_ractor(ENV["TESTOPTS"]),
           "TEST_PROCESSES" => ENV.fetch("TEST_PROCESSES") { ENV.fetch("MT_RACTOR_WORKERS") { [Etc.nprocessors / 2, 1].max.to_s } } }
       end

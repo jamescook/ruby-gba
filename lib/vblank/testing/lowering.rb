@@ -35,8 +35,13 @@ module VBlank
       #   player   the class `game_player` makes one of on the run, by its name inside VBlank:
       #            the classes are loaded with the whole library, and a Rakefile reads these
       #            records without it
-      Run = Data.define(:name, :title, :console, :checked, :does, :needs, :player) do
+      #   yjit     whether YJIT, Ruby's compiler of hot methods to machine code, makes the run
+      #            faster, as measured: it does for the native and JavaScript runs and makes the
+      #            Game Boy Color's slower. A run in Ractors is played without it whatever this
+      #            says (TestTask#yjit?)
+      Run = Data.define(:name, :title, :console, :checked, :does, :needs, :player, :yjit) do
         alias_method :checked?, :checked
+        alias_method :yjit?, :yjit
 
         # The class `game_player` makes one of on this run.
         def player_class = VBlank.const_get(player)
@@ -46,17 +51,17 @@ module VBlank
       RUNS = Ractor.make_shareable([
                                      Run.new(name: :gba, title: "GBA", console: :gba, checked: false,
                                              does: "the game on the interpreter", needs: nil,
-                                             player: "IR::Backends::Reference"),
+                                             player: "IR::Backends::Reference", yjit: true),
                                      Run.new(name: :native, title: "native", console: :gba, checked: true,
                                              does: "the game built as C, checked against the interpreter",
-                                             needs: "zig", player: "Testing::CheckedPlayer"),
+                                             needs: "zig", player: "Testing::CheckedPlayer", yjit: true),
                                      Run.new(name: :js, title: "JavaScript", console: :gba, checked: true,
                                              does: "the game built as JavaScript, checked against the interpreter",
-                                             needs: "node", player: "Testing::JSCheckedPlayer"),
+                                             needs: "node", player: "Testing::JSCheckedPlayer", yjit: true),
                                      Run.new(name: :gbc, title: "Game Boy Color", console: :gbc, checked: true,
                                              does: "the game built as a Game Boy Color cartridge, played in the " \
                                                    "emulator and checked against the interpreter",
-                                             needs: nil, player: "Testing::GBCCheckedPlayer")
+                                             needs: nil, player: "Testing::GBCCheckedPlayer", yjit: false)
                                    ])
 
       # The setting a run's lowering is read from: each run but the GBA lowering's sets it to its
