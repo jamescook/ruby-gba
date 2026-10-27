@@ -19,7 +19,8 @@ class TestRubyScript < Minitest::Test
 
     Dir.mktmpdir do |dir|
       path = Ruby.new.build_script(game, File.join(dir, "game-ruby.rb"), console: console, err: StringIO.new)
-      Open3.capture2e(ALONE, RbConfig.ruby, path, *arguments, chdir: dir)
+      # A settings file of its own, so it plays the same whatever the person running it has chosen.
+      Open3.capture2e(ALONE, RbConfig.ruby, path, *arguments, "--settings-file", File.join(dir, "settings.txt"), chdir: dir)
     end
   end
 

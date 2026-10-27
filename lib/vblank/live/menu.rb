@@ -25,11 +25,16 @@ module VBlank
       # picture's, which the frontend may make fewer than WindowMenu::SCALES (what fits the screen).
       def initialize(settings: WindowMenu::STARTING, picture: [240, 160], scales: WindowMenu::SCALES)
         @scales = scales
-        @settings = settings.with(scale: settings.scale.clamp(scales.min, scales.max))
+        self.settings = settings
         @picture = picture
         @open = @quit = false
         @heading = 0
         @row = -1
+      end
+
+      # The settings changed from outside the menu: a hotkey, which switches one as its line would.
+      def settings=(settings)
+        @settings = settings.with(scale: settings.scale.clamp(@scales.min, @scales.max))
       end
 
       def open? = @open

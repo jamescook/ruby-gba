@@ -119,7 +119,8 @@ module VBlank
         # first, then the play code itself.
         SCRIPT_PARTS = %w[vblank/ir/buttons.rb vblank/ir/program_error.rb vblank/ir/backends/ruby/live_game.rb
                           vblank/graphics/menu_font.rb vblank/live/window_menu.rb vblank/live/rate.rb
-                          vblank/live/menu.rb vblank/live/session.rb vblank/live/sdl.rb].freeze
+                          vblank/live/menu.rb vblank/live/settings.rb vblank/live/settings_file.rb
+                          vblank/live/session.rb vblank/live/sdl.rb].freeze
         SCRIPT_MAIN = "rg_script_main.rb" # in RUNTIME_DIR: what plays the game, last in a script
         # The line the game's Ruby ends at in a script, which no line of the game's can be, and the
         # line the menu's letters (Graphics::MenuFont::PATH, carried after the parts) end at.

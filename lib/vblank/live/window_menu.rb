@@ -14,10 +14,10 @@ module VBlank
     # window's own pixels, not the game's, so its letters are sharp on any screen.
     module WindowMenu
       # What the window does, as a player last left it. The starting values are the desktop build's
-      # (rg_window.h).
+      # (rg_window.c), the frame rate shown among them.
       Settings = Data.define(:fast_forward_speed, :scale, :fullscreen, :volume, :muted, :frame_rate)
       STARTING = Settings.new(fast_forward_speed: 4, scale: 3, fullscreen: false, volume: 100, muted: false,
-                              frame_rate: false)
+                              frame_rate: true)
 
       # A heading on the bar and the lines under it.
       Heading = Data.define(:name, :lines)

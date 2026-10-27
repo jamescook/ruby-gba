@@ -14,7 +14,7 @@ class TestMenu < Minitest::Test
     menu = Menu.new
 
     refute menu.open?
-    assert_equal({ fast_forward_speed: 4, scale: 3, fullscreen: false, volume: 100, muted: false, frame_rate: false },
+    assert_equal({ fast_forward_speed: 4, scale: 3, fullscreen: false, volume: 100, muted: false, frame_rate: true },
                  menu.settings.to_h)
   end
 

@@ -585,9 +585,25 @@ class TestCLI < Minitest::Test
     end
   end
 
-  # `vblank run` on SDL's dummy drivers, skipped where SDL3 is not installed.
+  # A settings file is read for the window, and a line it cannot use is said, naming the file.
+  def test_run_says_what_its_settings_file_cannot_use
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "demo.rb"), "VBlank.game('DEMO', consoles: %i[gba]) { game_loop { clear_screen :blue } }\n")
+      File.write(File.join(dir, "mine.txt"), "scale = 2\nvolume = loud\n")
+      out, status = run_in_dummy_window(dir, "demo.rb", "--pictures", "2", "--settings-file", "mine.txt")
+
+      assert status.success?, out
+      assert_match(/cannot use some of the settings file/, out)
+      assert_match(/mine\.txt/, out)
+      assert_match(/Line 2: volume/, out)
+    end
+  end
+
+  # `vblank run` on SDL's dummy drivers, skipped where SDL3 is not installed, with a settings file
+  # of its own, so it plays the same whatever the person running the tests has chosen.
   private def run_in_dummy_window(dir, *args)
     drivers = { "SDL_VIDEODRIVER" => "dummy", "SDL_AUDIODRIVER" => "dummy", "RUBY_YJIT_ENABLE" => nil }
+    args += ["--settings-file", File.join(dir, "settings.txt")] unless args.include?("--settings-file")
     out, status = Open3.capture2e(drivers, RUBY, BIN, "run", *args, chdir: dir)
     skip out.lines.first.chomp if out.include?("cannot find SDL3")
     [out, status]

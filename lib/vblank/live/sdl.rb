@@ -13,12 +13,14 @@ module VBlank
     # pixel kept square and sharp. The window can be made any size; the picture keeps its shape,
     # with bars where the window is the wrong shape for it.
     #
-    # The keys, as mGBA and the desktop build have them: the arrows are the pad, X is A, Z is B,
-    # Enter is Start, Backspace is Select, A and S are the shoulder buttons L and R. A gamepad
-    # plugged in plays too (PAD_BUTTONS). As in the desktop build, P pauses and carries on, Tab
-    # held fast forwards, and F1 opens the menu (Menu, WindowMenu), which holds the
-    # game while it is open; so does the key above Tab, and on a gamepad the guide button, or Back
-    # and Start together. Escape, or closing the window, stops the play.
+    # The keys are the player's, kept in the settings file the desktop build keeps them in
+    # (Settings, SettingsFile), and to begin with as mGBA and the desktop build have them: the
+    # arrows are the pad, X is A, Z is B, Enter is Start, Backspace is Select, A and S are the
+    # shoulder buttons L and R. A gamepad plugged in plays too (PAD_BUTTONS). As in the desktop
+    # build, P pauses and carries on, Tab held fast forwards, F3, F11 and M switch the frame rate,
+    # fullscreen and mute, and F1 opens the menu (Menu, WindowMenu), which holds the game while it
+    # is open; so does the key above Tab, and on a gamepad the guide button, or Back and Start
+    # together. Escape, or closing the window, stops the play.
     #
     # THE MENU is drawn over the picture in the window's own pixels, not the game's: the picture is
     # the console's few pixels made big and square, and the menu over it is as sharp as the screen
@@ -84,21 +86,22 @@ module VBlank
       # the speaker may still be playing what it took last, and silence put in then is a gap.
       SOUND_BEHIND_FRAMES = 6
 
-      # The console's buttons, by the key that holds each (SDL's scancodes, which name a place on
-      # the keyboard rather than a letter, so the layout of the keyboard does not move them).
-      KEYS = Ractor.make_shareable({ right: 79, left: 80, down: 81, up: 82, a: 27, b: 29, start: 40, select: 42,
-                                     l: 4, r: 22 })
-      ESCAPE = 41
-      PAUSE = 19 # P, the desktop build's pause key too
-      FAST_FORWARD = 43 # Tab, held, as in the desktop build and many an emulator
-      MENU = 58 # F1, the desktop build's menu key too
-      # The keys the menu names (WindowMenu), by scancode.
-      KEY_CODES = Ractor.make_shareable({ f1: MENU, grave: 53, up: 82, down: 81, left: 80, right: 79, enter: 40 })
-      MENU_OPENERS = Ractor.make_shareable(WindowMenu::OPEN_KEYS.map { |name| KEY_CODES.fetch(name) })
+      # Keys are SDL's scancodes, which name a place on the keyboard rather than a letter, so the
+      # layout of the keyboard does not move them. Which key is each console button, and which is
+      # each of the window's own (pause, fast forward, the menu...), is the player's settings
+      # (Settings), the desktop build's starting ones until changed. These are the hotkeys' to
+      # begin with, and the keys that work the menu, which cannot be changed.
+      ESCAPE = Settings::ESCAPE
+      PAUSE = Settings.starting_key(:pause) # P
+      FAST_FORWARD = Settings.starting_key(:fast_forward) # Tab, held
+      MENU = Settings.starting_key(:menu) # F1
+      GRAVE = 53 # the key above Tab, which opens the menu too while no console button has it
+      KEY_CODES = Ractor.make_shareable({ up: 82, down: 81, left: 80, right: 79, enter: 40 })
 
-      # A GAMEPAD'S BUTTONS, by SDL's numbers for them, and the console's button each is: the
-      # console's own layout, as the desktop build sets it to begin with — A on the right (SDL's
-      # "east"), B below it ("south"), the back and start buttons, the shoulders, the D-pad.
+      # A GAMEPAD'S BUTTONS, by SDL's numbers for them (each one's place in Settings::PAD_BUTTONS),
+      # and the console's button each is: the settings' (pad.a = east), and to begin with the
+      # console's own layout, as the desktop build has it — A on the right (SDL's "east"), B below
+      # it ("south"), the back and start buttons, the shoulders, the D-pad.
       PAD_SOUTH = 0 # SDL's numbers for a gamepad's buttons, from its headers
       PAD_EAST = 1
       PAD_BACK = 4
@@ -109,9 +112,7 @@ module VBlank
       PAD_DPAD_DOWN = 12
       PAD_DPAD_LEFT = 13
       PAD_DPAD_RIGHT = 14
-      PAD_BUTTONS = Ractor.make_shareable({ PAD_EAST => :a, PAD_SOUTH => :b, PAD_BACK => :select, PAD_START => :start,
-                                            PAD_DPAD_RIGHT => :right, PAD_DPAD_LEFT => :left, PAD_DPAD_UP => :up,
-                                            PAD_DPAD_DOWN => :down, PAD_RIGHT_SHOULDER => :r, PAD_LEFT_SHOULDER => :l })
+      PAD_BUTTONS = Ractor.make_shareable(Settings.pad_map { |setting| Settings::BUTTONS.find { |button| button.setting == setting }.pad })
       PAD_LEFT_X = 0 # SDL's numbers for the left stick's two ways
       PAD_LEFT_Y = 1
       # How far the stick goes each way is a number up to 32767. A stick at rest seldom reads
@@ -138,9 +139,10 @@ module VBlank
       end)
 
       # The console's buttons a gamepad holds: +down+, SDL's numbers for the buttons down on it, and
-      # the left stick's two ways, up being below nought.
-      def self.pad_buttons(down:, stick_x:, stick_y:)
-        held = down.filter_map { |button| PAD_BUTTONS[button] }
+      # the left stick's two ways, up being below nought. +pads+ says which console button each of
+      # its buttons is, by SDL's number.
+      def self.pad_buttons(down:, stick_x:, stick_y:, pads: PAD_BUTTONS)
+        held = down.filter_map { |button| pads[button] }
         held << :right if stick_x > STICK_DEAD_ZONE
         held << :left if stick_x < -STICK_DEAD_ZONE
         held << :down if stick_y > STICK_DEAD_ZONE
@@ -161,16 +163,28 @@ module VBlank
         false
       end
 
-      # A window +scale+ times a +width+ by +height+ picture, titled +title+. +library+ names the
-      # SDL3 file to load, in place of looking for it. +menu+ false is a window F1 opens no menu
-      # in, for a game that says it has none. A window that cannot be opened all the way is closed
-      # again before the error comes out.
-      def initialize(title:, scale: 3, width: 240, height: 160, library: nil, menu: true)
+      # A window +scale+ times a +width+ by +height+ picture, titled +title+; nil +scale+ is the
+      # settings'. +library+ names the SDL3 file to load, in place of looking for it. +menu+ false
+      # is a window F1 opens no menu in, for a game that says it has none.
+      #
+      # +settings_file+ is where the player's settings are read from and written to: :usual, the
+      # files the desktop build keeps too (SettingsFile); a path, that one file alone; or nil, none,
+      # so the settings start as the desktop build's and nothing is written (as a test wants).
+      # What a file says that cannot be used is in #settings_problems.
+      #
+      # A window that cannot be opened all the way is closed again before the error comes out.
+      def initialize(title:, scale: nil, width: 240, height: 160, library: nil, menu: true, settings_file: nil)
         @sdl = self.class.binding_for(library)
+        @title = title
         @width = width
         @height = height
         @closed = false
         @has_menu = menu
+        @player_settings = Settings.new(key_names: KeyNames.new(@sdl))
+        @settings_file = settings_file && SettingsFile.new(title: title, folder_of: method(:pref_folder),
+                                                           asked: (settings_file unless settings_file == :usual))
+        @settings_problems = @settings_file ? @settings_file.load(@player_settings) : []
+        scale ||= @player_settings.window.scale
         @kept_from_game = [] # keys pressed for the menu, kept from the game until they come up
         @pads = {} # the gamepads plugged in, by SDL's number for each
         @pad_down = Hash.new { |downs, id| downs[id] = [] } # the buttons down on each, as SDL said
@@ -184,9 +198,28 @@ module VBlank
           close
           raise
         end
-        @menu = Menu.new(settings: WindowMenu::STARTING.with(scale: scale), picture: [width, height],
+        @menu = Menu.new(settings: @player_settings.window.with(scale: scale), picture: [width, height],
                          scales: WindowMenu::SCALES.min..[largest_scale_that_fits, scale].max)
         @settings = @menu.settings # as the window last made them so
+        @sdl.SDL_SetWindowFullscreen(@window, 1) if @settings.fullscreen
+      end
+
+      # What the settings file said that could not be used, a sentence to a line, each file's
+      # sentences under its name; empty when all of it could.
+      attr_reader :settings_problems
+
+      # ...said to the player as the desktop build says it, or nil when there is nothing to say.
+      def settings_problems_message
+        return nil if @settings_problems.empty?
+
+        "#{@title}: the window cannot use some of the settings file:\n#{@settings_problems.join("\n")}"
+      end
+
+      # SDL's names for the keys, which the settings file names keys by.
+      class KeyNames
+        def initialize(sdl) = @sdl = sdl
+        def name(key) = @sdl.SDL_GetScancodeName(key).to_s
+        def key(name) = @sdl.SDL_GetScancodeFromName(name)
       end
 
       # The picture into the window, and whatever SDL has heard from the window since. The
@@ -198,6 +231,7 @@ module VBlank
         end
 
         read_events
+        write_settings_when_due
         count_frame_rate
         @sdl.SDL_UpdateTexture(@texture, nil, pixels.pack("v*"), @width * 2)
         redraw_window
@@ -211,7 +245,7 @@ module VBlank
       # a gamepad button pressed for the menu is kept from the game the same way.
       def held_buttons(_pass)
         keys = @sdl.SDL_GetKeyboardState(nil)
-        from_keys = KEYS.filter_map { |button, code| button if keys[code] != 0 && !@kept_from_game.include?(code) }
+        from_keys = @player_settings.buttons_held { |code| keys[code] != 0 && !@kept_from_game.include?(code) }
         (from_keys + @pads.values.flat_map { |pad| pad_held(pad) }).uniq
       end
 
@@ -253,7 +287,8 @@ module VBlank
 
         empty_speaker
         while held? && !stop?
-          read_event if @sdl.SDL_WaitEvent(@event) != 0
+          read_event if @sdl.SDL_WaitEventTimeout(@event, wait_milliseconds) != 0
+          write_settings_when_due
           redraw_window
         end
         resume_speaker
@@ -278,8 +313,10 @@ module VBlank
         sleep(ahead) if ahead.positive?
       end
 
-      # The window goes, and SDL with it. Closing twice does nothing more.
+      # The window goes, and SDL with it, with any change to the settings written first. Closing
+      # twice does nothing more.
       def close
+        write_settings if @player_settings&.unwritten?
         @pads.each_value { |pad| @sdl.SDL_CloseGamepad(pad) }
         @pads = {}
         @sdl.SDL_DestroyAudioStream(@speaker) if live?(@speaker)
@@ -368,6 +405,11 @@ module VBlank
           extern "char SDL_SetTextureBlendMode(void*, unsigned int)"
           extern "char SDL_PollEvent(void*)"
           extern "char SDL_WaitEvent(void*)"
+          extern "char SDL_WaitEventTimeout(void*, int)"
+          extern "const char* SDL_GetScancodeName(int)"
+          extern "int SDL_GetScancodeFromName(const char*)"
+          extern "void* SDL_GetPrefPath(const char*, const char*)"
+          extern "void SDL_free(void*)"
           extern "char SDL_PushEvent(void*)"
           extern "void* SDL_GetKeyboardState(void*)"
           extern "void* SDL_OpenGamepad(unsigned int)"
@@ -429,6 +471,17 @@ module VBlank
         @sdl.SDL_SetTextureBlendMode(@letters, BLENDMODE_BLEND)
         @sdl.SDL_SetTextureScaleMode(@letters, SCALEMODE_LINEAR)
         @letters_density = atlas.density
+      end
+
+      # The folder the operating system keeps for vblank and +name+ (a game's, or the one every game
+      # shares), as SDL finds it and makes it if it is not there; nil when it cannot be made.
+      def pref_folder(name)
+        found = @sdl.SDL_GetPrefPath("vblank", name)
+        return nil if found.null?
+
+        path = found.to_s
+        @sdl.SDL_free(found)
+        path
       end
 
       # How many of the screen's pixels a point of the window is: two on a Retina screen.
@@ -561,7 +614,9 @@ module VBlank
         @second_began = now
       end
 
-      # The window made as the menu now says, where that is not as it was.
+      # The window made as the menu now says, where that is not as it was, and the player's settings
+      # changed with it: written to their file once nothing has changed for SETTINGS_QUIET, as the
+      # desktop build waits, so moving along a slider is one write.
       def apply_menu_settings
         was = @settings
         @settings = @menu.settings
@@ -571,7 +626,33 @@ module VBlank
         end
         @sdl.SDL_SetWindowFullscreen(@window, @settings.fullscreen ? 1 : 0) if @settings.fullscreen != was.fullscreen
         set_speaker_volume
+        # Only what changed is the player's to keep: a size given with --scale is for this play.
+        changed = @settings.to_h.reject { |name, value| was.public_send(name) == value }
+        @player_settings.window = @player_settings.window.with(**changed)
+        @write_settings_at = now + SETTINGS_QUIET if @player_settings.unwritten?
       end
+
+      SETTINGS_QUIET = 0.5 # seconds
+
+      def write_settings_when_due
+        write_settings if @write_settings_at && now >= @write_settings_at
+      end
+
+      # The settings to their file, if there is one. One that cannot be written is said once, and
+      # tried again after the same wait.
+      def write_settings
+        @write_settings_at = nil
+        return @player_settings.mark_written unless @settings_file
+
+        failed = @settings_file.write(@player_settings) or return
+        warn failed unless @settings_failure_said
+        @settings_failure_said = true
+        @write_settings_at = now + SETTINGS_QUIET
+      end
+
+      # How long the wait for the next thing to happen to a held window may be, in milliseconds:
+      # until the settings are due to be written, or for ever (-1).
+      def wait_milliseconds = @write_settings_at ? [((@write_settings_at - now) * 1000).ceil, 0].max : -1
 
       def set_speaker_volume
         return unless live?(@speaker)
@@ -612,7 +693,7 @@ module VBlank
         scancode = @event[KEY_SCANCODE_AT, 4].unpack1("L")
         if type == EVENT_KEY_UP
           @kept_from_game.delete(scancode)
-          @fast_forward = false if scancode == FAST_FORWARD
+          @fast_forward = false if @player_settings.hotkey_of_key(scancode) == :fast_forward
         else
           read_key_down(scancode, @event[KEY_REPEAT_AT, 1].unpack1("C").nonzero?)
         end
@@ -632,9 +713,10 @@ module VBlank
 
       # The console's buttons one gamepad holds now.
       def pad_held(pad)
-        down = (PAD_BUTTONS.keys - @pad_kept).select { |button| @sdl.SDL_GetGamepadButton(pad, button) != 0 }
+        pads = @player_settings.pad_map
+        down = (pads.keys - @pad_kept).select { |button| @sdl.SDL_GetGamepadButton(pad, button) != 0 }
         self.class.pad_buttons(down: down, stick_x: @sdl.SDL_GetGamepadAxis(pad, PAD_LEFT_X),
-                               stick_y: @sdl.SDL_GetGamepadAxis(pad, PAD_LEFT_Y))
+                               stick_y: @sdl.SDL_GetGamepadAxis(pad, PAD_LEFT_Y), pads: pads)
       end
 
       # A gamepad's button went down, or came up. The guide button, or Back and Start together,
@@ -675,17 +757,33 @@ module VBlank
         apply_menu_settings
       end
 
+      # A key went down: what it does is the player's settings' (Settings), whose hotkeys the
+      # desktop build has too — pause, fast forward held, the menu, and frame rate, fullscreen and
+      # mute switched on and off. Its step a frame at a time is the desktop build's alone.
       def read_key_down(scancode, repeat)
-        if MENU_OPENERS.include?(scancode) && @has_menu
+        hotkey = @player_settings.hotkey_of_key(scancode)
+        if menu_opener?(scancode, hotkey) && @has_menu
           @menu.toggle unless repeat
         elsif @menu.open? && MENU_KEYS.key?(scancode)
           @kept_from_game << scancode
           press_menu(MENU_KEYS[scancode]) unless repeat && MENU_KEYS[scancode] == :enter
-        elsif scancode == FAST_FORWARD
+        elsif hotkey == :fast_forward
           @fast_forward = true
-        elsif scancode == PAUSE && !@menu.open?
+        elsif hotkey == :pause && !@menu.open?
           @paused = !@paused unless repeat
+        elsif SWITCHED.key?(hotkey) && !repeat
+          switch = SWITCHED[hotkey]
+          @menu.settings = @menu.settings.with(switch => !@menu.settings.public_send(switch))
+          apply_menu_settings
         end
+      end
+
+      # The window settings a hotkey switches on and off.
+      SWITCHED = { frame_rate: :frame_rate, fullscreen: :fullscreen, mute: :muted }.freeze
+
+      # The menu's own hotkey, and the key above Tab while no console button has it.
+      def menu_opener?(scancode, hotkey)
+        hotkey == :menu || (scancode == GRAVE && !@player_settings.button_of_key(GRAVE))
       end
 
       def raise_failed!(what)

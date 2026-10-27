@@ -18,4 +18,6 @@ require_relative "live/headless" # ...a device with no screen, whose clock a tes
 require_relative "live/recording" # ...any device, with the sound handed to its speaker kept
 require_relative "live/window_menu" # the window's menu written down once: its lines, keys and look
 require_relative "live/menu" # ...how it behaves and where it draws each part, with no window of its own
+require_relative "live/settings" # what the window keeps for a player, in the desktop build's settings file's rules
+require_relative "live/settings_file" # ...and where it is kept, the same file as the desktop build's
 require_relative "live/sdl" # ...and a window, for a person: SDL3 through Fiddle, loaded when a window is asked for

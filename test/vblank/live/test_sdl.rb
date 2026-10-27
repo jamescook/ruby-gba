@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "tmpdir"
 require "vblank/live"
 
 # The window a game is played live in: SDL3, reached through Fiddle. These open it with SDL's
@@ -131,9 +132,9 @@ class TestSDL < Minitest::Test
   # The key above Tab opens it too, which a Mac keyboard presses without fn.
   def test_the_key_above_tab_opens_the_menu
     window = open_window
-    press_key(SDL::KEY_CODES.fetch(:grave))
+    press_key(SDL::GRAVE)
     window.show(Array.new(240 * 160, 0), 240, 160)
-    press_key(SDL::KEY_CODES.fetch(:grave))
+    press_key(SDL::GRAVE)
 
     assert window.hold_while_paused
   ensure
@@ -251,6 +252,71 @@ class TestSDL < Minitest::Test
     window&.close
   end
 
+  # A window given a settings file opens as it says, and its keys are the file's: here a bigger
+  # window, and Q to pause.
+  def test_a_window_plays_as_its_settings_file_says
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "settings.txt")
+      File.write(path, "scale = 2\nhotkey.pause = Q\n")
+      window = open_window(settings_file: path)
+      press_key(20) # Q
+      window.show(Array.new(240 * 160, 0), 240, 160)
+      press_key(20)
+
+      assert_equal [480, 320], window.window_size
+      assert window.hold_while_paused
+    ensure
+      window&.close
+    end
+  end
+
+  # What the menu changes is written to the file, there for the next window, and the desktop build.
+  def test_a_change_in_the_menu_is_written_to_the_settings_file
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "settings.txt")
+      window = open_window(settings_file: path)
+      press_key(SDL::MENU)
+      window.show(Array.new(240 * 160, 0), 240, 160)
+      %i[right right down left].each { |key| press_key(SDL::MENU_KEYS.key(key)) }
+      press_key(SDL::MENU)
+      window.hold_while_paused
+      window.close
+
+      assert_includes File.read(path), "volume = 90\n"
+    end
+  end
+
+  # A size asked for on the command line is for this play: a change in the menu to something else
+  # writes that change, and leaves the size the file keeps alone.
+  def test_a_size_asked_for_is_not_written_to_the_settings_file
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "settings.txt")
+      window = SDL.new(title: "TEST", scale: 2, settings_file: path)
+      press_key(SDL::MENU)
+      window.show(Array.new(240 * 160, 0), 240, 160)
+      %i[right right down left].each { |key| press_key(SDL::MENU_KEYS.key(key)) }
+      press_key(SDL::MENU)
+      window.hold_while_paused
+      window.close
+
+      assert_includes File.read(path), "volume = 90\n"
+      assert_includes File.read(path), "scale = 3\n"
+    end
+  end
+
+  # What a settings file says that cannot be used is kept for the window's player to be told.
+  def test_a_settings_file_that_cannot_all_be_used_says_what
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "settings.txt")
+      File.write(path, "volume = loud\n")
+      window = open_window(settings_file: path)
+
+      assert_match(/Line 1: volume is a whole number/, window.settings_problems.join("\n"))
+    ensure
+      window&.close
+    end
+  end
+
   # A gamepad's buttons are the console's in its own layout, as the desktop build sets them to begin
   # with: A on the right, B below it, and the D-pad the directions.
   def test_a_gamepads_buttons_are_the_consoles
@@ -300,10 +366,11 @@ class TestSDL < Minitest::Test
 
   private
 
-  def open_window(menu: true)
+  # A window one picture big, or the size a settings file says when it is given one.
+  def open_window(menu: true, settings_file: nil)
     skip "SDL3 is not installed: #{SDL::INSTALL_LINE}" unless SDL.available?
 
-    SDL.new(title: "TEST", scale: 1, menu: menu)
+    SDL.new(title: "TEST", scale: (1 unless settings_file), menu: menu, settings_file: settings_file)
   end
 
   # SDL told a key went down, or came up, as a keyboard would tell it.

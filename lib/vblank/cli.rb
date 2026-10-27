@@ -676,8 +676,13 @@ module VBlank
         --console NAME           gba or gbc: which console to play the game as.
                                  Default: the first console in consoles:.
         --scale N                The window is N times the size of the screen.
-                                 Default: 3. You can change the size of the
-                                 window when it is open.
+                                 Default: the size in the settings file, which
+                                 is 3 until you change it. You can change the
+                                 size of the window in the menu.
+        --settings-file FILE     Read and write the window's settings in FILE
+                                 only. Default: the settings.txt files that the
+                                 desktop build of a game uses too, so a change
+                                 in one is there in the other.
         --pictures N             Stop after the window has shown N pictures.
         --uncapped               Do not wait for the end of each frame. The game
                                  then runs as fast as this computer can play it.
@@ -692,14 +697,15 @@ module VBlank
         #{SET}
     TEXT
     option :console, banner: "NAME", enum: CONSOLES
-    option :scale, type: :numeric, banner: "N", default: 3
+    option :scale, type: :numeric, banner: "N"
     option :pictures, type: :numeric, banner: "N"
     option :uncapped, type: :boolean, default: false
     option :yjit, type: :boolean, default: true
     option :record_sound, banner: "FILE"
+    option :settings_file, banner: "FILE"
     option :set, type: :array, banner: "NAME=VALUE", default: []
     def run_game(game_file)
-      refuse_unless_whole_and_positive!("--scale", options[:scale])
+      refuse_unless_whole_and_positive!("--scale", options[:scale]) if options[:scale]
       refuse_unless_whole_and_positive!("--pictures", options[:pictures]) if options[:pictures]
       game = load_game(game_file)
       program = program_to_run(game)
@@ -840,7 +846,9 @@ module VBlank
     def play_in_window(game, program, session)
       console = program.described_console
       window = VBlank::Live::SDL.new(title: game.title, scale: options[:scale], width: console.screen_width,
-                                     height: console.screen_height, menu: game.menu?)
+                                     height: console.screen_height, menu: game.menu?,
+                                     settings_file: options[:settings_file] || :usual)
+      warn window.settings_problems_message if window.settings_problems_message
       say "Playing #{game.title} for the #{console.title} in Ruby #{RUBY_VERSION} with #{jit_in_use}. " \
           "#{'Press F1 or ` for the menu. ' if game.menu?}Press P to pause. Hold Tab to play fast. Press Escape to stop."
       recording = VBlank::Live::Recording.new(window, frame_seconds: console.frame_seconds) if options[:record_sound]
