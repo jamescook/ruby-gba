@@ -8,10 +8,11 @@
 # which buttons are held and whether to stop, and keeps the time. The headless device is the
 # one with no screen, for a test or a measurement.
 #
-# It is not part of `require "vblank"`, the way vblank/testing is not: the screen device, still
-# to come, reaches its window through Fiddle, which a game that only builds cartridges never
-# needs.
+# It is not part of `require "vblank"`, the way vblank/testing is not: the window (SDL) is reached
+# through Fiddle, which a game that only builds cartridges never needs, and Fiddle is loaded only
+# when a window is asked for.
 require_relative "../vblank"
 require_relative "live/rate" # how fast the play went: passes and frames a second
 require_relative "live/session" # the game played a pass at a time through a device
 require_relative "live/headless" # ...a device with no screen, whose clock a test moves
+require_relative "live/sdl" # ...and a window, for a person: SDL3 through Fiddle, loaded when a window is asked for

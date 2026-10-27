@@ -36,5 +36,10 @@ gemspec
 #   end
 gem "ruby-gba-emulator", path: "ruby-gba-emulator"
 
+# Reaches SDL3 for a game played live in a window (VBlank::Live::SDL). It comes with Ruby, and
+# under bundler a gem the Gemfile does not name cannot be loaded, so a game that plays live names
+# it in its own Gemfile too. Not in the gemspec: building a cartridge never needs it.
+gem "fiddle"
+
 # Runs the suite. From git until it is released as a gem.
 gem "minitest-ractor", git: "https://github.com/jamescook/minitest-ractor.git", group: :test

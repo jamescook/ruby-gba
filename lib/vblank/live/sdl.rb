@@ -1,0 +1,217 @@
+# frozen_string_literal: true
+
+module VBlank
+  module Live
+    # A WINDOW TO PLAY A GAME IN: the device Session shows a game on when a person is playing it.
+    # The window, the keyboard and the clock are SDL3's, a C library every desktop has a build of,
+    # reached through Fiddle, Ruby's own way of calling a C library: no C of this library's to
+    # compile.
+    #
+    # The picture goes into the window as it is. The console keeps a color in fifteen bits, five
+    # each of red, green and blue with red lowest, and SDL takes exactly that (its XBGR1555
+    # format), so a picture is packed two bytes a pixel and handed over, then scaled up with each
+    # pixel kept square and sharp. The window can be made any size; the picture keeps its shape,
+    # with bars where the window is the wrong shape for it.
+    #
+    # The keys: the arrows are the pad, Z is A, X is B, Enter is Start, Backspace is Select, A and
+    # S are the shoulder buttons L and R. Escape, or closing the window, stops the play.
+    class SDL
+      # SDL3 or Fiddle could not be found, said in plain words with what to install.
+      class Missing < StandardError; end
+
+      # SDL could not do something it was asked, said with SDL's own words.
+      class Failed < StandardError; end
+
+      # Where SDL3 is looked for when neither +library:+ nor VBLANK_SDL3 names it: the names each
+      # system's loader finds by itself, then the folders Homebrew installs into on a Mac.
+      LIBRARIES = Ractor.make_shareable(%w[libSDL3.dylib libSDL3.0.dylib libSDL3.so.0 libSDL3.so SDL3.dll
+                                           /opt/homebrew/lib/libSDL3.dylib /usr/local/lib/libSDL3.dylib])
+
+      INSTALL_LINE = "On macOS, run `brew install sdl3`. On Debian or Ubuntu, run `apt install libsdl3-dev`."
+
+      # SDL's own numbers, from its headers.
+      INIT_VIDEO = 0x20
+      WINDOW_RESIZABLE = 0x20
+      PIXELFORMAT_XBGR1555 = 0x15530f02
+      TEXTUREACCESS_STREAMING = 1
+      SCALEMODE_NEAREST = 0
+      LOGICAL_PRESENTATION_LETTERBOX = 2
+      EVENT_QUIT = 0x100
+      EVENT_WINDOW_CLOSE_REQUESTED = 0x210
+      EVENT_BYTES = 128 # an SDL_Event is a union of at most this many bytes
+
+      # The console's buttons, by the key that holds each (SDL's scancodes, which name a place on
+      # the keyboard rather than a letter, so the layout of the keyboard does not move them).
+      KEYS = Ractor.make_shareable({ right: 79, left: 80, down: 81, up: 82, a: 29, b: 27, start: 40, select: 42,
+                                     l: 4, r: 22 })
+      ESCAPE = 41
+
+      # Whether SDL3 can be found and loaded here, without opening anything.
+      def self.available?(library: nil)
+        binding_for(library)
+        true
+      rescue Missing
+        false
+      end
+
+      # A window +scale+ times a +width+ by +height+ picture, titled +title+. +library+ names the
+      # SDL3 file to load, in place of looking for it. A window that cannot be opened all the way
+      # is closed again before the error comes out.
+      def initialize(title:, scale: 3, width: 240, height: 160, library: nil)
+        @sdl = self.class.binding_for(library)
+        @width = width
+        @height = height
+        @closed = false
+        begin
+          open_window(title, scale)
+        rescue Failed
+          close
+          raise
+        end
+      end
+
+      # The picture into the window, and whatever SDL has heard from the window since. The
+      # picture is the size the window was opened for.
+      def show(pixels, width, height)
+        unless [width, height] == [@width, @height] && pixels.length == width * height
+          raise ArgumentError, "The window shows a #{@width}x#{@height} picture, and it was given a " \
+                               "#{width}x#{height} picture of #{pixels.length} pixels."
+        end
+
+        read_events
+        @sdl.SDL_UpdateTexture(@texture, nil, pixels.pack("v*"), @width * 2)
+        @sdl.SDL_RenderClear(@renderer)
+        @sdl.SDL_RenderTexture(@renderer, @texture, nil, nil)
+        @sdl.SDL_RenderPresent(@renderer)
+      end
+
+      # The console's buttons whose keys are down now, as SDL last heard them (#show reads what
+      # SDL has heard). The keyboard is read when it is asked, whichever pass it is asked for.
+      def held_buttons(_pass)
+        keys = @sdl.SDL_GetKeyboardState(nil)
+        KEYS.filter_map { |button, code| button if keys[code] != 0 }
+      end
+
+      # The window was closed, or Escape is down, as SDL last heard it (#show reads what SDL has
+      # heard, and Session shows each picture before it asks).
+      def stop? = @closed || @sdl.SDL_GetKeyboardState(nil)[ESCAPE] != 0
+
+      def now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+      def wait_until(seconds)
+        ahead = seconds - now
+        sleep(ahead) if ahead.positive?
+      end
+
+      # The window goes, and SDL with it. Closing twice does nothing more.
+      def close
+        @sdl.SDL_DestroyTexture(@texture) if live?(@texture)
+        @sdl.SDL_DestroyRenderer(@renderer) if live?(@renderer)
+        @sdl.SDL_DestroyWindow(@window) if live?(@window)
+        @texture = @renderer = @window = nil
+        @sdl.SDL_Quit
+      end
+
+      # THE BINDING: SDL3's functions as Ruby methods, made the first time a window is asked for
+      # and kept for each library file, one set for each Ractor (Fiddle's handles are its own).
+      def self.binding_for(library)
+        require_fiddle!
+        named = library || ENV.fetch("VBLANK_SDL3", nil)
+        bindings = Ractor.current[:vblank_sdl_bindings] ||= {}
+        return bindings[named || :found] if bindings.key?(named || :found)
+
+        path = named ? (named if loadable?(named)) : LIBRARIES.find { |name| loadable?(name) }
+        raise Missing, missing_message(named, library) unless path
+
+        bindings[named || :found] = bind(path)
+      end
+
+      def self.require_fiddle!
+        require "fiddle"
+        require "fiddle/import"
+      rescue LoadError
+        raise Missing, "VBlank cannot open a window, because Ruby cannot load the gem `fiddle`. Ruby includes " \
+                       "`fiddle`, but Bundler loads only the gems that the Gemfile names. If you use Bundler, " \
+                       "add `gem \"fiddle\"` to your Gemfile and run `bundle install`. If you do not use Bundler, " \
+                       "run `gem install fiddle`."
+      end
+
+      def self.loadable?(name)
+        Fiddle.dlopen(name).close
+        true
+      rescue Fiddle::DLError
+        false
+      end
+
+      def self.missing_message(named, library)
+        if named
+          said = library ? "the library: given to VBlank::Live::SDL" : "VBLANK_SDL3"
+          return "VBlank cannot open SDL3 at #{named}. VBlank uses SDL3 to open a window. Make sure that " \
+                 "#{said} names the SDL3 library file. #{INSTALL_LINE}"
+        end
+        "VBlank cannot find SDL3. VBlank uses SDL3 to open a window. It looked in: #{LIBRARIES.join(', ')}. " \
+          "#{INSTALL_LINE} If SDL3 is in a different folder, set VBLANK_SDL3 to the path of the library file."
+      end
+
+      # SDL3 answers yes or no as a C bool, one byte, which Fiddle reads as a char.
+      def self.bind(path)
+        Module.new do
+          extend Fiddle::Importer
+          dlload path
+          extern "char SDL_Init(unsigned int)"
+          extern "void SDL_Quit()"
+          extern "const char* SDL_GetError()"
+          extern "void* SDL_CreateWindow(const char*, int, int, unsigned long long)"
+          extern "void SDL_DestroyWindow(void*)"
+          extern "void* SDL_CreateRenderer(void*, const char*)"
+          extern "void SDL_DestroyRenderer(void*)"
+          extern "char SDL_SetRenderLogicalPresentation(void*, int, int, int)"
+          extern "void* SDL_CreateTexture(void*, unsigned int, int, int, int)"
+          extern "void SDL_DestroyTexture(void*)"
+          extern "char SDL_SetTextureScaleMode(void*, int)"
+          extern "char SDL_UpdateTexture(void*, void*, void*, int)"
+          extern "char SDL_RenderClear(void*)"
+          extern "char SDL_RenderTexture(void*, void*, void*, void*)"
+          extern "char SDL_RenderPresent(void*)"
+          extern "char SDL_PollEvent(void*)"
+          extern "char SDL_PushEvent(void*)"
+          extern "void* SDL_GetKeyboardState(void*)"
+        end
+      end
+
+      private_class_method :require_fiddle!, :loadable?, :missing_message, :bind
+
+      private
+
+      def open_window(title, scale)
+        raise_failed!("start its video") if @sdl.SDL_Init(INIT_VIDEO).zero?
+        @window = @sdl.SDL_CreateWindow(title, @width * scale, @height * scale, WINDOW_RESIZABLE)
+        raise_failed!("open the window") if @window.null?
+        @renderer = @sdl.SDL_CreateRenderer(@window, nil)
+        raise_failed!("draw in the window") if @renderer.null?
+        raise_failed!("keep the picture's shape") if @sdl.SDL_SetRenderLogicalPresentation(
+          @renderer, @width, @height, LOGICAL_PRESENTATION_LETTERBOX
+        ).zero?
+        @texture = @sdl.SDL_CreateTexture(@renderer, PIXELFORMAT_XBGR1555, TEXTUREACCESS_STREAMING, @width, @height)
+        raise_failed!("make the picture") if @texture.null?
+        raise_failed!("keep the pixels sharp") if @sdl.SDL_SetTextureScaleMode(@texture, SCALEMODE_NEAREST).zero?
+        @event = Fiddle::Pointer.malloc(EVENT_BYTES, Fiddle::RUBY_FREE)
+      end
+
+      def live?(pointer) = pointer && !pointer.null?
+
+      # Everything SDL has heard from the window: a closed window, or the last window gone, stops
+      # the play.
+      def read_events
+        while @sdl.SDL_PollEvent(@event) != 0
+          type = @event[0, 4].unpack1("L")
+          @closed = true if type == EVENT_QUIT || type == EVENT_WINDOW_CLOSE_REQUESTED
+        end
+      end
+
+      def raise_failed!(what)
+        raise Failed, "SDL cannot #{what}: #{@sdl.SDL_GetError}."
+      end
+    end
+  end
+end
