@@ -13,11 +13,12 @@ module VBlank
     # pixel kept square and sharp. The window can be made any size; the picture keeps its shape,
     # with bars where the window is the wrong shape for it.
     #
-    # The keys: the arrows are the pad, Z is A, X is B, Enter is Start, Backspace is Select, A and
-    # S are the shoulder buttons L and R. A gamepad plugged in plays too (PAD_BUTTONS); the
-    # window's own keys below are the keyboard's alone. As in the desktop build, P pauses and carries on, Tab held
-    # fast forwards, and F1 opens the menu (Menu), which holds the game while it is open and is
-    # worked with the arrows and Enter. Escape, or closing the window, stops the play.
+    # The keys, as mGBA and the desktop build have them: the arrows are the pad, X is A, Z is B,
+    # Enter is Start, Backspace is Select, A and S are the shoulder buttons L and R. A gamepad
+    # plugged in plays too (PAD_BUTTONS); the window's own keys are the keyboard's alone. As in
+    # the desktop build, P pauses and carries on, Tab held fast forwards, and F1 opens the menu
+    # (Menu), which holds the game while it is open and is worked with the arrows and Enter.
+    # Escape, or closing the window, stops the play.
     #
     # THE MENU is drawn over the picture with SDL's own drawing: a dark box, and its lines in the
     # little font SDL carries inside itself, eight of the console's pixels a letter, so it needs no
@@ -76,7 +77,7 @@ module VBlank
 
       # The console's buttons, by the key that holds each (SDL's scancodes, which name a place on
       # the keyboard rather than a letter, so the layout of the keyboard does not move them).
-      KEYS = Ractor.make_shareable({ right: 79, left: 80, down: 81, up: 82, a: 29, b: 27, start: 40, select: 42,
+      KEYS = Ractor.make_shareable({ right: 79, left: 80, down: 81, up: 82, a: 27, b: 29, start: 40, select: 42,
                                      l: 4, r: 22 })
       ESCAPE = 41
       PAUSE = 19 # P, the desktop build's pause key too

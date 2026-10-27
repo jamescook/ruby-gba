@@ -620,7 +620,7 @@ module VBlank
 
       The keys:
         arrows                   the direction pad
-        Z, X                     A, B
+        X, Z                     A, B
         Enter, Backspace         Start, Select
         A key, S key             L, R
         F1                       open the menu. The game pauses while the menu
