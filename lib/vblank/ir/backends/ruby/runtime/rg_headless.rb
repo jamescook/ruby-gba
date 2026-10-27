@@ -9,7 +9,8 @@
 #
 # At every frame boundary it prints "frame N", every variable as "var name value", every list as
 # "list name" and its items (see rg_driver_dump_list), every sprite the game last drew as "sprite"
-# and four numbers, and where the window sits over the picture as "camera X Y", then "buttons?",
+# and four numbers, what the mixer made and is playing (see rg_headless_print_mix), and where the
+# window sits over the picture as "camera X Y", then "buttons?",
 # and only then reads that frame's line. So whoever is feeding it can answer from what the game
 # has done so far — a test that presses a button only once the game has reached somewhere — or
 # write every line up front and ignore the question. That is the order the interpreter asks its
@@ -19,7 +20,8 @@
 # shown: "picture" and every pixel, row by row, as four hex digits — and then the same page as it
 # is stored ("stored"), with no window moved over it and no fade mixed in, and how many pages the
 # screen has ("pages", 2 for a tear-free one). A frame's moment carries only a check number of its
-# picture ("picture-crc"), or with --every-picture the whole picture.
+# picture ("picture-crc"), or with --every-picture the whole picture. Each line of the sound log is
+# printed as "sound" and the line, as it happens, among the frames.
 #
 # The options:
 #
@@ -29,7 +31,7 @@
 #                               bytes with the low byte first, there before "buttons?" is asked
 #   --held-from-power-on MASK   the buttons in MASK are down before the game's first statement
 #   --clock-at SECONDS TICKS SET  the cartridge has a clock, reading SECONDS from the start of
-#                               1970 and TICKS of the console's 2^24 a second more at power-on,
+#                               1970 and TICKS cycles of the console's clock more at power-on,
 #                               set when SET is 1; without it the cartridge has no clock
 #   --save FILE                 the game starts with the save memory FILE holds (the bytes of a
 #                               .sav file, as many as the game has), and when the run ends its
@@ -37,6 +39,11 @@
 #                               new cartridge, and a game with no save memory leaves FILE alone
 #   --save-cut-after N          the power goes off N steps into the game's saving, which ends the
 #                               run there, as it does in the interpreter
+#   --sound-out FILE            the sound of every frame played written to FILE as it is made: one
+#                               speaker's worth, RG_SOUND_RATE numbers a second, each two bytes
+#                               with the low byte first
+#   --sound-voice N             only voice N is in it (1 and 2 the square voices, 3 the wave voice,
+#                               4 the noise voice), which is how a test hears one voice at a time
 
 require "zlib"
 
@@ -52,6 +59,8 @@ def rg_headless_main(argv)
   @rg_every_picture = false
   @rg_picture_out = nil
   @rg_save_path = nil # the file save memory is read from and written back to, if any
+  @rg_sound_out = nil # where each frame's sound is written, if anywhere
+  @rg_slices_printed = 0
   i = 1
   while i < argv.length
     case argv[i]
@@ -74,6 +83,12 @@ def rg_headless_main(argv)
     when "--save-cut-after"
       i += 1
       rg_save_cut_power_after(argv[i].to_i)
+    when "--sound-out"
+      i += 1
+      @rg_sound_out = File.open(argv[i], "wb")
+    when "--sound-voice"
+      i += 1
+      rg_sound_hear_only(argv[i].to_i)
     end
     i += 1
   end
@@ -82,6 +97,7 @@ def rg_headless_main(argv)
 end
 
 def rg_driver_wait_vblank
+  rg_headless_write_frame_sound
   rg_headless_finish if @rg_frame >= @rg_frames_to_play
   rg_frame_begins
   @rg_frame += 1
@@ -114,6 +130,38 @@ def rg_driver_dump_list(list)
   $stdout.write("list #{list.name}\t#{items.join(' ')}\n")
 end
 
+# "sound" first, for the same reason a variable's line starts with "var"; printed as it happens,
+# among the frames, so a test reading the log mid-run sees it up to the frame it is on.
+def rg_driver_sound_logged(line)
+  $stdout.write("sound #{line}\n")
+end
+
+# The sound of the frame that has just been played, written down, two bytes a sample with the low
+# byte first. Worked out whether or not anyone is listening, so the voices are where they would be.
+def rg_headless_write_frame_sound
+  samples = rg_sound_render_frame
+  @rg_sound_out&.write(samples.pack("s<*"))
+end
+
+# For a game that mixes recordings: the slice made since the last moment ("mix" and its samples),
+# each sounding voice's recording, loudness out of 512, how far its shape has climbed or fallen,
+# and whose it is — 0 the game's, 1 the song's, 2 a sound effect's, then the effect's number and
+# the part's lane ("mixing", six numbers a voice), the most voices that ever sounded at once
+# ("mix_peak"), and how many plays found every voice busy with the most the music held at one of
+# those moments ("mix_drops").
+def rg_headless_print_mix
+  return if rg_mixes == 0
+
+  if rg_mix_slices_made > @rg_slices_printed
+    $stdout.write("mix#{rg_mix_newest_slice.map { |sample| " #{sample}" }.join}\n")
+    @rg_slices_printed = rg_mix_slices_made
+  end
+  sounding = Array.new(rg_mix_voice_count) { |voice| rg_mix_voice_sounding(voice) }.compact
+  dropped, music_held = rg_mix_drops
+  $stdout.write("mixing#{sounding.flatten.map { |number| " #{number}" }.join}\n" \
+                "mix_peak #{rg_mix_peak}\nmix_drops #{dropped} #{music_held}\n")
+end
+
 def rg_headless_print_moment(heading, with_picture)
   $stdout.write("#{heading}\n")
   rg_game_dump_state
@@ -123,6 +171,7 @@ def rg_headless_print_moment(heading, with_picture)
     name, picture, x, y = rg_screen_drawn_sprite(place)
     $stdout.write("sprite #{name} #{picture} #{x} #{y}\n")
   end
+  rg_headless_print_mix
   $stdout.write("camera #{rg_screen_camera_x} #{rg_screen_camera_y}\n")
   shown = rg_screen_shown
   if with_picture
@@ -152,6 +201,7 @@ def rg_headless_finish
   $stdout.write("pages #{rg_screen_two_pages != 0 ? 2 : 1}\n")
   $stdout.flush
   @rg_picture_out&.close
+  @rg_sound_out&.close
   rg_headless_write_save_file if @rg_save_path
   exit 0
 end

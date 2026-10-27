@@ -4,6 +4,9 @@
 #
 # The game is told one frame went by each pass, whatever a clock says: a pass that runs late makes
 # the game run slow.
+#
+# The game plays its music and mixes its recordings every frame, but no one asks for the samples
+# yet (rg_sound_render_frame), so a game played live is silent and spends nothing on them.
 
 # What a game stops with when it does something its rules refuse (a push onto a full list); the
 # words say what, and LiveGame raises them as IR::ProgramError.
@@ -29,6 +32,7 @@ end
 def rg_driver_halt = throw(:rg_live_stop)
 def rg_driver_fault(message) = raise(RgFault, message)
 
-# A game played live has nowhere to print its variables and lists.
+# A game played live has nowhere to print its variables, lists and sound log.
 def rg_driver_dump_variable(_name, _value); end
 def rg_driver_dump_list(_list); end
+def rg_driver_sound_logged(_line); end

@@ -11,9 +11,6 @@ module VBlank
         # inherits, so what a program says (which kinds are refused, which art is worked out in
         # Ruby while building) is decided in one place; Printer writes that tree as Ruby.
         class Lowering < Native::Lowering
-          # The gap a game that mixes recordings has, which no one call of its own names.
-          MIXING = "mixing recordings"
-
           # The program as the body of the game's class, and the runtime functions it calls that
           # the runtime it is to run with does not have yet (+runtime_functions+, the functions of
           # the runtime and the driver it is put together with), each said in a few words.
@@ -29,18 +26,24 @@ module VBlank
 
           def build_name = "the Ruby build"
 
+          # THE CONSOLE THE GAME IS PLAYED AS, in the numbers the runtime needs from it, so the
+          # runtime keeps none of any one console's: the cycles its clock counts a second, and the
+          # cycles a frame lasts. A frame's share of a second is what decides how many samples of
+          # sound a frame makes, and how far the cartridge's clock moves on.
+          def top_level
+            console = @program.described_console
+            super + [Native::C::ConstArray.new(name: @names.own("console"), type: "int32_t",
+                                               values: [console.cycles_a_second, console.cycles_a_frame], exported: true)]
+          end
+
           # WHAT THE RUNTIME CANNOT DO YET, found before the game is played rather than part way
           # through it: every function the printed game calls that is neither the runtime's nor
-          # one of the game's own routines, and a game that mixes recordings, which the runtime's
-          # frame does on its own (Ruby::HEADLESS_FUNCTIONS and LIVE_FUNCTIONS say what each has). Empty once
-          # the runtime is whole. In the order they first appear in the printed program, and the
-          # first is the one a test that skips is counted under.
+          # one of the game's own routines (Ruby::HEADLESS_FUNCTIONS and LIVE_FUNCTIONS say what
+          # each has). Empty once the runtime is whole. In the order they first appear in the
+          # printed program, and the first is the one a test that skips is counted under.
           def runtime_gaps(items, called, runtime_functions)
             own = items.grep(Native::C::Function).map { |function| function.name.text }
-            gaps = called.to_a - own - runtime_functions
-            mix = items.find { |item| item.is_a?(Native::C::ConstArray) && item.name.text == "rg_game_mix" }
-            gaps << MIXING if mix && mix.values.first != 0
-            gaps
+            called.to_a - own - runtime_functions
           end
         end
       end

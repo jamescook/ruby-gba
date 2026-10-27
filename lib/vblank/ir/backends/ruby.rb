@@ -21,7 +21,10 @@ module VBlank
       # on a game's number: every sum, comparison and shift is a runtime function (runtime/
       # rg_int32.rb) that gives IR::Int32's answer, because a Ruby Integer never wraps. Printer
       # writes the tree as one Ruby class per game, and runtime/*.rb is the rest of that class:
-      # the lists, the buttons, the timers, the clock, the screen, and the driver the game runs on.
+      # the lists, the buttons, the timers, the clock, the screen, the sound, and the driver the
+      # game runs on. The sound and the clock take every number that belongs to one console from
+      # the game's own tables, written from the console it is built for (Console::Description);
+      # the screen is still the Advance's size, so a game is played as the Advance.
       #
       # A FRAME CAN END ANYWHERE, deep inside a routine the game called from a routine. Waiting
       # for the next one (rg_wait_vblank) calls the driver, which does the frame's work — prints
@@ -35,7 +38,8 @@ module VBlank
 
         # The runtime every program carries, in the order it is put together, and the driver with
         # no window that follows it in a program the tests play.
-        RUNTIME = Ractor.make_shareable(%w[rg_int32.rb rg_runtime.rb rg_list.rb rg_screen.rb rg_sound.rb rg_save.rb])
+        RUNTIME = Ractor.make_shareable(%w[rg_int32.rb rg_runtime.rb rg_list.rb rg_screen.rb rg_sound.rb rg_mix.rb
+                                           rg_save.rb])
         HEADLESS_DRIVER = "rg_headless.rb"
         LIVE_DRIVER = "rg_live.rb"
 
@@ -44,16 +48,6 @@ module VBlank
         def self.functions_in(files) = files.flat_map { |file| File.read(File.join(RUNTIME_DIR, file)).scan(/^def (\w+)/).flatten }.uniq
         HEADLESS_FUNCTIONS = Ractor.make_shareable(functions_in(RUNTIME + [HEADLESS_DRIVER]))
         LIVE_FUNCTIONS = Ractor.make_shareable(functions_in(RUNTIME + [LIVE_DRIVER]))
-
-        # THE SOUND A GAME PLAYED LIVE DOES WITHOUT, until the runtime makes sound: every function a
-        # program can call for it, as the header files beside the C runtime list them, so none is
-        # forgotten. A game played live calls each as a function that does nothing and answers
-        # nought, and plays silent; a test never does, and skips instead (Lowering#runtime_gaps),
-        # since nothing can be checked against a silent stand-in. Every sound function the game
-        # calls answers nothing, so nought is never read.
-        SILENT_STAND_INS = Ractor.make_shareable(%w[rg_sound.h rg_mix.h].flat_map do |header|
-          File.read(File.join(Native::Zig::RUNTIME_DIR, header)).scan(/^[a-z_0-9 ]*[ *](rg_[a-z_0-9]+)\(/).flatten
-        end.uniq)
 
         # What a program of this lowering is started with: none of the settings that would make
         # the Ruby it runs on load bundler and this library's gems, which it needs none of, and
@@ -85,15 +79,12 @@ module VBlank
                          "RgGame.new.rg_headless_main(ARGV)\n"].join)
         end
 
-        # THE GAME AS AN OBJECT IN THIS PROCESS, to be played live (LiveGame). Its sound is a silent
-        # stand-in until the runtime makes sound (SILENT_STAND_INS); anything else it lacks is
-        # refused, as a test would skip.
+        # THE GAME AS AN OBJECT IN THIS PROCESS, to be played live (LiveGame). Anything its runtime
+        # lacks is refused, as a test would skip.
         def live_game(program)
           text, gaps = Lowering.new(program).text_and_gaps(LIVE_FUNCTIONS)
-          silent = gaps & SILENT_STAND_INS
-          refuse_runtime_gaps!(gaps - silent - [Lowering::MIXING])
-          stand_ins = silent.map { |name| "def #{name}(*) = 0\n" }.join
-          LiveGame.new([*runtime_text(RUNTIME + [LIVE_DRIVER]), stand_ins, text].join)
+          refuse_runtime_gaps!(gaps)
+          LiveGame.new([*runtime_text(RUNTIME + [LIVE_DRIVER]), text].join)
         end
 
         private

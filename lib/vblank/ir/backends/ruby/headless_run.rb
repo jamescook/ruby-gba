@@ -15,11 +15,6 @@ module VBlank
           # one's, since both are asked the same questions.
           CannotAnswer = Native::HeadlessRun::CannotAnswer
 
-          # The runtime makes no sound yet, so a run asked to record it cannot answer.
-          def recording_sound(only: nil)
-            raise RuntimeGap.new("sound", "the Ruby lowering cannot record sound yet: its runtime makes none")
-          end
-
           private
 
           def headless_program(program) = Ruby.new.build_headless(program)

@@ -5,8 +5,6 @@
 
 RG_ALL_BUTTONS = 0x3FF
 RG_MAX_TIMERS = 32
-RG_CONSOLE_TICKS_A_SECOND = 16777216
-RG_CONSOLE_TICKS_A_FRAME = 280896 # a frame of the console's, a little more than a sixtieth of a second
 RG_SECONDS_A_DAY = 86400
 
 # The readings of the clock, in IR::Clock::READINGS's order, which is the number the game asks by.
@@ -24,6 +22,8 @@ RG_CLOCK_SET = 8
 def initialize
   rg_runtime_setup
   rg_screen_setup
+  rg_sound_setup
+  rg_mix_setup
   rg_save_setup
   rg_game_setup
 end
@@ -74,6 +74,11 @@ def rg_held(button) = rg_button_down(@rg_held, button)
 def rg_pressed(button) = rg_button_down(@rg_pressed, button)
 
 # --- frames ---
+
+# How long a frame is, as the console the game is built for counts it (@rg_game_console, written
+# from its description): the cycles of its clock a second, and the cycles one frame lasts.
+def rg_console_cycles_per_second = @rg_game_console[0]
+def rg_console_cycles_per_frame = @rg_game_console[1]
 
 # The frame the game drew has ended, whoever is driving and whether or not the run stops here.
 def rg_wait_vblank
@@ -181,8 +186,9 @@ end
 # --- the cartridge's clock (Reference#value_of_clock) ---
 
 # The windowless driver starts the clock at a moment of the test's: +seconds+ from the start of
-# 1970 as such a clock counts them, +ticks+ more of the console's 2^24 a second, and whether the
-# clock was ever set. From then it moves on one of the console's frames at each frame boundary.
+# 1970 as such a clock counts them, +ticks+ more in cycles of the console's own clock
+# (rg_console_cycles_per_second), and whether the clock was ever set. From then it moves on one of
+# the console's frames at each frame boundary.
 def rg_clock_starts_at(seconds, ticks, set)
   @rg_clock_present = 1
   @rg_clock_set = set != 0 ? 1 : 0
@@ -232,9 +238,9 @@ end
 def rg_clock_frame
   return if @rg_clock_counts_frames == 0
 
-  @rg_clock_ticks += RG_CONSOLE_TICKS_A_FRAME
-  @rg_clock_seconds += @rg_clock_ticks / RG_CONSOLE_TICKS_A_SECOND
-  @rg_clock_ticks %= RG_CONSOLE_TICKS_A_SECOND
+  @rg_clock_ticks += rg_console_cycles_per_frame
+  @rg_clock_seconds += @rg_clock_ticks / rg_console_cycles_per_second
+  @rg_clock_ticks %= rg_console_cycles_per_second
 end
 
 def rg_clock_reading(reading, offset_days, offset_seconds)
