@@ -82,14 +82,19 @@ end
 class RgSquare
   attr_accessor :wave_ticks, :eighths_high, :loudness, :eighth, :eighth_progress
 
-  def initialize = start(0, 0, 0, 0)
+  # A voice is at the top of its wave once, when it is made; #start leaves its place alone.
+  def initialize
+    @eighth = 0
+    @eighth_progress = 0
+    start(0, 0, 0, 0)
+  end
 
+  # A note starts where the voice is in its wave, as the chip does (rg_sound.c's square_start says
+  # why).
   def start(wave_ticks, eighths_high, volume, fade_64ths)
     @wave_ticks = wave_ticks
     @eighths_high = eighths_high
     @loudness = RgFading.new(volume, fade_64ths)
-    @eighth = 0
-    @eighth_progress = 0
   end
 end
 

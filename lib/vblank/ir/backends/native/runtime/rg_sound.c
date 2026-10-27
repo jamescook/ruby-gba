@@ -214,14 +214,16 @@ static square_voice squares[RG_SQUARE_VOICES];
 static int32_t heard_only; /* a test listening to one voice: its number, or 0 for every voice */
 static uint64_t sample_carry; /* the fraction of a sample left over from the last frame */
 
-/* A voice starts a note from the top of its wave. No ticks, or no volume, is silence. */
+/* A voice starts a note where it is in its wave, as the chip does in the emulator the cartridge is
+ * checked in: starting a note again leaves its place in the wave alone. A game fading its music
+ * starts every held note again each frame, and a voice that went back to the top of its wave each
+ * time would break a wave every frame, heard as a rumble under the note. No ticks, or no volume, is
+ * silence. */
 static void square_start(int32_t voice, int32_t wave_ticks, int32_t eighths_high, int32_t volume, int32_t fade_64ths) {
   square_voice *square = &squares[voice - 1];
   square->wave_ticks = wave_ticks;
   square->eighths_high = eighths_high;
   square->loudness = volume_from(volume, fade_64ths);
-  square->eighth = 0;
-  square->eighth_progress = 0;
 }
 
 /* The console's own order of high and low through a wave, for each tone: which of the eight
