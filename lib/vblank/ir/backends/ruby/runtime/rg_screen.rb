@@ -281,39 +281,51 @@ def rg_paintable?(x, y)
   !area.in_force || (x >= area.left && x < area.right && y >= area.top && y < area.bottom)
 end
 
-# Five bits of a color widened to eight by repeating its top bits underneath, so the brightest
-# stays the brightest (Framebuffer#widen_channel).
-def rg_widened(channel) = (channel << 3) | (channel >> 2)
-
 # Framebuffer#mix_see_through: a see-through layer's color over what is under it. Each channel is
 # widened to eight bits first, its share of each side added and only then the sixteenth dropped,
 # and the answer taken back to five bits. Past a whole, a channel stops at its brightest.
+#
+# The three channels are written out rather than looped over: this runs for every pixel of a
+# see-through layer, and a loop over them costs a block call each and a shift worked out each
+# time, on top of the sums.
+#
+# A channel is WIDENED from five bits to eight by repeating its top bits underneath ((c << 3) |
+# (c >> 2), Framebuffer#widen_channel), so the brightest five-bit value, 31, becomes the brightest
+# eight-bit one, 255, rather than 248; every channel helper here widens that way.
 def rg_mixed_with_under(color, under, by)
-  out = 0
-  3.times do |channel|
-    have = rg_widened((color >> (5 * channel)) & 0x1F)
-    below = rg_widened((under >> (5 * channel)) & 0x1F)
-    mix = ((have * by[0]) + (below * by[1])) / 16
-    out |= ((mix > 255 ? 255 : mix) >> 3) << (5 * channel)
-  end
-  out
+  top = by[0]
+  bottom = by[1]
+  red = rg_mixed_channel_with_under(color & 0x1F, under & 0x1F, top, bottom)
+  green = rg_mixed_channel_with_under((color >> 5) & 0x1F, (under >> 5) & 0x1F, top, bottom)
+  blue = rg_mixed_channel_with_under((color >> 10) & 0x1F, (under >> 10) & 0x1F, top, bottom)
+  red | (green << 5) | (blue << 10)
+end
+
+# One channel of rg_mixed_with_under, five bits in and five out.
+def rg_mixed_channel_with_under(have, below, top, bottom)
+  mix = ((((have << 3) | (have >> 2)) * top) + (((below << 3) | (below >> 2)) * bottom)) / 16
+  (mix > 255 ? 255 : mix) >> 3
 end
 
 # Framebuffer#darkened_by_display: each channel widened to eight bits and placed in its own byte,
 # taken +steps+ sixteenths of the way to black there, and brought back to five bits. Done in the
 # channel's own byte as the interpreter does it, which rounds how much the first channel loses
 # down and how much the other two lose up.
+#
+# The channels are written out rather than looped over, as in rg_mixed_with_under.
 def rg_darkened_by_display(color, steps)
   return color if steps == 0
 
-  packed = 0
-  3.times do |channel|
-    shift = channel * 5
-    placed = rg_widened((color >> shift) & 0x1F) << (channel * 8)
-    kept = (placed - ((placed * steps) / 16)) >> (channel * 8)
-    packed |= (kept >> 3) << shift
-  end
-  packed & 0xFFFF
+  red = rg_darkened_channel(color & 0x1F, 0, steps)
+  green = rg_darkened_channel((color >> 5) & 0x1F, 8, steps)
+  blue = rg_darkened_channel((color >> 10) & 0x1F, 16, steps)
+  (red | (green << 5) | (blue << 10)) & 0xFFFF
+end
+
+# One channel of rg_darkened_by_display, placed +byte_shift+ bits up while it is darkened.
+def rg_darkened_channel(channel, byte_shift, steps)
+  placed = ((channel << 3) | (channel >> 2)) << byte_shift
+  ((placed - ((placed * steps) / 16)) >> byte_shift) >> 3
 end
 
 # Framebuffer#brightened_by_display: each channel widened to eight bits and given +steps+
@@ -321,13 +333,14 @@ end
 def rg_brightened_by_display(color, steps)
   return color if steps == 0
 
-  packed = 0
-  3.times do |channel|
-    shift = channel * 5
-    have = rg_widened((color >> shift) & 0x1F)
-    packed |= ((have + (((255 - have) * steps) / 16)) >> 3) << shift
-  end
-  packed
+  rg_brightened_channel(color & 0x1F, steps) | (rg_brightened_channel((color >> 5) & 0x1F, steps) << 5) |
+    (rg_brightened_channel((color >> 10) & 0x1F, steps) << 10)
+end
+
+# One channel of rg_brightened_by_display, five bits in and five out.
+def rg_brightened_channel(channel, steps)
+  have = (channel << 3) | (channel >> 2)
+  (have + (((255 - have) * steps) / 16)) >> 3
 end
 
 # Framebuffer#faded_by_display: the display's own fade toward black or white.
@@ -622,21 +635,23 @@ end
 
 # Framebuffer#mixed and #mixed_by_display: the two shares added, and only then the fraction
 # dropped. The display mixes at eight bits a channel; a game writing tinted colors, at five.
+#
+# The channels are written out rather than looped over, as in rg_mixed_with_under.
 def rg_mixed(color, toward, steps, by_display)
   return color if steps == 0
 
   keep = 32 - steps
-  out = 0
-  3.times do |channel|
-    have = (color >> (5 * channel)) & 0x1F
-    want = (toward >> (5 * channel)) & 0x1F
-    out |= if by_display
-             ((((rg_widened(have) * keep) + (rg_widened(want) * steps)) / 32) >> 3) << (5 * channel)
-           else
-             (((have * keep) + (want * steps)) / 32) << (5 * channel)
-           end
-  end
-  out
+  red = rg_mixed_channel(color & 0x1F, toward & 0x1F, keep, steps, by_display)
+  green = rg_mixed_channel((color >> 5) & 0x1F, (toward >> 5) & 0x1F, keep, steps, by_display)
+  blue = rg_mixed_channel((color >> 10) & 0x1F, (toward >> 10) & 0x1F, keep, steps, by_display)
+  red | (green << 5) | (blue << 10)
+end
+
+# One channel of rg_mixed, five bits in and five out.
+def rg_mixed_channel(have, want, keep, steps, by_display)
+  return ((have * keep) + (want * steps)) / 32 unless by_display
+
+  (((((have << 3) | (have >> 2)) * keep) + (((want << 3) | (want >> 2)) * steps)) / 32) >> 3
 end
 
 # Framebuffer#faded. +fade_here+ is false where a fade held to a rectangle does not reach.
@@ -1067,24 +1082,6 @@ def rg_lay_scenery(px, py, color)
   @rg_picture_without_sprites[at] = painted if rg_sprites_seen_through?
 end
 
-# The map's pixel at (mx, my), neither below nought, put on the picture at (px, py). Where the map
-# has no cell or no tile, or the tile is see-through, what is behind stays.
-def rg_paint_map_pixel(background, mx, my, px, py)
-  tile_w = rg_background_field(background, RG_BG_TILE_W)
-  tile_h = rg_background_field(background, RG_BG_TILE_H)
-  cell = rg_map_cell(background, my / tile_h, mx / tile_w)
-  return if cell < 0
-
-  color = rg_tile_pixel(background, cell, mx % tile_w, my % tile_h)
-  return if color == RG_SEE_THROUGH
-
-  if @rg_onto_sheet
-    @rg_sheet[(py * RG_SCREEN_WIDTH) + px] = color
-  else
-    rg_lay_scenery(px, py, color)
-  end
-end
-
 # The row of the picture that screen row +py+ is drawn from: its own, or the row at the top of its
 # block while a background is being painted for blocks.
 def rg_row_drawn_from(py) = py - (py % @rg_rows_tall)
@@ -1143,11 +1140,91 @@ def rg_paint_window_without_wrapping(background)
     my = scroll_y + rg_row_drawn_from(py)
     next if my < 0 || my >= map_h
 
-    off_x = scroll_x + rg_bend_at(background, py)
-    RG_SCREEN_WIDTH.times do |px|
-      mx = off_x + px
-      rg_paint_map_pixel(background, mx, my, px, py) if mx >= 0
+    rg_paint_map_row(background, my, scroll_x + rg_bend_at(background, py), nil, py)
+  end
+end
+
+# ONE ROW OF THE SCREEN FROM ONE ROW OF A BACKGROUND'S MAP (Reference#paint_background_window, a row
+# at a time): the screen's pixel px shows map column off_x + px, taken round at +wrap_w+ where the
+# map wraps, or not at all (nil) where it does not. +my+ is not below nought. Where the map has no
+# cell or no tile, or the tile is see-through, what is behind stays.
+#
+# Which map is up, how big it is, its tiles' size and the tile set in use cannot change while a row
+# is painted, so they are asked once here, and a cell is looked up once for each tile the row
+# crosses rather than for each pixel. A painted tile is read the slow way (rg_tile_pixel), since
+# where its pixels are depends on the cell.
+#
+# What this asks of the background is rg_map_cell and rg_tile_pixel written out, and so is what
+# rg_paint_turned_window asks; and the plain pixel it lays is rg_lay_scenery's. A change to how
+# cells, tile sets or a laid pixel are kept changes those three places too. The checked run holds
+# all of it to the interpreter, pixel for pixel.
+def rg_paint_map_row(background, my, off_x, wrap_w, py)
+  tile_w = rg_background_field(background, RG_BG_TILE_W)
+  tile_h = rg_background_field(background, RG_BG_TILE_H)
+  keeper = rg_keeper_of(background)
+  map = rg_map_now(background)
+  cols = @rg_game_maps[map + RG_MAP_COLS]
+  row = my / tile_h
+  return if row >= @rg_game_maps[map + RG_MAP_ROWS]
+
+  own = @rg_cells_now[keeper][1]
+  cells = own || @rg_game_map_cells
+  first = (own ? 0 : @rg_game_maps[map + RG_MAP_CELLS]) + (row * cols)
+  ty = my % tile_h
+  tile_size = tile_w * tile_h
+  set_start = rg_background_field(background, RG_BG_TILES_START) +
+              (@rg_tile_set_now[keeper] * rg_background_field(background, RG_BG_TILES) * tile_size) + (ty * tile_w)
+  painted = rg_background_field(background, RG_BG_PAINTED)
+  painted_tiles = @rg_game_painted_tiles
+  pixels = @rg_game_tile_pixels
+  sheet = @rg_onto_sheet ? @rg_sheet : nil
+  sheet_row = py * RG_SCREEN_WIDTH
+  # With no fade painted in and no see-through layer being mixed, rg_lay_scenery comes to storing
+  # the color, marking the cell as no mix and keeping it in the picture without sprites where
+  # that is kept; so that is done here.
+  plain = !@rg_fading_what_is_painted && !@rg_mixing
+  picture = @rg_pixels
+  mixed_cells = @rg_picture_mixes.is_mixed
+  without_sprites = rg_sprites_seen_through? ? @rg_picture_without_sprites : nil
+  # A tile's width of the row at a time: the screen pixels from px that show one tile's row, which
+  # end at the tile's right edge or the screen's. Where the map wraps it wraps at a whole number of
+  # tiles, so a tile is never cut by the wrap.
+  px = 0
+  while px < RG_SCREEN_WIDTH
+    mx = off_x + px
+    mx %= wrap_w if wrap_w
+    if mx < 0 # only where the map does not wrap: nothing until the map's left edge
+      px -= mx
+      next
     end
+    col = mx / tile_w
+    tx = mx - (col * tile_w)
+    run = tile_w - tx
+    run = RG_SCREEN_WIDTH - px if run > RG_SCREEN_WIDTH - px
+    cell = col < cols ? cells[first + col] : RG_CELL_EMPTY
+    if cell >= 0
+      slow = painted != RG_NOT_PAINTED && painted_tiles[painted + (2 * cell)] != RG_NOT_PAINTED
+      from = set_start + (cell * tile_size) + tx
+      i = 0
+      while i < run
+        color = slow ? rg_tile_pixel(background, cell, tx + i, ty) : pixels[from + i]
+        if color != RG_SEE_THROUGH
+          at = sheet_row + px + i
+          if sheet
+            sheet[at] = color
+          elsif plain
+            color &= 0xFFFF
+            picture[at] = color
+            mixed_cells[at] = 0
+            without_sprites[at] = color if without_sprites
+          else
+            rg_lay_scenery(px + i, py, color)
+          end
+        end
+        i += 1
+      end
+    end
+    px += run
   end
 end
 
@@ -1167,7 +1244,7 @@ def rg_paint_window(background)
   RG_SCREEN_HEIGHT.times do |py|
     off_x = (scroll_x + rg_bend_at(background, py)) % map_w
     my = (off_y + rg_row_drawn_from(py)) % map_h
-    RG_SCREEN_WIDTH.times { |px| rg_paint_map_pixel(background, (off_x + px) % map_w, my, px, py) }
+    rg_paint_map_row(background, my, off_x, map_w, py)
   end
 end
 
@@ -1192,28 +1269,67 @@ def rg_paint_turned_window(background)
   map_h = @rg_game_maps[map + RG_MAP_GRID_ROWS] * tile_h
   return if map_w == 0 || map_h == 0
 
-  turn = @rg_turns[rg_keeper_of(background)]
+  keeper = rg_keeper_of(background)
+  turn = @rg_turns[keeper]
   one_th = @rg_game_turn_rules[1]
   turn_cos, turn_sin = rg_affine_matrix(turn.angle, turn.size)
   # A turned layer is placed by its turn, which putting it up leaves as it is.
-  scroll_x, scroll_y = @rg_scrolls[rg_keeper_of(background)]
+  scroll_x, scroll_y = @rg_scrolls[keeper]
+  pivot_x = turn.pivot_x
+  pivot_y = turn.pivot_y
+  # What rg_map_cell and rg_tile_pixel ask of the background, asked once: nothing the game does
+  # runs while a turned layer is painted, so none of it can change (see rg_paint_map_row).
+  cols = @rg_game_maps[map + RG_MAP_COLS]
+  rows = @rg_game_maps[map + RG_MAP_ROWS]
+  own = @rg_cells_now[keeper][1]
+  cells = own || @rg_game_map_cells
+  first = own ? 0 : @rg_game_maps[map + RG_MAP_CELLS]
+  tile_size = tile_w * tile_h
+  set_start = rg_background_field(background, RG_BG_TILES_START) +
+              (@rg_tile_set_now[keeper] * rg_background_field(background, RG_BG_TILES) * tile_size)
+  painted = rg_background_field(background, RG_BG_PAINTED)
+  painted_tiles = @rg_game_painted_tiles
+  pixels = @rg_game_tile_pixels
+  sheet = @rg_onto_sheet ? @rg_sheet : nil
   RG_SCREEN_HEIGHT.times do |py|
-    dy = rg_row_drawn_from(py) - turn.pivot_y
-    RG_SCREEN_WIDTH.times do |px|
-      dx = px - turn.pivot_x
-      mx = (scroll_x + turn.pivot_x + (((turn_cos * dx) + (turn_sin * dy)) / one_th)) % map_w
-      my = (scroll_y + turn.pivot_y + (((-turn_sin * dx) + (turn_cos * dy)) / one_th)) % map_h
-      cell = rg_map_cell(background, my / tile_h, mx / tile_w)
-      next if cell < 0
-
-      color = rg_tile_pixel(background, cell, mx % tile_w, my % tile_h)
-      next if color == RG_SEE_THROUGH
-
-      if @rg_onto_sheet
-        @rg_sheet[(py * RG_SCREEN_WIDTH) + px] = color
-      else
-        rg_set_pixel(px, py, color)
+    dy = rg_row_drawn_from(py) - pivot_y
+    # The row's part of each sum, the same for every pixel of the row.
+    row_part_x = (turn_sin * dy)
+    row_part_y = (turn_cos * dy)
+    last_row = -1
+    last_col = -1
+    cell = RG_CELL_EMPTY
+    start = 0
+    slow = false
+    px = 0
+    while px < RG_SCREEN_WIDTH
+      dx = px - pivot_x
+      mx = (scroll_x + pivot_x + (((turn_cos * dx) + row_part_x) / one_th)) % map_w
+      my = (scroll_y + pivot_y + (((-turn_sin * dx) + row_part_y) / one_th)) % map_h
+      row = my / tile_h
+      col = mx / tile_w
+      if row != last_row || col != last_col
+        last_row = row
+        last_col = col
+        cell = row < rows && col < cols ? cells[first + (row * cols) + col] : RG_CELL_EMPTY
+        if cell >= 0
+          slow = painted != RG_NOT_PAINTED && painted_tiles[painted + (2 * cell)] != RG_NOT_PAINTED
+          start = set_start + (cell * tile_size)
+        end
       end
+      if cell >= 0
+        tx = mx % tile_w
+        ty = my % tile_h
+        color = slow ? rg_tile_pixel(background, cell, tx, ty) : pixels[start + (ty * tile_w) + tx]
+        if color != RG_SEE_THROUGH
+          if sheet
+            sheet[(py * RG_SCREEN_WIDTH) + px] = color
+          else
+            rg_set_pixel(px, py, color)
+          end
+        end
+      end
+      px += 1
     end
   end
 end
@@ -1913,9 +2029,12 @@ def rg_shade_switch(on)
   @rg_shade_off = on == 0
 end
 
+# Whether the whole screen is lit: no light darkens anything, or it is switched off.
+def rg_all_lit? = @rg_shade_steps == 0 || @rg_shade_off
+
 # Framebuffer#lit?: is (x, y) inside its row's span?
 def rg_lit?(x, y)
-  return true if @rg_shade_steps == 0 || @rg_shade_off
+  return true if rg_all_lit?
 
   left, right = @rg_shade_spans[y]
   left <= right ? x >= left && x < right : x >= left || x < right
@@ -1925,27 +2044,78 @@ end
 # edge of the picture the backdrop shows — with the fade or tint in force mixed in, in blocks when a
 # painted screen is shown in them, and darkened outside a light's span. A switched-off display
 # shows plain white.
+#
+# With nothing over the picture — no tint, no fade, no light, not in blocks — every row is the
+# stored row moved by the window, and is copied as one, which is most frames of most games.
 def rg_screen_shown
   rg_screen_paint_owed_rebuild
   shown = @rg_shown
   viewed = @rg_viewed
   held = @rg_screen_held != 0
+  return shown.fill(RG_SWITCHED_OFF) if held
+  if @rg_tint_mode == :none && @rg_fade_steps == 0 && @rg_read_block == 1 && rg_all_lit?
+    return rg_screen_shown_plain(shown, viewed)
+  end
+
+  # A fade or a tint does the same to every cell of one color, so each color's answer is worked out
+  # once a picture (two answers: where the fade reaches and where it does not). A cell a
+  # see-through layer was mixed into, under a tint, is mixed again from its own two colors, and is
+  # worked out for itself (rg_shown_color).
+  faded_in = Array.new(0x10000) # a cell holds sixteen bits
+  faded_out = {}
+  remixed = @rg_tint_mode != :none && @rg_pixels.equal?(@rg_viewed)
+  mixed_cells = @rg_picture_mixes.is_mixed
+  block = @rg_read_block
+  camera_x = @rg_camera_x
+  whole_fade = @rg_fade_side == RG_FADE_WHOLE_SCREEN
+  all_lit = rg_all_lit?
   RG_SCREEN_HEIGHT.times do |y|
-    from_y = y - (y % @rg_read_block) + @rg_camera_y
-    RG_SCREEN_WIDTH.times do |x|
-      if held
-        shown[(y * RG_SCREEN_WIDTH) + x] = RG_SWITCHED_OFF
-        next
-      end
-      from_x = rg_block_corner_across(x) + @rg_camera_x
-      fade_here = rg_fade_reaches?(x, y)
-      color = if rg_on_screen?(from_x, from_y)
+    from_y = y - (y % block) + @rg_camera_y
+    row = y * RG_SCREEN_WIDTH
+    x = 0
+    while x < RG_SCREEN_WIDTH
+      from_x = (block == 1 ? x : rg_block_corner_across(x)) + camera_x
+      fade_here = whole_fade || rg_fade_reaches?(x, y)
+      color = if from_x >= 0 && from_x < RG_SCREEN_WIDTH && from_y >= 0 && from_y < RG_SCREEN_HEIGHT
                 at = (from_y * RG_SCREEN_WIDTH) + from_x
-                rg_shown_color(at, viewed[at], fade_here)
+                stored = viewed[at]
+                if remixed && mixed_cells[at] != 0
+                  rg_shown_color(at, stored, fade_here)
+                else
+                  answers = fade_here ? faded_in : faded_out
+                  answers[stored] ||= rg_faded_where(stored, fade_here)
+                end
               else
                 rg_faded_where(0, fade_here)
               end
-      shown[(y * RG_SCREEN_WIDTH) + x] = rg_lit?(x, y) ? color : rg_darkened_by_display(color, @rg_shade_steps)
+      shown[row + x] = all_lit || rg_lit?(x, y) ? color : rg_darkened_by_display(color, @rg_shade_steps)
+      x += 1
+    end
+  end
+  shown
+end
+
+# rg_screen_shown with nothing over the picture: each row the stored row the window sits over, and
+# off the picture the backdrop, which is nought (rg_faded_where with nothing in force). In blocks of
+# one, the column a pixel shows is its own (rg_block_corner_across).
+def rg_screen_shown_plain(shown, viewed)
+  camera_x = @rg_camera_x
+  camera_y = @rg_camera_y
+  RG_SCREEN_HEIGHT.times do |y|
+    row = y * RG_SCREEN_WIDTH
+    from_y = y + camera_y
+    if from_y < 0 || from_y >= RG_SCREEN_HEIGHT
+      shown.fill(0, row, RG_SCREEN_WIDTH)
+    elsif camera_x == 0
+      shown[row, RG_SCREEN_WIDTH] = viewed[from_y * RG_SCREEN_WIDTH, RG_SCREEN_WIDTH]
+    else
+      from_row = from_y * RG_SCREEN_WIDTH
+      x = 0
+      while x < RG_SCREEN_WIDTH
+        from_x = x + camera_x
+        shown[row + x] = from_x >= 0 && from_x < RG_SCREEN_WIDTH ? viewed[from_row + from_x] : 0
+        x += 1
+      end
     end
   end
   shown
