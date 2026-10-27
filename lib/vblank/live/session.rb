@@ -73,8 +73,11 @@ module VBlank
         @fast_forward_passes = 0 # passes played in it
         @started = @frame_began = @device.now
         @device.wait_until(@frame_began)
-        @game.play(self)
-        Rate.new(passes: @passes, frames: @frames, seconds: @frame_began - @started - @seconds_paused)
+        stopped_on = @game.play(self)
+        rate = Rate.new(passes: @passes, frames: @frames, seconds: @frame_began - @started - @seconds_paused,
+                        stopped_itself: !stopped_on.nil?)
+        keep_showing(stopped_on) if stopped_on
+        rate
       end
 
       # Asked by the game as each of its frames ends, with the picture as the screen shows it and
@@ -101,6 +104,23 @@ module VBlank
       end
 
       private
+
+      # A GAME THAT STOPPED ITSELF — it halted, or came to its end — leaves its last picture on the
+      # screen, as the console does: the picture is shown a frame at a time, the window still read
+      # and pause and its menu still working, until the device says stop. A play told how many
+      # passes to go on for counts each picture shown here as one of them, so it still ends. The
+      # game runs no pass, so none of this is in the play's rate.
+      def keep_showing(pixels)
+        shown = 0
+        loop do
+          @device.show(pixels, @game.width, @game.height)
+          shown += 1
+          @device.hold_while_paused
+          break if @device.stop? || (@stop_after_passes && @passes + shown >= @stop_after_passes)
+
+          @device.wait_until(@device.now + @frame_seconds)
+        end
+      end
 
       def play_at_console_speed(pixels, samples)
         wait_for_frame_end unless @paced_by_speaker

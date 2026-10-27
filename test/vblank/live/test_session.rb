@@ -228,13 +228,34 @@ class TestSession < Minitest::Test
     assert_equal [3, 3], [device.pictures.size, rate.passes]
   end
 
-  # A game that ends by itself ends the play, and says how far it got.
-  def test_a_game_that_halts_ends_the_play
-    device = Headless.new(frames: 100)
+  # A game that draws a picture and stops itself keeps that picture up, a frame at a time, until the
+  # device says stop, as the console's screen does: it ran no pass, and it is still showing.
+  def test_a_game_that_halts_keeps_its_picture_up_until_stopped
+    device = Headless.new(frames: 5)
+    rate = Session.new(game { pixel 0, 0, :red; halt }).play(device)
+
+    assert_equal 5, device.pictures.size
+    assert(device.pictures.all? { |picture| picture.pixels[0] == Color.resolve(:red) })
+    assert_equal 0, rate.passes
+  end
+
+  # A game that comes to its end keeps its last picture up the same way, and the play says how far
+  # the game got: three passes, then its picture until the device stops.
+  def test_a_game_that_ends_keeps_its_last_picture_up
+    device = Headless.new(frames: 7)
     rate = Session.new(game { repeat(3) { wait_vblank } }).play(device)
 
-    assert_equal 3, device.pictures.size
+    assert_equal 7, device.pictures.size
     assert_equal 3, rate.passes
+  end
+
+  # A play told how many passes to go on for counts each picture of a stopped game as one, so it
+  # ends whatever the game did.
+  def test_a_play_with_a_limit_ends_on_a_game_that_halts
+    device = Headless.new(frames: 100)
+    Session.new(game { pixel 0, 0, :red; halt }, stop_after_passes: 4).play(device)
+
+    assert_equal 4, device.pictures.size
   end
 
   # A game's sound goes to the device with each picture: the samples of the frame the pass just

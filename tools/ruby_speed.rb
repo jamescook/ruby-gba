@@ -65,7 +65,7 @@ module RubySpeed
     said, status = Open3.capture2e(ENVIRONMENT, *command)
     return "failed" unless status.success?
     return "not #{jit.label}" unless said.include?("with #{jit.label}.")
-    return "halts" if said.include?("Showed 0 pictures") # a still picture: nothing to measure
+    return "halts" if said.include?("stopped itself after 0 frames") # a still picture: nothing to measure
 
     said[/, ([\d.]+) a second\./, 1] || "failed"
   end

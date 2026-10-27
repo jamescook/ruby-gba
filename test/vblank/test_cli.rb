@@ -481,6 +481,25 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # A game that draws a picture and stops itself keeps it in the window, and the command says the
+  # game stopped itself rather than how fast it went.
+  def test_run_says_a_game_stopped_itself
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "still.rb"), <<~GAME)
+        require "vblank"
+        VBlank.game("STILL", consoles: %i[gba]) do
+          clear_screen :blue
+          halt
+        end
+      GAME
+      out, status = run_in_dummy_window(dir, "still.rb", "--pictures", "3")
+
+      assert status.success?, out
+      assert_match(/STILL stopped itself after 0 frames\. Its last picture stayed in the window\./, out)
+      refute_match(/a second\./, out)
+    end
+  end
+
   # YJIT is on unless --no-yjit says not, so the speed can be measured both ways.
   def test_run_plays_without_yjit_when_told
     Dir.mktmpdir do |dir|

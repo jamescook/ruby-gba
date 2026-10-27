@@ -10,10 +10,16 @@
 # words say what, and LiveGame raises them as IR::ProgramError.
 class RgFault < StandardError; end
 
-# Plays the game for +player+ until the game ends, halts, or the player stops it.
+# Plays the game for +player+ until the game ends, halts, or the player stops it. A game that
+# stopped itself gives back the picture it stopped on, as the screen shows it, for the player to
+# keep up; one the player stopped gives back nil.
 def rg_live_main(player)
   @rg_live = player
-  catch(:rg_live_stop) { rg_game_main }
+  stopped_by = catch(:rg_live_stop) do
+    rg_game_main
+    nil
+  end
+  stopped_by == :player ? nil : rg_screen_shown
 end
 
 # The sound of the frame the pass played is made first, before the next frame moves the music on.
@@ -24,7 +30,7 @@ def rg_driver_wait_vblank
   samples = rg_sound_render_frame
   rg_frame_begins
   buttons = @rg_live.buttons_after(rg_screen_shown, samples)
-  throw :rg_live_stop if buttons.nil?
+  throw :rg_live_stop, :player if buttons.nil?
 
   rg_buttons_read(buttons)
 end

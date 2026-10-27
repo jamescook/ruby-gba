@@ -685,11 +685,15 @@ module VBlank
       RubyVM::YJIT.enable if options[:yjit] && defined?(RubyVM::YJIT) && !yjit_on? && !zjit_on?
       require_relative "live"
       rate = play_in_window(game, program, live_session(game, program))
-      # The game moves on one frame for each picture, so the pictures a second are its speed.
-      say format("Showed %<pictures>d pictures in %<seconds>.1f seconds, %<per_second>.1f a second. " \
-                 "The console shows %<console>.1f a second.",
-                 pictures: rate.passes, seconds: rate.seconds, per_second: rate.passes_per_second,
-                 console: 1 / program.described_console.frame_seconds)
+      # The game moves on one frame for each picture, so the pictures a second are its speed. A
+      # game that stopped itself before its first picture has no speed to say.
+      if rate.passes.positive?
+        say format("Showed %<pictures>d pictures in %<seconds>.1f seconds, %<per_second>.1f a second. " \
+                   "The console shows %<console>.1f a second.",
+                   pictures: rate.passes, seconds: rate.seconds, per_second: rate.passes_per_second,
+                   console: 1 / program.described_console.frame_seconds)
+      end
+      say_stopped_itself(game, rate) if rate.stopped_itself?
     end
 
     desc "inspect ROM_FILE", "Print a .gba's header and first instructions"
@@ -813,6 +817,12 @@ module VBlank
       raise Thor::Error, e.message
     ensure
       window&.close
+    end
+
+    # A game that halted, or came to its end, kept its last picture up until the window was closed.
+    def say_stopped_itself(game, rate)
+      frames = rate.passes == 1 ? "1 frame" : "#{rate.passes} frames"
+      say "#{game.title} stopped itself after #{frames}. Its last picture stayed in the window."
     end
 
     def yjit_on? = defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled?
