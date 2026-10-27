@@ -22,6 +22,12 @@ class TestIRGuardrailIwramBudget < Minitest::Test
   Guardrails = VBlank::IR::Guardrails
   Budget = Guardrails::Checks::IwramBudget
 
+  # The Advance's memory, which a program that names no console is checked against: the quick
+  # memory free for the game once the build has kept its part, and the roomier one beside it.
+  ADVANCE = VBlank::Console::ADVANCE
+  QUICK_FREE = ADVANCE.free_work_memory_bytes
+  ROOMIER = ADVANCE.roomier_memory_bytes
+
   private def validator
     Guardrails::Validator.new(checks: [Budget.new])
   end
@@ -51,7 +57,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
   def test_a_list_past_the_quick_memory_is_no_longer_a_problem
     prog = program(
       screen(:bitmap),
-      list_of_bytes(:huge, Budget::BUDGET_BYTES + (8 * 1024)),
+      list_of_bytes(:huge, QUICK_FREE + (8 * 1024)),
       loop_(wait_vblank, halt),
     )
     assert_empty findings_for(prog), "it goes in the roomier memory instead"
@@ -60,7 +66,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
   def test_past_both_memories_is_a_fatal_error
     prog = program(
       screen(:bitmap),
-      list_of_bytes(:huge, Budget::BUDGET_BYTES + Budget::EWRAM_BYTES + (8 * 1024)),
+      list_of_bytes(:huge, QUICK_FREE + ROOMIER + (8 * 1024)),
       loop_(wait_vblank, halt),
     )
     findings = findings_for(prog)
@@ -73,7 +79,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
   def test_the_error_names_the_total_the_memories_and_the_offender
     prog = program(
       screen(:bitmap),
-      list_of_bytes(:trail, Budget::BUDGET_BYTES + Budget::EWRAM_BYTES + (8 * 1024)),
+      list_of_bytes(:trail, QUICK_FREE + ROOMIER + (8 * 1024)),
       loop_(wait_vblank, halt),
     )
     message = findings_for(prog).first.message
@@ -86,7 +92,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
   # VARIABLES CANNOT MOVE, so they have their own ceiling and their own explanation. A
   # program whose variables alone fill the quick memory cannot be helped by the other one.
   def test_more_variables_than_the_quick_memory_holds_is_a_fatal_error
-    count = (Budget::BUDGET_BYTES / Budget::WORD) + 512
+    count = (QUICK_FREE / Budget::WORD) + 512
     prog = program(
       screen(:bitmap),
       *count.times.map { |i| set(:"v#{i}", int(0)) },
@@ -105,7 +111,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
   def test_a_pool_is_named_as_one_contributor
     # Emulate a pool's storage: two field lists and the list of which slots are live. The
     # field has an underscore in it, which must not be read as part of the pool's name.
-    over = Budget::BUDGET_BYTES + Budget::EWRAM_BYTES + (8 * 1024)
+    over = QUICK_FREE + ROOMIER + (8 * 1024)
     big = over / (3 * Budget::WORD) # split across three lists
     pool = VBlank::DSL::Pool
     prog = program(
@@ -128,7 +134,7 @@ class TestIRGuardrailIwramBudget < Minitest::Test
     stage = VBlank::Messages::MadeNames.make(:save_record, record: "file", piece: "stage")
     prog = program(
       screen(:bitmap),
-      list_of_bytes(stage, Budget::BUDGET_BYTES + Budget::EWRAM_BYTES + (8 * 1024)),
+      list_of_bytes(stage, QUICK_FREE + ROOMIER + (8 * 1024)),
       loop_(wait_vblank, halt),
     )
     message = findings_for(prog).first.message
@@ -150,6 +156,63 @@ class TestIRGuardrailIwramBudget < Minitest::Test
     end
     assert_match(/problem/i, error.message)
     assert_match(/list :trail/, err.string)
+  end
+
+  # A GAME FOR THE COLOR IS CHECKED AGAINST THE COLOR'S MEMORY: 8K, every variable and list in
+  # it, and no roomier memory beside it. A list the Advance would hold without a word is too big.
+  def test_a_color_program_past_the_colors_memory_is_a_fatal_error
+    prog = program(
+      screen(:tiled),
+      list_of_bytes(:trail, 9 * 1024),
+      loop_(wait_vblank, halt),
+      console: :gbc,
+    )
+    findings = findings_for(prog)
+    assert_equal 1, findings.size
+    assert findings.first.error?
+    message = findings.first.message
+    assert_match(/list :trail/, message)
+    assert_match(/Game Boy Color/, message)
+    assert_match(/8KB/, message)
+    refute_match(/256KB/, message, "the Advance's roomier memory is not the Color's")
+  end
+
+  # On the Color variables share the one memory with the lists, so fewer of them is a fix too.
+  def test_a_color_program_with_too_many_variables_is_told_to_use_fewer
+    count = (VBlank::Console::COLOR.free_work_memory_bytes / Budget::WORD) + 64
+    prog = program(
+      screen(:tiled),
+      *Array.new(count) { |i| set(:"v#{i}", int(0)) },
+      loop_(wait_vblank, halt),
+      console: :gbc,
+    )
+    message = findings_for(prog).first.message
+    assert_match(/variables/, message, "it names what is filling the memory")
+    assert_match(/fewer variables/, message)
+  end
+
+  def test_a_color_program_within_the_colors_memory_is_not_flagged
+    prog = program(
+      screen(:tiled),
+      list_of_bytes(:trail, 2 * 1024),
+      loop_(wait_vblank, halt),
+      console: :gbc,
+    )
+    assert_empty findings_for(prog)
+  end
+
+  # End to end: the Color's build stops on the check, before its cartridge is laid out.
+  def test_the_color_build_stops_on_a_program_past_its_memory
+    err = StringIO.new
+    assert_raises(VBlank::ROMError) do
+      VBlank.build("BIGGBC", console: :gbc, out: StringIO.new, err: err) do
+        screen :bitmap
+        list :trail, capacity: 4000 # about 16KB of slots, twice what the Color has
+        game_loop { pixel 0, 0, :red }
+      end
+    end
+    assert_match(/list :trail/, err.string)
+    assert_match(/Game Boy Color/, err.string)
   end
 
   # A realistic-sized program builds unaffected — the guardrail only speaks on genuine

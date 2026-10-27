@@ -40,12 +40,25 @@ module VBlank
     # (Console::SampleClock), or nil where it mixes no recordings. +largest_memory_bytes+ is how
     # many bytes the largest memory a game's lists and pools are kept in holds: one pool is kept
     # whole in one memory, so no pool can be bigger.
+    #
+    # How much a game can keep, which the build checks count against (Checks::IwramBudget):
+    # +work_memory_bytes+ is the memory every variable lives in, +work_memory_kept_bytes+ how much
+    # of it the build keeps for itself (the stack, the copy of the sprite table), and
+    # +roomier_memory_bytes+ the memory beside it that only lists and pools can move to, 0 where
+    # there is none.
     Description = Data.define(:name, :title, :screen_width, :screen_height, :buttons, :sprites, :sprite_places,
                               :sprites_a_row, :turning_sprites, :backgrounds, :turning_backgrounds,
                               :backgrounds_beside_turning, :blends, :list_colors, :painted_pages,
                               :clock_keeps_date, :cycles_a_second, :cycles_a_frame, :samples_a_copy,
-                              :largest_memory_bytes, :extension) do
+                              :largest_memory_bytes, :work_memory_bytes, :work_memory_kept_bytes,
+                              :roomier_memory_bytes, :extension) do
       def screen_size = [screen_width, screen_height]
+
+      # How much of the work memory is free for a game's own variables and lists.
+      def free_work_memory_bytes = work_memory_bytes - work_memory_kept_bytes
+
+      # Whether there is a roomier memory beside the work memory for lists and pools to move to.
+      def roomier_memory? = roomier_memory_bytes.positive?
 
       # How long one frame is, in seconds.
       def frame_seconds = Rational(cycles_a_frame, cycles_a_second)
@@ -81,7 +94,10 @@ module VBlank
                               # The sound copy moves four 32-bit words at a time: sixteen 8-bit samples.
                               samples_a_copy: 16,
                               # The 256K of roomier memory beside the 32K quick one.
-                              largest_memory_bytes: 256 * 1024, extension: ".gba")
+                              largest_memory_bytes: 256 * 1024,
+                              # The 32K quick memory, 4K of it the stack and the framework's own.
+                              work_memory_bytes: 32 * 1024, work_memory_kept_bytes: 4 * 1024,
+                              roomier_memory_bytes: 256 * 1024, extension: ".gba")
 
     # The Game Boy Color: a smaller screen, eight buttons, forty sprites and ten on a row, one
     # background, nothing that turns, lists of four colours, and a clock that counts days. What
@@ -94,8 +110,13 @@ module VBlank
                             # 154 lines of 456 cycles: the Advance's frame exactly, on a clock a
                             # quarter as fast. Double speed doubles the cycles, not the frames.
                             cycles_a_second: 4_194_304, cycles_a_frame: 70_224, samples_a_copy: nil,
-                            # The 8K of work memory in view at once (see Backends::GBC::Memory).
-                            largest_memory_bytes: 8 * 1024, extension: ".gbc")
+                            # The 8K of work memory in view at once (see Backends::GBC::Memory),
+                            # and nothing beside. The stack, the copy of the sprite table and the
+                            # runtime's own state are in it before any variable, which the Color
+                            # lowering's tests hold this to (test_gbc_memory.rb).
+                            largest_memory_bytes: 8 * 1024,
+                            work_memory_bytes: 8 * 1024, work_memory_kept_bytes: 1536,
+                            roomier_memory_bytes: 0, extension: ".gbc")
 
     # Each console's description is reached through its kit (Console::Kit, Console.described).
 

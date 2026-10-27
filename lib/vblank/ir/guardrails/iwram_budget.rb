@@ -23,47 +23,48 @@ module VBlank
         # program declares, together, has to fit in the two memories added up. Past either
         # the build stops with a plain-language error: how much is needed, how much there
         # is, and the biggest users so the fix is obvious.
+        #
+        # THE NUMBERS ARE THE CONSOLE'S (Console::Description#work_memory_bytes and the two
+        # beside it), since a game for the Color is checked against the Color. That console has
+        # one 8K work memory and nothing roomier beside it, so there everything the game keeps
+        # is counted against the one memory and the second check has nothing to add. The
+        # Color's build refuses a game that runs out where it lays it out too
+        # (Backends::GBC::Memory::Full); this says it sooner, and names the biggest users.
         class IwramBudget
           NAME = :iwram_budget
           PLAIN_NAME = "the #{Messages::PlainWords::QUICK_MEMORY} budget".freeze
 
-          # The GBA's fast RAM is 32KB, but not all of it is free for the program's data:
-          # the call stack lives at the top and the framework keeps a little scratch of its
-          # own. The usable budget is the total minus a headroom reserve, so staying under
-          # it leaves room for both. (A word — a variable or a list slot — is 4 bytes.)
-          IWRAM_BYTES = 32 * 1024
-          RESERVED_BYTES = 4 * 1024
-          BUDGET_BYTES = IWRAM_BYTES - RESERVED_BYTES
+          # A variable or a list slot is a word: 4 bytes.
           WORD = 4
-
-          # ...and the roomy one, all of which a collection may use.
-          EWRAM_BYTES = 256 * 1024
 
           # How many top users to name in the error — enough to point at the fix,
           # not so many the message becomes a memory dump.
           TOP_USERS = 3
 
           def detect(program)
+            console = program.described_console
             users = contributors(program)
             pinned = users.reject { |user| user[:movable] }.sum { |user| user[:bytes] }
             total = users.sum { |user| user[:bytes] }
-            return pinned_overflow_findings(users, pinned) if pinned > BUDGET_BYTES
-            return [] if total <= BUDGET_BYTES + EWRAM_BYTES
+            if console.roomier_memory? && pinned > console.free_work_memory_bytes
+              return pinned_overflow_findings(users, pinned, console)
+            end
+            return [] if total <= console.free_work_memory_bytes + console.roomier_memory_bytes
 
             # Blame the biggest user, which is the capacity to shrink. The plain
             # variable count and the sprites' save-buffers are sums over the whole
             # program with no one declaration behind them, so a program whose biggest
             # user is one of those blames the program itself.
-            [Finding.new(check: NAME, severity: :error, message: message(total, users),
+            [Finding.new(check: NAME, severity: :error, message: message(total, users, console),
                          node: users.first[:node] || :program)]
           end
 
           # The things that can only be in the quick memory are over it on their own, and
           # no other memory can take them.
-          def pinned_overflow_findings(users, pinned)
+          def pinned_overflow_findings(users, pinned, console)
             worst = users.reject { |user| user[:movable] }.first
             [Finding.new(check: NAME, severity: :error, node: worst&.dig(:node) || :program,
-                         message: pinned_message(pinned, users))]
+                         message: pinned_message(pinned, users, console))]
           end
 
           private
@@ -156,13 +157,29 @@ module VBlank
 
           def round_up_word(bytes) = (bytes + 3) & ~3
 
-          def message(total, users)
-            "This program reserves about #{human_size(total)} of memory for its data. But the console has only " \
-              "#{human_size(IWRAM_BYTES)} of #{Messages::PlainWords::QUICK_MEMORY} and #{human_size(EWRAM_BYTES)} of roomier " \
-              "memory, and both are full. The biggest users are #{top_users(users)}. To fix this, use a " \
+          def message(total, users, console)
+            "This program reserves about #{human_size(total)} of memory for its data. But " \
+              "#{memory_message(console)} The biggest users are #{top_users(users)}. To fix this, use a " \
               "smaller capacity for a pool or a list. Or use fewer fields. Or use narrower items " \
-              "(`width: :byte`).#{save_record_advice(users)} Then it all fits."
+              "(`width: :byte`).#{variables_advice(console)}#{save_record_advice(users)} Then it all fits."
           end
+
+          # What memory the console has, said the way that console has it: two memories, or one.
+          def memory_message(console)
+            if console.roomier_memory?
+              return "the console has only #{human_size(console.work_memory_bytes)} of " \
+                     "#{Messages::PlainWords::QUICK_MEMORY} and #{human_size(console.roomier_memory_bytes)} of " \
+                     "roomier memory, and both are full."
+            end
+
+            "the #{console.title} has only #{human_size(console.work_memory_bytes)} of work memory, and " \
+              "about #{human_size(console.free_work_memory_bytes)} of that is free for your data. The rest " \
+              "holds the call stack and the framework's own state."
+          end
+
+          # Where the variables share the one memory with everything else, fewer of them makes room
+          # too. (Where there is a roomier memory, too many variables has a message of its own.)
+          def variables_advice(console) = console.roomier_memory? ? "" : " Or use fewer variables."
 
           # A save_data record has no capacity of its own: its buffers are as big as what it
           # keeps, so the fix for one among the biggest users is to keep less.
@@ -177,10 +194,10 @@ module VBlank
 
           # The variables and the sprites' save-buffers can only be in the quick memory, so
           # a program whose variables alone are over it cannot be helped by the other one.
-          def pinned_message(pinned, users)
+          def pinned_message(pinned, users, console)
             "This program reserves about #{human_size(pinned)} of the console's #{Messages::PlainWords::QUICK_MEMORY} for " \
-              "things that can only live there. But the console has only #{human_size(IWRAM_BYTES)} of it, and " \
-              "about #{human_size(BUDGET_BYTES)} of that is free for your data — the rest holds the call stack " \
+              "things that can only live there. But the console has only #{human_size(console.work_memory_bytes)} of it, " \
+              "and about #{human_size(console.free_work_memory_bytes)} of that is free for your data — the rest holds the call stack " \
               "and the framework's own state. A list or a pool can move to the roomier memory; a variable " \
               "cannot, because a variable is reached by its distance from the start of the quick one. The " \
               "biggest users are #{top_users(users.reject { |u| u[:movable] })}. To fix this, use fewer " \

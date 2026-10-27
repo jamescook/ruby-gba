@@ -352,8 +352,10 @@ module VBlank
       # memory (on the Advance, one over the quick memory's ceiling goes in the roomier one),
       # so this is the most one pool can be, whatever else the game declares. It is refused
       # here, at the line that wrote it and by its own name: the whole-program check asks only
-      # whether everything fits the memories added together, which a pool a little over this
-      # size still does. The size is the console's the game is built for
+      # whether everything fits the memories added together, which on the Advance a pool a
+      # little over this size still does. (On a console with one memory, the Color, the
+      # whole-program check is the stricter of the two, since the build keeps part of that
+      # memory for itself.) The size is the console's the game is built for
       # (Console::Description#largest_memory_bytes).
       def refuse_pool_no_memory_holds!(pool, field_count, bytes)
         raise ArgumentError,
