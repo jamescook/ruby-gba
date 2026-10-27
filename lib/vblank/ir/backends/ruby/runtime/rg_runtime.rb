@@ -24,6 +24,7 @@ RG_CLOCK_SET = 8
 def initialize
   rg_runtime_setup
   rg_screen_setup
+  rg_save_setup
   rg_game_setup
 end
 

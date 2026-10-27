@@ -23,8 +23,9 @@ module VBlank
         @now = 0r
       end
 
+      # The picture is the game's own and is drawn over next frame, so a copy is kept.
       def show(pixels, width, height)
-        @pictures << Picture.new(pixels: pixels, width: width, height: height)
+        @pictures << Picture.new(pixels: pixels.dup, width: width, height: height)
       end
 
       def held_buttons(frame) = @buttons.fetch(frame, [])

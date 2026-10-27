@@ -8,6 +8,7 @@ require_relative "ruby/printer"
 require_relative "ruby/lowering"
 require_relative "ruby/headless_run"
 require_relative "ruby/checked_run"
+require_relative "ruby/live_game"
 
 module VBlank
   module IR
@@ -34,13 +35,24 @@ module VBlank
 
         # The runtime every program carries, in the order it is put together, and the driver with
         # no window that follows it in a program the tests play.
-        RUNTIME = Ractor.make_shareable(%w[rg_int32.rb rg_runtime.rb rg_list.rb rg_screen.rb rg_sound.rb])
+        RUNTIME = Ractor.make_shareable(%w[rg_int32.rb rg_runtime.rb rg_list.rb rg_screen.rb rg_sound.rb rg_save.rb])
         HEADLESS_DRIVER = "rg_headless.rb"
+        LIVE_DRIVER = "rg_live.rb"
 
-        # Every function the runtime defines, read from its files: what Lowering#runtime_gaps holds
-        # a program's calls against.
-        RUNTIME_FUNCTIONS = Ractor.make_shareable((RUNTIME + [HEADLESS_DRIVER]).flat_map do |file|
-          File.read(File.join(RUNTIME_DIR, file)).scan(/^def (\w+)/).flatten
+        # Every function a program's runtime defines, read from its files, for each driver: what
+        # Lowering#runtime_gaps holds a program's calls against.
+        def self.functions_in(files) = files.flat_map { |file| File.read(File.join(RUNTIME_DIR, file)).scan(/^def (\w+)/).flatten }.uniq
+        HEADLESS_FUNCTIONS = Ractor.make_shareable(functions_in(RUNTIME + [HEADLESS_DRIVER]))
+        LIVE_FUNCTIONS = Ractor.make_shareable(functions_in(RUNTIME + [LIVE_DRIVER]))
+
+        # THE SOUND A GAME PLAYED LIVE DOES WITHOUT, until the runtime makes sound: every function a
+        # program can call for it, as the header files beside the C runtime list them, so none is
+        # forgotten. A game played live calls each as a function that does nothing and answers
+        # nought, and plays silent; a test never does, and skips instead (Lowering#runtime_gaps),
+        # since nothing can be checked against a silent stand-in. Every sound function the game
+        # calls answers nothing, so nought is never read.
+        SILENT_STAND_INS = Ractor.make_shareable(%w[rg_sound.h rg_mix.h].flat_map do |header|
+          File.read(File.join(Native::Zig::RUNTIME_DIR, header)).scan(/^[a-z_0-9 ]*[ *](rg_[a-z_0-9]+)\(/).flatten
         end.uniq)
 
         # What a program of this lowering is started with: none of the settings that would make
@@ -67,17 +79,31 @@ module VBlank
         # The program built to run with no window, and the path to it: a script a Ruby plays (see
         # runtime/rg_headless.rb for how it is run and what it prints).
         def build_headless(program)
-          text, gaps = Lowering.new(program).text_and_gaps
-          unless gaps.empty?
-            raise RuntimeGap.new(gaps.first, "the Ruby lowering cannot play this game yet: its runtime does not " \
-                                             "have #{gaps.join(', ')}")
-          end
-
+          text, gaps = Lowering.new(program).text_and_gaps(HEADLESS_FUNCTIONS)
+          refuse_runtime_gaps!(gaps)
           write_program([WRITTEN_BY, "class RgGame\n", *runtime_text(RUNTIME + [HEADLESS_DRIVER]), text, "end\n",
                          "RgGame.new.rg_headless_main(ARGV)\n"].join)
         end
 
+        # THE GAME AS AN OBJECT IN THIS PROCESS, to be played live (LiveGame). Its sound is a silent
+        # stand-in until the runtime makes sound (SILENT_STAND_INS); anything else it lacks is
+        # refused, as a test would skip.
+        def live_game(program)
+          text, gaps = Lowering.new(program).text_and_gaps(LIVE_FUNCTIONS)
+          silent = gaps & SILENT_STAND_INS
+          refuse_runtime_gaps!(gaps - silent - [Lowering::MIXING])
+          stand_ins = silent.map { |name| "def #{name}(*) = 0\n" }.join
+          LiveGame.new([*runtime_text(RUNTIME + [LIVE_DRIVER]), stand_ins, text].join)
+        end
+
         private
+
+        def refuse_runtime_gaps!(gaps)
+          return if gaps.empty?
+
+          raise RuntimeGap.new(gaps.first, "the Ruby lowering cannot play this game yet: its runtime does not " \
+                                           "have #{gaps.join(', ')}")
+        end
 
         def runtime_text(names) = names.map { |name| File.read(File.join(RUNTIME_DIR, name), encoding: Encoding::UTF_8) }
 

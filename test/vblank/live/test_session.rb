@@ -3,9 +3,9 @@
 require "test_helper"
 require "vblank/live"
 
-# A game played by the interpreter a pass at a time through a device: the session hands it
-# each pass's picture, asks it which buttons are held and whether to stop, and keeps the
-# game's time by its clock. These play through the headless device, whose clock moves only
+# A game built as Ruby and played live a pass at a time through a device: the session shows the
+# device each pass's picture, asks it which buttons are held and whether to stop, and keeps the
+# frames on the console's beat by its clock. These play through the headless device, whose clock moves only
 # when the test says a pass took so long, so nothing here waits for real time to pass.
 class TestSession < Minitest::Test
   Session = VBlank::Live::Session
@@ -38,16 +38,18 @@ class TestSession < Minitest::Test
     assert_equal %i[none none a a none], seen
   end
 
-  # A machine too slow to keep up: every pass takes two of the console's frames. The game is
-  # told so, and its count of frames moves on by two a pass, as it would on a console that
-  # missed every other frame. (The first picture is the frame the game sets itself up in,
-  # before its loop first runs, so it has no mark.)
-  def test_a_pass_that_takes_two_frames_moves_the_game_on_two
+  # A machine too slow to keep up: every pass takes two of the console's frames. The game as Ruby
+  # counts one frame a pass, as every lowered game does today, so it runs at half speed while the
+  # clock says two frames went by each time; a console that missed every other frame would have
+  # moved it on two. (The first picture is the frame the game sets itself up in, before its loop
+  # first runs, so it has no mark.)
+  def test_a_pass_that_takes_two_frames_moves_the_game_on_one
     program = counting_game
     device = Headless.new(frames: 4, pass_seconds: 2 * frame_seconds(program))
-    Session.new(program, device: device).play
+    rate = Session.new(program, device: device).play
 
-    assert_equal [nil, 2, 4, 6], device.pictures.map { |picture| marked_frame(picture) }
+    assert_equal [nil, 1, 2, 3], device.pictures.map { |picture| marked_frame(picture) }
+    assert_equal 8, rate.frames
   end
 
   # A machine faster than the console waits for each frame to end, so a pass is one frame,
@@ -85,6 +87,54 @@ class TestSession < Minitest::Test
 
     assert_equal 3, device.pictures.size
     assert_equal 3, rate.passes
+  end
+
+  # A game that makes sound plays live, silent until the runtime makes sound; a test of the game
+  # itself still skips there, since nothing can be checked against silence.
+  def test_a_game_that_makes_sound_plays_silent
+    program = game do
+      enable_sound
+      x = var :x, 0
+      game_loop do
+        (x == 2).then { beep :blip }
+        x.add! 1
+      end
+    end
+    device = Headless.new(frames: 4)
+
+    assert_equal 4, Session.new(program, device: device).play.passes
+  end
+
+  # A game that saves to flash keeps its save in memory for the length of the play: the chip's
+  # wipe finishes, and the copy reads back good two passes later.
+  def test_a_game_that_saves_to_flash_reads_its_save_back
+    builder = Builder.new(options: VBlank::Cartridge::Options.new(save_memory: 128))
+    builder.instance_eval do
+      hearts = var :hearts, 3
+      files = save_data(:file, copies: 1) { keep hearts }
+      pass = var :pass, 0
+      game_loop do
+        (pass == 0).then { files[0].save }
+        (pass == 2).then { files[0].good?.then { pixel 0, 0, :green } }
+        pass.add! 1
+      end
+    end
+    builder.finalize_program
+    device = Headless.new(frames: 6)
+    Session.new(builder.program, device: device).play
+
+    assert_equal Color.resolve(:green), device.pictures.last.pixels[0]
+  end
+
+  # A game that does something its rules refuse stops the play with the error the interpreter raises.
+  def test_a_game_that_goes_wrong_stops_the_play_with_a_program_error
+    program = game do
+      trail = list :trail, capacity: 1
+      game_loop { trail.push 1 }
+    end
+
+    error = assert_raises(VBlank::IR::ProgramError) { Session.new(program, device: Headless.new(frames: 9)).play }
+    assert_match(/list :trail is full/, error.message)
   end
 
   # A game that marks how many frames it has seen: one red pixel on the top row, that many

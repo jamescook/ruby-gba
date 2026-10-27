@@ -10,7 +10,7 @@ class TestRubyPrinter < Minitest::Test
     builder = Builder.new
     builder.instance_eval(&block)
     builder.finalize_program
-    text, = VBlank::IR::Backends::Ruby::Lowering.new(builder.program).text_and_gaps
+    text, = VBlank::IR::Backends::Ruby::Lowering.new(builder.program).text_and_gaps(VBlank::IR::Backends::Ruby::HEADLESS_FUNCTIONS)
     text
   end
 
