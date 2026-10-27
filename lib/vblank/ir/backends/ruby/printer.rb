@@ -155,7 +155,12 @@ module VBlank
             end
           end
 
-          def name(item) = @locals.include?(item.text) ? item.text : "@#{item.text}"
+          # A local is itself, a constant the runtime declares (RG_FADE_INSIDE) is itself, and
+          # anything else the game keeps is an instance variable.
+          def name(item)
+            text = item.text
+            @locals.include?(text) || text.start_with?("RG_") ? text : "@#{text}"
+          end
 
           # A routine picked from an array by its number (rg_call_routine(table[which])) is the
           # method of that name.

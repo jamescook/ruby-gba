@@ -56,6 +56,24 @@ class TestRubyCheckedRun < Minitest::Test
     assert_equal 3, CheckedRun.new.run(program, frames: 10)[:count]
   end
 
+  # A game that draws: every pixel of every frame is compared with the interpreter's, so a pixel
+  # one place off, a color a bit off or a frame late fails here.
+  def test_a_game_that_draws_shows_the_interpreters_picture
+    program = program_of do
+      x = var :x, 0
+      game_loop do
+        clear_screen :black
+        fill_rect 10, 10, 20, 8, :blue
+        draw_rect_at x, 40, 4, 4, :red
+        draw_text "HI", 100, 100, :white
+        x.add! 2
+      end
+    end
+
+    run = CheckedRun.new.run(program, frames: 6)
+    assert_equal VBlank::Graphics::Color.resolve(:blue), run.screen.pixel(12, 12)
+  end
+
   # What the interpreter refuses stops the game in the interpreter's words.
   def test_a_push_onto_a_full_list_stops_the_game
     program = program_of do
