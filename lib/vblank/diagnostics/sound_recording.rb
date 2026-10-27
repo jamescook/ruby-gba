@@ -36,9 +36,11 @@ module VBlank
       # A wave this much longer or shorter than the frame's usual one is broken.
       BROKEN_SHARE = 0.2
 
-      # One of the console's frames, heard: from the lowest sample to the highest, and how many of
-      # the waves that ended in it were broken.
-      Frame = Data.define(:loudness, :waves_broken)
+      # One of the console's frames, heard: from the lowest sample to the highest (+loudness+), the
+      # sample furthest from nought (+loudest+), the biggest step from one sample to the next
+      # (+biggest_jump+, where a click shows: a jump far bigger than the tone's own edges), and how
+      # many of the waves that ended in it were broken.
+      Frame = Data.define(:loudness, :loudest, :biggest_jump, :waves_broken)
 
       attr_reader :samples, :rate, :frame_seconds
 
@@ -48,18 +50,30 @@ module VBlank
         @frame_seconds = frame_seconds.to_r
       end
 
-      # +program+ played for +frames+ frames on +on+ (:cartridge, :native or :ruby), with +buttons+
-      # (a frame number, from 1, to the buttons held through it).
+      # +program+ played for +frames+ frames on +on+ — :cartridge, or one of the runtimes written
+      # again from the native one (:native, :js, :ruby) — with +buttons+ (a frame number, from 1, to
+      # the buttons held through it).
       def self.of(program, on:, frames:, buttons: {}, only: nil)
         frame_seconds = program.described_console.frame_seconds
-        case on
-        when :cartridge then new(samples: cartridge_samples(program, frames, buttons, only), rate: CARTRIDGE_RATE,
-                                 frame_seconds: frame_seconds)
-        when :native, :ruby then new(samples: runtime_samples(on, program, frames, buttons, only),
-                                     rate: IR::Backends::Native::HeadlessRun::SOUND_RATE, frame_seconds: frame_seconds)
-        else raise ArgumentError, "on: must be :cartridge, :native or :ruby, not #{on.inspect}"
+        if on == :cartridge
+          return new(samples: cartridge_samples(program, frames, buttons, only), rate: CARTRIDGE_RATE,
+                     frame_seconds: frame_seconds)
         end
+
+        run = RUNTIMES.fetch(on) do
+          raise ArgumentError, "on: must be :cartridge, #{RUNTIMES.keys.map(&:inspect).join(', ')}, not #{on.inspect}"
+        end
+        new(samples: runtime_samples(run.call, program, frames, buttons, only),
+            rate: IR::Backends::Native::HeadlessRun::SOUND_RATE, frame_seconds: frame_seconds)
       end
+
+      # Each runtime's run with no window, by the name +of+ takes. Looked up when asked, since the
+      # lowerings load after the readers.
+      RUNTIMES = {
+        native: -> { IR::Backends::Native::HeadlessRun.new },
+        js: -> { IR::Backends::JS::HeadlessRun.new },
+        ruby: -> { IR::Backends::Ruby::HeadlessRun.new }
+      }.freeze
 
       # A .wav file of one speaker's sixteen-bit samples.
       def self.read_wav(path, frame_seconds:)
@@ -78,13 +92,24 @@ module VBlank
         path
       end
 
+      # Where +other+ first differs from this recording, as a sample's number, or nil when every
+      # sample is the same and so is how many there are. Two recordings made at different rates
+      # are different throughout, so they are refused.
+      def first_difference(other)
+        raise ArgumentError, "a recording at #{other.rate} a second cannot be compared with one at #{rate}" if other.rate != rate
+
+        samples.each_index.find { |at| samples[at] != other.samples[at] } ||
+          (samples.length == other.samples.length ? nil : [samples.length, other.samples.length].min)
+      end
+
       # Each of the console's frames the recording covers, heard.
       def frames
         edges = rising_edges
         (0...frame_count).map do |index|
           first, last = frame_start(index), frame_start(index + 1)
           heard = samples[first...last]
-          Frame.new(loudness: heard.empty? ? 0 : heard.max - heard.min, waves_broken: count_broken_waves(edges, first, last))
+          Frame.new(loudness: heard.empty? ? 0 : heard.max - heard.min, loudest: heard.map(&:abs).max || 0,
+                    biggest_jump: biggest_jump(first, last), waves_broken: count_broken_waves(edges, first, last))
         end
       end
 
@@ -105,6 +130,12 @@ module VBlank
           middle = (low + high) / 2.0
           (first...last).select { |at| at.positive? && samples[at - 1] < middle && samples[at] >= middle }
         end
+      end
+
+      # The biggest step between two samples in a frame, counting the step into its first sample
+      # from the frame before, since a click at a frame's start is one too.
+      def biggest_jump(first, last)
+        ([first, 1].max...last).map { |at| (samples[at] - samples[at - 1]).abs }.max || 0
       end
 
       # The waves that end in a frame, each from one rising edge to the next, set against the
@@ -129,8 +160,7 @@ module VBlank
           verifier.audio_samples.each_slice(2).map(&:first) # the left speaker
         end
 
-        def runtime_samples(on, program, frames, buttons, only)
-          run = (on == :native ? IR::Backends::Native : IR::Backends::Ruby)::HeadlessRun.new
+        def runtime_samples(run, program, frames, buttons, only)
           run.recording_sound(only: only && VOICES.fetch(only))
           run.input_each_frame { |frame| buttons.fetch(frame, []) }.run(program, frames: frames).sound
         end

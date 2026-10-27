@@ -38,6 +38,16 @@ class TestSoundRecording < Minitest::Test
     assert_equal [2000, 0, 1000], recording.frames.map(&:loudness)
   end
 
+  # Each frame's loudest sample and biggest jump from one sample to the next: a click is a jump
+  # far bigger than the tone's own edges.
+  def test_each_frame_says_its_loudest_sample_and_biggest_jump
+    samples = square(FRAME, period: 109) + Array.new(FRAME, 0).tap { |quiet| quiet[400] = 5000 }
+    frames = SoundRecording.new(samples: samples, rate: RATE, frame_seconds: 1r / 60).frames
+
+    assert_equal [1000, 5000], frames.map(&:loudest)
+    assert_equal [2000, 5000], frames.map(&:biggest_jump)
+  end
+
   # A held note recorded on each thing that plays it: heard on all three, the desktop build and the
   # game as Ruby sample for sample alike, and no wave broken on any.
   def test_a_held_note_is_recorded_on_the_cartridge_the_desktop_build_and_as_ruby
@@ -58,6 +68,16 @@ class TestSoundRecording < Minitest::Test
       assert_operator recording.frames.map(&:loudness).max, :>, 0, "nothing was heard on #{on}"
       assert_equal 0, recording.frames.sum(&:waves_broken), "a wave was broken on #{on}"
     end
+  end
+
+  # Two recordings say where they first differ: a sample changed, one longer than the other, or
+  # nowhere.
+  def test_two_recordings_say_where_they_first_differ
+    recording = ->(samples) { SoundRecording.new(samples: samples, rate: RATE, frame_seconds: 1r / 60) }
+
+    assert_nil recording.call([1, 2, 3]).first_difference(recording.call([1, 2, 3]))
+    assert_equal 1, recording.call([1, 2, 3]).first_difference(recording.call([1, 5, 3]))
+    assert_equal 2, recording.call([1, 2]).first_difference(recording.call([1, 2, 3]))
   end
 
   # A .wav a person can open: one speaker, sixteen-bit samples, read back as they were written.
