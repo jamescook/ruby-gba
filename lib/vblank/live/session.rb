@@ -26,18 +26,25 @@ module VBlank
     # beat on by that many and waits for it. A machine faster than the console waits, and plays
     # exactly as fast; a slower one shows fewer pictures, and the game, which counts one frame a
     # pass, runs that much slower.
+    #
+    # UNCAPPED, for measuring, there is no beat: each pass starts the moment the last one ends, a
+    # frame a pass, so the rate is how fast the machine can play the game.
     class Session
-      def initialize(program, device:)
-        @program = program
-        @device = device
+      # The game is built as Ruby here, before any device is opened, so a game the Ruby runtime
+      # cannot play yet is refused (IR::Backends::Ruby::RuntimeGap) before a window comes up.
+      # +stop_after_passes+ is how many passes to play at most, whatever the device says.
+      def initialize(program, uncapped: false, stop_after_passes: nil)
+        @game = IR::Backends::Ruby.new.live_game(program)
+        @uncapped = uncapped
+        @stop_after_passes = stop_after_passes
         @frame_seconds = program.described_console.frame_seconds
       end
 
-      # Plays until the device says stop or the game ends, and gives back how fast it went (Rate).
-      # A game that does something its rules refuse (a push onto a full list) stops the play with
-      # IR::ProgramError, in the words the interpreter would use.
-      def play
-        @game = IR::Backends::Ruby.new.live_game(@program)
+      # Plays once, on +device+, until it says stop or the game ends, and gives back how fast it
+      # went (Rate). A game that does something its rules refuse (a push onto a full list) stops
+      # the play with IR::ProgramError, in the words the interpreter would use.
+      def play(device)
+        @device = device
         @passes = @frames = 0
         @started = @frame_began = @device.now
         @device.wait_until(@frame_began)
@@ -52,18 +59,24 @@ module VBlank
         wait_for_frame_end
         @passes += 1
         @device.show(pixels, @game.width, @game.height)
-        return nil if @device.stop?
+        return nil if @device.stop? || @passes == @stop_after_passes
 
         IR::Buttons.mask(@device.held_buttons(@passes))
       end
 
       private
 
-      # Moves the beat past the frames the pass just ended took, and waits for it.
+      # Moves the beat past the frames the pass just ended took, and waits for it. Uncapped, the
+      # pass took one frame and the next starts now.
       def wait_for_frame_end
-        frames = [((@device.now - @frame_began) / @frame_seconds).ceil, 1].max
-        @frame_began += frames * @frame_seconds
-        @frames += frames
+        if @uncapped
+          @frames += 1
+          @frame_began = @device.now
+        else
+          frames = [((@device.now - @frame_began) / @frame_seconds).ceil, 1].max
+          @frame_began += frames * @frame_seconds
+          @frames += frames
+        end
         @device.wait_until(@frame_began)
       end
     end

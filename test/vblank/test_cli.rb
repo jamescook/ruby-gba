@@ -465,6 +465,35 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # `vblank run` plays the game as Ruby in a window: here SDL's dummy driver, which makes windows
+  # nobody sees. It says which Ruby plays it, and when it stops, how fast it went.
+  def test_run_plays_the_game_in_a_window_and_says_how_fast
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = Open3.capture2e({ "SDL_VIDEODRIVER" => "dummy" }, RUBY, BIN, "run", "demo.rb", "--pictures", "5",
+                                    chdir: dir)
+      skip out.lines.first.chomp if out.include?("cannot find SDL3")
+
+      assert status.success?, out
+      assert_match(/Ruby #{Regexp.escape(RUBY_VERSION)}, YJIT (on|off)/o, out)
+      assert_match(/Showed 5 pictures in [\d.]+ seconds/, out)
+      assert_match(/The console shows 59\.7 a second/, out)
+    end
+  end
+
+  # The Ruby runtime draws the Advance's screen, so a game for the Color alone is refused before
+  # any window opens, saying what to write.
+  def test_run_refuses_a_game_for_the_color_alone
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "coloronly.rb"), COLOR_ONLY)
+      out, status = cli("run", "coloronly.rb", dir: dir)
+
+      refute status.success?, out
+      assert_match(/COLORONLY is not for the Game Boy Advance/i, out)
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+    end
+  end
+
   # When every console's build fails for one reason, it is said once, with no advice about
   # leaving a console out: the game itself is what needs changing.
   def test_build_says_a_reason_every_console_shares_once

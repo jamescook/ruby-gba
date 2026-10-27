@@ -253,7 +253,7 @@ happens to touch:
 | `playthroughs/` | `VBlank::Playthroughs` | it plays a finished cartridge with nobody at the controls, or two side by side to find where they differ (`Playthrough`, `Tape`, `Comparison`, `CommandLine`) |
 | `messages/` | `VBlank::Messages` | it is how a build talks to the author while it builds (`PlainWords`, `Progress`, `BuildOutput`, `AuthorSource`) |
 | `testing/` | `VBlank::Testing` | it is how a game's own test suite plays its games on each lowering (`CheckedPlayer`, `TestTask`, `RakeTasks`, `Processes`) |
-| `live/` | `VBlank::Live` | it plays a game live, built as Ruby (`IR::Backends::Ruby#live_game`) and run in this process, for a person or a test standing in for one: the session that keeps a pass at a time on the console's beat, and the devices it is shown on (`Session`, `Headless`, `Rate`) |
+| `live/` | `VBlank::Live` | it plays a game live, built as Ruby (`IR::Backends::Ruby#live_game`) and run in this process, for a person or a test standing in for one: the session that keeps a pass at a time on the console's beat, and the devices it is shown on (`Session`, `Headless`, `SDL`, `Rate`); `vblank run` opens the window a person plays in |
 
 `testing/`'s front door is the exception both ways. `lib/vblank.rb` does NOT require it: it
 loads minitest, which a game needs only for its tests, so a game's suite requires
@@ -262,8 +262,8 @@ whole library and minitest besides its own files, since it is the one line a gam
 with — but not `rake_tasks.rb` or `test_task.rb` (a Rakefile's, which must not start minitest) or `processes.rb`
 (loaded only into the native run's test processes, where it takes over how minitest plays).
 `live/`'s front door is the same both ways: `lib/vblank.rb` does not require it, since its
-screen device will reach its window through Fiddle, which a game that only builds cartridges
-never needs, and it loads the whole library itself.
+window reaches SDL3 through Fiddle, which a game that only builds cartridges never needs, and
+it loads the whole library itself. `cli.rb` requires it only when `vblank run` is run.
 
 `diagnostics/` and `messages/` both say things to a person, so the line between them is which
 way each one faces. `diagnostics/` needs a finished cartridge before it has anything to say.

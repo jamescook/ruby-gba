@@ -20,7 +20,7 @@ class TestSession < Minitest::Test
 
   def test_the_device_is_shown_every_pass_the_game_draws
     device = Headless.new(frames: 3)
-    Session.new(game { game_loop { pixel 2, 1, :red } }, device: device).play
+    Session.new(game { game_loop { pixel 2, 1, :red } }).play(device)
 
     assert_equal 3, device.pictures.size
     picture = device.pictures.last
@@ -31,8 +31,7 @@ class TestSession < Minitest::Test
   # on the second and third frames is seen by the third and fourth passes, as on the console.
   def test_buttons_held_on_a_frame_reach_the_pass_after_it
     device = Headless.new(frames: 5, buttons: { 2 => [:a], 3 => [:a] })
-    Session.new(game { game_loop { held(:a).then { pixel 0, 0, :red }.else { pixel 0, 0, :blue } } },
-                device: device).play
+    Session.new(game { game_loop { held(:a).then { pixel 0, 0, :red }.else { pixel 0, 0, :blue } } }).play(device)
 
     seen = device.pictures.map { |picture| Color.resolve(:red) == picture.pixels[0] ? :a : :none }
     assert_equal %i[none none a a none], seen
@@ -46,7 +45,7 @@ class TestSession < Minitest::Test
   def test_a_pass_that_takes_two_frames_moves_the_game_on_one
     program = counting_game
     device = Headless.new(frames: 4, pass_seconds: 2 * frame_seconds(program))
-    rate = Session.new(program, device: device).play
+    rate = Session.new(program).play(device)
 
     assert_equal [nil, 1, 2, 3], device.pictures.map { |picture| marked_frame(picture) }
     assert_equal 8, rate.frames
@@ -59,7 +58,7 @@ class TestSession < Minitest::Test
     program = counting_game
     frame = frame_seconds(program)
     device = Headless.new(frames: 4, pass_seconds: frame / 4)
-    rate = Session.new(program, device: device).play
+    rate = Session.new(program).play(device)
 
     assert_equal [nil, 1, 2, 3], device.pictures.map { |picture| marked_frame(picture) }
     assert_operator device.now, :>=, 4 * frame
@@ -72,7 +71,7 @@ class TestSession < Minitest::Test
   def test_the_play_says_how_many_passes_and_frames_a_second_it_reached
     program = counting_game
     frame = frame_seconds(program)
-    rate = Session.new(program, device: Headless.new(frames: 4, pass_seconds: 2 * frame)).play
+    rate = Session.new(program).play(Headless.new(frames: 4, pass_seconds: 2 * frame))
 
     assert_equal [4, 8], [rate.passes, rate.frames]
     assert_equal 8 * frame, rate.seconds
@@ -80,10 +79,30 @@ class TestSession < Minitest::Test
     assert_in_delta 1 / (2 * frame), rate.passes_per_second, 0.001
   end
 
+  # Played uncapped, for measuring, the session never waits for a frame to end: each pass starts
+  # the moment the last one ends, the game moves on a frame a pass, and the rate is the machine's
+  # own. Four passes of a quarter of a frame each are four times the console's speed.
+  def test_an_uncapped_play_goes_as_fast_as_the_machine
+    program = counting_game
+    frame = frame_seconds(program)
+    rate = Session.new(program, uncapped: true).play(Headless.new(frames: 4, pass_seconds: frame / 4))
+
+    assert_equal [4, 4], [rate.passes, rate.frames]
+    assert_in_delta 4 / frame, rate.passes_per_second, 0.001
+  end
+
+  # A play told how many passes to go on for stops there, whatever the device would say.
+  def test_a_play_stops_after_the_passes_it_was_given
+    device = Headless.new(frames: 100)
+    rate = Session.new(game { game_loop { pixel 0, 0, :red } }, stop_after_passes: 3).play(device)
+
+    assert_equal [3, 3], [device.pictures.size, rate.passes]
+  end
+
   # A game that ends by itself ends the play, and says how far it got.
   def test_a_game_that_halts_ends_the_play
     device = Headless.new(frames: 100)
-    rate = Session.new(game { repeat(3) { wait_vblank } }, device: device).play
+    rate = Session.new(game { repeat(3) { wait_vblank } }).play(device)
 
     assert_equal 3, device.pictures.size
     assert_equal 3, rate.passes
@@ -102,7 +121,7 @@ class TestSession < Minitest::Test
     end
     device = Headless.new(frames: 4)
 
-    assert_equal 4, Session.new(program, device: device).play.passes
+    assert_equal 4, Session.new(program).play(device).passes
   end
 
   # A game that saves to flash keeps its save in memory for the length of the play: the chip's
@@ -121,7 +140,7 @@ class TestSession < Minitest::Test
     end
     builder.finalize_program
     device = Headless.new(frames: 6)
-    Session.new(builder.program, device: device).play
+    Session.new(builder.program).play(device)
 
     assert_equal Color.resolve(:green), device.pictures.last.pixels[0]
   end
@@ -133,7 +152,7 @@ class TestSession < Minitest::Test
       game_loop { trail.push 1 }
     end
 
-    error = assert_raises(VBlank::IR::ProgramError) { Session.new(program, device: Headless.new(frames: 9)).play }
+    error = assert_raises(VBlank::IR::ProgramError) { Session.new(program).play(Headless.new(frames: 9)) }
     assert_match(/list :trail is full/, error.message)
   end
 

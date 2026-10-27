@@ -41,6 +41,17 @@ module VBlank
       HELP_PAGES[command] = text.freeze
     end
 
+    # A command whose name Thor keeps for itself, and the method that does it: Thor will not let
+    # a command be a method called `run`, so `vblank run` is mapped onto one of another name.
+    COMMAND_METHODS = { "run" => "run_game" }.freeze
+    map COMMAND_METHODS.transform_values(&:to_sym)
+
+    # The name of the method that does the command a person types as +name+.
+    def self.method_for(name) = COMMAND_METHODS.fetch(name, name)
+
+    # Thor's command for the command a person types as +name+.
+    def self.command_named(name) = all_commands.fetch(method_for(name))
+
     def self.start(given_args = ARGV, config = {})
       args = route_help_flags(given_args)
       args = checked_args(args) unless args.first == "help"
@@ -94,7 +105,7 @@ module VBlank
       name = args.first
       raise Thor::Error, no_command_message(name) unless HELP_PAGES.key?(name)
 
-      options = options_by_switch(all_commands.fetch(name))
+      options = options_by_switch(command_named(name))
       words = args.drop(1)
       checked = [name]
       until words.empty?
@@ -175,7 +186,7 @@ module VBlank
     # that is said, with the line put right.
     def self.wrong_words_message(args)
       name = args.first
-      command = all_commands.fetch(name)
+      command = command_named(name)
       wanted = command.usage.split.drop(1)
       plain = wanted.size == 1 ? "one #{wanted.first}" : wanted.join(" and ")
       said = "vblank #{name} takes #{plain}. Write it as: vblank #{command.usage} [options]."
@@ -206,14 +217,14 @@ module VBlank
     # where its whole name is on the page: --save is not explained by --save-file.
     def self.refuse_undocumented_options!
       HELP_PAGES.each do |name, page|
-        missing = all_commands.fetch(name).options.values.map(&:switch_name).reject do |switch|
+        missing = command_named(name).options.values.map(&:switch_name).reject do |switch|
           page.match?(/(?<![\w-])#{Regexp.escape(switch)}(?![\w-])/)
         end
         raise "The help page for vblank #{name} does not explain #{missing.join(', ')}." unless missing.empty?
       end
       # help and tree are Thor's own: help prints these pages, and tree is refused as a command
       # that is not there.
-      undescribed = all_commands.keys - HELP_PAGES.keys - %w[help tree]
+      undescribed = all_commands.keys - HELP_PAGES.keys.map { |name| method_for(name) } - %w[help tree]
       raise "These commands have no help page: #{undescribed.join(', ')}." unless undescribed.empty?
     end
 
@@ -226,6 +237,7 @@ module VBlank
                                        program for this computer, or a web page.
         vblank preview GAME_FILE     Play the game in a browser. Reload the page
                                        to build it again.
+        vblank run GAME_FILE         Play the game in a window, in Ruby.
 
       Check a game:
         vblank profile GAME_FILE     Run the game and report what it costs.
@@ -588,6 +600,70 @@ module VBlank
       raise Thor::Error, "Port #{options[:port]} is in use already. Give another with --port."
     end
 
+    desc "run GAME_FILE", "Play the game in a window, in Ruby"
+    help_page "run", <<~TEXT
+      Usage: vblank run GAME_FILE [options]
+
+      Build the game in GAME_FILE as Ruby, and play it in a window on this
+      computer. The game runs in this Ruby, at the speed of the console. When the
+      play stops, the command prints how fast the game ran.
+
+      The keys:
+        arrows                   the direction pad
+        Z, X                     A, B
+        Enter, Backspace         Start, Select
+        A key, S key             L, R
+        Escape                   stop the play. Closing the window stops it too.
+
+      The window needs SDL3 and the gem `fiddle`. To install SDL3 on macOS, run
+      `brew install sdl3`. On Debian or Ubuntu, run `apt install libsdl3-dev`. If
+      the game has a Gemfile, add `gem "fiddle"` to it.
+
+      The window shows the Game Boy Advance screen. So the game must name gba in
+      consoles:. The game has no sound yet.
+
+      Examples:
+        vblank run game.rb
+        vblank run game.rb --scale 4             a bigger window
+        vblank run game.rb --uncapped --pictures 600
+                                                 how fast this computer can play
+                                                 600 pictures of the game
+
+      The window shows a picture each time the game finishes a frame. When
+      this computer is too slow to finish a frame in time, the window shows
+      fewer pictures than the game has frames.
+
+      Options:
+        --scale N                The window is N times the size of the screen.
+                                 Default: 3. You can change the size of the
+                                 window when it is open.
+        --pictures N             Stop after the window has shown N pictures.
+        --uncapped               Do not wait for the end of each frame. The game
+                                 then runs as fast as this computer can play it.
+                                 Use this to measure the speed.
+        #{SET}
+    TEXT
+    option :scale, type: :numeric, banner: "N", default: 3
+    option :pictures, type: :numeric, banner: "N"
+    option :uncapped, type: :boolean, default: false
+    option :set, type: :array, banner: "NAME=VALUE", default: []
+    def run_game(game_file)
+      refuse_unless_whole_and_positive!("--scale", options[:scale])
+      refuse_unless_whole_and_positive!("--pictures", options[:pictures]) if options[:pictures]
+      game = load_game(game_file)
+      program = program_to_run(game)
+      # YJIT compiles the Ruby that runs most often to machine code as the game plays, which plays
+      # a game several times faster. A Ruby built without it plays the game slower.
+      RubyVM::YJIT.enable if defined?(RubyVM::YJIT) && !yjit_on?
+      require_relative "live"
+      rate = play_in_window(game, live_session(game, program))
+      # The game moves on one frame for each picture, so the pictures a second are its speed.
+      say format("Showed %<pictures>d pictures in %<seconds>.1f seconds, %<per_second>.1f a second. " \
+                 "The console shows %<console>.1f a second.",
+                 pictures: rate.passes, seconds: rate.seconds, per_second: rate.passes_per_second,
+                 console: 1 / program.described_console.frame_seconds)
+    end
+
     desc "inspect ROM_FILE", "Print a .gba's header and first instructions"
     help_page "inspect", <<~TEXT
       Usage: vblank inspect ROM_FILE
@@ -653,6 +729,49 @@ module VBlank
       yield VBlank::Playthroughs::CommandLine.new(options, out: $stdout, build: build)
     rescue VBlank::Playthroughs::CommandLine::Refused => e
       raise Thor::Error, e.message
+    end
+
+    # --- run ---
+
+    # The checked program of +game+, as the Advance plays it: the Ruby runtime draws the Advance's
+    # screen, so a game for the Color alone is refused, saying what to write.
+    def program_to_run(game)
+      console = console_drawn_by_runtimes(game, "A game played in a window")
+      # A big game takes a while to build, and somebody is waiting for the window.
+      game.build_rom(profile: false, progress: VBlank::Messages::Progress.to($stderr),
+                     settings: given_settings, console: console).source_program
+    rescue ArgumentError, VBlank::BuildError => e
+      raise Thor::Error, e.message
+    end
+
+    # The game built as Ruby, ready to play: a game that needs something the Ruby runtime cannot do
+    # yet is refused here, before a window opens.
+    def live_session(game, program)
+      VBlank::Live::Session.new(program, uncapped: options[:uncapped], stop_after_passes: options[:pictures])
+    rescue VBlank::IR::Backends::Ruby::RuntimeGap => e
+      raise Thor::Error, "VBlank cannot play #{game.title} in a window yet. The game needs a part of VBlank " \
+                         "that does not work in Ruby yet: #{e.part}. Build a cartridge, or use vblank preview."
+    end
+
+    # +session+ played in a window until the player stops it, or --pictures are shown; the window
+    # is closed however the play ends. Something the game does that its rules refuse (a push onto a
+    # full list) is said in words.
+    def play_in_window(game, session)
+      window = VBlank::Live::SDL.new(title: game.title, scale: options[:scale])
+      say "Playing #{game.title} in Ruby #{RUBY_VERSION}, YJIT #{yjit_on? ? 'on' : 'off'}. Press Escape to stop."
+      session.play(window)
+    rescue VBlank::Live::SDL::Missing, VBlank::Live::SDL::Failed, VBlank::IR::ProgramError => e
+      raise Thor::Error, e.message
+    ensure
+      window&.close
+    end
+
+    def yjit_on? = defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled?
+
+    def refuse_unless_whole_and_positive!(switch, value)
+      return if value.is_a?(Integer) && value.positive?
+
+      raise Thor::Error, "#{switch} must be a whole number of 1 or more. For example: #{switch} 3."
     end
 
     # --- build and profile ---
