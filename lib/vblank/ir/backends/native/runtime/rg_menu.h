@@ -1,10 +1,12 @@
 /*
- * The menu drawn over the picture: Dear ImGui through SDL3's renderer (rg_menu.cpp).
+ * The windows drawn over the picture: Dear ImGui through SDL3's renderer (rg_menu.cpp). The menu
+ * itself is the library's own (rg_window_menu.h); these are the window of keys and gamepad
+ * buttons, the window of the game's variables, and what was wrong with the settings file.
  *
- * It only draws, and calls the plain functions of rg_window.h for anything a player does with
- * it — it keeps no setting of its own — so everything it can do, a hotkey or a settings file
- * can do too, and all of that is tested with no window. A desktop build a person plays always
- * has it; the builds a test makes of the game (no SDL, no window) leave it out.
+ * They only draw, and call the plain functions of rg_window.h for anything a player does with
+ * them — they keep no setting of their own — so everything they can do, a hotkey or a settings
+ * file can do too, and all of that is tested with no window. A desktop build a person plays always
+ * has them; the builds a test makes of the game (no SDL, no window) leave them out.
  */
 #ifndef RG_MENU_H
 #define RG_MENU_H
@@ -16,7 +18,7 @@
 extern "C" {
 #endif
 
-/* Starts the menu on a window and the renderer that draws it. False when it could not. */
+/* Starts them on a window and the renderer that draws it. False when it could not. */
 bool rg_menu_start(SDL_Window *window, SDL_Renderer *renderer);
 void rg_menu_stop(void);
 
@@ -27,10 +29,9 @@ void rg_menu_event(const SDL_Event *event);
  * the window's hotkeys either. */
 bool rg_menu_wants_keyboard(void);
 
-/* Draws the menu bar, the windows that are open and the frame rate over the picture just drawn,
- * through the renderer it was started on, and leaves that as it found it. +now_ns+ is the time,
- * SDL_GetTicksNS(). */
-void rg_menu_draw(uint64_t now_ns);
+/* Draws the windows that are open over the picture just drawn, through the renderer they were
+ * started on, and leaves that as it found it. */
+void rg_menu_draw(void);
 
 #ifdef __cplusplus
 }

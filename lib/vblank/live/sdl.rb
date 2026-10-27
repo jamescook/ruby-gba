@@ -398,6 +398,7 @@ module VBlank
           extern "char SDL_SetRenderDrawBlendMode(void*, unsigned int)"
           extern "char SDL_SetRenderDrawColor(void*, unsigned char, unsigned char, unsigned char, unsigned char)"
           extern "char SDL_RenderGeometry(void*, void*, void*, int, void*, int)"
+          extern "char SDL_RenderFillRect(void*, void*)"
           extern "char SDL_GetRenderOutputSize(void*, void*, void*)"
           extern "float SDL_GetWindowPixelDensity(void*)"
           extern "unsigned int SDL_GetDisplayForWindow(void*)"
@@ -448,6 +449,7 @@ module VBlank
         @texture = @sdl.SDL_CreateTexture(@renderer, PIXELFORMAT_XBGR1555, TEXTUREACCESS_STREAMING, @width, @height)
         raise_failed!("make the picture") if @texture.null?
         raise_failed!("keep the pixels sharp") if @sdl.SDL_SetTextureScaleMode(@texture, SCALEMODE_NEAREST).zero?
+        @sdl.SDL_SetRenderDrawBlendMode(@renderer, BLENDMODE_BLEND) # the menu's boxes are see-through
         @event = Fiddle::Pointer.malloc(EVENT_BYTES, Fiddle::RUBY_FREE)
         upload_menu_letters
         # Gamepads, where SDL can read them: a computer where it cannot plays with the keyboard alone.
@@ -532,6 +534,7 @@ module VBlank
       # The picture last put in the window, drawn into it again, with the menu and what the window
       # is doing over it (Menu#drawing).
       def redraw_window
+        @sdl.SDL_SetRenderDrawColor(@renderer, 0, 0, 0, 255)
         @sdl.SDL_RenderClear(@renderer)
         @sdl.SDL_RenderTexture(@renderer, @texture, nil, nil)
         draw_menu_and_status
@@ -566,8 +569,15 @@ module VBlank
       # A box with round corners as triangles: a fan from its middle out to its edge, and round the
       # edge a band a pixel wide that fades from its colour to clear, so the edge is not jagged.
       # SDL takes each corner of a triangle as eight floats: where it is, its red, green, blue and
-      # opacity from 0 to 1, and where on a texture it is (none here).
+      # opacity from 0 to 1, and where on a texture it is (none here). A box with square corners is a
+      # plain rectangle, on whole pixels, with nothing to smooth: as triangles its see-through colour
+      # would show where they overlap.
       def draw_box(box)
+        if box.radius < 1
+          @sdl.SDL_SetRenderDrawColor(@renderer, *box.color)
+          return @sdl.SDL_RenderFillRect(@renderer, [box.x, box.y, box.width, box.height].pack("e4"))
+        end
+
         ring = box_edge(box)
         red, green, blue, opacity = box.color.map { |part| part / 255.0 }
         corner = ->(x, y, alpha) { [x, y, red, green, blue, alpha, 0, 0] }

@@ -4,9 +4,9 @@ module VBlank
   module Live
     # THE MENU OVER THE WINDOW A GAME IS PLAYED IN, written down once: what it holds, the keys and
     # gamepad buttons that work it, and how it looks. vblank run draws it (Menu says how it
-    # behaves, SDL draws it), and the desktop build and the web page are to draw this same menu
-    # from it, each in its own language, so a line added here becomes a line in each. Cartridges
-    # have none.
+    # behaves, SDL draws it), and so does the desktop build, which is handed all of this as C data
+    # (IR::Backends::Native::MenuData); the web page is to draw it too. A line added here becomes a
+    # line in each. Cartridges have none.
     #
     # It looks like Dear ImGui's dark menu bar, as the desktop build first had it: a bar along the
     # top with a heading for each part, the open heading's lines in a box under it, a slider for a

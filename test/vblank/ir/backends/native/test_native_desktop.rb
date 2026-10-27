@@ -146,6 +146,7 @@ class TestNativeDesktop < Minitest::Test
       assert_match(/^  A +X$/, said, "the A button's key, as the window starts")
       assert_match(/^  Select +Backspace, Right Shift$/, said, "a button with two keys says both")
       assert_match(/^  Pause +P$/, said, "and the window's own keys")
+      assert_match(/^Press F1, or the key above Tab, to open the menu/, said)
       %w[--save-file --settings-file].each { |option| assert_includes said, option }
       refute_includes said, "--refresh-rate", "the tests' own options are not a player's"
       assert_empty said.lines.map(&:chomp).select { |line| line.length > 80 }, "it fits in 80 columns"
@@ -202,6 +203,7 @@ class TestNativeDesktop < Minitest::Test
       assert_a_changed_setting_is_written_to_the_file_and_read_back(exe, dir)
       assert_a_file_that_cannot_be_used_is_said_and_the_game_plays_on(exe, dir)
       assert_the_menu_is_drawn_over_the_picture(exe, dir)
+      assert_the_menu_holds_the_game_and_keeps_its_keys(exe, dir)
       assert_the_frame_time_shows_without_the_frame_rate(exe, dir)
     end
   end
@@ -220,8 +222,8 @@ class TestNativeDesktop < Minitest::Test
 
       assert_operator window.text_in((window.width * 3 / 4)...window.width, top), :>, 50,
                       "the frame rate is written in the top right corner of the whole window"
-      assert_operator window.text_in((window.width * 7 / 20)...(window.width / 2), 0...(window.height / 24)), :>, 50,
-                      "the menu bar is drawn full size, its last menu just short of the middle"
+      assert_operator window.text_in((window.width / 8)...(window.width / 4), 0...(window.height / 24)), :>, 50,
+                      "the menu's bar is drawn full size, its last headings past an eighth of the way along"
     end
   end
 
@@ -268,10 +270,11 @@ class TestNativeDesktop < Minitest::Test
 
   # Every key the window keeps for itself, pressed by the key and by the hotkey's name (so also
   # held and let go for fast forward), among the frames of a game being played. The game sees
-  # none of them: it counts the same frames and no button.
+  # none of them: it counts the same frames and no button. (The menu's key holds the game, so it
+  # has a test of its own.)
   def assert_hotkeys_never_reach_the_game(exe, dir)
-    words = { 3 => "key:F3", 4 => "key:M", 5 => "key:F1", 6 => "key:F11", 7 => "keydown:Tab", 9 => "keyup:Tab",
-              12 => "hotkey:frame_rate", 13 => "hotkey:mute", 14 => "hotkey:menu", 15 => "hotkey:fullscreen",
+    words = { 3 => "key:F3", 4 => "key:M", 6 => "key:F11", 7 => "keydown:Tab", 9 => "keyup:Tab",
+              12 => "hotkey:frame_rate", 13 => "hotkey:mute", 15 => "hotkey:fullscreen",
               16 => "hotkeydown:fast_forward", 20 => "hotkeyup:fast_forward" }
     lines = (1..30).map { |frame| ["0", words[frame]].compact.join(" ") }
     plain = play_window(exe, dir, [], frames: 30)
@@ -439,7 +442,7 @@ class TestNativeDesktop < Minitest::Test
     File.write(settings, File.read(settings).sub("fullscreen = on", "fullscreen = off"))
     shown, = picture_of_window(exe, dir, [], frames: 40)
     hidden, = picture_of_window(exe, dir, [], frames: 40, options: ["--settings-file", settings])
-    corner = [(shown.width - 140)...(shown.width - 10), 30...70]
+    corner = [(shown.width - 140)...(shown.width - 10), 0...50]
     assert_operator shown.text_in(*corner), :>, 50, "the frame rate shows to begin with, its number written in it"
     assert_equal 0, hidden.lit_in(*corner), "and not when the settings say not"
   end
@@ -508,16 +511,20 @@ class TestNativeDesktop < Minitest::Test
     assert_operator held_q.variables[:held_a], :>=, 1, "the player's file still reaches the game"
   end
 
-  # The menu bar is drawn over the picture (the game's own is black there), and the frame rate in the
-  # corner; the pause says so; a window of the menu's draws when it is opened; and none of them is the game's.
+  # The menu is drawn over the picture once it is opened (the game's own is black there), its
+  # headings written along the top; the frame rate is in the corner; the pause says so; a window of
+  # keys or of the game's variables draws when it is opened; and none of them is the game's.
   def assert_the_menu_is_drawn_over_the_picture(exe, dir)
     window, = picture_of_window(exe, dir, [], frames: 20)
-    bar = [0...window.width, 0...20]
+    opened_menu, = picture_of_window(exe, dir, ["0", "0 hotkey:menu"], frames: 20)
+    bar = [0...(window.width / 2), 0...20] # the frame rate is in the right half
 
-    assert_operator window.lit_in(*bar), :>, window.width * 10, "the menu bar should be along the top"
+    assert_equal 0, window.lit_in(*bar), "the menu opens only when it is asked for"
+    assert_operator opened_menu.lit_in(*bar), :>, window.width * 5, "the menu's bar should be along the top"
+    assert_operator opened_menu.text_in(0...200, 0...20), :>, 30, "with its headings written in it"
 
     paused, = picture_of_window(exe, dir, ["0", "0 hotkey:pause"], frames: 20)
-    corner = [(window.width - 140)...(window.width - 10), 30...100]
+    corner = [(window.width - 140)...(window.width - 10), 0...100]
     assert_operator paused.lit_in(*corner), :>, window.lit_in(*corner), "a pause says PAUSED under the frame rate"
 
     opened, = picture_of_window(exe, dir, ["0 panel:controls"], frames: 20)
@@ -529,12 +536,31 @@ class TestNativeDesktop < Minitest::Test
     assert_equal 0, played.variables.values_at(*BUTTONS_HELD).sum, "opening a window of the menu is not a button"
   end
 
+  # The menu holds the game while it is open, and the keys that work it are not the game's: Down and
+  # Return are the console's Down and Start, and here they move to Resume and choose it. The game has
+  # played its frames and seen no button. Quit in the menu stops the play, and so does Escape.
+  def assert_the_menu_holds_the_game_and_keeps_its_keys(exe, dir)
+    plain = play_window(exe, dir, [], frames: 20)
+    resumed = play_window(exe, dir, ["0", "0 hotkey:menu", "0 key:Down", "0", "0 key:Return"], frames: 20)
+    gone_back_to = play_window(exe, dir, ["0", "0 key:F1", "0 keydown:Right", "0", "0 keyup:Right", "0 key:F1"], frames: 20)
+
+    assert_equal game_saw(plain), game_saw(resumed), "the menu's keys never reach the game"
+    assert_equal game_saw(plain), game_saw(gone_back_to), "and an arrow held in it is not held in the game"
+    let_go = play_window(exe, dir, ["0 keydown:Right", "0", "0 key:F1", "0 keyup:Right", "0 key:F1"], frames: 20)
+    assert_operator let_go.variables[:held_right], :<, 5, "an arrow let go of while the menu is open is let go of in the game"
+
+    quit = play_window(exe, dir, ["0", "0 hotkey:menu", "0 key:Down", "0 key:Down", "0 key:Down", "0 key:Return"], frames: 20)
+    escaped = play_window(exe, dir, ["0", "0", "0 key:Escape"], frames: 20)
+    assert_operator quit.variables[:frames], :<, 5, "Quit stops the play"
+    assert_operator escaped.variables[:frames], :<, 5, "Escape stops the play"
+  end
+
   # The frame time is the developer's own reading, and shows in the corner with the frame rate hidden.
   def assert_the_frame_time_shows_without_the_frame_rate(exe, dir)
     settings = File.join(dir, "frame-time.txt")
     File.write(settings, "frame_rate = off\nframe_time = on\n")
     shown, = picture_of_window(exe, dir, [], frames: 40, options: ["--settings-file", settings])
-    corner = [(shown.width - 200)...(shown.width - 10), 30...70]
+    corner = [(shown.width - 200)...(shown.width - 10), 0...50]
 
     assert_operator shown.text_in(*corner), :>, 50, "the frame time is written in the corner"
   end

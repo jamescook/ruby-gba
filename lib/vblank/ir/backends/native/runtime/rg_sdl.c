@@ -77,8 +77,12 @@
  * sound counts the time as the game running late. Fast forward plays several frames for each
  * picture shown and makes no sound meanwhile, rather than a pile of it the speaker plays late.
  *
- * THE MENU is Dear ImGui (rg_menu.cpp) drawn over the picture, and does nothing but call the
- * plain functions of rg_window.h, as the hotkeys and the settings file do.
+ * THE MENU is the library's own (rg_window_menu.h, the same menu vblank run draws), opened with
+ * F1 or the key above Tab, or a gamepad's guide button, or its Back and Start together. It is drawn
+ * over the picture in the window's own pixels, so its letters are sharp on any screen, and holds
+ * the game while it is open. It changes nothing but what the hotkeys and the settings file change,
+ * through the plain functions of rg_window.h. The windows of keys and of the game's variables are
+ * Dear ImGui's still (rg_menu.cpp).
  *
  * THE SETTINGS are the scale, fullscreen, volume, mute, frame rate, fast forward's speed, the keys,
  * the gamepad buttons and the hotkeys, in one small text file a player can edit (rg_window.h says
@@ -115,12 +119,14 @@
 #include <string.h>
 #include "rg_driver.h"
 #include "rg_menu.h"
+#include "rg_menu_font.h"
 #include "rg_pacing.h"
 #include "rg_runtime.h"
 #include "rg_save.h"
 #include "rg_screen.h"
 #include "rg_sound.h"
 #include "rg_window.h"
+#include "rg_window_menu.h"
 
 /* One frame of the console, in nanoseconds. */
 #define FRAME_NS ((Uint64)RG_CONSOLE_TICKS_A_FRAME * 1000000000ull / RG_CONSOLE_TICKS_A_SECOND)
@@ -188,6 +194,23 @@ static const char *const button_names[BUTTONS] = {"a", "b", "select", "start", "
 static SDL_Window *window;
 static SDL_Renderer *renderer;
 static SDL_Texture *texture;
+
+/* The menu's letters on the screen's card, at the density they were drawn for (0 before the first
+ * time), and what the menu last said to draw. */
+static SDL_Texture *menu_letters;
+static int menu_letters_density;
+static rg_menu_drawing menu_drawing;
+
+/* SDL's numbers for the keys and gamepad buttons that work the menu. The key above Tab opens it as
+ * F1 does, while no console button has that key; a gamepad's guide button opens it, and so do its
+ * Back and Start pressed together. */
+#define MENU_KEY_ABOVE_TAB SDL_SCANCODE_GRAVE
+#define PAD_OPENERS_TOGETHER ((1u << SDL_GAMEPAD_BUTTON_BACK) | (1u << SDL_GAMEPAD_BUTTON_START))
+/* The buttons down on each real gamepad (by its place in pads[]), and those pressed for the menu,
+ * which are kept from the game until they come up: an A that chose Resume is not then the game's
+ * A. A bit for each of SDL's gamepad buttons. */
+static uint32_t pad_buttons_down[MOST_PADS];
+static uint32_t pad_buttons_kept;
 
 static rg_pacing pacing = {0, 0, 1.0}; /* what paces the frames on the monitor the window is on */
 static Uint64 next_frame_ns;           /* when the next frame is due, on the console's clock */
@@ -342,6 +365,7 @@ static void report_frame_times(void) {
 /* Every way out of the program comes through here, so a save the file does not hold yet is
  * written on all of them. */
 static void write_settings_file(void);
+static _Noreturn void finish_script(void);
 
 static _Noreturn void quit(int status) {
   write_save_file();
@@ -563,13 +587,148 @@ static void remember_picture_shown(void) {
   shown_at_ns[shown_count++] = SDL_GetTicksNS();
 }
 
-/* The picture in the texture, the menu over it. Not yet shown: the picture is scaled by a whole
- * number through the renderer's logical size, which the menu puts aside while it draws. */
+/* --- the menu, drawn (rg_window_menu.h says what goes where) --- */
+
+/* How many of the screen's pixels a point of the window is: two on a Retina screen. */
+static double pixel_density(void) {
+  float density = SDL_GetWindowPixelDensity(window);
+  return density > 1.0f ? (double)density : 1.0;
+}
+
+/* The biggest the window can be made, in times the picture's size, on the screen it is on. */
+static int largest_scale_that_fits(void) {
+  SDL_Rect room;
+  if (!SDL_GetDisplayUsableBounds(SDL_GetDisplayForWindow(window), &room)) return RG_WINDOW_SCALE_MOST;
+  int fits = SDL_min(room.w / RG_SCREEN_WIDTH, room.h / RG_SCREEN_HEIGHT);
+  return SDL_min(fits, RG_WINDOW_SCALE_MOST);
+}
+
+/* The menu font's picture of every letter at the screen's density, on the screen's card, from
+ * which each letter of the menu's words is copied: white, as opaque as the letter covers each
+ * pixel, and coloured as it is copied. A window moved to a screen of another density has it put
+ * there again. A card that cannot take it leaves the menu without words, and the game plays on. */
+static void upload_menu_letters(double density) {
+  const rg_menu_atlas *atlas = rg_menu_font_atlas(density);
+  if (menu_letters_density == atlas->density) return;
+  if (menu_letters) SDL_DestroyTexture(menu_letters);
+  menu_letters_density = atlas->density;
+  menu_letters = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, atlas->width, atlas->height);
+  if (!menu_letters) return;
+  size_t count = (size_t)atlas->width * (size_t)atlas->height;
+  uint8_t *pixels = malloc(count * 4);
+  if (pixels) {
+    for (size_t i = 0; i < count; i++) {
+      pixels[i * 4] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = 255;
+      pixels[i * 4 + 3] = atlas->alpha[i];
+    }
+    SDL_UpdateTexture(menu_letters, NULL, pixels, atlas->width * 4);
+    free(pixels);
+  }
+  SDL_SetTextureBlendMode(menu_letters, SDL_BLENDMODE_BLEND);
+  SDL_SetTextureScaleMode(menu_letters, SDL_SCALEMODE_LINEAR);
+}
+
+/* Straight pieces a round corner is drawn with. */
+#define CORNER_STEPS 8
+#define EDGE_POINTS (4 * (CORNER_STEPS + 1))
+
+/* A box with round corners as triangles: a fan from its middle out to its edge, and round the edge a
+ * band a pixel wide that fades from its colour to clear, so the edge is not jagged. The edge is
+ * walked round the four corners, top left first, each point with which way is out from it. A box
+ * with square corners is a plain rectangle, on whole pixels, with nothing to smooth: as triangles
+ * its see-through colour would show where they overlap. */
+static void draw_box(const rg_menu_part *box) {
+  if (box->radius < 1) {
+    SDL_SetRenderDrawColor(renderer, box->color[0], box->color[1], box->color[2], box->color[3]);
+    SDL_FRect whole = {(float)box->x, (float)box->y, (float)box->width, (float)box->height};
+    SDL_RenderFillRect(renderer, &whole);
+    return;
+  }
+  double radius = SDL_clamp((double)box->radius, 0.0, SDL_min(box->width, box->height) / 2.0);
+  int steps = radius < 1.0 ? 1 : CORNER_STEPS;
+  SDL_FColor color = {box->color[0] / 255.0f, box->color[1] / 255.0f, box->color[2] / 255.0f, box->color[3] / 255.0f};
+  SDL_FColor clear = color;
+  clear.a = 0.0f;
+  SDL_Vertex points[1 + 2 * EDGE_POINTS];
+  int indices[9 * EDGE_POINTS];
+  points[0] = (SDL_Vertex){{(float)(box->x + box->width / 2.0), (float)(box->y + box->height / 2.0)}, color, {0.0f, 0.0f}};
+  const double middles[4][3] = {{box->x + radius, box->y + radius, 180.0},
+                                {box->x + box->width - radius, box->y + radius, 270.0},
+                                {box->x + box->width - radius, box->y + box->height - radius, 0.0},
+                                {box->x + radius, box->y + box->height - radius, 90.0}};
+  int ring = 0;
+  for (int corner = 0; corner < 4; corner++) {
+    for (int step = 0; step <= steps; step++) {
+      double angle = (middles[corner][2] + 90.0 * step / steps) * SDL_PI_D / 180.0;
+      double out_x = SDL_cos(angle), out_y = SDL_sin(angle);
+      double x = middles[corner][0] + out_x * radius, y = middles[corner][1] + out_y * radius;
+      points[1 + 2 * ring] = (SDL_Vertex){{(float)(x - out_x / 2), (float)(y - out_y / 2)}, color, {0.0f, 0.0f}};
+      points[2 + 2 * ring] = (SDL_Vertex){{(float)(x + out_x / 2), (float)(y + out_y / 2)}, clear, {0.0f, 0.0f}};
+      ring++;
+    }
+  }
+  int count = 0;
+  for (int at = 0; at < ring; at++) {
+    int inner = 1 + 2 * at, next_inner = 1 + 2 * ((at + 1) % ring);
+    const int triangles[9] = {0, inner, next_inner, inner, inner + 1, next_inner + 1, inner, next_inner + 1, next_inner};
+    for (int i = 0; i < 9; i++) indices[count++] = triangles[i];
+  }
+  SDL_RenderGeometry(renderer, NULL, points, 1 + 2 * ring, indices, count);
+}
+
+/* Each letter of +words+ copied from the letters' card to where the menu said, in its colour. */
+static void draw_words(const rg_menu_part *words) {
+  if (!menu_letters) return;
+  SDL_SetTextureColorMod(menu_letters, words->color[0], words->color[1], words->color[2]);
+  SDL_SetTextureAlphaMod(menu_letters, words->color[3]);
+  for (int i = words->first_letter; i < words->first_letter + words->letter_count; i++) {
+    const rg_menu_letter *letter = &menu_drawing.letters[i];
+    SDL_FRect from = {(float)letter->from[0], (float)letter->from[1], (float)letter->from[2], (float)letter->from[3]};
+    SDL_FRect to = {(float)letter->to[0], (float)letter->to[1], (float)letter->to[2], (float)letter->to[3]};
+    SDL_RenderTexture(renderer, menu_letters, &from, &to);
+  }
+}
+
+static bool game_held(void) { return rg_window_paused() || rg_window_menu_is_open(); }
+
+/* What the menu says to draw, in the window's own pixels: the picture was drawn through the
+ * console's own size (the logical presentation, which scales it by a whole number with bars where
+ * the window is the wrong shape), which is put aside while the menu draws and put back after. */
+static void draw_menu_and_status(void) {
+  Uint64 now = SDL_GetTicksNS();
+  char rate[32], work[32];
+  snprintf(rate, sizeof rate, "%.1f", rg_window_frames_a_second(now));
+  snprintf(work, sizeof work, "%.2f", rg_window_frame_work_ms(now));
+  int width = 0, height = 0;
+  SDL_GetRenderOutputSize(renderer, &width, &height);
+  double density = pixel_density();
+  if (rg_window_menu_is_open()) rg_window_menu_set_most_scale(largest_scale_that_fits());
+  int fast = !game_held() && rg_window_fast_forwarding() ? rg_window_fast_speed() : 0;
+  rg_window_menu_draw(&menu_drawing, width, density, game_held(), fast, rg_window_shows_frame_rate() ? rate : NULL,
+                      rg_window_shows_frame_time() ? work : NULL);
+  if (menu_drawing.part_count == 0) return;
+
+  upload_menu_letters(density);
+  int logical_width = 0, logical_height = 0;
+  SDL_RendererLogicalPresentation mode = SDL_LOGICAL_PRESENTATION_DISABLED;
+  SDL_GetRenderLogicalPresentation(renderer, &logical_width, &logical_height, &mode);
+  SDL_SetRenderLogicalPresentation(renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+  for (int i = 0; i < menu_drawing.part_count; i++) {
+    const rg_menu_part *part = &menu_drawing.parts[i];
+    if (part->is_box) draw_box(part);
+    else draw_words(part);
+  }
+  SDL_SetRenderLogicalPresentation(renderer, logical_width, logical_height, mode);
+}
+
+/* The picture in the texture, the menu over it, and the windows of keys and variables over that.
+ * Not yet shown. */
 static void draw_window(void) {
   SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
   SDL_RenderClear(renderer);
   SDL_RenderTexture(renderer, texture, NULL, NULL);
-  rg_menu_draw(SDL_GetTicksNS());
+  draw_menu_and_status();
+  rg_menu_draw();
 }
 
 /* Asks the game for its variables while the menu's window of them is open. */
@@ -680,25 +839,83 @@ static void close_pad(SDL_JoystickID id) {
     if (!pads[i] || SDL_GetGamepadID(pads[i]) != id) continue;
     SDL_CloseGamepad(pads[i]);
     pads[i] = NULL;
+    pad_buttons_down[i] = 0;
   }
 }
 
+/* The player chose to quit (Escape, or Quit in the menu): a script's run ends as its last line
+ * would, with what it prints at its end. */
+static _Noreturn void quit_play(void) {
+  if (scripted) finish_script();
+  quit(0);
+}
+
+/* A key meant for the menu, and what the window does about what the menu then says: Quit ends the
+ * play. Resume carries
+ * on, even from a pause before the menu was opened; closing the menu (the gamepad's B) leaves such a
+ * pause as it was, as F1 does. */
+static void press_menu(rg_menu_key key) {
+  rg_window_menu_set_most_scale(largest_scale_that_fits());
+  rg_window_menu_press(key);
+  if (!rg_window_menu_is_open() && key != RG_MENU_CLOSE) rg_window_resume();
+  if (rg_window_menu_quit_chosen()) quit_play();
+}
+
+/* The menu's way of moving for a key, or -1: the arrows, and Return for Enter. */
+static int menu_key_of(SDL_Scancode code) {
+  switch (code) {
+  case SDL_SCANCODE_UP:
+    return RG_MENU_UP;
+  case SDL_SCANCODE_DOWN:
+    return RG_MENU_DOWN;
+  case SDL_SCANCODE_LEFT:
+    return RG_MENU_LEFT;
+  case SDL_SCANCODE_RIGHT:
+    return RG_MENU_RIGHT;
+  case SDL_SCANCODE_RETURN:
+    return RG_MENU_ENTER;
+  default:
+    return -1;
+  }
+}
+
+/* The menu's own hotkey, and the key above Tab while no console button has it. */
+static bool opens_menu(int code, int hotkey) {
+  return rg_game_has_menu && (hotkey == RG_HOTKEY_MENU || (code == MENU_KEY_ABOVE_TAB && rg_window_key_button(code) < 0));
+}
+
 /* A key went down or came up. A key held makes the keyboard send it again and again, which is
- * not a second press, so those are passed over.
+ * not a second press, so those are passed over, but for moving about the open menu.
  *
- * A key being chosen for a button or a hotkey is taken for that, and not played. A hotkey is the
- * window's own and is not handed on; a key a console button has is the button. A text box in the
- * menu keeps the keys typed into it from the game, but not their coming up, so a button that
- * went down is never left held. */
+ * A key being chosen for a button or a hotkey is taken for that, and not played. The menu's keys
+ * are its own while it is open, and Escape stops the play. A hotkey is the window's own and is not
+ * handed on, and pause and step wait for the menu to close; a key a console button has is the
+ * button. A text box keeps the keys typed into it from the game, but not their coming up, so a
+ * button that went down is never left held. */
 static void key_changed(const SDL_KeyboardEvent *key) {
-  if (key->repeat) return;
   int code = (int)key->scancode;
+  int moves = menu_key_of(key->scancode);
+  if (key->repeat) {
+    if (key->down && rg_window_menu_is_open() && moves >= 0 && moves != RG_MENU_ENTER) press_menu((rg_menu_key)moves);
+    return;
+  }
   if (key->down && rg_window_capture_key(code)) return;
   if (key->down && rg_menu_wants_keyboard()) return;
+  if (key->down && code == RG_KEY_ESCAPE) quit_play();
 
   int hotkey = rg_window_key_hotkey(code);
+  if (opens_menu(code, hotkey)) {
+    if (key->down) rg_window_menu_toggle();
+    return;
+  }
+  /* Only going down: an arrow held for the game before the menu opened is let go of as usual. */
+  if (key->down && rg_window_menu_is_open() && moves >= 0) {
+    press_menu((rg_menu_key)moves);
+    return;
+  }
   if (hotkey >= 0) {
-    rg_window_hotkey_changed(hotkey, key->down);
+    bool waits_for_menu = hotkey == RG_HOTKEY_PAUSE || hotkey == RG_HOTKEY_STEP;
+    if (!(waits_for_menu && rg_window_menu_is_open())) rg_window_hotkey_changed(hotkey, key->down);
     return;
   }
   int button = rg_window_key_button(code);
@@ -712,11 +929,59 @@ static void key_changed(const SDL_KeyboardEvent *key) {
   }
 }
 
-/* A gamepad button went down: if a button of the console is waiting to be given one, this is it.
- * The keyboard's own gamepad is not a player's choice. */
-static void pad_button_down(const SDL_GamepadButtonEvent *button) {
-  if (button->which == keyboard_pad_id) return;
-  rg_window_capture_pad((int)button->button);
+/* The menu's way of moving for a gamepad button, or -1: the D-pad, A (the right face button, as the
+ * console has it) for Enter, and B (the bottom one) to close it. */
+static int menu_pad_key_of(int button) {
+  switch (button) {
+  case SDL_GAMEPAD_BUTTON_DPAD_UP:
+    return RG_MENU_UP;
+  case SDL_GAMEPAD_BUTTON_DPAD_DOWN:
+    return RG_MENU_DOWN;
+  case SDL_GAMEPAD_BUTTON_DPAD_LEFT:
+    return RG_MENU_LEFT;
+  case SDL_GAMEPAD_BUTTON_DPAD_RIGHT:
+    return RG_MENU_RIGHT;
+  case SDL_GAMEPAD_BUTTON_EAST:
+    return RG_MENU_ENTER;
+  case SDL_GAMEPAD_BUTTON_SOUTH:
+    return RG_MENU_CLOSE;
+  default:
+    return -1;
+  }
+}
+
+/* A gamepad button went down or came up. If a button of the console is waiting to be given one,
+ * this is it. Otherwise the guide button, or Back and Start together, opens or closes the menu, and
+ * while it is open the D-pad, A and B work it. Back and Start each come as an event of their own,
+ * and only the second of them, with the first still down, opens it. A button pressed for the menu
+ * is kept from the game until it comes up. The keyboard's own gamepad is not a player's, and its
+ * keys reach the menu as keys. */
+static void pad_button_changed(const SDL_GamepadButtonEvent *event) {
+  if (event->which == keyboard_pad_id) return;
+  int slot = 0;
+  while (slot < MOST_PADS && !(pads[slot] && SDL_GetGamepadID(pads[slot]) == event->which)) slot++;
+  if (slot == MOST_PADS) return; /* not a gamepad the window has open */
+  int button = (int)event->button;
+  uint32_t bit = 1u << (uint32_t)button;
+  if (!event->down) {
+    pad_buttons_down[slot] &= ~bit;
+    pad_buttons_kept &= ~bit;
+    return;
+  }
+  pad_buttons_down[slot] |= bit;
+  if (rg_window_capture_pad(button) || !rg_game_has_menu) return;
+
+  uint32_t down = pad_buttons_down[slot];
+  bool together = (bit & PAD_OPENERS_TOGETHER) && (down & PAD_OPENERS_TOGETHER) == PAD_OPENERS_TOGETHER &&
+                  (pad_buttons_kept & PAD_OPENERS_TOGETHER) != PAD_OPENERS_TOGETHER;
+  int moves = menu_pad_key_of(button);
+  if (button == SDL_GAMEPAD_BUTTON_GUIDE || together) {
+    rg_window_menu_toggle();
+    pad_buttons_kept |= together ? PAD_OPENERS_TOGETHER : bit;
+  } else if (rg_window_menu_is_open() && moves >= 0) {
+    pad_buttons_kept |= bit;
+    press_menu((rg_menu_key)moves);
+  }
 }
 
 /* Everything the window has to say: closing it ends the game, a key presses the keyboard's
@@ -734,7 +999,8 @@ static void read_events(void) {
       key_changed(&event.key);
       break;
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
-      pad_button_down(&event.gbutton);
+    case SDL_EVENT_GAMEPAD_BUTTON_UP:
+      pad_button_changed(&event.gbutton);
       break;
     case SDL_EVENT_WINDOW_RESIZED:
       rg_window_size_changed(event.window.data1, event.window.data2, RG_SCREEN_WIDTH, RG_SCREEN_HEIGHT);
@@ -829,6 +1095,7 @@ static void read_buttons(void) {
     bool keyboards = SDL_GetGamepadID(pads[pad]) == keyboard_pad_id;
     for (uint32_t i = 0; i < BUTTONS; i++) {
       SDL_GamepadButton button = keyboards ? keyboard_pad_buttons[i] : (SDL_GamepadButton)rg_window_pad_button((int)i);
+      if (!keyboards && (pad_buttons_kept >> (uint32_t)button) & 1u) continue; /* pressed for the menu */
       if (SDL_GetGamepadButton(pads[pad], button)) held |= 1u << i;
     }
   }
@@ -971,13 +1238,16 @@ static void silence_speaker(bool silent) {
   speaker_emptied_on_purpose = 1;
 }
 
-/* A PAUSE: the game, its sound and its clock stop where they are and the picture stays up, while
- * the window goes on answering the menu, the hotkeys and the player's mouse. A step lets the game
- * run one frame and comes straight back here at the end of it. */
+/* A step asked for while paused, with the menu closed, used up by asking. */
+static bool consume_step_outside_menu(void) { return !rg_window_menu_is_open() && rg_window_consume_step(); }
+
+/* A PAUSE, or the menu open: the game, its sound and its clock stop where they are and the picture
+ * stays up, while the window goes on answering the menu, the hotkeys and the player's mouse. A step
+ * lets the game run one frame and comes straight back here at the end of it. */
 static void hold_while_paused(void) {
-  if (!rg_window_paused()) return;
+  if (!game_held()) return;
   silence_speaker(true);
-  while (rg_window_paused() && !rg_window_consume_step()) {
+  while (game_held() && !consume_step_outside_menu()) {
     Uint64 began = SDL_GetTicksNS();
     if (scripted && !press_scripted_keys()) finish_script(); /* nothing left in the script could end the pause */
     read_and_apply_events();
@@ -989,7 +1259,7 @@ static void hold_while_paused(void) {
     if (spent < FRAME_NS) SDL_DelayPrecise(FRAME_NS - spent);
   }
   restart_clocks();
-  if (!rg_window_paused()) silence_speaker(false);
+  if (!game_held()) silence_speaker(false);
 }
 
 /* FAST FORWARD plays several frames of the game for each picture shown (a "slot"): everything the
@@ -1135,9 +1405,17 @@ static void print_usage(const char *program) {
     printf("  %-18s%s%s\n", rg_window_hotkey_name(hotkey), rg_window_key_name(rg_window_hotkey_key(hotkey)),
            hotkey == RG_HOTKEY_FAST_FORWARD ? " (hold it down)" : "");
   }
-  printf("\nA gamepad works too. The menu (move the mouse over the window, or press the\n"
-         "Show menu key) changes the keys, the gamepad buttons, the window's size and\n"
-         "the volume.\n\n");
+  printf("  %-18s%s\n", "Quit", "Escape");
+  if (rg_game_has_menu)
+    printf("\nPress F1, or the key above Tab, to open the menu. The game waits while the\n"
+           "menu is open. In the menu, you can change fast forward, the window size,\n"
+           "fullscreen, the volume, mute and the frame rate. You can also quit there.\n"
+           "Use the arrows to move, and Return to choose.\n");
+  printf("\nA gamepad works too.\n");
+  if (rg_game_has_menu)
+    printf("To open the menu with a gamepad, press Back and Start together, or the guide\n"
+           "button. In the menu, the D-pad moves, A chooses and B closes the menu.\n");
+  printf("The settings file changes the keys and the gamepad buttons.\n\n");
   printf("Files:\n"
          "  The save and the settings are kept in a folder named for the game, among\n"
          "  the files this computer keeps for each program. The settings are a text\n"
@@ -1194,10 +1472,13 @@ int main(int argc, char **argv) {
                               RG_SCREEN_HEIGHT);
   if (!texture) refuse_to_start("the picture cannot be made");
   SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
-  /* The menu is not a thing a game can do without in a build a person plays; if it cannot start
-   * the window says so and the hotkeys still work. */
+  /* The menu's boxes are see-through, and fade at their edges. */
+  SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+  rg_window_menu_reset(RG_SCREEN_WIDTH, RG_SCREEN_HEIGHT);
+  /* If the windows of keys and variables cannot start the window says so, and the menu and the
+   * hotkeys still work. */
   if (!rg_menu_start(window, renderer)) {
-    fprintf(stderr, "%s: the menu cannot start (%s), so the window has no menu. The hotkeys still work.\n", rg_game_title,
+    fprintf(stderr, "%s: the controls cannot start (%s). The menu and the hotkeys still work.\n", rg_game_title,
             SDL_GetError());
     /* With no menu to say it over the picture, what is wrong with the settings file goes in a box. */
     if (rg_window_problems()[0] && !scripted) {

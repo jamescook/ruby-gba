@@ -39,7 +39,7 @@ typedef enum {
   RG_HOTKEY_FRAME_RATE,   /* show or hide the frame rate */
   RG_HOTKEY_FULLSCREEN,   /* fullscreen on and off */
   RG_HOTKEY_MUTE,         /* mute and unmute */
-  RG_HOTKEY_MENU,         /* keep the menu bar up, or let it hide */
+  RG_HOTKEY_MENU,         /* open and close the menu (rg_window_menu.h) */
   RG_HOTKEY_FAST_FORWARD, /* held: several frames for every picture */
   RG_HOTKEY_COUNT
 } rg_hotkey;
@@ -153,11 +153,7 @@ void rg_window_frame_played(uint64_t now_ns, uint64_t work_ns);
 double rg_window_frames_a_second(uint64_t now_ns);
 double rg_window_frame_work_ms(uint64_t now_ns);
 
-/* The menu bar stays up, or comes up when the mouse moves and goes after a few seconds. */
-void rg_window_toggle_menu(void);
-int rg_window_menu_kept_up(void);
-
-/* Windows of the menu's that can be open at once. */
+/* Windows over the picture that can be open at once: the controls (keys, gamepad buttons and hotkeys) and the game's variables. */
 typedef enum { RG_PANEL_CONTROLS, RG_PANEL_VARIABLES, RG_PANEL_COUNT } rg_panel;
 void rg_window_show_panel(int panel, int shown);
 int rg_window_panel_shown(int panel);

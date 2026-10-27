@@ -7,8 +7,9 @@ module VBlank
     # a window, so it is played in tests with none; the window hands it the keys meant for it
     # (#press), draws what it says (#drawing), and does what its settings say.
     #
-    # It is the first of three: the desktop build and the web page are to have this same menu
-    # written in their own language, line for line from this one, and held to it by a test.
+    # It is the first of three. The desktop build has this same menu written in C, line for line
+    # from this one (runtime/rg_window_menu.c), and test_native_window_menu.rb holds the two to
+    # drawing the same thing after every key; the web page is to have it in JavaScript.
     #
     # It opens on the bar along the top, on the first heading, with that heading's lines showing
     # and none of them chosen. Left and right on the bar go from heading to heading; down, or
@@ -70,11 +71,12 @@ module VBlank
       end
 
       # WHAT A WINDOW DRAWS over the game, in its own pixels: the menu when it is open, and in the
-      # top right corner what the window is doing — the frame rate when it is asked for, and
-      # PAUSED while the game is +held+ or the speed while it is played +fast_forward+ times as
+      # top right corner what the window is doing — the frame rate when it is asked for, how long
+      # the game's own work took a frame (+frame_work+, in milliseconds, the developer's reading),
+      # and PAUSED while the game is +held+ or the speed while it is played +fast_forward+ times as
       # fast. +width+ is the window's in pixels, and +density+ how many pixels a point is (two on a
       # Retina screen). Gives WindowMenu::Box and WindowMenu::Words, back to front.
-      def drawing(width:, density:, held: false, fast_forward: nil, frame_rate: nil)
+      def drawing(width:, density:, held: false, fast_forward: nil, frame_rate: nil, frame_work: nil)
         @out = []
         @density = density
         @font = Graphics::MenuFont.load
@@ -83,7 +85,7 @@ module VBlank
           top = draw_bar(width)
           draw_lines(top)
         end
-        draw_status(width, top, held, fast_forward, frame_rate)
+        draw_status(width, top, held, fast_forward, frame_rate, frame_work)
         @out
       end
 
@@ -232,9 +234,10 @@ module VBlank
 
       # What the window is doing, in a see-through box in the top right corner, under the bar when
       # the menu is open.
-      def draw_status(width, top, held, fast_forward, frame_rate)
+      def draw_status(width, top, held, fast_forward, frame_rate, frame_work)
         said = []
         said << ["#{frame_rate} fps", :text] if frame_rate
+        said << ["#{frame_work} ms of work a frame", :text] if frame_work
         if held then said << ["PAUSED", :paused]
         elsif fast_forward then said << ["FAST FORWARD #{fast_forward}x", :fast]
         end

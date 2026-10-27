@@ -1,14 +1,12 @@
-// The menu over the picture (rg_menu.h): Dear ImGui, drawn through SDL3's renderer.
+// The windows over the picture (rg_menu.h): Dear ImGui, drawn through SDL3's renderer.
 //
 // THIS FILE ONLY DRAWS. Anything a player does with it is a call to a plain function of
 // rg_window.h, the very one a hotkey calls, and nothing is kept here but what is needed to draw:
-// whether the mouse moved lately, what is typed in a filter box. Take it away and the window
-// still does everything; it just has no menu to ask with.
+// what is typed in a filter box. Take it away and the window still does everything.
 //
-// Learned from Dusklight's overlay (TwilitRealm/dusklight, src/dusk/imgui): a main menu bar that is
-// only there when it is wanted, windows opened from it for the larger things, settings saved as
-// they are changed, and a hotkey to hide the lot. What it does differently: it never pauses the
-// game on its own, because here pausing is a thing a player chooses (and has a hotkey for).
+// The menu itself is not here: it is the library's own (rg_window_menu.h), drawn by rg_sdl.c. What
+// is left is the window of keys and gamepad buttons, the window of the game's variables, and what
+// was wrong with the settings file, until the menu has its own way to show each.
 #include "rg_menu.h"
 
 #include <stdio.h>
@@ -23,117 +21,7 @@ namespace {
 
 SDL_Window *menu_window;
 SDL_Renderer *menu_renderer;
-Uint64 mouse_moved_ns;
-Uint64 started_ns;
 char variable_filter[64];
-
-// How long the menu bar stays up after the mouse last moved, and after the window opens (so a
-// player can see there is a menu).
-constexpr Uint64 BAR_STAYS_NS = 3000000000ull;
-
-// A key's name for the menu, where a shortcut is shown: none for a hotkey with no key.
-const char *shortcut_of(int hotkey) {
-  static char names[8][64];
-  static int next;
-  char *name = names[next++ % 8];
-  int key = rg_window_hotkey_key(hotkey);
-  snprintf(name, sizeof names[0], "%s", key == RG_NO_KEY ? "" : rg_window_key_name(key));
-  return name;
-}
-
-// The console's picture, in its own pixels: the size the window's picture is drawn at before it is
-// scaled up, which rg_sdl.c gave the renderer as its logical size.
-SDL_Point picture_size() {
-  SDL_Point size = {0, 0};
-  SDL_GetRenderLogicalPresentation(menu_renderer, &size.x, &size.y, nullptr);
-  return size;
-}
-
-// The most the picture can be scaled and still fit on the screen the window is on, so the menu
-// does not offer a size the window cannot be.
-int largest_scale_that_fits() {
-  int most = RG_WINDOW_SCALE_MOST;
-  SDL_Point picture = picture_size();
-  SDL_Rect room;
-  if (picture.x > 0 && picture.y > 0 && SDL_GetDisplayUsableBounds(SDL_GetDisplayForWindow(menu_window), &room)) {
-    int fits = SDL_min(room.w / picture.x, room.h / picture.y);
-    if (fits < most) most = fits;
-  }
-  if (most < rg_window_scale()) most = rg_window_scale();
-  return most < RG_WINDOW_SCALE_LEAST ? RG_WINDOW_SCALE_LEAST : most;
-}
-
-void game_menu() {
-  if (!ImGui::BeginMenu("Game")) return;
-  if (ImGui::MenuItem(rg_window_paused() ? "Resume" : "Pause", shortcut_of(RG_HOTKEY_PAUSE))) rg_window_toggle_pause();
-  if (ImGui::MenuItem("Step one frame", shortcut_of(RG_HOTKEY_STEP), false, rg_window_paused())) rg_window_step();
-  ImGui::Separator();
-  int speed = rg_window_fast_speed();
-  ImGui::SetNextItemWidth(140.0f);
-  if (ImGui::SliderInt("Fast forward", &speed, RG_FAST_SPEED_LEAST, RG_FAST_SPEED_MOST, "%dx")) rg_window_set_fast_speed(speed);
-  ImGui::TextDisabled("Hold %s to fast forward", shortcut_of(RG_HOTKEY_FAST_FORWARD));
-  ImGui::EndMenu();
-}
-
-void window_menu() {
-  if (!ImGui::BeginMenu("Window")) return;
-  if (ImGui::BeginMenu("Size")) {
-    SDL_Point picture = picture_size();
-    for (int scale = RG_WINDOW_SCALE_LEAST; scale <= largest_scale_that_fits(); scale++) {
-      char label[48];
-      snprintf(label, sizeof label, "%dx  (%d x %d)", scale, picture.x * scale, picture.y * scale);
-      if (ImGui::MenuItem(label, nullptr, scale == rg_window_scale())) rg_window_set_scale(scale);
-    }
-    ImGui::EndMenu();
-  }
-  if (ImGui::MenuItem("Fullscreen", shortcut_of(RG_HOTKEY_FULLSCREEN), rg_window_fullscreen())) rg_window_toggle_fullscreen();
-  ImGui::Separator();
-  if (ImGui::MenuItem("Show frame rate", shortcut_of(RG_HOTKEY_FRAME_RATE), rg_window_shows_frame_rate())) rg_window_toggle_frame_rate();
-  ImGui::Separator();
-  if (ImGui::MenuItem("Keep this menu up", shortcut_of(RG_HOTKEY_MENU), rg_window_menu_kept_up())) rg_window_toggle_menu();
-  ImGui::EndMenu();
-}
-
-void sound_menu() {
-  if (!ImGui::BeginMenu("Sound")) return;
-  int volume = rg_window_volume();
-  ImGui::SetNextItemWidth(160.0f);
-  if (ImGui::SliderInt("Volume", &volume, 0, 100, "%d%%")) rg_window_set_volume(volume);
-  if (ImGui::MenuItem("Mute", shortcut_of(RG_HOTKEY_MUTE), rg_window_muted())) rg_window_toggle_mute();
-  ImGui::EndMenu();
-}
-
-void controls_menu() {
-  if (!ImGui::BeginMenu("Controls")) return;
-  if (ImGui::MenuItem("Keys, gamepad buttons and hotkeys...")) rg_window_show_panel(RG_PANEL_CONTROLS, 1);
-  ImGui::EndMenu();
-}
-
-// Pause and step are under Game, where a player looks for them too.
-void developer_menu() {
-  if (!ImGui::BeginMenu("Developer")) return;
-  if (ImGui::MenuItem("Game variables...")) rg_window_show_panel(RG_PANEL_VARIABLES, 1);
-  if (ImGui::MenuItem("Show frame time", nullptr, rg_window_shows_frame_time())) rg_window_toggle_frame_time();
-  ImGui::EndMenu();
-}
-
-// The bar is up when something asked for it, while the mouse is near it, and for a moment when the
-// window opens and after the mouse moves.
-bool menu_bar_wanted(Uint64 now_ns) {
-  if (rg_window_menu_kept_up()) return true;
-  if (now_ns - started_ns < BAR_STAYS_NS || now_ns - mouse_moved_ns < BAR_STAYS_NS) return true;
-  return ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
-}
-
-void menu_bar() {
-  if (!ImGui::BeginMainMenuBar()) return;
-  game_menu();
-  window_menu();
-  sound_menu();
-  controls_menu();
-  developer_menu();
-  ImGui::EndMainMenuBar();
-}
 
 // What a button that chooses a key does when it is clicked.
 enum class KeyClick { NONE, CHOOSE, CLEAR };
@@ -301,30 +189,6 @@ void settings_problems_window() {
   if (!open) rg_window_mark_problems_seen();
 }
 
-// The frame rate and the frame time in the top right corner, each when it is asked for, and what
-// the game is doing if it is not just playing.
-void status_overlay(Uint64 now_ns) {
-  bool rate = rg_window_shows_frame_rate() != 0;
-  bool work = rg_window_shows_frame_time() != 0;
-  if (!rate && !work && !rg_window_paused() && !rg_window_fast_forwarding()) return;
-  ImGuiViewport *viewport = ImGui::GetMainViewport();
-  ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - 8.0f, viewport->WorkPos.y + 8.0f), ImGuiCond_Always,
-                          ImVec2(1.0f, 0.0f));
-  ImGui::SetNextWindowBgAlpha(0.55f);
-  ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-                           ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs |
-                           ImGuiWindowFlags_NoMove;
-  if (!ImGui::Begin("##status", nullptr, flags)) {
-    ImGui::End();
-    return;
-  }
-  if (rate) ImGui::Text("%.1f fps", rg_window_frames_a_second(now_ns));
-  if (work) ImGui::Text("%.2f ms of work a frame", rg_window_frame_work_ms(now_ns));
-  if (rg_window_paused()) ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "PAUSED");
-  else if (rg_window_fast_forwarding()) ImGui::TextColored(ImVec4(0.5f, 0.9f, 1.0f, 1.0f), "FAST FORWARD %dx", rg_window_fast_speed());
-  ImGui::End();
-}
-
 }  // namespace
 
 bool rg_menu_start(SDL_Window *window, SDL_Renderer *renderer) {
@@ -350,8 +214,6 @@ bool rg_menu_start(SDL_Window *window, SDL_Renderer *renderer) {
   }
   menu_window = window;
   menu_renderer = renderer;
-  started_ns = SDL_GetTicksNS();
-  mouse_moved_ns = 0;
   return true;
 }
 
@@ -367,35 +229,32 @@ void rg_menu_stop(void) {
 void rg_menu_event(const SDL_Event *event) {
   if (!menu_window) return;
   ImGui_ImplSDL3_ProcessEvent(event);
-  if (event->type == SDL_EVENT_MOUSE_MOTION || event->type == SDL_EVENT_MOUSE_BUTTON_DOWN) mouse_moved_ns = SDL_GetTicksNS();
 }
 
 bool rg_menu_wants_keyboard(void) { return menu_window && ImGui::GetIO().WantTextInput; }
 
-void rg_menu_draw(uint64_t now_ns) {
+void rg_menu_draw(void) {
   if (!menu_window) return;
   ImGui_ImplSDLRenderer3_NewFrame();
   ImGui_ImplSDL3_NewFrame();
   ImGui::NewFrame();
 
-  if (menu_bar_wanted(now_ns)) menu_bar();
-  status_overlay(now_ns);
   settings_problems_window();
   controls_window();
   variables_window();
 
   ImGui::Render();
-  // The picture was drawn through a logical size (so it scales by a whole number); the menu is
-  // laid out in the window's own units, so that is put aside while it is drawn.
+  // The picture was drawn through a logical size (so it scales by a whole number); the windows are
+  // laid out in the window's own units, so that is put aside while they are drawn.
   int logical_width = 0, logical_height = 0;
   SDL_RendererLogicalPresentation mode = SDL_LOGICAL_PRESENTATION_DISABLED;
   SDL_GetRenderLogicalPresentation(menu_renderer, &logical_width, &logical_height, &mode);
   SDL_SetRenderLogicalPresentation(menu_renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
   // The window's own units are points, which the mouse is read in too; a screen with more pixels
   // than points (a Mac's Retina screen has two each way) draws in pixels. Dear ImGui leaves that
-  // ratio to the program, so the renderer is told it while the menu draws. Without it the menu is
-  // drawn at half its size in the top left of the window, away from where the mouse finds it, and
-  // the text, cut to where it ought to be, is not drawn at all.
+  // ratio to the program, so the renderer is told it while the windows draw. Without it they are
+  // drawn at half their size in the top left of the window, away from where the mouse finds them,
+  // and the text, cut to where it ought to be, is not drawn at all.
   float scale_x = 1.0f, scale_y = 1.0f;
   SDL_GetRenderScale(menu_renderer, &scale_x, &scale_y);
   ImGuiIO &io = ImGui::GetIO();

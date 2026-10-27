@@ -53,6 +53,15 @@ module VBlank
         end
       end
 
+      # Every letter the picture at +density+ has, by the letter: where it is in the picture, where
+      # it sits from the pen and the top of the line, and how far the pen moves after it — x, y,
+      # width, height, left, top and advance, in the picture's own pixels.
+      def glyphs(density) = measures_at(density).fetch("glyphs")
+
+      # The pairs of letters that sit closer, or further apart, than their advances say, by the two
+      # letters together: how many of the picture's pixels to move the second.
+      def kerning(density) = measures_at(density).fetch("kerning")
+
       # How tall a line of words is at +density+, in pixels.
       def line_height(density) = (measures_at(density).fetch("line_height") * scale(density)).round
 

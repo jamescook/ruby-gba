@@ -115,7 +115,6 @@ int main(void) {
     else if (!strcmp(c, "frame_played")) rg_window_frame_played((uint64_t)atoll(words[1]), count > 2 ? (uint64_t)atoll(words[2]) : 0);
     else if (!strcmp(c, "frames_a_second")) printf("%.1f\n", rg_window_frames_a_second((uint64_t)atoll(words[1])));
     else if (!strcmp(c, "frame_work_ms")) printf("%.2f\n", rg_window_frame_work_ms((uint64_t)atoll(words[1])));
-    else if (!strcmp(c, "menu_kept_up")) printf("%d\n", rg_window_menu_kept_up());
     else if (!strcmp(c, "hotkey")) rg_window_hotkey_changed(hotkey_word(words[1]), atoi(words[2]));
     else if (!strcmp(c, "owner")) {
       int key = key_word(words[1]);

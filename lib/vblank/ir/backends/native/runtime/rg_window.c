@@ -76,7 +76,7 @@ static const hotkey_kind hotkey_kinds[RG_HOTKEY_COUNT] = {
   [RG_HOTKEY_FRAME_RATE] = {KEY_F3, "Show frame rate", "frame_rate", rg_window_toggle_frame_rate, NULL},
   [RG_HOTKEY_FULLSCREEN] = {KEY_F11, "Fullscreen", "fullscreen", rg_window_toggle_fullscreen, NULL},
   [RG_HOTKEY_MUTE] = {KEY_M, "Mute", "mute", rg_window_toggle_mute, NULL},
-  [RG_HOTKEY_MENU] = {KEY_F1, "Show menu", "menu", rg_window_toggle_menu, NULL},
+  [RG_HOTKEY_MENU] = {KEY_F1, "Show menu", "menu", NULL, NULL}, /* the window opens its menu itself (rg_window_menu.h) */
   [RG_HOTKEY_FAST_FORWARD] = {KEY_TAB, "Fast forward", "fast_forward", NULL, rg_window_fast_forward},
 };
 
@@ -127,7 +127,7 @@ static settings now;
 static settings owned;
 
 /* What is not: it is how the window is at this moment. */
-static int paused, step_owed, fast_held, menu_kept_up, changes;
+static int paused, step_owed, fast_held, changes;
 static int panels[RG_PANEL_COUNT];
 static int unwritten;
 static uint64_t quiet_since_ns; /* when the wait for quiet began; 0 until the window next asks */
@@ -379,9 +379,6 @@ double rg_window_frame_work_ms(uint64_t now_ns) {
   return meter_work_ms;
 }
 
-void rg_window_toggle_menu(void) { menu_kept_up = !menu_kept_up; }
-int rg_window_menu_kept_up(void) { return menu_kept_up; }
-
 void rg_window_show_panel(int panel, int shown) {
   if (panel >= 0 && panel < RG_PANEL_COUNT) panels[panel] = shown != 0;
 }
@@ -567,7 +564,7 @@ void rg_window_use_defaults(void) {
   }
   for (int h = 0; h < RG_HOTKEY_COUNT; h++) now.hotkeys[h] = hotkey_kinds[h].key;
   memset(&owned, 0, sizeof owned);
-  paused = step_owed = fast_held = menu_kept_up = changes = 0;
+  paused = step_owed = fast_held = changes = 0;
   memset(panels, 0, sizeof panels);
   unwritten = 0;
   quiet_since_ns = 0;
