@@ -40,6 +40,7 @@ RG_NOT_IN_BLOCKS = -1
 RG_EVERY_SCENE = -1
 RG_NEVER_ARRIVES = -2
 RG_NO_LAYER = -1
+RG_NOT_A_BAR = -1
 RG_NOT_PAINTED = -1
 RG_CELL_EMPTY = -1
 RG_MAX_SPRITES = 512
@@ -85,7 +86,8 @@ RG_BG_IN_BLOCKS = 16
 RG_BG_CAN_TURN = 17
 RG_BG_PAINTED = 18
 RG_BG_RUN_COLORS = 19
-RG_BG_FIELDS = 20
+RG_BG_BAR_TOP = 20
+RG_BG_FIELDS = 21
 
 # Each run of tiles the game paints from a list is RG_RUN_FIELDS numbers in @rg_game_tile_runs.
 RG_RUN_TILES = 0
@@ -228,6 +230,8 @@ def rg_screen_setup
   @rg_cells_now = Array.new(RG_MAX_BACKGROUNDS) { [0, nil] }
   @rg_scrolls = Array.new(RG_MAX_BACKGROUNDS) { [0, 0] }
   @rg_from_corner = Array.new(RG_MAX_BACKGROUNDS, false)
+  @rg_bar_tops = Array.new(RG_MAX_BACKGROUNDS, 0) # where each status bar was last placed
+  @rg_bar_placed = Array.new(RG_MAX_BACKGROUNDS, false) # ...and whether it has been
   @rg_any_from_corner = false
   @rg_corners_expired = false
   @rg_tile_set_now = Array.new(RG_MAX_BACKGROUNDS, 0)
@@ -1014,7 +1018,7 @@ def rg_background_put_up(background)
   @rg_shown_backgrounds << background
   rg_mark_from_corner(background)
   @rg_scenery_kept = false
-  return rg_request_repaint if @rg_turns[rg_keeper_of(background)].turned
+  return rg_request_repaint if @rg_turns[rg_keeper_of(background)].turned || rg_bar?(background)
 
   rg_background_stamp(background)
   rg_stamp_in_stack_order(background)
@@ -1038,6 +1042,43 @@ def rg_background_scroll(background, x, y)
   @rg_scrolls[keeper] = [x, y]
   @rg_from_corner[keeper] = false
   rg_request_repaint
+end
+
+# Whether a background is a status bar (RG_BG_BAR_TOP).
+def rg_bar?(background) = rg_background_field(background, RG_BG_BAR_TOP) != RG_NOT_A_BAR
+
+# Reference#exec_place_bar
+def rg_place_bar(background, top)
+  keeper = rg_keeper_of(background)
+  @rg_bar_tops[keeper] = rg_clamp_wide(top, 0, RG_SCREEN_HEIGHT)
+  @rg_bar_placed[keeper] = true
+  @rg_from_corner[keeper] = false
+  rg_request_repaint
+end
+
+# Reference#bar_top_shown
+def rg_bar_top_shown(bar)
+  declared = rg_clamp_wide(rg_background_field(bar, RG_BG_BAR_TOP), 0, RG_SCREEN_HEIGHT)
+  keeper = rg_keeper_of(bar)
+  @rg_from_corner[keeper] || !@rg_bar_placed[keeper] ? declared : @rg_bar_tops[keeper]
+end
+
+# Reference#bar_showing: the status bar on screen, or nil.
+def rg_bar_showing
+  @rg_game_picture_sizes[RG_SIZE_BACKGROUNDS].times.find { |bg| rg_showing?(bg) && rg_bar?(bg) }
+end
+
+# Reference#scenery_rows
+def rg_scenery_rows
+  bar = rg_bar_showing
+  bar ? rg_bar_top_shown(bar) : RG_SCREEN_HEIGHT
+end
+
+# Reference#paint_status_bar: from its top row to the bottom of the screen, its map from its own
+# corner, never scrolled; past the end of its map the backdrop stays.
+def rg_paint_status_bar(bar)
+  top = rg_bar_top_shown(bar)
+  (top...RG_SCREEN_HEIGHT).each { |py| rg_paint_map_row(bar, py - top, 0, nil, py) }
 end
 
 # Reference#exec_set_tile: the copy is made even when the cell turns out not to be there. A cell is
@@ -1136,7 +1177,7 @@ end
 def rg_paint_window_without_wrapping(background)
   map_h = rg_map_rows(background) * rg_background_field(background, RG_BG_TILE_H)
   scroll_x, scroll_y = rg_scroll_shown(background)
-  RG_SCREEN_HEIGHT.times do |py|
+  rg_scenery_rows.times do |py|
     my = scroll_y + rg_row_drawn_from(py)
     next if my < 0 || my >= map_h
 
@@ -1241,7 +1282,7 @@ def rg_paint_window(background)
 
   scroll_x, scroll_y = rg_scroll_shown(background)
   off_y = scroll_y % map_h
-  RG_SCREEN_HEIGHT.times do |py|
+  rg_scenery_rows.times do |py|
     off_x = (scroll_x + rg_bend_at(background, py)) % map_w
     my = (off_y + rg_row_drawn_from(py)) % map_h
     rg_paint_map_row(background, my, off_x, map_w, py)
@@ -1291,7 +1332,7 @@ def rg_paint_turned_window(background)
   painted_tiles = @rg_game_painted_tiles
   pixels = @rg_game_tile_pixels
   sheet = @rg_onto_sheet ? @rg_sheet : nil
-  RG_SCREEN_HEIGHT.times do |py|
+  rg_scenery_rows.times do |py|
     dy = rg_row_drawn_from(py) - pivot_y
     # The row's part of each sum, the same for every pixel of the row.
     row_part_x = (turn_sin * dy)
@@ -1358,7 +1399,7 @@ def rg_paint_scenery_in_blocks(background)
   @rg_onto_sheet = false
   @rg_rows_tall = 1
   wide = rg_background_field(background, RG_BG_CAN_TURN) != 0 && @rg_block == 2 ? 1 : @rg_block
-  RG_SCREEN_HEIGHT.times do |py|
+  rg_scenery_rows.times do |py|
     RG_SCREEN_WIDTH.times do |px|
       color = @rg_sheet[(py * RG_SCREEN_WIDTH) + px - (px % wide)]
       rg_lay_scenery(px, py, color) if color != RG_NOTHING_ON_SHEET
@@ -1855,6 +1896,12 @@ def rg_repaint_view
   rg_mix_nothing
   rg_fade_unless_left_as_drawn(RG_NO_LAYER)
   rg_clear_to(0)
+  bar = rg_bar_showing
+  if bar
+    rg_mix_as_layer(rg_background_field(bar, RG_BG_SEE_THROUGH))
+    rg_fade_unless_left_as_drawn(rg_background_field(bar, RG_BG_FADE_PLACE))
+    rg_paint_status_bar(bar)
+  end
   backgrounds = @rg_game_picture_sizes[RG_SIZE_BACKGROUNDS]
   @rg_game_picture_sizes[RG_SIZE_DEPTHS].times do |level|
     backgrounds.times do |bg|

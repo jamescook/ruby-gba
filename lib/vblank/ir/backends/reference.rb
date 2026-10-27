@@ -200,6 +200,7 @@ module VBlank
           @sprites_hidden = false  # is the next frame drawn without its sprites? (see #exec_hide_sprites)
           @repaints = false        # must the whole view be rebuilt every frame? (decided in collect_definitions)
           @bg_scroll = {}          # background name -> [x, y] its window is currently offset to
+          @bar_top = {}            # status bar name -> the screen row its top was last placed at
           @bg_maps = {}            # ...and this run's own copy of its cells, once any of them has changed
           @bg_from_corner = Set.new # backgrounds put up this pass, shown unscrolled (see #put_up_background)
           @bg_corners_expired = false # ...once their pass has ended, until its picture is painted
@@ -474,11 +475,11 @@ module VBlank
         # from the cartridge later, over a fact about the console that was knowable from
         # the program all along.
         #
-        # The rule and its words live with the guardrail of that name, which the build
+        # The rules and their words live with the guardrails Checks::LayerRefusals lists, which the build
         # and the cartridge lowering both ask as well, so all three refuse the same
         # programs in the same sentence.
         def refuse_too_many_layers!(node)
-          refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal_message(node)
+          refusal = Guardrails::Checks::LayerRefusals.message(node)
           raise ProgramError, refusal if refusal
         end
 
@@ -570,7 +571,7 @@ module VBlank
               # and by name so scroll_background can re-window that one.
               @bg_nodes << n
               @bg_by_name[n.name] = n
-            when :scroll_background
+            when :scroll_background, :place_bar
               # A program that scrolls even once can put its background at a non-zero
               # offset, so the whole scene has to be repainted every frame — the static
               # save-under trick objects normally ride on no longer holds. Remember that
@@ -695,6 +696,7 @@ module VBlank
           draw_digit: :exec_draw_digit,
           background: :exec_background,
           scroll_background: :exec_scroll_background,
+          place_bar: :exec_place_bar,
           affine_background: :exec_affine_background,
           background_colors: :exec_background_colors,
           color_list_holds: :exec_color_list_holds,
@@ -1438,7 +1440,8 @@ module VBlank
           # the picture back as originally drawn and throw the turn away. It still counts
           # as up: being on screen is what says whose scene is showing, and a scene whose
           # only scenery turns had nothing else to say it.
-          return request_repaint if @bg_affine.key?(node.name)
+          # ...and so is a status bar, which is painted from its own top rather than the screen's.
+          return request_repaint if @bg_affine.key?(node.name) || node.bar?
 
           stamp_background(node)
           in_stack_order(over).each { |bg| stamp_background(bg) }
@@ -1652,6 +1655,60 @@ module VBlank
           request_repaint
         end
 
+        # PUT A STATUS BAR'S TOP AT A ROW: kept between 0 and the bottom of the screen, where it is
+        # out of view, since a bar always reaches the bottom and a row past it shows no more of it.
+        def exec_place_bar(node)
+          bar = @bg_by_name.fetch(node.name) { raise ProgramError, "place of undeclared status bar #{node.name.inspect}" }
+          return unless bar.bar? # a background that is not a status bar has no top to place
+
+          @bar_top[node.name] = eval_value(node.top).clamp(0, @screen.height)
+          # ...and placed after it was put up, this is where the display reads it from.
+          @bg_from_corner.delete(node.name)
+          request_repaint
+        end
+
+        # Where the status bar +bar+'s top is on the display now: where the game last placed it,
+        # but at the row it was declared with for the rest of a pass that put it up, as a
+        # background shows from its corner then (see #put_up_background).
+        def bar_top_shown(bar)
+          declared = bar.bar_top.clamp(0, @screen.height)
+          @bg_from_corner.include?(bar.name) ? declared : @bar_top.fetch(bar.name, declared)
+        end
+
+        # The status bar on screen now, or nil. The build lets one show at a time.
+        def bar_showing = showing_scenery.find(&:bar?)
+
+        # How many rows from the top the backgrounds under a status bar are seen in: down to the
+        # bar's top, or the whole screen while no bar shows.
+        def scenery_rows
+          bar = bar_showing
+          bar ? bar_top_shown(bar) : @screen.height
+        end
+
+        # A STATUS BAR, painted from its top row to the bottom of the screen. Its map starts at its
+        # top-left corner and never scrolls; its see-through pixels, and the rows past the end of
+        # its map, leave the backdrop, since the backgrounds under it are not painted there (see
+        # #scenery_rows).
+        def paint_status_bar(bar)
+          map = map_of(bar)
+          swapped = background_swap(bar)
+          top = bar_top_shown(bar)
+          (top...@screen.height).each do |py|
+            my = py - top
+            row = map[my / bar.tile_h]
+            next unless row
+
+            ty = my % bar.tile_h
+            row.each_with_index do |index, col|
+              px = col * bar.tile_w
+              next if index.nil? || px >= @screen.width
+
+              span = [bar.tile_w, @screen.width - px].min
+              @screen.paint_row(px, py, tile_colors(bar.tiles[index], swapped), from: ty * bar.tile_w, count: span)
+            end
+          end
+        end
+
         # HOW A BACKGROUND IS BEING TURNED RIGHT NOW: the angle in degrees, the size in
         # SCALE_ONE-ths, and the point on screen it turns around — which stays still while
         # the rest of the picture swings or grows about it, and is the middle of the screen
@@ -1708,7 +1765,7 @@ module VBlank
           off_y %= map_h
           width = @screen.width
 
-          @screen.height.times do |py|
+          scenery_rows.times do |py|
             # A bending background sits somewhere different on every row: this row's own
             # sideways offset, on top of wherever the background is scrolled to.
             off_x = (base_x + bend_offset_at(bg.name, py)) % map_w # Ruby % wraps negatives into 0..map_w-1
@@ -1751,7 +1808,7 @@ module VBlank
           base_x, off_y = scroll_shown(bg)
           width = @screen.width
 
-          @screen.height.times do |py|
+          scenery_rows.times do |py|
             my = off_y + py - (py % tall)
             next if my.negative? || my >= map_h
 
@@ -1801,7 +1858,7 @@ module VBlank
           pivot_y = turn.pivot_y
           pa, pb, pc, pd = Affine.matrix(turn.angle, turn.size)
 
-          @screen.height.times do |py|
+          scenery_rows.times do |py|
             dy = py - (py % tall) - pivot_y
             @screen.width.times do |px|
               dx = px - pivot_x
@@ -1984,7 +2041,7 @@ module VBlank
         # ...and the ones that change what the picture is built from and then always repaint, so
         # an owed repaint is replaced rather than painted — plus `background`, which settles one
         # itself when it has anything to put up (see #exec_background).
-        REPAINTING = %i[scroll_background show_map set_tile copy_tiles copy_owed_tiles background_colors see_through present_objects
+        REPAINTING = %i[scroll_background place_bar show_map set_tile copy_tiles copy_owed_tiles background_colors see_through present_objects
                         background affine_background].freeze
         # ...and the ones that are mostly laid over the picture as the screen is read, and that
         # owe the picture again themselves on the occasions they change what is painted (see
@@ -2004,13 +2061,20 @@ module VBlank
           kept = @fade_placed ? names_above_placed_fade : nil
           set_blend_for(nil, kept)      # the backdrop is behind everything, so it blends
           @screen.clear(0)                # the backdrop the layers' transparent pixels reveal
+          # A status bar first: no background is painted under it (#scenery_rows), so it is in
+          # front of all of them, and every sprite is painted over it.
+          bar = bar_showing
+          if bar
+            set_blend_for(bar.name, kept)
+            paint_status_bar(bar)
+          end
           levels = @picture.depths
           (0...levels.count).each do |level|
             # Scenery first, then the objects that share this level — an object is drawn
             # over the scenery it sits with, which is what lets a picture put scenery in
             # front of one object and behind another.
             showing_scenery.each do |bg|
-              next unless levels[bg.name] == level
+              next if bg.bar? || levels[bg.name] != level
 
               set_blend_for(bg.name, kept)
               paint_scenery(bg)
@@ -2158,7 +2222,7 @@ module VBlank
           drawing_into(sheet) { paint_background_window(bg, @block) }
           width = @screen.width
           wide = block_width_across(bg)
-          @screen.height.times do |py|
+          scenery_rows.times do |py|
             row = Array.new(width) { |px| sheet.stored_pixel(px - (px % wide), py) }
             @screen.paint_row(0, py, row, from: 0, count: width)
           end

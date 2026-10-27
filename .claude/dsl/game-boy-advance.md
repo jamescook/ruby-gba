@@ -12,6 +12,7 @@ and a test fails when the two differ.
 
 - `screen_width` — works: 240 on a Game Boy Advance.
 - `screen_height` — works: 160 on a Game Boy Advance.
+- `status_bar` — works: the bar takes one of the four background layers. A game with a bar cannot also have a light, a fade held to part of the screen, or a fade under a layer, because these need the same part of the display.
 - `uses` — works: a pack's verbs are verbs of the game's own, and each one has its answer here.
 - `dump_func` — works: it lists the ARM a routine was made into.
 - `entry` — works: raw ARM for the Advance's processor (`.claude/dsl/escape-hatch.md`).

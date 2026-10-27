@@ -71,9 +71,12 @@ module VBlank
         include Node
         kind :background
         category :draw
+        # +bar_top+ makes it a STATUS BAR: fixed to the screen from that row down to the bottom,
+        # in front of every other background and behind every sprite, never scrolled (see
+        # PlaceBar for how it moves). Absent on every other background.
         operands name: :name, tiles: :list, map: :list, maps: :list, choice: :list, tile_w: :int,
                  tile_h: :int, layer: :name, scene: :name, affine: :flag, recolors: :list, palettes: :list,
-                 sets: :list, set_starts: :list, map_sets: :list
+                 sets: :list, set_starts: :list, map_sets: :list, bar_top: :int
 
         # The variable that says which of a background's sets is in place now, one a target
         # with room for a single set keeps. Named here so every part of the program that resets
@@ -99,6 +102,24 @@ module VBlank
 
         # Whether its maps are brought into view a strip at a time (see IR::TileMap.streams?).
         def streams? = TileMap.streams?(every_map)
+
+        # Whether it is a status bar (see +bar_top+).
+        def bar? = !bar_top.nil?
+
+        # The variable a status bar's top row is kept in, which the gap between frames shows.
+        def self.bar_top_var(name) = :"__bar_#{name}_top"
+      end
+
+      # WHERE A STATUS BAR'S TOP IS, in screen rows: the bar covers the screen from there to the
+      # bottom. A row past the bottom puts the whole bar out of view, and one above the top is
+      # the top. Written in the gap between frames, as a scroll is, so the picture shows it from
+      # the frame after; until a bar is first placed after it is put up, it shows at the row it
+      # was declared with. Placing a background that is not a status bar changes nothing.
+      class PlaceBar
+        include Node
+        kind :place_bar
+        category :draw
+        operands name: :name, top: :value
       end
 
       # A background's tiles all draw from a different list of colours — the whole layer at

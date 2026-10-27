@@ -33,10 +33,11 @@ module VBlank
           # the half always in view (a painted screen puts its banks in the other half while it
           # works). +art+ is what the game's pictures were made into (GBC::Art), +effects+ its sound
           # effects (GBC::Music#effects). +together+ says it has picture groups with more than one
-          # slot (Frame#emit_groups_together).
-          def reserve(memory, art:, effects: [], together: false)
+          # slot (Frame#emit_groups_together). +bar_rows+ is how many rows of the window's grid its status
+          # bars fill, or nil for a game with none (Picture#emit_bar).
+          def reserve(memory, art:, effects: [], together: false, bar_rows: nil)
             Frame.reserve(memory, together: together)
-            Picture.reserve(memory, lends: art.lends?, groups: art.groups?)
+            Picture.reserve(memory, lends: art.lends?, groups: art.groups?, bar_rows: bar_rows)
             BigMaps.reserve(memory)
             Paint.reserve(memory, painting: art.painting?)
             Music.reserve(memory, effects: effects)
@@ -54,7 +55,7 @@ module VBlank
           # +big_maps+ is where a game with a map bigger than the grid keeps its copy of the grid and
           # the list of cells for the blank (Runtime::BigMaps), or nil. +together+ is as for #reserve.
           def sections(memory, main:, art:, music_level: nil, songs: false, music: nil, frame_begins: nil, runs: [],
-                       drawn_palettes: nil, big_maps: nil, together: false)
+                       drawn_palettes: nil, big_maps: nil, together: false, bar_rows: nil)
             asm = SM83.new("runtime", home: :fixed)
             Boot.emit(asm, main: "rt_main")
             Boot.emit_display_off(asm)
@@ -65,9 +66,9 @@ module VBlank
             Lists.emit(asm, memory)
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length,
                                       runs: runs, drawn_palettes: drawn_palettes, lends: art.lends?,
-                                      palettes_in_use: art.palettes_in_use, groups: art.groups?)
+                                      palettes_in_use: art.palettes_in_use, groups: art.groups?, bar_rows: bar_rows)
             BigMaps.emit(asm, memory, buffer: big_maps&.first, staged: big_maps&.last)
-            Paint.emit(asm, memory, painting: art.painting?, map_count: art.square_maps.length)
+            Paint.emit(asm, memory, painting: art.painting?, map_count: art.square_maps.length, bar: !bar_rows.nil?)
             Sound.emit(asm)
             Music.emit(asm, memory, level: music_level, songs: songs, effects: music&.effects || [],
                                     by_rank: music&.effects_by_rank || [])

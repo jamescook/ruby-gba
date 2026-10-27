@@ -87,6 +87,7 @@ module VBlank
         screen: :free,
         present_objects: :free,
         scroll_background: :free,
+        place_bar: :free,
         # ...and one cell of it becoming a different tile, or the whole of it becoming
         # another map. Both change a background that already has a depth of its own, so
         # neither is itself at one.
@@ -257,7 +258,8 @@ module VBlank
                                                          scenery: picture.scenery,
                                                          objects: picture.objects)
 
-        homeless = (picture.scenery + picture.objects).reject { |node| @layer_stack.include?(node.layer) }
+        # A status bar takes no layer: it is in front of the backgrounds and behind the sprites.
+        homeless = (picture.scenery.reject(&:bar?) + picture.objects).reject { |node| @layer_stack.include?(node.layer) }
         return if homeless.empty?
 
         raise ArgumentError,

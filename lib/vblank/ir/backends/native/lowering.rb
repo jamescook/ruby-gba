@@ -58,6 +58,7 @@ module VBlank
                                                background: :lower_background,
                                                affine_background: :lower_affine_background,
                                                scroll_background: :lower_scroll_background,
+                                               place_bar: :lower_place_bar,
                                                scroll_rows: :lower_scroll_rows,
                                                shade_outside: :lower_nothing,
                                                show_light_now: :lower_show_light_now,

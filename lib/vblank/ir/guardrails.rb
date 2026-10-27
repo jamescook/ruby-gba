@@ -315,6 +315,9 @@ require_relative "guardrails/layer_invisible"
 require_relative "guardrails/layer_solid_while_fading"
 require_relative "guardrails/stack_not_honored"
 require_relative "guardrails/too_many_background_layers"
+require_relative "guardrails/too_many_status_bars"
+require_relative "guardrails/status_bar_cannot_share"
+require_relative "guardrails/layer_refusals" # the three above, which each backend asks itself
 require_relative "guardrails/sprite_words" # shared by the two sprite checks below
 require_relative "guardrails/too_many_sprites"
 require_relative "guardrails/poses_with_different_colors"
@@ -361,6 +364,8 @@ module VBlank
         Checks::LayerInvisible.new,
         Checks::LayerSolidWhileFading.new,
         Checks::TooManyBackgroundLayers.new,
+        Checks::TooManyStatusBars.new,
+        Checks::StatusBarCannotShare.new,
         Checks::TooManySprites.new,
         Checks::PosesWithDifferentColors.new,
         Checks::SeeThroughPerScreen.new,

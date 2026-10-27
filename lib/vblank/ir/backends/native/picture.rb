@@ -22,6 +22,8 @@ module VBlank
           EVERY_SCENE = -1
           NEVER_ARRIVES = -2
           NO_LAYER = -1
+          # A background that is not a status bar, and a status bar's level (RG_NOT_A_BAR).
+          NOT_A_BAR = -1
           NOT_DRAWN = -1
           # The most a drawn pixel can be: fifteen bits of colour, so a picture's pixels fit in
           # sixteen signed bits beside NOT_DRAWN.
@@ -40,7 +42,7 @@ module VBlank
           # The kinds the interpreter's picture is rebuilt whole every frame for (see
           # Reference#collect_definitions and #run, and #rebuilt_every_frame? for the rest of the
           # rule).
-          REBUILT_FOR = %i[tile_run scroll_background scroll_rows affine_background set_tile show_map
+          REBUILT_FOR = %i[tile_run scroll_background place_bar scroll_rows affine_background set_tile show_map
                            background_colors pixelate].freeze
 
           # A sprite the game leaves as drawn whatever size the picture's blocks are (RG_NOT_IN_BLOCKS).
@@ -346,11 +348,11 @@ module VBlank
               end
               [bg.tile_w, bg.tile_h, first_map, Array(bg.maps).length, @backgrounds.fetch(bg.name),
                bg.streams? ? 1 : 0, tiles_start,
-               bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, @stacking.depths[bg.name],
+               bg.scene ? @scenes.fetch(bg.scene, NEVER_ARRIVES) : EVERY_SCENE, bg.bar? ? NOT_A_BAR : @stacking.depths[bg.name],
                @handover.on_arrival?(bg) ? 1 : 0, stack_place(bg.layer),
                see_through_number(bg), @bends.key?(bg.name) ? 1 : 0, fade_place(bg),
                bg.tiles.length, steps.length, shown_in_blocks?(bg) ? 1 : 0, bg.affine ? 1 : 0,
-               painted_start, colors_start]
+               painted_start, colors_start, bg.bar_top || NOT_A_BAR]
             end
             [runtime_array("tile_pixels", "uint16_t", tile_pixels), runtime_array("backgrounds", "int32_t", fields),
              runtime_array("maps", "int32_t", maps), runtime_array("map_cells", "int16_t", cells),
@@ -619,6 +621,13 @@ module VBlank
 
             id = C::Int.new(entry_of(node))
             [eval_call("rg_screen_paint_owed_rebuild"), eval_call(node.scene ? "rg_background_stamp" : "rg_background_put_up", id)]
+          end
+
+          # Reference#exec_place_bar
+          def lower_place_bar(node)
+            return [] if @stacking.scenery.none? { |bg| bg.name == node.name && bg.bar? } # no top to place
+
+            [eval_call("rg_place_bar", background_number(node), value(node.top))]
           end
 
           def lower_scroll_background(node)

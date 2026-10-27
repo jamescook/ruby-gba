@@ -945,14 +945,15 @@ static void stamp_in_stack_order(int32_t over) {
 
 /* Reference#put_up_background. A stamp only covers where it has solid pixels, so a background a
  * named layer puts BEHIND one already up would land in front of it; the ones it belongs behind
- * are stamped again over it. A turned background is painted through its turn at the next rebuild
+ * are stamped again over it. A turned background is painted through its turn at the next rebuild,
+ * and a status bar from its own top,
  * rather than stamped as drawn. */
 void rg_background_put_up(int32_t background) {
   if (background_field(background, RG_BG_ON_ARRIVAL)) forget_own_cells(background);
   remember_put_up(background);
   mark_from_corner(background);
   scenery_kept = 0;
-  if (turns[keeper_of(background)].turned) {
+  if (turns[keeper_of(background)].turned || background_field(background, RG_BG_BAR_TOP) != RG_NOT_A_BAR) {
     request_repaint();
     return;
   }
@@ -977,6 +978,39 @@ void rg_background_scroll(int32_t background, int32_t x, int32_t y) {
   scrolls[keeper_of(background)] = (background_scroll){x, y};
   from_corner[keeper_of(background)] = 0;
   request_repaint();
+}
+
+/* Where each status bar was last placed, by the entry that keeps its name, and whether it has
+ * been (Reference @bar_top). */
+static int32_t bar_tops[RG_MAX_BACKGROUNDS];
+static uint8_t bar_placed[RG_MAX_BACKGROUNDS];
+
+/* Reference#exec_place_bar */
+void rg_place_bar(int32_t background, int32_t top) {
+  bar_tops[keeper_of(background)] = clamp32(top, 0, RG_SCREEN_HEIGHT);
+  bar_placed[keeper_of(background)] = 1;
+  from_corner[keeper_of(background)] = 0;
+  request_repaint();
+}
+
+/* Reference#bar_top_shown */
+static int32_t bar_top_shown(int32_t bar) {
+  int32_t declared = clamp32(background_field(bar, RG_BG_BAR_TOP), 0, RG_SCREEN_HEIGHT);
+  int32_t keeper = keeper_of(bar);
+  return from_corner[keeper] || !bar_placed[keeper] ? declared : bar_tops[keeper];
+}
+
+/* Reference#bar_showing: the status bar on screen, or -1. */
+static int32_t bar_showing(void) {
+  for (int32_t bg = 0; bg < rg_game_picture_sizes[RG_SIZE_BACKGROUNDS]; bg++)
+    if (showing(bg) && background_field(bg, RG_BG_BAR_TOP) != RG_NOT_A_BAR) return bg;
+  return -1;
+}
+
+/* Reference#scenery_rows */
+static int64_t scenery_rows(void) {
+  int32_t bar = bar_showing();
+  return bar < 0 ? RG_SCREEN_HEIGHT : bar_top_shown(bar);
 }
 
 /* Reference#exec_set_tile: the copy is made even when the cell turns out not to be there. */
@@ -1086,7 +1120,7 @@ static int64_t bend_at(int32_t background, int64_t py) {
 static void paint_window_without_wrapping(int32_t background) {
   int64_t map_h = (int64_t)map_rows(background) * background_field(background, RG_BG_TILE_H);
   background_scroll scroll = scroll_shown(background);
-  for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
+  for (int64_t py = 0, rows = scenery_rows(); py < rows; py++) {
     int64_t my = (int64_t)scroll.y + row_drawn_from(py);
     if (my < 0 || my >= map_h) continue;
     int64_t off_x = (int64_t)scroll.x + bend_at(background, py);
@@ -1110,7 +1144,7 @@ static void paint_window(int32_t background) {
   if (map_w == 0 || map_h == 0) return;
   background_scroll scroll = scroll_shown(background);
   int64_t off_y = floor_mod(scroll.y, map_h);
-  for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
+  for (int64_t py = 0, rows = scenery_rows(); py < rows; py++) {
     int64_t off_x = floor_mod((int64_t)scroll.x + bend_at(background, py), map_w);
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++)
       paint_map_pixel(background, (off_x + px) % map_w, (off_y + row_drawn_from(py)) % map_h, px, py);
@@ -1143,7 +1177,7 @@ static void paint_turned_window(int32_t background) {
   affine_matrix(turn->angle, turn->size, &turn_cos, &turn_sin);
   /* A turned layer is placed by its turn, which putting it up leaves as it is. */
   background_scroll scroll = scrolls[keeper_of(background)];
-  for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++) {
+  for (int64_t py = 0, rows = scenery_rows(); py < rows; py++) {
     int64_t dy = row_drawn_from(py) - pivot_y;
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
       int64_t dx = px - pivot_x;
@@ -1189,11 +1223,19 @@ static void paint_scenery_in_blocks(int32_t background) {
   onto_sheet = 0;
   rows_tall = 1;
   int32_t wide = background_field(background, RG_BG_CAN_TURN) && block == 2 ? 1 : block;
-  for (int64_t py = 0; py < RG_SCREEN_HEIGHT; py++)
+  for (int64_t py = 0, rows = scenery_rows(); py < rows; py++)
     for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) {
       int32_t color = sheet[py * RG_SCREEN_WIDTH + px - px % wide];
       if (color != NOTHING_ON_SHEET) lay_scenery(px, py, (uint16_t)color);
     }
+}
+
+/* Reference#paint_status_bar: from its top row to the bottom of the screen, its map from its own
+ * corner, never scrolled; past the end of its map the backdrop stays. */
+static void paint_status_bar(int32_t bar) {
+  int64_t top = bar_top_shown(bar);
+  for (int64_t py = top; py < RG_SCREEN_HEIGHT; py++)
+    for (int64_t px = 0; px < RG_SCREEN_WIDTH; px++) paint_map_pixel(bar, px, py - top, px, py);
 }
 
 /* Reference#paint_scenery */
@@ -1687,6 +1729,14 @@ static void repaint_view(void) {
   mix_nothing();
   fade_unless_left_as_drawn(RG_NO_LAYER);
   clear_to(0);
+  /* A status bar first: no background is painted under it, so it is in front of all of them and
+   * every sprite is painted over it. */
+  int32_t bar = bar_showing();
+  if (bar >= 0) {
+    mix_as_layer(background_field(bar, RG_BG_SEE_THROUGH));
+    fade_unless_left_as_drawn(background_field(bar, RG_BG_FADE_PLACE));
+    paint_status_bar(bar);
+  }
   int32_t backgrounds = rg_game_picture_sizes[RG_SIZE_BACKGROUNDS], levels = rg_game_picture_sizes[RG_SIZE_DEPTHS];
   for (int32_t level = 0; level < levels; level++) {
     for (int32_t bg = 0; bg < backgrounds; bg++) {

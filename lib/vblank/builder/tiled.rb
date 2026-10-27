@@ -249,6 +249,81 @@ module VBlank
       #   mover, apart from the picture. One grid, or a Hash keyed like `map:`.
       # @return [Background] a handle: scroll_by / scroll_to / show_map
       def background(name, tiles:, map: nil, from: nil, walls: nil)
+        declare_background(name, tiles: tiles, map: map, from: from, walls: walls)
+      end
+
+      # A STATUS BAR: a strip of tiles fixed to the screen from row +top+ down to the bottom,
+      # over a field that scrolls and changes under it — the score along the bottom of a
+      # pinball table, the lives and keys along the bottom of a dungeon.
+      #
+      #   bar = status_bar :score, tiles: :hud, map: SCORE_BAR, top: screen_height - 16
+      #   game_loop do
+      #     (ball_y > 132).then { bar.move_to screen_height }      # out of view while the ball is low
+      #     (ball_y <= 132).then { bar.move_to screen_height - 16 }
+      #   end
+      #
+      # It does not scroll. It hides the backgrounds under it from its top to the bottom of the
+      # screen, so its see-through pixels, and the rows past the end of its map, show the
+      # backdrop and never the field. Sprites, and text on a tiled screen, are drawn over it.
+      # Its map is written the way a `background`'s is, and `set_tile` changes one of its
+      # cells. One status bar shows at a time, and it needs a `screen :tiled`.
+      #
+      # On the Game Boy Color it is the console's window, a second layer that every Color has
+      # beside its one background, so it takes nothing from the field. On the Advance it is one
+      # of the four background layers.
+      #
+      # @param name [Symbol] the bar's name
+      # @param tiles [Symbol] a tileset defined with {#tiles}
+      # @param map [String, Array<String>, Array<Array>] the bar's grid, as a background's
+      # @param top [Integer] the screen row its top is at to begin with
+      # @return [DSL::StatusBar] a handle: move_to / top / set_tile
+      def status_bar(name, tiles:, map:, top:)
+        refuse_unplaceable_status_bar!(name, tiles, map, top)
+        background = declare_background(name, tiles: tiles, map: map, bar_top: top)
+        top_var = IR::Nodes::Background.bar_top_var(name)
+        at_boot(Build.set(top_var, Build.int(top)))
+        ensure_var(top_var)
+        DSL::StatusBar.new(self, name: name, top_var: top_var, background: background)
+      end
+
+      private
+
+      # A status bar the console can keep where it is put: on a tiled screen, one map of one
+      # tileset, no bigger than the console's grid of 32 by 32 cells, its top a number written
+      # in the program.
+      def refuse_unplaceable_status_bar!(name, tiles, map, top)
+        unless @screen_mode == :tiled
+          raise ArgumentError,
+                "status_bar :#{name} needs a `screen :tiled`. A status bar is a layer of tiles, and " \
+                "this screen has no layers. To fix this, declare the bar in a scene with `screen :tiled`."
+        end
+        if current_layer
+          raise ArgumentError,
+                "status_bar :#{name} is declared in `layer :#{current_layer}`. A status bar is always in " \
+                "front of the backgrounds and behind the sprites, so it takes no layer. To fix this, " \
+                "declare it outside the `layer` block."
+        end
+        unless tiles.is_a?(Symbol) && !map.is_a?(Hash)
+          raise ArgumentError,
+                "status_bar :#{name} shows one map, drawn from one tileset. To fix this, give `tiles:` " \
+                "the name of a tileset and `map:` one grid."
+        end
+        unless top.is_a?(Integer)
+          raise ArgumentError,
+                "status_bar :#{name}: `top:` is #{top.inspect}. It must be a whole number, the screen row " \
+                "the bar starts at. To move the bar as the game runs, use `move_to`."
+        end
+        rows = background_rows(name, map)
+        return if rows.length <= IR::TileMap::BAR_CELLS && rows.all? { |row| row.length <= IR::TileMap::BAR_CELLS }
+
+        raise ArgumentError,
+              "status_bar :#{name} has a map of more than #{IR::TileMap::BAR_CELLS} cells across or down. A " \
+              "status bar holds #{IR::TileMap::BAR_CELLS} by #{IR::TileMap::BAR_CELLS} cells. To fix this, " \
+              "make its map smaller."
+      end
+
+      # The body of {#background}, and of {#status_bar}, which is a background with +bar_top+.
+      def declare_background(name, tiles:, map: nil, from: nil, walls: nil, bar_top: nil)
         refuse_background_in_game_loop!(name)
         if tiles.is_a?(Hash)
           set, map_names, drawn, tile_names, grids, sets = background_from_sets(name, tiles, map, from)
@@ -296,7 +371,7 @@ module VBlank
           record(Build.background(name, tiles: tile_names, map: grids.first,
                                         maps: map_names.size > 1 ? grids : [], choice: choice,
                                         tile_w: set[:tile_w], tile_h: set[:tile_h],
-                                        scene: declaring_scene,
+                                        scene: declaring_scene, bar_top: bar_top,
                                         affine: @screen_mode == :rotozoom, **(sets || {})))
         # WHICH SCENE THIS BACKGROUND BELONGS TO, so that everything written for it each
         # frame is written only while that scene is the live one. Where a background sits
@@ -342,6 +417,8 @@ module VBlank
                              walks_areas: !sets.nil?,
                              tile_pictures: sets ? tile_names.uniq : (set[:by_key].values + set[:by_number].values).uniq)
       end
+
+      public
 
       # Make a background able to turn and resize as a whole (see {Background#rotate} /
       # {Background#scale}): mark it as the layer that turns, allocate its angle and size

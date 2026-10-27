@@ -136,6 +136,12 @@ module VBlank
                           "once, so a bigger map is brought into view as the view moves. A second " \
                           "background showing at once is refused, and so are `rotate` and `scale`: a " \
                           "Game Boy Color cannot turn or resize a background."),
+        status_bar: works("the bar is a layer of its own beside the one background, so a game with a bar " \
+                          "still has its background. The bar's tiles and the background's tiles share the " \
+                          "room for 512 tiles. A game with a bar cannot have a `screen :bitmap`, because the " \
+                          "bar and a painted screen use the same memory. And a sprite cannot be behind a " \
+                          "background in it: on a Game Boy Color, a sprite behind a background is behind the " \
+                          "bar too."),
         canvas: works("its colours are four, as a background's tiles' are."),
         layers: works("a layer holds a background or sprites; a background in front of a sprite " \
                       "works. `transparency:` is refused: a Game Boy Color cannot show one layer " \

@@ -186,7 +186,9 @@ module VBlank
         started = false
         of = {}
 
-        back_to_front(scenery, objects, stack).each do |item, kind|
+        # A status bar takes no depth: it is in front of all the scenery and behind every
+        # object, wherever they are stacked, so nothing about the stack moves for it.
+        back_to_front(scenery.reject(&:bar?), objects, stack).each do |item, kind|
           level += 1 if started && kind == :scenery
           started = true
           of[item.name] = level
@@ -275,7 +277,10 @@ module VBlank
       def scenery_over_objects?(depths, scenery:, objects:)
         return false if scenery.empty? || objects.empty?
 
-        frontmost = scenery.map { |node| depths[node.name] }.max
+        # A status bar takes no depth (see #depths), so it puts nothing in front of anything.
+        frontmost = scenery.reject(&:bar?).map { |node| depths[node.name] }.max
+        return false if frontmost.nil?
+
         objects.any? { |node| levels_of(depths, node).min < frontmost }
       end
     end

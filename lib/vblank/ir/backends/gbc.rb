@@ -124,13 +124,15 @@ module VBlank
           memory = Memory.new
           lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends)
           # The runtime's places first, so they are in the half of work memory always in view.
-          Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?)
+          Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?,
+                                  bar_rows: lowering.bar_rows)
           game = lowering.sections
           runs = lowering.run_uploads
           runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art, frame_begins: lowering.frame_begins,
                                              music_level: lowering.music_level, songs: lowering.music.any?,
                                              music: lowering.music, runs: runs, drawn_palettes: lowering.drawn_palettes,
-                                             big_maps: lowering.big_map_places, together: lowering.groups_up_together?)
+                                             big_maps: lowering.big_map_places, together: lowering.groups_up_together?,
+                                             bar_rows: lowering.bar_rows)
           data = [*lowering.art.sections, *(lowering.music.any? ? [lowering.music.section] : [])]
           linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END,
                                                      clock: lowering.clock?).link

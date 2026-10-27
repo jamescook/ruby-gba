@@ -259,14 +259,14 @@ module VBlank
                                  "cannot make yet (#{missing.keys.join(', ')})."
           end
 
-          # What a Color cannot do at all, and a second background showing at once, refused as a
-          # game's build refuses them (Checks::ConsoleAnswers, Checks::TooManyBackgroundLayers). A
+          # What a Color cannot do at all, and the layers one screen cannot have, refused as a
+          # game's build refuses them (Checks::ConsoleAnswers, Checks::LayerRefusals). A
           # program handed straight to a lowering, as a test's is, never passes the build's checks;
           # and one that names no console, or another, is asked about as the Color's.
           def refuse_what_color_lacks!
             asked = @program.console == :gbc ? @program : @program.copy.tap { |copy| copy.console = :gbc }
             refused = Guardrails::Checks::ConsoleAnswers.new.detect(asked).find { |finding| finding.severity == :error }
-            refusal = refused&.message || Guardrails::Checks::TooManyBackgroundLayers.new.refusal_message(asked)
+            refusal = refused&.message || Guardrails::Checks::LayerRefusals.message(asked)
             raise LoweringError, refusal if refusal
           end
 

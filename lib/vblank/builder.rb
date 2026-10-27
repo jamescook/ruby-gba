@@ -167,6 +167,7 @@ module VBlank
       @inline_affine_nodes = []  # affine_background nodes recorded at their call site, moved to the frame boundary
       @inline_map_nodes = []     # show_map nodes recorded at their call site, dropped once a frame boundary exists
       @inline_color_nodes = []   # background_colors nodes, the same, for a layer drawn with other colours
+      @inline_bar_nodes = []     # place_bar nodes, the same, for a status bar the game moves
       @per_frame_routines = []   # func names `once_a_frame` declared, called at every frame boundary
       @per_pass_routines = []    # func names the framework calls once a pass, after the frame boundary
       @pass_jobs = {}            # each_pass jobs by name (or their routine's, when unnamed)
@@ -555,6 +556,7 @@ module VBlank
       finalize_pool_stacking
       finalize_draw_orders # after the pools: a pool's numbers are copied with its things
       finalize_background_scrolls
+      finalize_status_bars
       finalize_background_maps
       refuse_shifted_tile_run_lists!
       refuse_filled_shifted_lists!
@@ -636,6 +638,12 @@ module VBlank
       declared_background(name).scroll_x = x_var
       declared_background(name).scroll_y = y_var
       @inline_scroll_nodes << node
+    end
+
+    # A status bar's place recorded where the game moved it (StatusBar#move_to), dropped once
+    # there is a frame boundary to move it to, as a scroll's is (see #finalize_status_bars).
+    def record_inline_bar_node(node)
+      @inline_bar_nodes << node
     end
 
     # Remember that +name+ can be handed a whole different map, so the copy is made once a
@@ -1038,6 +1046,17 @@ module VBlank
         scroll = Build.scroll_background(name, x: Build.var_ref(background.scroll_x),
                                                y: Build.var_ref(background.scroll_y))
         while_scene_up(background.scene_gate, scroll)
+      end
+    end
+
+    # Show where each status bar's top is, in the gap between frames, gated to its scene, for
+    # the reason a scroll is written there: the display reads where the bar starts as it draws
+    # each line, so a bar moved while it draws would split the picture. Every bar has one, moved
+    # or not, since its top is a variable (see Tiled#status_bar).
+    def finalize_status_bars
+      write_between_frames(@inline_bar_nodes, backgrounds_that { |background| background.node.bar? }) do |name, background|
+        while_scene_up(background.scene_gate,
+                       Build.place_bar(name, top: Build.var_ref(IR::Nodes::Background.bar_top_var(name))))
       end
     end
 

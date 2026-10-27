@@ -43,6 +43,9 @@ module VBlank
 
         # --- backgrounds and layers ---
         tiles: works, background: works, canvas: works, layers: works, layer: works,
+        status_bar: works("the bar takes one of the four background layers. A game with a bar cannot also " \
+                          "have a light, a fade held to part of the screen, or a fade under a layer, because " \
+                          "these need the same part of the display."),
 
         # --- text ---
         draw_text: works, draw_number: works, font: works, text_width: works, text_height: works,

@@ -23,6 +23,10 @@ module VBlank
       # holds what the author drew.
       SIZES = [32, 64].freeze
 
+      # The most cells a status bar's map has each way: the one grid size every console can
+      # hold it in beside the background under it.
+      BAR_CELLS = 32
+
       module_function
 
       # The grid this background scrolls over, as [columns, rows].

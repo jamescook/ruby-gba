@@ -91,6 +91,61 @@ module VBlank
                                             (bg.screen_block << 8) | bg.size)
             write_reg16(BG_HOFS_REGS[bg.bg], 0) # start unscrolled
             write_reg16(BG_VOFS_REGS[bg.bg], 0)
+            # ...and a status bar starts at the row it was declared with, until the gap after
+            # this pass places it where the game says (Reference#bar_top_shown).
+            emit_bar_registers(bg, top: node.bar_top) if node.bar?
+          end
+
+          # PUT A STATUS BAR'S TOP AT A ROW (Reference#exec_place_bar), kept between 0 and the
+          # bottom of the screen. BAR_ROW holds the layer's scroll while ACC becomes the window's.
+          BAR_ROW = 2
+
+          def emit_place_bar(node)
+            bg = @layout.screen.backgrounds[node.name]
+            return if bg.nil? || @layout.screen.picture.scenery.none? { |each| each.name == node.name && each.bar? }
+
+            known = const_int(node.top)
+            return emit_bar_registers(bg, top: known) if known
+
+            @lowering.value(node.top)
+            emit(ASM.cmp_imm(ACC, 0))
+            emit(ASM.mov_imm_cond(:lt, ACC, 0))
+            emit(ASM.cmp_imm(ACC, SCREEN_HEIGHT))
+            emit(ASM.mov_imm_cond(:gt, ACC, SCREEN_HEIGHT))
+            emit_bar_registers(bg, top: nil)
+          end
+
+          # A STATUS BAR ON THE ADVANCE is one of its background layers, read from its own map's
+          # top-left corner at the bar's top row, and kept to the rows from there down by the
+          # display's second window: inside the window the display draws the bar's layer and the
+          # sprites and nothing else, so the backgrounds under the bar are not drawn there and its
+          # see-through pixels show the backdrop. Outside it, the bar's layer is left out.
+          #
+          # The window is told its place, and which layers show inside and outside it, wherever
+          # the bar is placed. Those are the display's settings for this screen alone, and a game
+          # with a bar uses no other window (Checks::TooManyStatusBars refuses the ones that do).
+          #
+          # +top+ is a row written in the program, or nil for the row in ACC, already kept to the
+          # screen.
+          def emit_bar_registers(bg, top:)
+            top = top.clamp(0, SCREEN_HEIGHT) if top
+            if top
+              write_reg16(BG_VOFS_REGS[bg.bg], -top & 0x1FF)
+              write_reg16(REG_WIN1V, (top << 8) | SCREEN_HEIGHT)
+            else
+              emit(ASM.rsb_imm(BAR_ROW, ACC, 0)) # the map's top row is drawn at the bar's top row
+              emit_number(TMP, BG_VOFS_REGS[bg.bg])
+              emit(ASM.store_halfword(BAR_ROW, TMP))
+              emit(ASM.lsl_imm(ACC, ACC, 8))
+              emit(ASM.orr_imm(ACC, ACC, SCREEN_HEIGHT))
+              store_halfword_acc(REG_WIN1V)
+            end
+            # Every write from here loads its own number, so these come after ACC is done with.
+            write_reg16(BG_HOFS_REGS[bg.bg], 0)
+            write_reg16(REG_WIN1H, SCREEN_WIDTH) # from the left edge to the right
+            bar_layer = 1 << bg.bg
+            write_reg16(REG_WININ, (bar_layer | WIN_OBJ | WIN_EFFECT) << WIN1_SHIFT)
+            write_reg16(REG_WINOUT, (WIN_ALL_LAYERS & ~bar_layer) | WIN_EFFECT)
           end
 
           # PUT A DIFFERENT TILE IN ONE CELL, while the game runs.

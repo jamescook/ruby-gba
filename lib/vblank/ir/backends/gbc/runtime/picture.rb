@@ -69,6 +69,17 @@ module VBlank
             LENT_PENDING = LENT_MISSED + 2
             LENT_BYTES = LENT_PENDING + 1
 
+            # A STATUS BAR (`status_bar`), in a game that has one: the console's window, read from
+            # the second grid. BAR is the row its top is at, the number of the grid in the window's
+            # grid (0xFF for none, or one with a cell changed), and 0xFF while the grid's rows are
+            # still being copied in; BAR_JOB is that copy, kept as MAP_JOB keeps the background's.
+            BAR = "rt picture bar"
+            BAR_UP = 1
+            BAR_PENDING = 2
+            BAR_JOB = "rt picture bar job"
+            # The window's left edge, which the console counts from seven pixels left of the screen.
+            WINDOW_LEFT = 7
+
             # The display's switch that raises its interrupt as each line ends (STAT's mode-0 bit).
             STAT_HBLANK = 0x08
 
@@ -78,7 +89,11 @@ module VBlank
 
             module_function
 
-            def reserve(memory, lends: false, groups: false)
+            def reserve(memory, lends: false, groups: false, bar_rows: nil)
+              if bar_rows
+                memory.reserve(BAR, 3)
+                memory.reserve(BAR_JOB, 6)
+              end
               memory.reserve(LENT, LENT_BYTES) if lends
               PictureGroups.reserve(memory) if groups
               memory.reserve(SHADOW_PALETTES, 128)
@@ -106,16 +121,19 @@ module VBlank
             # which needs +drawn_palettes+. +palettes_in_use+ are the numbers of the palettes the game
             # can show, backgrounds' 0 to 7 and sprites' 8 to 15 (Art#palettes_in_use): a fade
             # moves those alone. +groups+ says it has pictures grouped by room (Runtime::PictureGroups).
+            # +bar_rows+ is how many rows of the window's grid a game's status bars fill, the most of
+            # any of them, or nil for a game with none.
             def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false,
-                     palettes_in_use:, groups: false)
+                     palettes_in_use:, groups: false, bar_rows: nil)
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
-                                      drawn_palettes: drawn_palettes)
-              emit_upload(asm, memory, groups: groups)
+                                      drawn_palettes: drawn_palettes, bar: !bar_rows.nil?)
+              emit_upload(asm, memory, groups: groups, bar: !bar_rows.nil?)
               PictureGroups.emit(asm, memory) if groups
               emit_tile_runs(asm, runs)
               emit_sprites(asm, memory, lends: lends)
               emit_lend_colors(asm, memory, drawn_palettes) if lends
-              emit_background(asm, memory)
+              emit_background(asm, memory, bar: !bar_rows.nil?)
+              emit_bar(asm, memory, bar_rows) if bar_rows
               emit_choices(asm, memory)
               emit_overlap(asm, memory)
               emit_tint(asm, memory, drawn_palettes, palettes_in_use)
@@ -291,9 +309,15 @@ module VBlank
             # Sprite tiles go 128 to a bank at 0x8000; background tiles 256 to a bank, the first
             # 128 at 0x9000 and the next 128 at 0x8800 — the console's other way of counting
             # tiles, which a background's cells use, so the two kinds never meet.
-            def emit_start(asm, memory, sprite_tiles:, background_tiles:, drawn_palettes: nil)
+            def emit_start(asm, memory, sprite_tiles:, background_tiles:, drawn_palettes: nil, bar: false)
               h = Console::GBCHardware
               asm.label("rt_picture_start")
+              if bar # the window's grid holds no bar yet, and the window starts at the left edge
+                asm.load(:a, 0xFF)
+                asm.load([memory[BAR] + BAR_UP], :a)
+                asm.load(:a, WINDOW_LEFT)
+                asm.load_high(h::WX, :a)
+              end
               chunks = []
               sprite_tiles.times.each_slice(128).with_index do |slice, bank|
                 chunks << ["art_sprite_tiles", slice.first, slice.length, bank, h::VRAM]
@@ -505,7 +529,7 @@ module VBlank
             # In a game with pictures grouped by room (+groups+), the groups the sprites placed need
             # are copied in too (Runtime::PictureGroups), before the screen's switches, which keep the
             # sprite layer off while one is still being copied in.
-            def emit_upload(asm, memory, groups: false)
+            def emit_upload(asm, memory, groups: false, bar: false)
               h = Console::GBCHardware
               pending = memory[PictureGroups::JOB] + PictureGroups::PENDING if groups
               asm.label("rt_upload")
@@ -520,6 +544,10 @@ module VBlank
               asm.load_high(h::SCX, :a)
               asm.load(:a, [:hl])
               asm.load_high(h::SCY, :a)
+              if bar # the row the status bar's window starts at
+                asm.load(:a, [memory[BAR]])
+                asm.load_high(h::WY, :a)
+              end
               asm.call("rt_bends_first_row")
               if groups
                 asm.call("rt_groups_upload")
@@ -544,7 +572,20 @@ module VBlank
               # The cells a big map's view brought in (Runtime::BigMaps).
               asm.call("rt_big_view")
               # A grid being put up, and a painted screen's tiles: as much of each as the blank holds.
+              # A status bar's grid first, which is a few rows: the carry says either has rows left,
+              # and the cells changed wait for both.
+              if bar
+                asm.call("rt_bar_map_job")
+                asm.sbc_a(:a)
+                asm.load([memory[BAR] + BAR_PENDING], :a)
+              end
               asm.call("rt_picture_map_job")
+              if bar
+                asm.jump_relative(:c, "rt_upload_jobs")
+                asm.load(:a, [memory[BAR] + BAR_PENDING])
+                asm.add_a(:a) # carry from 0xFF
+                asm.label("rt_upload_jobs")
+              end
               asm.push(:af)
               asm.call(:nc, "rt_picture_cells") # once the grid is all up, the cells changed since
               asm.call("rt_paint_upload")
@@ -564,16 +605,7 @@ module VBlank
 
               # MAP_ROWS_PER_BLANK more rows of a grid being put up, or all of them while the screen
               # is off. Carry set when some are left.
-              asm.label("rt_picture_map_job")
-              asm.load(:a, [memory[MAP_JOB]])
-              asm.and_a(:a)
-              asm.ret(:z) # nothing being put up: carry clear from the AND
-              asm.call("rt_picture_map_rows")
-              asm.load(:a, [memory[MAP_JOB]])
-              asm.and_a(:a)
-              asm.ret(:z)
-              asm.scf
-              asm.ret
+              emit_map_job(asm, memory[MAP_JOB], "rt_picture_map_job", "rt_picture_map_rows")
 
               # THE ROWS' BENDS FOR THE FRAME ABOUT TO BE DRAWN, from the scroll just set: the first
               # row's set now, and each row after it as the line before it ends
@@ -948,10 +980,11 @@ module VBlank
             #
             # A grid with a cell changed is no longer the one declared, so the next put up of it puts
             # it up again (GRID_UP), as declared.
-            def emit_background_cell(asm, memory)
+            def emit_background_cell(asm, memory, label: "rt_background_cell", grid: Console::GBCHardware::TILE_MAP0,
+                                     up: memory[GRID_UP])
               h = Console::GBCHardware
               arg = ->(i) { Calls.arg(memory, i, 4) }
-              asm.label("rt_background_cell")
+              asm.label(label)
               asm.load_hl_sp(2)
               asm.load(:b, 16)
               asm.call("rt_take_args")
@@ -978,14 +1011,14 @@ module VBlank
               asm.load(:e, :a)
               asm.load(:d, 0)
               asm.add_hl(:de)
-              asm.load(:de, h::TILE_MAP0)
+              asm.load(:de, grid)
               asm.add_hl(:de)
               asm.load(:a, 0xFF)
-              asm.load([memory[GRID_UP]], :a)
+              asm.load([up], :a)
               # Into the cells for the blank, while there is room: HL where it goes, then the cell.
               asm.load(:a, [memory[CELLS]])
               asm.cp_a(CELLS_KEPT)
-              asm.jump_relative(:nc, "rt_background_cell_now")
+              asm.jump_relative(:nc, "#{label}_now")
               asm.inc(:a)
               asm.load([memory[CELLS]], :a)
               asm.dec(:a)
@@ -1006,15 +1039,15 @@ module VBlank
               asm.load_high(:a, arg.call(3) + 1)
               asm.load([:hl], :a)
               asm.ret
-              asm.label("rt_background_cell_now")
+              asm.label("#{label}_now")
               asm.di
               [0, 1].each do |bank|
                 asm.load(:a, bank)
                 asm.load_high(h::VBK, :a)
-                asm.label("rt_background_cell_wait_#{bank}")
+                asm.label("#{label}_wait_#{bank}")
                 asm.load_high(:a, h::STAT)
                 asm.and_a(0x02)
-                asm.jump_relative(:nz, "rt_background_cell_wait_#{bank}")
+                asm.jump_relative(:nz, "#{label}_wait_#{bank}")
                 asm.load_high(:a, arg.call(3) + bank)
                 asm.load([:hl], :a)
               end
@@ -1036,9 +1069,13 @@ module VBlank
             # #emit_background_hardware) and the interpreter shows (Reference#put_up_background);
             # handing a background another of its maps keeps the view where it is (rt_big_show
             # likewise, beside rt_big_put_up).
-            def emit_background(asm, memory)
+            def emit_background(asm, memory, bar: false)
               h = Console::GBCHardware
               emit_background_cell(asm, memory)
+              # ...and one of a status bar's, in the window's grid (#emit_bar).
+              if bar
+                emit_background_cell(asm, memory, label: "rt_bar_cell", grid: h::TILE_MAP1, up: memory[BAR] + BAR_UP)
+              end
               asm.label("rt_background_put_up_unscrolled")
               asm.xor_a(:a)
               asm.load([memory[SCROLL]], :a)
@@ -1073,72 +1110,7 @@ module VBlank
               asm.bit(7, :a)
               asm.ret(:nz)
 
-              # The next rows of the grid being put up, from where the job has got to — all of them
-              # while the screen is off, MAP_ROWS_PER_BLANK in a blank — each row's 32 tiles into
-              # bank 0 of the console's grid and its 32 cells' colours, 1024 bytes on, into bank 1.
-              asm.label("rt_picture_map_rows")
-              asm.load_high(:a, h::LCDC)
-              asm.bit(7, :a)
-              asm.load(:b, 32)
-              asm.jump_relative(:z, "rt_picture_map_rows_counted")
-              asm.load(:b, MAP_ROWS_PER_BLANK)
-              asm.label("rt_picture_map_rows_counted")
-              asm.load(:a, [memory[MAP_JOB]])
-              asm.cp_a(:b)
-              asm.jump_relative(:nc, "rt_picture_map_rows_some")
-              asm.load(:b, :a) # fewer left than that: the rest
-              asm.label("rt_picture_map_rows_some")
-              asm.sub_a(:b)
-              asm.load([memory[MAP_JOB]], :a)
-              asm.load(:a, [memory[MAP_JOB] + 5])
-              asm.load([h::MBC_ROM_BANK_LOW], :a)
-              asm.load(:a, :b) # rows × 32 bytes = rows × 2 blocks of 16
-              asm.add_a(:a)
-              asm.dec(:a)
-              asm.load(:c, :a)
-              asm.push(:bc)
-              asm.load(:a, [memory[MAP_JOB] + 1]) # HL = where these rows come from
-              asm.load(:l, :a)
-              asm.load(:a, [memory[MAP_JOB] + 2])
-              asm.load(:h, :a)
-              asm.load(:a, [memory[MAP_JOB] + 3]) # DE = where they go
-              asm.load(:e, :a)
-              asm.load(:a, [memory[MAP_JOB] + 4])
-              asm.load(:d, :a)
-              asm.xor_a(:a)
-              asm.load_high(h::VBK, :a)
-              asm.call("rt_gdma") # the tiles (rt_gdma keeps HL, DE and BC)
-              asm.push(:hl)
-              asm.push(:bc)
-              asm.load(:bc, 1024)
-              asm.add_hl(:bc)
-              asm.pop(:bc)
-              asm.load(:a, 1)
-              asm.load_high(h::VBK, :a)
-              asm.call("rt_gdma") # the cells' colours
-              asm.xor_a(:a)
-              asm.load_high(h::VBK, :a)
-              asm.pop(:hl)
-              asm.pop(:bc) # B = the rows copied: BC = the bytes they were, 32 a row
-              asm.load(:c, :b)
-              asm.load(:b, 0)
-              5.times do
-                asm.sla(:c)
-                asm.rl(:b)
-              end
-              asm.add_hl(:bc) # the next row comes from just past these
-              asm.load(:a, :l)
-              asm.load([memory[MAP_JOB] + 1], :a)
-              asm.load(:a, :h)
-              asm.load([memory[MAP_JOB] + 2], :a)
-              asm.load(:h, :d)
-              asm.load(:l, :e)
-              asm.add_hl(:bc) # ...and goes just past these
-              asm.load(:a, :l)
-              asm.load([memory[MAP_JOB] + 3], :a)
-              asm.load(:a, :h)
-              asm.load([memory[MAP_JOB] + 4], :a)
-              asm.jump("rt_bank_back")
+              emit_map_rows(asm, memory[MAP_JOB], "rt_picture_map_rows")
 
               # A change of the kind of screen takes everything down: the grid with nothing in it
               # (GBC::Art's first) goes up, at the scroll's start.
@@ -1171,6 +1143,183 @@ module VBlank
                 asm.load([big + want + 1], :a)
               end
               asm.jump("rt_big_prepare")
+            end
+
+            # A GRID BEING PUT UP, a few rows a blank: +job+ is where it is kept — the rows left,
+            # where the next comes from, where it goes and the bank it is in (MAP_JOB, BAR_JOB).
+            # +label+ copies MAP_ROWS_PER_BLANK more rows, or all of them while the screen is off;
+            # +rows+ is that copy alone.
+            def emit_map_job(asm, job, label, rows)
+              asm.label(label)
+              asm.load(:a, [job])
+              asm.and_a(:a)
+              asm.ret(:z) # nothing being put up: carry clear from the AND
+              asm.call(rows)
+              asm.load(:a, [job])
+              asm.and_a(:a)
+              asm.ret(:z)
+              asm.scf
+              asm.ret
+            end
+
+            # The next rows of the grid being put up, from where +job+ has got to — all of them
+            # while the screen is off, MAP_ROWS_PER_BLANK in a blank — each row's 32 tiles into
+            # bank 0 of the console's grid and its 32 cells' colours, 1024 bytes on, into bank 1.
+            def emit_map_rows(asm, job, label)
+              h = Console::GBCHardware
+              asm.label(label)
+              asm.load_high(:a, h::LCDC)
+              asm.bit(7, :a)
+              asm.load(:b, 32)
+              asm.jump_relative(:z, "#{label}_counted")
+              asm.load(:b, MAP_ROWS_PER_BLANK)
+              asm.label("#{label}_counted")
+              asm.load(:a, [job])
+              asm.cp_a(:b)
+              asm.jump_relative(:nc, "#{label}_some")
+              asm.load(:b, :a) # fewer left than that: the rest
+              asm.label("#{label}_some")
+              asm.sub_a(:b)
+              asm.load([job], :a)
+              asm.load(:a, [job + 5])
+              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.load(:a, :b) # rows × 32 bytes = rows × 2 blocks of 16
+              asm.add_a(:a)
+              asm.dec(:a)
+              asm.load(:c, :a)
+              asm.push(:bc)
+              asm.load(:a, [job + 1]) # HL = where these rows come from
+              asm.load(:l, :a)
+              asm.load(:a, [job + 2])
+              asm.load(:h, :a)
+              asm.load(:a, [job + 3]) # DE = where they go
+              asm.load(:e, :a)
+              asm.load(:a, [job + 4])
+              asm.load(:d, :a)
+              asm.xor_a(:a)
+              asm.load_high(h::VBK, :a)
+              asm.call("rt_gdma") # the tiles (rt_gdma keeps HL, DE and BC)
+              asm.push(:hl)
+              asm.push(:bc)
+              asm.load(:bc, 1024)
+              asm.add_hl(:bc)
+              asm.pop(:bc)
+              asm.load(:a, 1)
+              asm.load_high(h::VBK, :a)
+              asm.call("rt_gdma") # the cells' colours
+              asm.xor_a(:a)
+              asm.load_high(h::VBK, :a)
+              asm.pop(:hl)
+              asm.pop(:bc) # B = the rows copied: BC = the bytes they were, 32 a row
+              asm.load(:c, :b)
+              asm.load(:b, 0)
+              5.times do
+                asm.sla(:c)
+                asm.rl(:b)
+              end
+              asm.add_hl(:bc) # the next row comes from just past these
+              asm.load(:a, :l)
+              asm.load([job + 1], :a)
+              asm.load(:a, :h)
+              asm.load([job + 2], :a)
+              asm.load(:h, :d)
+              asm.load(:l, :e)
+              asm.add_hl(:bc) # ...and goes just past these
+              asm.load(:a, :l)
+              asm.load([job + 3], :a)
+              asm.load(:a, :h)
+              asm.load([job + 4], :a)
+              asm.jump("rt_bank_back")
+            end
+
+            # THE STATUS BAR (Reference#paint_status_bar): the console's window, which the display
+            # draws from its top row, WY, to the bottom of the screen, over the background and under
+            # the sprites, reading its cells from the second grid. The bar's grid goes there; the
+            # window is switched on in the display's switches the blank writes (LCDC_WANTED), and WY
+            # is written from BAR in the blank (rt_upload).
+            #
+            # rt_bar_put_up(grid, top): the bar's grid into the window's — +rows+ of it, the most any
+            # bar of the game fills, so a shorter bar after a taller one leaves none of it behind —
+            # unless it is the one there already, with the window on and its top at +top+, the row
+            # the bar was declared at, until it is placed (Reference#bar_top_shown).
+            # rt_place_bar(top): its top at +top+, kept between 0 and the bottom of the screen.
+            # rt_bar_take_down: the window off, for a screen with no bar; and its grid forgotten too
+            # when the kind of screen changes, since a painted screen keeps its own grid there.
+            def emit_bar(asm, memory, rows)
+              h = Console::GBCHardware
+              top = Calls.arg(memory, 0, 1)
+              asm.label("rt_bar_put_up")
+              asm.load_hl_sp(2)
+              asm.load(:a, [:hl]) # the top, a row of the screen already
+              asm.load([memory[BAR]], :a)
+              asm.load_hl_sp(6)
+              asm.load(:a, [:hl]) # the grid's number
+              asm.load(:hl, memory[BAR] + BAR_UP)
+              asm.cp_a([:hl])
+              asm.jump_relative(:z, "rt_bar_on")
+              asm.load([:hl], :a)
+              asm.load(:e, :a) # its entry in the grids' table, three bytes
+              asm.load(:d, 0)
+              asm.load(:hl, "art_grids")
+              3.times { asm.add_hl(:de) }
+              asm.load(:a, [:hli])
+              asm.load([memory[BAR_JOB] + 1], :a)
+              asm.load(:a, [:hli])
+              asm.load([memory[BAR_JOB] + 2], :a)
+              asm.load(:a, [:hl])
+              asm.load([memory[BAR_JOB] + 5], :a)
+              asm.xor_a(:a)
+              asm.load([memory[BAR_JOB] + 3], :a)
+              asm.load(:a, h::TILE_MAP1 >> 8)
+              asm.load([memory[BAR_JOB] + 4], :a)
+              asm.load(:a, rows)
+              asm.load([memory[BAR_JOB]], :a)
+              asm.load_high(:a, h::LCDC) # with the screen off it goes in now
+              asm.bit(7, :a)
+              asm.call(:z, "rt_bar_map_rows")
+              asm.label("rt_bar_on")
+              asm.load(:a, [memory[LCDC_WANTED]])
+              asm.or_a(h::LCDC_WINDOW_ON | h::LCDC_WINDOW_MAP1)
+              asm.load([memory[LCDC_WANTED]], :a)
+              asm.ret
+
+              asm.label("rt_place_bar")
+              asm.load_hl_sp(2)
+              asm.load(:b, 4)
+              asm.call("rt_take_args")
+              asm.load_high(:a, top + 3)
+              asm.bit(7, :a)
+              asm.jump_relative(:nz, "rt_place_bar_top") # above the top: the top
+              asm.load(:b, :a)
+              asm.load_high(:a, top + 2)
+              asm.or_a(:b)
+              asm.load(:b, :a)
+              asm.load_high(:a, top + 1)
+              asm.or_a(:b)
+              asm.load(:a, h::SCREEN_HEIGHT)
+              asm.jump_relative(:nz, "rt_place_bar_at") # far past the bottom: the bottom
+              asm.load_high(:a, top)
+              asm.cp_a(h::SCREEN_HEIGHT)
+              asm.jump_relative(:c, "rt_place_bar_at")
+              asm.load(:a, h::SCREEN_HEIGHT)
+              asm.jump_relative("rt_place_bar_at")
+              asm.label("rt_place_bar_top")
+              asm.xor_a(:a)
+              asm.label("rt_place_bar_at")
+              asm.load([memory[BAR]], :a)
+              asm.ret
+
+              asm.label("rt_bar_take_down")
+              asm.load(:a, 0xFF)
+              asm.load([memory[BAR] + BAR_UP], :a)
+              asm.label("rt_bar_off")
+              asm.load(:a, [memory[LCDC_WANTED]])
+              asm.and_a(~h::LCDC_WINDOW_ON & 0xFF)
+              asm.load([memory[LCDC_WANTED]], :a)
+              asm.ret
+
+              emit_map_job(asm, memory[BAR_JOB], "rt_bar_map_job", "rt_bar_map_rows")
+              emit_map_rows(asm, memory[BAR_JOB], "rt_bar_map_rows")
             end
 
             # CHOOSING BY NUMBER. rt_place_of_choice(which, others) is which list of colours a

@@ -59,6 +59,7 @@ Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`,
 - `tiles :name, "#" => :brick, solid: ["#"]` — a tileset; `from:` a sheet, or a list painted at run time.
 - `canvas :board, width:, height:, colors:` — a picture drawn into with words.
 - `background :name, tiles:, map:` → `Background`: set a tile, switch maps, recolour, scroll, bend rows, turn; four per screen.
+- `status_bar :name, tiles:, map:, top:` → `StatusBar`: fixed from a row to the bottom over a scrolling field; `move_to`, `top`, `set_tile`.
 
 ## Layers — `.claude/dsl/layers.md`
 

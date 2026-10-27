@@ -240,6 +240,12 @@ module ConformanceFixture
       # a variable — a door opening. A backend that wrote the wrong cell, or none, draws a
       # different picture.
       B.set_tile(:grid, B.var_ref(:x), B.int(1), 0),
+      # A status bar's place given to the grid, which is not a status bar, so it changes nothing:
+      # a backend that moved the grid, or drew it as a bar, differs. A real bar cannot be here,
+      # since this program also fades under a layer, which the Advance refuses beside one
+      # (Checks::StatusBarCannotShare); the bar is played on every lowering by
+      # test/vblank/builder/test_status_bar.rb.
+      B.place_bar(:grid, top: B.var_ref(:y)),
       # A tile the program paints itself: its pixels are a list's bytes, two places to a
       # byte, shown once the list is copied over. This program's screen is a bitmap, where
       # no background can show such a tile (a real game is refused one there), so nothing

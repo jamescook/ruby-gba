@@ -158,8 +158,8 @@ module VBlank
 
             # +map_count+ is how many maps of the screen's squares the game's scenes show between them
             # (GBC::SquareColors#maps).
-            def emit(asm, memory, painting:, map_count: 1)
-              emit_screen(asm, memory, painting: painting)
+            def emit(asm, memory, painting:, map_count: 1, bar: false)
+              emit_screen(asm, memory, painting: painting, bar: bar)
               return emit_nothing_painted(asm) unless painting
 
               quick = Quick.new(generation: memory.quick(1), clear: memory.quick(1), clear_low: memory.quick(1),
@@ -197,7 +197,7 @@ module VBlank
             # Reference#redraw_sprites_over_arrived_scenery). The table is kept, so what the game
             # placed this pass is still what it placed. 0, and nothing changes, for the kind
             # already up.
-            def emit_screen(asm, memory, painting:)
+            def emit_screen(asm, memory, painting:, bar: false)
               h = Console::GBCHardware
               asm.label("rt_screen")
               asm.load_hl_sp(2)
@@ -225,6 +225,7 @@ module VBlank
               asm.load([memory[Picture::LCDC_WANTED]], :a)
               asm.call("rt_picture_take_down")
               asm.label("rt_screen_changed")
+              asm.call("rt_bar_take_down") if bar # the window's grid is the painted screen's too
               asm.call("rt_sprites_off")
               asm.load(:bc, 0)
               asm.load(:de, 1)

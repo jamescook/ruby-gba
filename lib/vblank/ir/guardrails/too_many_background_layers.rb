@@ -90,7 +90,10 @@ module VBlank
             # layer, because that is what decides which arrangement the console is put in as
             # the screen is set up.
             room = console.scrolling_backgrounds(turning: sharing.any?)
+            # A status bar is counted where it is one of the layers, and not where the console
+            # keeps it a layer of its own (Checks::TooManyStatusBars counts those).
             scrolling = screenful.scrolling
+            scrolling = scrolling.reject(&:bar?) unless console.bar_is_a_background
             return nil if scrolling.size <= room
 
             # The layer blamed is the first one with nowhere to go, so the author is sent to

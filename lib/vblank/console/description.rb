@@ -22,7 +22,8 @@ module VBlank
     # screen before it leaves the rest of that row's out, or nil where the build does not count
     # them. +backgrounds+ is how many tiled layers it stacks, +turning_backgrounds+ how many of
     # them can turn and resize, and +backgrounds_beside_turning+ how many still scroll on a screen
-    # where one turns. +turning_sprites+ says whether a sprite can turn and resize.
+    # where one turns. +bar_is_a_background+ says whether a status bar is one of those layers, or a
+    # layer the console keeps beside them. +turning_sprites+ says whether a sprite can turn and resize.
     # +blends+ says whether its display can mix colours as it draws —
     # fade the finished picture, mix one layer into another — rather than only change the colours
     # in its lists. +list_colors+ is how many places a list of colours holds. +painted_pages+ is
@@ -52,7 +53,7 @@ module VBlank
     # there is none.
     Description = Data.define(:name, :title, :screen_width, :screen_height, :buttons, :sprites, :sprite_places,
                               :sprites_a_row, :turning_sprites, :backgrounds, :turning_backgrounds,
-                              :backgrounds_beside_turning, :blends, :list_colors, :painted_pages,
+                              :backgrounds_beside_turning, :bar_is_a_background, :blends, :list_colors, :painted_pages,
                               :clock_keeps_date, :cycles_a_second, :cycles_a_frame, :samples_a_copy,
                               :voice_output_hz, :largest_memory_bytes, :work_memory_bytes, :work_memory_kept_bytes,
                               :roomier_memory_bytes, :extension) do
@@ -92,6 +93,8 @@ module VBlank
                               sprites_a_row: nil, turning_sprites: true,
                               # Four layers that scroll, or two that scroll and one that turns.
                               backgrounds: 4, turning_backgrounds: 1, backgrounds_beside_turning: 2,
+                              # A status bar is one of those layers.
+                              bar_is_a_background: true,
                               blends: true, list_colors: 16, painted_pages: 2, clock_keeps_date: true,
                               # 228 lines of 1232 cycles: 160 drawn, and 68 the gap after.
                               cycles_a_second: 16_777_216, cycles_a_frame: 280_896,
@@ -113,6 +116,8 @@ module VBlank
                             buttons: %i[a b select start right left up down].freeze, sprites: 40, sprite_places: 40,
                             sprites_a_row: 10, turning_sprites: false,
                             backgrounds: 1, turning_backgrounds: 0, backgrounds_beside_turning: 0,
+                            # A status bar is the window, a layer beside the one background.
+                            bar_is_a_background: false,
                             blends: false, list_colors: 4, painted_pages: 1, clock_keeps_date: false,
                             # 154 lines of 456 cycles: the Advance's frame exactly, on a clock a
                             # quarter as fast. Double speed doubles the cycles, not the frames.

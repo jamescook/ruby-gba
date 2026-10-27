@@ -24,6 +24,7 @@ module VBlank
                                                  draw_column_at: :emit_draw_column_at,
                                                  save_region: :emit_save_region, restore_region: :emit_restore_region,
                                                  background: :emit_background, scroll_background: :emit_scroll_background,
+                                                 place_bar: :emit_place_bar,
                                                  show_map: :emit_show_map, set_tile: :emit_set_tile,
                                                  background_colors: :emit_background_colors,
                                                  scroll_rows: :emit_scroll_rows, camera: :emit_camera,
@@ -48,6 +49,13 @@ module VBlank
 
             # The art the program's pictures were made into, for the cartridge to keep.
             attr_reader :art
+
+            # How many rows of the window's grid the game's status bars fill, the most of any of
+            # them, or nil for a game with none (Runtime::Picture#emit_bar).
+            def bar_rows
+              bars = @backgrounds.each_value.select(&:bar?)
+              bars.map { |bar| TileMap.size_of(bar.map).last }.max unless bars.empty?
+            end
 
             # Where a game that draws a background with other colours keeps the colours its pictures
             # are drawn in now, every palette's (Runtime::Picture#emit_background_colors), or nil for
@@ -417,7 +425,12 @@ module VBlank
               # Tiles its scenery and its sprites paint from a list show the list as it is now, changed
               # or not.
               arrival.painted_pictures.each { |run| emit_run_copy(run) }
-              scenery = arrival.scenery.empty? ? @handover.always_up.scenery : arrival.scenery
+              # A status bar is the window, beside the one background: the scene's own goes up there,
+              # and one every screen shows stays as it is, as the interpreter leaves it.
+              emit_bar_off_unless_shown(arrival)
+              arrival.scenery.select(&:bar?).each { |bar| bar_put_up(bar) }
+              own = arrival.scenery.reject(&:bar?)
+              scenery = own.empty? ? @handover.always_up.scenery.reject(&:bar?) : own
               if scenery.empty?
                 emit_bends_shown(nil)
                 return runtime_call("rt_background_put_up", [Build.int(0)])
@@ -429,6 +442,15 @@ module VBlank
               # The sprites this pass placed, in front of the scenery the scene brought of its own,
               # on a screen drawn from tiles (Reference#redraw_sprites_over_arrived_scenery).
               @asm.call("rt_sprites_on") if arrival.scenery.any? && SceneHandover.tiles?(screen)
+            end
+
+            # A screen with no status bar has the window off, in a game with a bar somewhere; one
+            # with a bar switches it on as the bar goes up.
+            def emit_bar_off_unless_shown(arrival)
+              return unless bar_rows
+              return if (arrival.scenery + @handover.always_up.scenery).any?(&:bar?)
+
+              @asm.call("rt_bar_off")
             end
 
             # The screen a scene arrives on (:bitmap, :tiled…): the one it names, or the one its
@@ -695,6 +717,8 @@ module VBlank
             # on every pass, after the game has said where its view sits, shows from its corner on
             # every frame (Runtime::Picture's rt_background_put_up_unscrolled).
             def background_put_up(bg)
+              return bar_put_up(bg) if bg.bar?
+
               emit_bends_shown(bg)
               return big_put_up(bg, 0, "rt_big_put_up") if big?(bg)
 
@@ -720,6 +744,19 @@ module VBlank
                   Array(row).map { |tile| tile.nil? || tile.negative? ? nil : background_tile_named(bg.tiles.fetch(tile)) }
                 end)
               end
+            end
+
+            # A STATUS BAR goes up into the console's window (Runtime::Picture#emit_bar), at the row
+            # it was declared with until it is placed (Reference#bar_top_shown).
+            def bar_put_up(bar)
+              top = bar.bar_top.clamp(0, Console::GBCHardware::SCREEN_HEIGHT)
+              runtime_call("rt_bar_put_up", [Build.int(grid_of(bar)), Build.int(top)])
+            end
+
+            # Reference#exec_place_bar.
+            def emit_place_bar(node)
+              return unless declared_background!(node).bar? # one that is not a status bar has no top to place
+              runtime_call("rt_place_bar", [node.top])
             end
 
             def emit_scroll_background(node)
@@ -883,7 +920,8 @@ module VBlank
 
               refuse_background!(bg, as_grid: true)
               cols, rows = map_size_of(bg)
-              runtime_call("rt_background_cell", [node.col, node.row, Build.int(cols | (rows << 8)), cell])
+              routine = bg.bar? ? "rt_bar_cell" : "rt_background_cell" # a status bar's is in the window's grid
+              runtime_call(routine, [node.col, node.row, Build.int(cols | (rows << 8)), cell])
             end
 
             # Whether the game changes a big background's cells as it runs, so it is kept in work
@@ -1284,7 +1322,7 @@ module VBlank
             end
 
             # Whether a sprite at depth +level+ is behind the scenery: a background sits in front of it.
-            def behind_scenery?(level) = @stacking.scenery.any? { |bg| @stacking.depths[bg.name] > level }
+            def behind_scenery?(level) = @stacking.scenery.any? { |bg| !bg.bar? && @stacking.depths[bg.name] > level }
 
             # Which picture a sprite showing pose number +pose+ is drawn from, and the attributes its
             # pieces are drawn with — which palette, and whether behind the background — now. Its

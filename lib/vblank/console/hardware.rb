@@ -181,6 +181,8 @@ module VBlank
       WIN_ALL_LAYERS = 0x001F # BG0 | BG1 | BG2 | BG3 | OBJ
       WIN_EFFECT     = 0x0020 # ...and the color effect applies here
       WINOUT_OBJ_SHIFT = 8    # the object window's field starts here
+      WIN_OBJ        = 0x0010 # the sprites, in one field
+      WIN1_SHIFT     = 8      # the second window's field in WININ starts here
 
       # ========================================================================
       # Mosaic Register — drawing a layer in flat blocks

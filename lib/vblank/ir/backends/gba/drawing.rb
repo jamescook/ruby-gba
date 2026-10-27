@@ -271,15 +271,17 @@ module VBlank
           # road that banks under a sky — and nothing in a program says so, because
           # turning a background IS saying so. (The third arrangement, mode 2, is `screen
           # :rotozoom`: two turning layers and nothing else, and it keeps its own path.)
-          # +on+ names the layers to switch on and +turning+ which arrangement THIS screen
-          # wants. Given neither, this is the value for the screen the console is set up for
-          # BEFORE any scene has run — see #first_scene_layers. The sprite layer is added by the
+          # +on+ names the layers to switch on, +turning+ which arrangement THIS screen
+          # wants, and +bar+ whether it shows a status bar's window. Given none of them, this is the
+          # value for the screen the console is set up for BEFORE any scene has run — see
+          # #first_scene_layers. The sprite layer is added by the
           # callers, which all do it the same way for every screen.
-          def tiled_dispcnt(on = nil, turning: nil)
+          def tiled_dispcnt(on = nil, turning: nil, bar: nil)
             boot = (on.nil? && turning.nil?) ? first_scene_layers : nil
             on = boot.on if boot
             turning = (boot ? boot.turning : turning_background?) if turning.nil?
-            (turning ? MODE_1 : MODE_0) | tiled_bg_enable_bits(*[on].compact)
+            bar = (boot ? boot.bar : bar_on_screen?) if bar.nil?
+            (turning ? MODE_1 : MODE_0) | tiled_bg_enable_bits(*[on].compact) | (bar ? WIN1_ENABLE : 0)
           end
 
           # THE SCREEN THE CONSOLE IS SET UP FOR BEFORE ANY SCENE HAS RUN, or nothing at all
@@ -295,6 +297,10 @@ module VBlank
           def first_scene_layers = (@layout.screen.first_scene_screen if @layout.screen.layers_differ_by_scene?)
 
           def turning_background? = @layout.turning_layers.any?
+
+          # Whether a status bar is up on a screen of a game whose screens all show the same
+          # layers: then a bar anywhere is on the one screen there is.
+          def bar_on_screen? = @layout.screen.picture.scenery.any?(&:bar?)
 
           # The DISPCNT enable bit per layer, and the OR of them for the layers this
           # program's backgrounds actually landed on — at least BG0, so a tiled screen
@@ -628,7 +634,7 @@ module VBlank
             wanted = @layout.screen.scene_send(name).screen
             return unless wanted
 
-            value = tiled_dispcnt(wanted.on, turning: wanted.turning)
+            value = tiled_dispcnt(wanted.on, turning: wanted.turning, bar: wanted.bar)
             value |= OBJ_ENABLE | OBJ_1D_MAP if @layout.has_objects
             @sprite_drawing.emit_screen_layers(value) # leaves the sprites off on a frame hide_sprites asked for
           end

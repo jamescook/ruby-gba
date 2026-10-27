@@ -81,6 +81,8 @@ void rg_background_put_up(int32_t background);
 /* Put a background's window at (x, y) of its map, in pixels: the picture slides. Whether it comes
  * round again is the background's (RG_BG_NEVER_WRAPS, below). */
 void rg_background_scroll(int32_t background, int32_t x, int32_t y);
+/* Reference#exec_place_bar: a status bar's top at a row of the screen. */
+void rg_place_bar(int32_t background, int32_t top);
 /* One cell becomes tile number +tile+ of the background's tiles. A cell the map does not have is
  * left alone. */
 void rg_background_set_tile(int32_t background, int32_t col, int32_t row, int32_t tile);
@@ -374,17 +376,22 @@ extern const uint16_t rg_game_tile_pixels[];
  * paints it and which of the run's tiles it is, or RG_NOT_PAINTED and nought for a tile that is
  * a picture. RG_BG_RUN_COLORS is then where the colors its painted tiles are shown in start in
  * rg_game_run_colors: sixteen for each run the game has, by place, with RG_SEE_THROUGH where a
- * place shows what is behind; and the same again for each step of colors it can be told. */
+ * place shows what is behind; and the same again for each step of colors it can be told.
+ *
+ * RG_BG_BAR_TOP is RG_NOT_A_BAR for a background, and for a status bar the row of the screen it was
+ * declared to start at (Nodes::Background#bar_top). A status bar takes no level: it is painted in
+ * front of every background and behind every sprite, so its RG_BG_LEVEL is RG_NOT_A_BAR too. */
 #define RG_EVERY_SCENE (-1)
 #define RG_NEVER_ARRIVES (-2)
 #define RG_NO_LAYER (-1)
+#define RG_NOT_A_BAR (-1)
 /* The most backgrounds a game may have; the build refuses more. */
 #define RG_MAX_BACKGROUNDS 64
 enum {
   RG_BG_TILE_W, RG_BG_TILE_H, RG_BG_FIRST_MAP, RG_BG_SHOWABLE_MAPS, RG_BG_KEPT_BY, RG_BG_NEVER_WRAPS,
   RG_BG_TILES_START, RG_BG_SCENE, RG_BG_LEVEL, RG_BG_ON_ARRIVAL, RG_BG_STACK_PLACE,
   RG_BG_SEE_THROUGH, RG_BG_BENT, RG_BG_FADE_PLACE, RG_BG_TILES, RG_BG_COLOR_STEPS, RG_BG_IN_BLOCKS,
-  RG_BG_CAN_TURN, RG_BG_PAINTED, RG_BG_RUN_COLORS, RG_BG_FIELDS
+  RG_BG_CAN_TURN, RG_BG_PAINTED, RG_BG_RUN_COLORS, RG_BG_BAR_TOP, RG_BG_FIELDS
 };
 extern const int32_t rg_game_backgrounds[];
 #define RG_NOT_PAINTED (-1)

@@ -37,5 +37,6 @@ require_relative "dsl/score_list"
 require_relative "dsl/song_list"
 require_relative "dsl/sound_effect_list"
 require_relative "dsl/background"
+require_relative "dsl/status_bar"
 require_relative "dsl/tile_run" # tiles whose pixels the game paints, in a list of its own
 require_relative "dsl/canvas"   # ...and a picture the game draws into with words, built on them

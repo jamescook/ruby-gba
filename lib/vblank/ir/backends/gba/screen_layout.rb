@@ -113,7 +113,12 @@ module VBlank
           # WHAT ONE SCENE NEEDS OF THE TILED SCREEN: which layers are switched on, and which
           # of the console's two arrangements this screen is — four layers that scroll, or two
           # that scroll beside one that turns and resizes.
-          SceneScreen = Data.define(:on, :turning)
+          # +bar+ says a status bar is on this screen, which switches the display's second window
+          # on (see BackgroundDrawing#emit_bar_registers).
+          SceneScreen = Data.define(:on, :turning, :bar)
+
+          # The priority a status bar's layer is given: the back, so every sprite is in front.
+          BAR_PRIORITY = 3
 
           # WHAT ONE SCENE SENDS AS IT TAKES OVER, in one place: its own tile pictures (a
           # SceneTiles, or nil), the screen it has on (a SceneScreen, for a tiled scene), its
@@ -742,7 +747,7 @@ module VBlank
             turning = screenful.turning_on_tiled_screen(@modes).any?
             on = screenful.scrolling.filter_map { |node| slots[node.name] }
             on += [AFFINE_BG] if turning
-            SceneScreen.new(on: on, turning: turning)
+            SceneScreen.new(on: on, turning: turning, bar: screenful.scenery.any?(&:bar?))
           end
 
           # DO THE DECLARED LAYERS FIT AN ARRANGEMENT THE CONSOLE HAS? A layer that did not
@@ -755,7 +760,7 @@ module VBlank
           # program that reached a backend without passing the guardrails still cannot
           # build a cartridge with a layer quietly missing from it.
           def check_layers_fit!(program)
-            refusal = Guardrails::Checks::TooManyBackgroundLayers.new.refusal_message(program) ||
+            refusal = Guardrails::Checks::LayerRefusals.message(program) ||
                       Guardrails::Checks::SeeThroughPerScreen.new.refusal_message(program)
             raise LoweringError, refusal if refusal
           end
@@ -1206,7 +1211,10 @@ module VBlank
               bg: layer,                           # hardware layer (BG0..BG3), in stack order
               screen_block: store.vram.take_map(entries.size / MAP_ENTRIES_A_BLOCK),
               size: regular_map_size(cols, rows),
-              priority: hardware_priority(name), in_blocks: @pixelation.background_bit(name),
+              # A status bar is drawn alone inside its window with the sprites, all of them in
+              # front of it, so it sits at the back; and it is never in blocks.
+              priority: node.bar? ? BAR_PRIORITY : hardware_priority(name),
+              in_blocks: node.bar? ? 0 : @pixelation.background_bit(name),
               affine: false,
               small: small,
               char_base: stored.char_base,
@@ -1508,7 +1516,7 @@ module VBlank
           # Which of the two ways it ran out, and what to do about that one.
           def stack_overflow_cause(screenful)
             backmost = screenful.objects.select { |node| screenful.depths[node.name].zero? }
-            if backmost.any? && screenful.scenery.none? { |node| screenful.depths[node.name].zero? }
+            if backmost.any? && screenful.scenery.reject(&:bar?).none? { |node| screenful.depths[node.name].zero? }
               behind = backmost.map(&:layer).uniq.compact
               "The sprites in #{behind.map { |name| ":#{name}" }.join(', ')} sit behind every background, " \
                 "which takes a level of its own. To fix this, move that layer in front of one background, " \
