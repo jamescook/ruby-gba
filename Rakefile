@@ -15,7 +15,7 @@ require_relative "ruby-gba-emulator/lib/ruby_gba_emulator/built_for"
 # pass with its coverage gutted.
 #
 # The built binary is a cached artifact: as a Rake file task it's rebuilt only when it's
-# missing or a source is newer, so a plain `rake test` doesn't re-run extconf + make every time
+# missing or a source is newer, so a plain `rake test:all` doesn't re-run extconf + make every time
 # (that compile takes longer than the suite itself). It's gitignored, so it persists between
 # runs locally and builds once on a fresh checkout.
 #
@@ -84,7 +84,7 @@ task :suite_lock do
 end
 
 # EVERY LOWERING, ONE AFTER THE OTHER, by the library's own rake tasks — the ones a game's suite
-# defines the same way (VBlank::Testing::RakeTasks says what each does). `rake test` plays the
+# defines the same way (VBlank::Testing::RakeTasks says what each does). `rake test:all` plays the
 # GBA lowering's run (the interpreter, with the cartridge checked in the emulator), then the
 # native lowering's (the game built as C, checked against the interpreter, in several processes),
 # then the JavaScript lowering's (the game built as JavaScript and played by node, checked the same
@@ -106,7 +106,7 @@ end
 # emulator is built for every run (on the native and JavaScript runs a few tests ask the cartridge
 # itself as the answer key — the sound the desktop build makes, test/sound_comparison.rb, and the
 # jukebox's voices), and a run with COVERAGE=1 starts its report afresh.
-task test: :suite_lock
+task "test:all" => :suite_lock
 VBlank::Testing::Lowering::NAMES.each { |lowering| task "test:lowering:#{lowering}" => %i[suite_lock compile_emulator] }
 task "test:lowering:gba" => :clear_coverage
 

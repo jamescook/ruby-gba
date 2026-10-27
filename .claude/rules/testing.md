@@ -161,7 +161,7 @@ Assert the friendly error a misuse raises: its class and a key phrase, never the
 ## Gotchas
 
 - Don't name a helper `run`: it shadows `Minitest::Test#run`.
-- `rake test` needs zig 0.17 on the path (`mise use zig@0.17.0`) and node 18+, or it stops at
+- `rake test:all` needs zig 0.17 on the path (`mise use zig@0.17.0`) and node 18+, or it stops at
   the start.
 - Emulator tests fail loudly without the emulator rather than skipping; only the native and
   JavaScript runs skip them, saying so.

@@ -48,7 +48,7 @@ class TestGameSuite < Minitest::Test
   # A game for the Advance alone has a rake test that plays every lowering of an Advance game: the
   # Game Boy Color's run is not played, and has no task to ask for it.
   def test_rake_test_plays_the_games_tests_on_every_lowering_of_its_console
-    out, passed, lowerings = rake("test")
+    out, passed, lowerings = rake("test:all")
 
     assert passed, "the game's rake test failed:\n#{out}"
     assert_equal %w[gba js native ruby], lowerings
@@ -60,9 +60,23 @@ class TestGameSuite < Minitest::Test
     refute_match(/test:lowering:gbc/, rake("-T").first)
   end
 
+  # The whole suite is long, so it is asked for by name: plain `rake test` plays nothing and says
+  # what to type. Each run that does play starts with a heading naming its lowering.
+  def test_plain_rake_test_lists_the_choices_and_each_run_has_a_heading
+    out, passed, lowerings = rake("test")
+
+    refute passed
+    assert_empty lowerings, "nothing was played"
+    assert_match(/rake test:all/, out)
+    assert_match(/rake test:lowering:native/, out)
+
+    out, = rake("test:lowering:native")
+    assert_match(/^ native lowering: the game built as C/, out)
+  end
+
   # A game whose Rakefile names the Color too gets the Color's run as well.
   def test_a_game_for_the_color_plays_the_colors_run_too
-    out, passed, lowerings = rake("test", env: { "GAME_SUITE_CONSOLES" => "gba gbc" })
+    out, passed, lowerings = rake("test:all", env: { "GAME_SUITE_CONSOLES" => "gba gbc" })
 
     assert passed, "the game's rake test failed:\n#{out}"
     assert_equal %w[gba gbc js native ruby], lowerings
@@ -102,7 +116,7 @@ class TestGameSuite < Minitest::Test
   # lowering's run the cartridge does, at the pixel named. (The Ruby lowering's runtime draws
   # nothing yet, so its run skips the drawing test.)
   def test_a_disagreement_fails_the_games_test_on_each_run
-    out, passed, = rake("test", env: { "GAME_SUITE_DISAGREE" => "1" })
+    out, passed, = rake("test:all", env: { "GAME_SUITE_DISAGREE" => "1" })
 
     refute passed
     assert_match(/^GBA lowering\s+FAILED/, out)

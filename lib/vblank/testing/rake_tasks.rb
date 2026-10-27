@@ -18,20 +18,22 @@ module VBlank
     #     t.test_files = FileList["test/**/test_*.rb"]   # the default
     #   end
     #
-    # That defines five tasks:
+    # That defines these tasks:
     #
-    #   rake test                    every lowering, one after the other, ending with a line each
+    #   rake test:all                every lowering, one after the other, ending with a line each
     #   rake test:lowering:gba       the game on the interpreter, which the cartridge is checked against
     #   rake test:lowering:native    the game built as C, checked against the interpreter (needs zig)
     #   rake test:lowering:js        the game built as JavaScript, checked the same way (needs node)
     #   rake test:lowering:ruby      the game built as Ruby, checked the same way
+    #   rake test TEST=<file>        one file, on each lowering whose run loads it
     #
-    # Each takes TEST= for one file, and `rake test` plays it on each lowering whose run loads it.
+    # Each lowering's run starts with a heading naming it. `rake test` with no TEST= plays nothing
+    # and lists these, since the whole suite is long and should be asked for by name.
     #
     # The Rakefile names the consoles the game is for, as the game does where it is named:
     # `t.consoles = %i[gba]` for the Advance alone, `t.consoles = %i[gba gbc]` for the Game Boy Color
-    # too. The Color adds a sixth task, `rake test:lowering:gbc`, the game built as a Color cartridge
-    # and checked against the interpreter, and `rake test` plays it too; a game for the Advance alone
+    # too. The Color adds a task of its own, `rake test:lowering:gbc`, the game built as a Color cartridge
+    # and checked against the interpreter, and `rake test:all` plays it too; a game for the Advance alone
     # gets no Color run it could never pass. The Rakefile cannot see which games its tests build, so
     # it is told the same list the games are, and it takes and refuses exactly what `consoles:` does,
     # a Rakefile that names none included.
@@ -49,7 +51,7 @@ module VBlank
     # not want this whole set: it makes the runs it wants out of TestTask, which defines nothing
     # but the task it is asked for.
     class RakeTasks < Rake::TaskLib
-      # What `rake test` calls each lowering's run in the lines it ends with, in the order it plays them.
+      # What `rake test:all` calls each lowering's run in the lines it ends with, in the order it plays them.
       LABELS = Lowering::RUNS.to_h { |run| [run.name, "#{run.title} lowering"] }.freeze
       OUTCOMES = { passed: "passed", failed: "FAILED", not_played: "does not play this file" }.freeze
 
@@ -77,21 +79,42 @@ module VBlank
 
       private
 
+      # `rake test:all` plays every lowering, which is long; `rake test` on its own plays nothing
+      # and says what to type instead, so the long run is always chosen and never an accident.
+      # With TEST= it plays that one file on every lowering whose run loads it, which is short.
       def define_test_task
-        desc "Run the tests on every lowering, one after the other (one file with TEST=test/test_foo.rb)"
+        namespace :test do
+          desc "Run the tests on every lowering, one after the other"
+          task(:all) { play_every_lowering }
+        end
+
+        desc "Run one file on every lowering that plays it (TEST=test/test_foo.rb); see test:all"
         task :test do
-          labels = LABELS.slice(*@lowerings)
-          results = labels.map { |lowering, label| run_lowering(lowering, label) }
-          puts
-          results.each do |label, outcome, seconds|
-            puts format("%-*s %s%s", labels.values.map(&:length).max, label, OUTCOMES.fetch(outcome),
-                        outcome == :not_played ? "" : format(" in %ds", seconds))
-          end
-          abort "rake test: a lowering's run failed" if results.any? { |_, outcome| outcome == :failed }
+          ENV["TEST"] ? play_every_lowering : abort(choices_message)
         end
       end
 
-      # One lowering's run, inside `rake test`: whether it passed and how long it took. Every one
+      def choices_message
+        tasks = @lowerings.map { |lowering| "  rake test:lowering:#{lowering}" }
+        ["`rake test` on its own runs no tests. Type one of these:", "",
+         "  rake test:all                       every lowering, one after the other",
+         *tasks.map { |line| format("%-37s one lowering", line) },
+         "  rake test TEST=test/test_thing.rb   one file, on every lowering that plays it"].join("\n")
+      end
+
+      # Every lowering, one after the other, ending with a line for each.
+      def play_every_lowering
+        labels = LABELS.slice(*@lowerings)
+        results = labels.map { |lowering, label| run_lowering(lowering, label) }
+        puts
+        results.each do |label, outcome, seconds|
+          puts format("%-*s %s%s", labels.values.map(&:length).max, label, OUTCOMES.fetch(outcome),
+                      outcome == :not_played ? "" : format(" in %ds", seconds))
+        end
+        abort "rake test: a lowering's run failed" if results.any? { |_, outcome| outcome == :failed }
+      end
+
+      # One lowering's run, inside `rake test:all`: whether it passed and how long it took. Every one
       # is played whatever the one before found.
       def run_lowering(lowering, label)
         named = ENV["TEST"]&.delete_prefix("./")

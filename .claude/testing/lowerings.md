@@ -1,6 +1,6 @@
 # The native, JavaScript, Ruby and Game Boy Color runs — the game as C, as JavaScript, as Ruby, as a Color cartridge
 
-`rake test` plays the suite once per lowering (`test/support/suites.rb`): the GBA run (the
+`rake test:all` plays the suite once per lowering (`test/support/suites.rb`): the GBA run (the
 interpreter, the cartridge checked in the emulator), the native run (the game built as C by
 `Backends::Native`, checked against the interpreter on every frame), the JavaScript run (the
 game as JavaScript by `Backends::JS`, played by node, checked the same way), the Ruby run (the game
@@ -115,7 +115,7 @@ This suite takes it from the library exactly as a game does. `require "vblank/te
 `game_player`, `skip_on_native` and `CheckedPlayer`. `CheckedPlayer` is
 `VBlank::IR::Backends::Native::CheckedRun` with a disagreement reported as a failed test; the
 comparisons are `Native::Differences`. The rake tasks are the library's
-(`VBlank::Testing::RakeTasks`): this Rakefile makes `rake test` and the `test:lowering:` tasks
+(`VBlank::Testing::RakeTasks`): this Rakefile makes `rake test:all` and the `test:lowering:` tasks
 with it, handing over the test files, the lowering folders and the consoles (`%i[gba gbc]`; a
 game's Rakefile that names none gets no Color run), and adds only the machine lock, the emulator
 build and coverage. Each `test:lowering:`

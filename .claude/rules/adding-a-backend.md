@@ -183,7 +183,7 @@ Each of these is what Reference does; check the line before relying on it.
 
 ## Joining the test runs
 
-`rake test` plays the suite once for each lowering; a new one is a sixth run.
+`rake test:all` plays the suite once for each lowering; a new one is a sixth run.
 `VBlank::Testing` (lib/vblank/testing/) is where that is decided, and it is the same code a
 game's own suite uses:
 
@@ -195,7 +195,7 @@ game's own suite uses:
   the checked player on the native, JavaScript, Ruby and Game Boy Color ones. A checked player raises
   `IR::Backends::RunComparison::Disagreement` when it disagrees with the interpreter, which the
   testing kit turns into a failed test.
-- `Testing::TestTask` says how a run is started (every checked one in several processes, never in Ractors, since they start programs); `Testing::RakeTasks` makes `rake test` and a
+- `Testing::TestTask` says how a run is started (every checked one in several processes, never in Ractors, since they start programs); `Testing::RakeTasks` makes `rake test:all` and a
   `test:lowering:<name>` task for each.
 - `TestSuites::LOWERING_FOLDERS` (test/support/suites.rb) names the folders only one lowering's
   run loads: put the new backend's own tests in `test/vblank/ir/backends/<name>/`.
@@ -217,7 +217,7 @@ game's own suite uses:
 
 ## What done means
 
-A backend is done when every test plays on it and `rake test` passes: there is no lowering that
+A backend is done when every test plays on it and `rake test:all` passes: there is no lowering that
 trails. On the way there, a test it cannot play yet skips itself with a reason
 (`skip_on_native` is native's version), and the run counts its skips by reason at the end so
 they cannot pile up. A hardware feature is not done until it works on every backend; when one is

@@ -82,10 +82,19 @@ module VBlank
       # it is for: the lowering, and on a native run the rest of how it is played. The program the
       # run needs (Lowering::Run#needs) is asked for first.
       def ruby(*args, **options, &block)
-        needs = Lowering.run_named(lowering).needs
-        refuse_native_run_without_zig! if needs == "zig"
-        refuse_js_run_without_node! if needs == "node"
+        run = Lowering.run_named(lowering)
+        refuse_native_run_without_zig! if run.needs == "zig"
+        refuse_js_run_without_node! if run.needs == "node"
+        print_heading(run)
         sh(run_settings, [FileUtils::RUBY, *yjit_switch, *args].join(" "), **options, &block)
+      end
+
+      # A ruled-off line naming the run and what it plays, so a glance at a long output says which
+      # lowering's tests are going.
+      def print_heading(run)
+        rule = "=" * 92
+        $stdout.puts "", rule, " #{run.title} lowering: #{run.does}", rule
+        $stdout.flush
       end
 
       def checked? = Lowering.run_named(lowering).checked?

@@ -8,7 +8,7 @@ four colours. Every verb has one of two answers there, decided once in
 `Console::ColorAnswers`:
 
 - **works** — the same game, played the same way. The Game Boy Color lowering's run of
-  `rake test` holds the cartridge to the interpreter on every frame.
+  `rake test:all` holds the cartridge to the interpreter on every frame.
 - **refused** — the build stops before anything is made, naming the hardware the Color
   lacks and what to use instead. Nothing is shown differently: a game either plays the
   same on the Color or is refused there.

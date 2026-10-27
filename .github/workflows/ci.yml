@@ -46,7 +46,7 @@ jobs:
       - name: Bundle install
         run: bundle install
 
-      # The emulator gem's own suite, kept out of `rake test`. It goes first because it builds
+      # The emulator gem's own suite, kept out of `rake test:all`. It goes first because it builds
       # the emulator and takes seconds: an emulator that cannot load fails here, rather than
       # failing every cartridge test of the whole suite one at a time.
       - name: Test the emulator itself
@@ -57,7 +57,7 @@ jobs:
       # Every test on every lowering, one after the other. A whole run takes the machine to
       # itself, so this waits while a run in another checkout on the same Mac finishes.
       - name: Run tests
-        run: bundle exec rake test 2>&1 | tee test-output.log
+        run: bundle exec rake test:all 2>&1 | tee test-output.log
         env:
           CI: '1'
 
