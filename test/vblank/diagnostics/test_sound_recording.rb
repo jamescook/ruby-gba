@@ -8,6 +8,10 @@ require "tmpdir"
 # frame — how loud each frame is, and how many waves in it were broken, a voice jumping back to
 # the start of its wave where the chip would carry on, which is heard as a rumble.
 class TestSoundRecording < Minitest::Test
+  # Recording the desktop build and the Ruby lowering starts their programs, which hangs inside a
+  # Ractor.
+  runs_on_the_main_ractor!
+
   SoundRecording = VBlank::Diagnostics::SoundRecording
   RATE = 48_000
   FRAME = RATE / 60

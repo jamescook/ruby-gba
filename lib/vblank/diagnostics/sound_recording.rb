@@ -63,17 +63,14 @@ module VBlank
         run = RUNTIMES.fetch(on) do
           raise ArgumentError, "on: must be :cartridge, #{RUNTIMES.keys.map(&:inspect).join(', ')}, not #{on.inspect}"
         end
-        new(samples: runtime_samples(run.call, program, frames, buttons, only),
+        new(samples: runtime_samples(IR::Backends.const_get(run)::HeadlessRun.new, program, frames, buttons, only),
             rate: IR::Backends::Native::HeadlessRun::SOUND_RATE, frame_seconds: frame_seconds)
       end
 
-      # Each runtime's run with no window, by the name +of+ takes. Looked up when asked, since the
-      # lowerings load after the readers.
-      RUNTIMES = {
-        native: -> { IR::Backends::Native::HeadlessRun.new },
-        js: -> { IR::Backends::JS::HeadlessRun.new },
-        ruby: -> { IR::Backends::Ruby::HeadlessRun.new }
-      }.freeze
+      # The lowering whose run with no window plays each runtime, by the name +of+ takes. Named,
+      # and looked up when asked, since the lowerings load after the readers (and a test in a
+      # Ractor can read a table of names, where it cannot call a block a constant holds).
+      RUNTIMES = Ractor.make_shareable({ native: :Native, js: :JS, ruby: :Ruby })
 
       # A .wav file of one speaker's sixteen-bit samples.
       def self.read_wav(path, frame_seconds:)
