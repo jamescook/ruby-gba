@@ -192,6 +192,102 @@ class TestTileRuns < Minitest::Test
     assert_equal WHITE, pixel(prog, 4, 48, 20), "on the next frame, the same as tiles a background shows"
   end
 
+  # A game that says `changed now: true` has the list copied where it said so, inside the
+  # frame's own work, the way a cartridge that writes straight into video memory does: the
+  # picture shows on the frame it was painted.
+  private def tag_changed_now_game
+    tag_game do |canvas, tag, frame|
+      (frame == 3).then do
+        canvas[32] = 0x01
+        tag.changed now: true
+      end
+    end
+  end
+
+  def test_a_sprite_changed_now_shows_its_lists_pixels_on_that_frame
+    prog = tag_changed_now_game
+
+    refute_equal WHITE, pixel(prog, 2, 48, 20), "not before it was written"
+    assert_equal WHITE, pixel(prog, 3, 48, 20), "on the frame it was written"
+  end
+
+  def test_the_console_agrees_on_when_a_picture_changed_now_shows
+    [2, 3, 4].each { |frames| assert_backends_agree(tag_changed_now_game, frames: frames) }
+  end
+
+  # The case it is for: a button read, a letter painted and the sprite moved, all in one pass.
+  # The letter is in that pass's picture; the sprite still stands where it was, since where a
+  # sprite stands is settled in the gap, and moves on the frame after — as on the cartridge
+  # the Minish Cap port was measured against, where the letter is written straight into video
+  # memory and the sprite table goes out at the next frame.
+  def test_a_letter_typed_on_a_press_shows_before_the_sprite_moves
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :ink, [:transparent, :white]
+      canvas = list :canvas, capacity: 32, width: :byte, full_of: 0
+      letter = image :letter, from: canvas, width: 8, height: 8, colors: :ink
+      tag = sprite :letter, at: [40, 20]
+      game_loop do
+        pressed(:a).then do
+          canvas[0] = 0x01
+          letter.changed now: true
+          tag.move_to 80, 20
+        end
+      end
+    end
+    b.finalize_program
+    shown = ->(frames) { game_player.hold(:a).run(b.program, frames: frames).screen }
+
+    typed = (1..4).find { |frames| shown.call(frames).pixel(40, 20) == WHITE }
+    refute_nil typed, "the letter shows where the sprite stood"
+    assert_equal WHITE, shown.call(typed + 1).pixel(80, 20), "and the sprite moves on the next frame"
+    [typed, typed + 1].each { |frames| assert_backends_agree(b.program, frames: frames, keys: [:a]) }
+  end
+
+  # Said now and then said plainly in the same pass, each keeps its own timing: the first
+  # pixel shows on this frame, and the one written after it on the next, with the gap's copy.
+  private def tag_changed_now_then_later_game
+    tag_game do |canvas, tag, frame|
+      (frame == 3).then do
+        canvas[32] = 0x01
+        tag.changed now: true
+        canvas[0] = 0x01
+        tag.changed
+      end
+    end
+  end
+
+  def test_a_plain_changed_after_a_changed_now_still_copies_in_the_gap
+    prog = tag_changed_now_then_later_game
+
+    assert_equal [WHITE, 0], [pixel(prog, 3, 48, 20), pixel(prog, 3, 40, 20)], "only the first pixel, at once"
+    assert_equal [WHITE, WHITE], [pixel(prog, 4, 48, 20), pixel(prog, 4, 40, 20)], "both, a frame later"
+    [3, 4].each { |frames| assert_backends_agree(prog, frames: frames) }
+  end
+
+  # Tiles a background shows, changed now, show on that frame too.
+  def test_tiles_changed_now_show_on_that_frame
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :ink, [:transparent, :white]
+      canvas = list :canvas, capacity: 64, width: :byte
+      repeat(64) { canvas.push 0 }
+      box = tiles :box, from: canvas, count: 2, colors: :ink
+      background :front, tiles: :box, map: [[1, 2]]
+      frame = var :frame, 0
+      game_loop do
+        frame.add! 1
+        (frame == 3).then { canvas[32] = 0x01; box.changed now: true }
+      end
+    end
+    b.finalize_program
+
+    assert_equal [0, WHITE], [pixel(b.program, 2, 8, 0), pixel(b.program, 3, 8, 0)]
+    [2, 3, 4].each { |frames| assert_backends_agree(b.program, frames: frames) }
+  end
+
   def test_the_console_agrees_on_a_sprites_painted_picture_and_when_it_shows
     prog = tag_game do |canvas, tag, frame|
       (frame == 3).then do

@@ -40,8 +40,9 @@ module VBlank
       # wants to write bytes itself. Say `changed` after.
       def list = @list
 
-      # Show what the list holds on the next frame. Every drawing word says it already.
-      def changed = @run.changed
+      # Show what the list holds on the next frame. Every drawing word says it already. With
+      # +now+, on this frame, copied here (see TileRun#changed).
+      def changed(now: false) = @run.changed(now: now)
 
       # The cells of a background map that show this canvas, as rows of tile keys — the
       # first row of the canvas's tiles, then the next. Put them in a map as they are, or

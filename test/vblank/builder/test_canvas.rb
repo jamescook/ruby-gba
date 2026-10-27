@@ -44,6 +44,13 @@ class TestCanvas < Minitest::Test
     assert_equal WHITE, screen(prog, 3).pixel(3, 2)
   end
 
+  def test_a_canvas_changed_now_shows_on_the_frame_it_is_drawn
+    prog = game { |board, frame| (frame == 2).then { board.pixel 3, 2, :white; board.changed now: true } }
+
+    assert_equal [0, WHITE], [screen(prog, 1).pixel(3, 2), screen(prog, 2).pixel(3, 2)]
+    [1, 2].each { |frames| assert_backends_agree(prog, frames: frames) }
+  end
+
   # "W" is five pixels wide; drawn at 6 it runs from the first tile into the second.
   def test_a_letter_that_crosses_a_tile_edge_lands_in_both
     prog = game { |board, _frame| board.clear; board.draw_letter "W", 6, 0, :white }

@@ -37,8 +37,9 @@ module DslVerbs
   # The four list lookups are what a background drawn from several lists asks while it works
   # out which list is which, behind `draw_with` on a background.
   # pool_refill_nodes is the hook behind a save_data record's `reset` of a kept pool, which the
-  # reference documents on `save_data`; nobody writes it. request_tile_copy is the hook
-  # behind `changed` on tiles painted from a list, which the reference documents on `tiles`.
+  # reference documents on `save_data`; nobody writes it. request_tile_copy and
+  # emit_tile_copy_in_place are the hooks behind `changed` and `changed now: true` on tiles
+  # painted from a list, which the reference documents on `tiles`.
   # canvas_font, canvas_font_tables, image_size and image_pixels are what a `canvas` asks while
   # it builds its words, documented on `canvas`; nobody writes them. write_picked_pose is the
   # hook behind `face ..., showing:` on a sprite and a pool instance, documented on `sprite`.
@@ -58,7 +59,7 @@ module DslVerbs
             colors_to_draw_with make_object_recolorable make_pool_recolorable
             make_object_layer_choosable refuse_unknown_layers! write_picked_choice
             lists_drawn_from list_drawn_from declared_colors name_of_colors pool_refill_nodes
-            request_tile_copy canvas_font canvas_font_tables image_size image_pixels write_picked_pose
+            request_tile_copy emit_tile_copy_in_place canvas_font canvas_font_tables image_size image_pixels write_picked_pose
             record_light_shape light_circle show_light_now game_pack_checks record_clock_set].freeze
 
   # …plus the verbs the loaded effect packs contribute. A pack's verb is an ordinary

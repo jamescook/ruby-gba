@@ -30,6 +30,12 @@ module VBlank
         @inline_tile_copies << record(Build.copy_tiles(name))
       end
 
+      # `changed now: true`: the copy stays where the game asked for it, paced or not, and the
+      # run is not owed another in the gap — the list is in video memory already.
+      def emit_tile_copy_in_place(name)
+        record(Build.copy_tiles(name))
+      end
+
       private
 
       # WHICH RUNS ARE OWED A COPY, as bits of a few variables rather than a flag apiece: a bit

@@ -126,6 +126,9 @@ and on real hardware:
 - **What the framework draws for you** (a sprite, a tiled text glyph, a background's scroll) is
   painted in the gap before the next frame, from the variables then. So the picture shows the
   pass before: `v.var(:n)` is 5 while the sprite stands where 4 put it.
+- **A picture painted from a list and said `changed now: true`** is the exception: it is
+  copied where the game said so, during the pass, and its pixels are in that pass's picture
+  (the sprite showing it still stands where the pass before put it).
 
 A position decided while a frame is being drawn cannot appear in that frame, so this is not
 something to design away. In a test, run one frame further before reading the picture, or read
