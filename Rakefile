@@ -153,6 +153,14 @@ namespace :emitted do
   end
 end
 
+namespace :speed do
+  desc "How fast each example plays as Ruby, with no JIT, YJIT and ZJIT (rake speed:ruby ONLY=pong PICTURES=600; " \
+       "GAMES=path.rb SET=name=value)"
+  task :ruby do
+    ruby "tools/ruby_speed.rb"
+  end
+end
+
 desc "Render examples/EXAMPLE.rb to a watchable HTML page (rake preview EXAMPLE=parallax KEYS=right FRAMES=64)"
 task :preview do
   example = ENV["EXAMPLE"] || abort("set EXAMPLE, e.g. rake preview EXAMPLE=parallax KEYS=right")

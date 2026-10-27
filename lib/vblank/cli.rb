@@ -663,12 +663,16 @@ module VBlank
                                  then runs as fast as this computer can play it.
                                  Use this to measure the speed. Tab does nothing
                                  then.
+        --no-yjit                Do not use YJIT, the part of Ruby that makes
+                                 the game run faster. Use this to measure the
+                                 speed without it. Default: --yjit.
         #{SET}
     TEXT
     option :console, banner: "NAME", enum: CONSOLES
     option :scale, type: :numeric, banner: "N", default: 3
     option :pictures, type: :numeric, banner: "N"
     option :uncapped, type: :boolean, default: false
+    option :yjit, type: :boolean, default: true
     option :set, type: :array, banner: "NAME=VALUE", default: []
     def run_game(game_file)
       refuse_unless_whole_and_positive!("--scale", options[:scale])
@@ -676,8 +680,9 @@ module VBlank
       game = load_game(game_file)
       program = program_to_run(game)
       # YJIT compiles the Ruby that runs most often to machine code as the game plays, which plays
-      # a game several times faster. A Ruby built without it plays the game slower.
-      RubyVM::YJIT.enable if defined?(RubyVM::YJIT) && !yjit_on?
+      # a game several times faster. A Ruby built without it plays the game slower, and so does
+      # --no-yjit, for measuring both ways. A Ruby started with ZJIT keeps it.
+      RubyVM::YJIT.enable if options[:yjit] && defined?(RubyVM::YJIT) && !yjit_on? && !zjit_on?
       require_relative "live"
       rate = play_in_window(game, program, live_session(game, program))
       # The game moves on one frame for each picture, so the pictures a second are its speed.
@@ -801,7 +806,7 @@ module VBlank
       console = program.described_console
       window = VBlank::Live::SDL.new(title: game.title, scale: options[:scale], width: console.screen_width,
                                      height: console.screen_height, menu: game.menu?)
-      say "Playing #{game.title} for the #{console.title} in Ruby #{RUBY_VERSION}, YJIT #{yjit_on? ? 'on' : 'off'}. " \
+      say "Playing #{game.title} for the #{console.title} in Ruby #{RUBY_VERSION} with #{jit_in_use}. " \
           "#{'Press F1 for the menu. ' if game.menu?}Press P to pause. Hold Tab to play fast. Press Escape to stop."
       session.play(window)
     rescue VBlank::Live::SDL::Missing, VBlank::Live::SDL::Failed, VBlank::IR::ProgramError => e
@@ -811,6 +816,17 @@ module VBlank
     end
 
     def yjit_on? = defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled?
+    def zjit_on? = defined?(RubyVM::ZJIT) && RubyVM::ZJIT.enabled?
+
+    # Which of Ruby's two compilers is turning the game's Ruby into machine code as it plays: YJIT,
+    # which vblank run turns on, or ZJIT, the newer one, which a Ruby built with it turns on when
+    # it is started with --zjit (tools/ruby_speed.rb compares the three).
+    def jit_in_use
+      return "YJIT" if yjit_on?
+      return "ZJIT" if zjit_on?
+
+      "no JIT"
+    end
 
     def refuse_unless_whole_and_positive!(switch, value)
       return if value.is_a?(Integer) && value.positive?

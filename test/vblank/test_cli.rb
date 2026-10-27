@@ -474,10 +474,21 @@ class TestCLI < Minitest::Test
       out, status = run_in_dummy_window(dir, "demo.rb", "--pictures", "5")
 
       assert status.success?, out
-      assert_match(/DEMO for the Game Boy Advance in Ruby #{Regexp.escape(RUBY_VERSION)}, YJIT (on|off)/o, out)
+      assert_match(/DEMO for the Game Boy Advance in Ruby #{Regexp.escape(RUBY_VERSION)} with (YJIT|ZJIT|no JIT)\./o, out)
       assert_match(/DEMO is for the Game Boy Advance and the Game Boy Color\. This plays it as the Game Boy Advance\. To play it as the Game Boy Color, add --console gbc\./, out)
       assert_match(/Showed 5 pictures in [\d.]+ seconds/, out)
       assert_match(/The console shows 59\.7 a second/, out)
+    end
+  end
+
+  # YJIT is on unless --no-yjit says not, so the speed can be measured both ways.
+  def test_run_plays_without_yjit_when_told
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = run_in_dummy_window(dir, "demo.rb", "--pictures", "3", "--no-yjit", "--console", "gba")
+
+      assert status.success?, out
+      assert_match(/in Ruby #{Regexp.escape(RUBY_VERSION)} with no JIT\./o, out)
     end
   end
 
@@ -520,7 +531,7 @@ class TestCLI < Minitest::Test
 
   # `vblank run` on SDL's dummy drivers, skipped where SDL3 is not installed.
   private def run_in_dummy_window(dir, *args)
-    drivers = { "SDL_VIDEODRIVER" => "dummy", "SDL_AUDIODRIVER" => "dummy" }
+    drivers = { "SDL_VIDEODRIVER" => "dummy", "SDL_AUDIODRIVER" => "dummy", "RUBY_YJIT_ENABLE" => nil }
     out, status = Open3.capture2e(drivers, RUBY, BIN, "run", *args, chdir: dir)
     skip out.lines.first.chomp if out.include?("cannot find SDL3")
     [out, status]
