@@ -640,7 +640,7 @@ class TestNativeDesktop < Minitest::Test
     expected = reference_snapshots(program, frames: FRAMES, buttons: RUN)
 
     assert_equal expected.map(&:heading), actual.map(&:heading)
-    expected.zip(actual).each { |want, got| assert_same_moment(want, got, :desktop) }
+    assert_same_moments(program, expected, actual, :desktop)
   end
 
   # Started with its window (on SDL's stand-in display) and keys pressed from a script: each

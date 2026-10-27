@@ -60,10 +60,16 @@ module NativeComparison
     %i[checked fast].each do |mode|
       actual = lowered_snapshots(program, frames: frames, buttons: buttons, mode: mode)
       assert_equal expected.map(&:heading), actual.map(&:heading), "the frame boundaries differ (#{mode} build)"
-      width = program.described_console.screen_width
-      expected.zip(actual).each { |want, got| assert_same_moment(want, got, mode, width) }
+      assert_same_moments(program, expected, actual, mode)
     end
     expected.last
+  end
+
+  # Every moment of +actual+ the same as the same moment of +expected+, the two runs of +program+,
+  # whose console's screen says where a pixel that differs is.
+  def assert_same_moments(program, expected, actual, mode)
+    width = program.described_console.screen_width
+    expected.zip(actual).each { |want, got| assert_same_moment(want, got, mode, width) }
   end
 
   # A recorded run of +buttons+: the two agree on every frame of it, and the buttons did
