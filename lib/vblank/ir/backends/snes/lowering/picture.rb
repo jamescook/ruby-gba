@@ -56,7 +56,6 @@ module VBlank
               end
               @program.walk.select { |node| node.kind == :background }.each do |bg|
                 refuse_unmade!("background tiles of #{bg.tile_w}×#{bg.tile_h}") unless bg.tile_w == 8 && bg.tile_h == 8
-                refuse_unmade!("a background in a layer") if bg.layer
                 refuse_unmade!("a background drawn with other colours") unless Array(bg.recolors).empty? && Array(bg.palettes).empty?
                 refuse_unmade!("a background drawn from several sets of tiles") if bg.several_sets?
                 refuse_unmade!("a background whose maps are of different sizes or too big to hold") if bg.streams?
@@ -167,9 +166,14 @@ module VBlank
 
             # WHICH OF THE TWO LAYERS EACH BACKGROUND IS ON (#assign_background_layers). A scene's own
             # scenery is in front of the scenery every screen shows, as the interpreter paints it over
-            # what is up already, and within each the one declared last is in front: so the scenes' own
-            # take the front layers, BG1 first, as many as the scene with the most has, and the scenery
-            # every screen shows the layers behind those.
+            # what is up already, and within each the one drawn last is in front — the one declared
+            # last, or the one in the front-most layer the game's `layers` name (IR::Stacking, which
+            # IR::SceneHandover hands the scenery over in the order of): so the scenes' own take the
+            # front layers, BG1 first, as many as the scene with the most has, and the scenery every
+            # screen shows the layers behind those. So a stack that puts a scene's own background
+            # behind one every screen shows is not made yet. (Every sprite is in front of every
+            # background, SPRITE_IN_FRONT: a background in front of a sprite needs the sprite in a
+            # layer, which #refuse_unmade_picture! refuses.)
             def assign_background_layers
               @layers = {}.compare_by_identity
               always = @handover.always_up.scenery
@@ -179,11 +183,24 @@ module VBlank
                 refuse_unmade!("more than two backgrounds on the screen at once")
               end
               refuse_unmade!("a status bar that a scene puts up") if own.flatten.any?(&:bar?)
+              refuse_unmade_stacking!(always)
               always.each_with_index { |bg, i| @layers[bg] = @scene_layers + (always.length - 1 - i) }
               own.each { |scenery| scenery.each_with_index { |bg, i| @layers[bg] = scenery.length - 1 - i } }
             end
 
             def layer_of(bg) = @layers.fetch(bg) { raise LoweringError, "the background #{bg.name.inspect} is on no layer" }
+
+            # A stack the layers' order cannot show: a scene's own background behind one every screen
+            # shows (see #assign_background_layers).
+            def refuse_unmade_stacking!(always)
+              @scenes.each_key do |scene|
+                own = @handover.arrival(scene).scenery
+                drawn = @handover.showing(scene).select { |bg| (always + own).any? { |up| up.equal?(bg) } }
+                next if drawn.map(&:object_id) == (always + own).map(&:object_id)
+
+                refuse_unmade!("a scene's own background in a layer behind a background every screen shows")
+              end
+            end
 
             # THE DECLARED BACKGROUND a scroll, a changed cell or a map handed over names: the one by
             # that name, or — where several scenes each declare their own by one name — the one of the

@@ -218,6 +218,59 @@ class TestSNESPicture < Minitest::Test
     assert_match(/status bar that a scene puts up/, error.message)
   end
 
+  # BACKGROUNDS IN LAYERS are stacked as the layers say, not as they were declared: the near one is
+  # declared first and still drawn in front, its see-through cells showing the far one behind, both
+  # scrolling at their own speeds, and a sprite that names no layer in front of both.
+  def test_backgrounds_in_layers_are_stacked_as_the_layers_say
+    run = checked(frames: 10) do
+      screen :tiled
+      image(:sky, "#" => :blue) { "########\n" * 8 }
+      image(:cloud, "#" => :white, "." => :blue) { "..####..\n" * 8 }
+      image(:grass, "#" => :green) { "########\n" * 8 }
+      image(:tree, "." => :transparent, "L" => :yellow) { "..LLLL..\n" * 8 }
+      image(:ball, "#" => :red) { "####\n" * 4 }
+      tiles :heavens, "." => :sky, "c" => :cloud
+      tiles :scenery, "g" => :grass, "T" => :tree
+      layers :distance, :foreground
+      near = layer(:foreground) do
+        background :ground, tiles: :scenery,
+                            map: Array.new(32) { |row| row > 20 ? "g" * 32 : (row == 20 ? ("T  " * 11)[0, 32] : " " * 32) }
+      end
+      far = layer(:distance) do
+        background :sky, tiles: :heavens, map: Array.new(32) { |row| (0...32).map { |col| (row + col) % 7 == 0 ? "c" : "." }.join }
+      end
+      ball = sprite :ball, at: [40, 150]
+      t = var :t, 0
+      game_loop do
+        far.scroll_by 1, 0
+        near.scroll_by 2, 0
+        ball.move_to 40 + t, 155
+        t.add! 1
+      end
+    end
+
+    assert_equal 10, run[:t]
+  end
+
+  # A scene's own background goes on the front layer, so one the layers put behind a background
+  # every screen shows is not made yet.
+  def test_a_scenes_background_behind_one_every_screen_shows_is_refused_in_plain_words
+    error = assert_raises(SNES::Lowering::NotMadeYet) do
+      SNES.new.build(program_of do
+        screen :tiled
+        image(:wall, "#" => :gray) { "########\n" * 8 }
+        tiles :set, "#" => :wall
+        layers :back, :front
+        layer(:front) { background :frame, tiles: :set, map: ["##"] }
+        state = var :state, 0
+        scene(:play) { layer(:back) { background :room, tiles: :set, map: ["##"] } }
+        game_loop { case_var(:state) { when_val 0, :play } }
+      end)
+    end
+
+    assert_match(/behind a background every screen shows/, error.message)
+  end
+
   private def program_of(&game)
     builder = Builder.new
     builder.instance_eval(&game)
