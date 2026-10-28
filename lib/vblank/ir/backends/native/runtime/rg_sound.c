@@ -912,10 +912,14 @@ static int32_t claim_voice(int32_t voice, int32_t rank, int32_t sounds) {
   return 1;
 }
 
-/* Does a note on a console voice make a sound? Not a rest, and not at volume 0 — nor, on the wave
- * voice, at a volume whose nearest of that voice's five is none. */
-static int32_t note_sounds(int32_t kind, int32_t pitch, int32_t volume) {
-  if (pitch == 0 || volume <= 0) return 0;
+/* Does a note on a console voice make a sound (IR::Tunes.note_sounds?)? Not a rest, and not at
+ * volume 0 unless +fade+ (note_fade's bits) swells it up from there a step at a time on a square
+ * or the noise voice — nor, on the wave voice, at a volume whose nearest of that voice's five is
+ * none. */
+static int32_t note_sounds(int32_t kind, int32_t pitch, int32_t volume, int32_t fade) {
+  if (pitch == 0) return 0;
+  if ((fade & FADE_UP) && (fade & FADE_STEP_BITS) && (kind == PART_SQUARE || kind == PART_NOISE)) return 1;
+  if (volume <= 0) return 0;
   return kind != PART_WAVE || wave_quarters_at(volume) != 0;
 }
 
@@ -1058,7 +1062,7 @@ static void play_note(part_walk *part, const int32_t *note) {
   }
 
   int32_t pitch = note[1], volume = note[2], ticks = note[3];
-  if (!claim_voice(part->voice, song[3], note_sounds(part->kind, pitch, volume))) return;
+  if (!claim_voice(part->voice, song[3], note_sounds(part->kind, pitch, volume, note_fade(part, note)))) return;
 
   int32_t written = pitch == 0 ? 0 : volume;
   int32_t sounded = level_variable ? scaled_volume(written) : written;
@@ -1187,7 +1191,7 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
   const int32_t *row = effect_row(effect);
   int32_t number = row[EFFECT_SONG], rank = row[EFFECT_RANK];
   int32_t pitch = note[1], volume = note[2];
-  int32_t sounds = note_sounds(part->kind, pitch, volume);
+  int32_t sounds = note_sounds(part->kind, pitch, volume, note_fade(part, note));
 
   if (part->kind == PART_RECORDED) {
     int32_t sound = note[3];    /* its row of rg_game_note_sounds */

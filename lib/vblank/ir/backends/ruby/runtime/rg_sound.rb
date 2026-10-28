@@ -667,8 +667,10 @@ def rg_claim_voice(voice, rank, sounds)
   true
 end
 
-def rg_note_sounds(kind, pitch, volume)
-  return false if pitch == 0 || volume <= 0
+def rg_note_sounds(kind, pitch, volume, fade)
+  return false if pitch == 0
+  return true if fade.anybits?(RG_FADE_UP) && fade.anybits?(RG_FADE_STEP_BITS) && [RG_PART_SQUARE, RG_PART_NOISE].include?(kind)
+  return false if volume <= 0
 
   kind != RG_PART_WAVE || rg_wave_quarters_at(volume) != 0
 end
@@ -774,7 +776,7 @@ def rg_play_note(part, note)
   pitch = music[note + 1]
   volume = music[note + 2]
   ticks = music[note + 3]
-  return unless rg_claim_voice(part.voice, music[@rg_song + 3], rg_note_sounds(part.kind, pitch, volume))
+  return unless rg_claim_voice(part.voice, music[@rg_song + 3], rg_note_sounds(part.kind, pitch, volume, rg_note_fade(part, note)))
 
   written = pitch == 0 ? 0 : volume
   sounded = @rg_level_variable ? rg_scaled_volume(written) : written
@@ -882,7 +884,7 @@ def rg_play_effect_note(effect, part, note)
   rank = rg_effect_field(effect, RG_EFFECT_RANK)
   pitch = music[note + 1]
   volume = music[note + 2]
-  sounds = rg_note_sounds(part.kind, pitch, volume)
+  sounds = rg_note_sounds(part.kind, pitch, volume, rg_note_fade(part, note))
 
   if part.kind == RG_PART_RECORDED
     sound = music[note + 3]

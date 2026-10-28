@@ -200,7 +200,7 @@ module VBlank
               # can have: the part carries on in time, silent here, and is heard again from its
               # next note once there is one.
               shared = !channel.nil?
-              sounds = sounds?(kind, frequency, volume || part.volume)
+              sounds = sounds?(kind, part, event)
               heard = if shared
                         claim_channel(channel, rank, sounds: sounds)
                       elsif lane
@@ -334,13 +334,13 @@ module VBlank
               run.cursors[number] += 1
               if lane
                 heard = play_recorded_note(owner: [name, lane], rank: rank, name: instrument || part.instrument,
-                                           frequency: sounds?(kind, frequency, volume || part.volume) ? frequency : 0,
+                                           frequency: sounds?(kind, part, event) ? frequency : 0,
                                            envelope: envelope || part.envelope,
                                            loudness: IR::Tunes.mix_loudness(volume || part.volume))
                 @log << [:note, name, frequency] if heard
                 next
               end
-              next unless claim_channel(channel, rank, sounds: sounds?(kind, frequency, volume || part.volume))
+              next unless claim_channel(channel, rank, sounds: sounds?(kind, part, event))
 
               @sounding.delete(channel) # the song's note there, if it had one, is gone
               @log << [:note, name, frequency]
@@ -385,13 +385,12 @@ module VBlank
             true
           end
 
-          # Does a note make a sound? Not a rest, and not at volume 0 — nor, on the wave voice, at a
-          # volume whose nearest of that voice's five is none.
-          def sounds?(kind, frequency, volume)
-            return false unless frequency.positive? && volume.positive?
-            return IR::Tunes.mix_loudness(volume).positive? if kind == :recorded
-
-            kind != :wave || Audio::Sound.wave_level(volume) != :mute
+          # Does +part+'s note +event+ make a sound (IR::Tunes.note_sounds?)? Not a rest, and not at
+          # volume 0 unless it swells up from there — nor, on the wave voice, at a volume whose
+          # nearest of that voice's five is none.
+          def sounds?(kind, part, event)
+            _, frequency, _, volume = event
+            IR::Tunes.note_sounds?(kind, frequency, volume || part.volume, IR::Tunes.said_fade(part, event))
           end
 
           # The tune the program asked for has changed, or it said stop: silence what was

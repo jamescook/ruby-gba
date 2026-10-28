@@ -134,7 +134,7 @@ module VBlank
               emit_wobbles(asm, memory) if wobbles?(memory)
               emit_set_speakers(asm, memory) if pans
               emit_shapes(asm, memory) if shapes?(memory)
-              Effects.emit(asm, memory, effects, by_rank, slides: slides, pans: pans, bytes: bytes) if sharing
+              Effects.emit(asm, memory, effects, by_rank, slides: slides, pans: pans, fades: fades, bytes: bytes) if sharing
             end
 
             # HL = HL × +bytes+, the bytes a note takes (GBC::Music.note_bytes), with DE its number too:

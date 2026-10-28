@@ -150,6 +150,28 @@ class TestSoundEffects < Minitest::Test
                     "the console plays the song's note 20 frames after its first"
   end
 
+  # A song whose part, on the voice +plays+ names, swells in from volume 0 on every note, outranking
+  # an effect asked for on that voice on pass 10.
+  private def swelling_song_and_effect(plays: nil)
+    tune = Score.new(tempo: 150, priority: 80, parts: [Part.new(plays: plays, volume: 0, swell: 3, notes: [
+      Note.new(at: 0, key: :C4), Note.new(at: 20, key: :E4), Note.new(at: 40, key: :G4),
+    ])])
+    hit = Score.new(tempo: 150, priority: 68, parts: [Part.new(plays: plays, volume: 9, duty: :quarter, notes: [
+      Note.new(at: 0, key: :C5), Note.new(at: 5, key: :D5),
+    ])])
+    game([hit], tune: tune) { |sfx, pass| (pass == 10).then { sfx.play 0 } }
+  end
+
+  # A NOTE THAT SWELLS IN FROM VOLUME 0 is sounding from its first step, so a song that outranks an
+  # effect keeps its voice through one, as through any note it plays — a drum's as a square's.
+  def test_a_note_swelling_from_nothing_keeps_its_voice
+    [nil, :noise].each do |plays|
+      assert_equal({ 2 => [[:"music.0", NOTES[:C4]]], 22 => [[:"music.0", NOTES[:E4]]],
+                     42 => [[:"music.0", NOTES[:G4]]] }, notes_by_frame(swelling_song_and_effect(plays: plays), 50),
+                   "on #{plays || :square}")
+    end
+  end
+
   # --- on the wave voice ---
 
   # The wave voice is shared by the same rule: the effect's sawtooth takes it from the song's
@@ -502,6 +524,14 @@ class TestSoundEffects < Minitest::Test
     assert_backends_share_the_voice(taken, SONG_TONES)
     assert_backends_share_the_voice(song_and_effect(song_priority: 80, effect_priority: 68), SONG_TONES)
     assert_backends_share_the_voice(song_and_effect(song_priority: 0, effect_priority: 0), SONG_TONES) # a tie
+  end
+
+  # ...and keeps a voice for a song's note that swells in from volume 0: the effect it outranks never
+  # writes the voice.
+  def test_the_console_keeps_a_voice_for_a_note_swelling_from_nothing
+    written = console_changes(swelling_song_and_effect, SQUARE_1, frames: 50).map(&:last)
+
+    refute_includes written, SONG_SETTING[:"sfx.0"], "the effect's note on the song's voice"
   end
 
   def test_the_console_shares_the_noise_voice_the_way_the_interpreter_does

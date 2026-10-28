@@ -399,6 +399,15 @@ module VBlank
             @slides = IR::Tunes.playable_songs(program).any? do |song|
               song.voices.any? { |part| part.events.any? { |event| VBlank::Audio::PitchSlide.moves?(IR::Tunes.said_slide(part, event)) } }
             end
+            # ...and one where no note swells up from volume 0 holds a voice by its volume alone (see
+            # #emit_take_voice).
+            @swells_from_nothing = IR::Tunes.playable_songs(program).any? do |song|
+              song.voices.any? do |part|
+                part.events.any? do |event|
+                  IR::Tunes.said_fade(part, event)&.swells_by_itself? && (event[3] || part.volume).zero?
+                end
+              end
+            end
             @loops = IR::Tunes.played_songs(program).any? { |song| IR::Tunes.loop_frame(song).positive? }
             # A game whose every tune comes round emits nothing for one that ends.
             @any_plays_once = IR::Tunes.played_songs(program).any? { |song| IR::Tunes.plays_once?(song) }
@@ -1310,8 +1319,11 @@ module VBlank
           end
 
           # MAY THE NOTE IN +row+, OF RANK +rank+, SOUND ON +lane+'s VOICE? When whoever holds the
-          # voice outranks it, on to +dropped+. Otherwise it holds the voice while it sounds, and a
-          # rest — a row whose volume is 0 — lets it go.
+          # voice outranks it, on to +dropped+. Otherwise it holds the voice while it sounds
+          # (IR::Tunes.note_sounds?), and a rest — a row whose volume is 0 — lets it go. On a square
+          # or the noise voice a note at volume 0 that swells up sounds too: its control says the
+          # voice counts its volume up (bit 11) by a step above nought (bits 8 to 10), which is bits
+          # 8 to 11 together above 0x800.
           def emit_take_voice(lane:, rank:, row:, dropped:)
             holder = self.class.voice_rank(lane.index)
             @primitives.load_var(ACC, holder)
@@ -1320,7 +1332,16 @@ module VBlank
             @emitter.emit(ASM.load_halfword_offset(ACC, row, 4))
             @emitter.emit(ASM.tst_imm(ACC, 0xF000))
             @emitter.emit(ASM.mov_reg(TMP, rank)) unless rank == TMP
-            @emitter.emit(ASM.mov_imm_cond(:eq, TMP, 0))
+            if @swells_from_nothing && %i[square noise].include?(lane.kind)
+              sounding = @emitter.gensym
+              @emitter.emit_branch(:bcond, sounding, cond: :ne)
+              @emitter.emit(ASM.and_imm(ACC, ACC, 0xF00))
+              @emitter.emit(ASM.cmp_imm(ACC, 0x800))
+              @emitter.emit(ASM.mov_imm_cond(:ls, TMP, 0))
+              @emitter.place_label(sounding)
+            else
+              @emitter.emit(ASM.mov_imm_cond(:eq, TMP, 0))
+            end
             @primitives.store_var(TMP, holder)
           end
 

@@ -100,6 +100,21 @@ module VBlank
       # this and the part.
       def said_fade(part, event) = event[Audio::Music::Part::FADE_SLOT] || part.fade
 
+      # WHETHER A NOTE SOUNDS, and so holds its voice against a sound effect of a lower rank, where
+      # one that does not lets the voice go as a rest does: a note with a pitch, at a volume above
+      # nought — or one written at nought that a square or noise voice swells up by itself
+      # (+fade+, an Audio::NoteFade, going up a step at a time), which is heard from its first
+      # step. A recording sounds at its mix's loudness, and the wave voice at a volume it can play.
+      # Every backend answers it alike, so they share a voice alike.
+      def note_sounds?(kind, frequency, volume, fade)
+        return false unless frequency.positive?
+        return true if fade&.swells_by_itself? && %i[square noise].include?(kind)
+        return false unless volume.positive?
+        return mix_loudness(volume).positive? if kind == :recorded
+
+        kind != :wave || Audio::Sound.wave_level(volume) != :mute
+      end
+
       # HOW A NOTE SLIDES ITS PITCH (an Audio::PitchSlide), as the note or its part said it, or nil
       # when neither did. Only the first square voice slides, and a part elsewhere saying one was
       # refused before it got here.

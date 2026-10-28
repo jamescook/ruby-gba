@@ -74,6 +74,9 @@ module VBlank
       def self.from_bits(bits) = new(direction: bits.anybits?(8) ? :up : :down, step: bits & 7)
 
       def swells? = direction == :up
+
+      # Does the voice count the note's volume up by itself? A swell of step 0 holds where it is.
+      def swells_by_itself? = swells? && step.positive?
     end
   end
 end

@@ -47,10 +47,10 @@ module VBlank
 
             # +effects+ are the game's (GBC::Music#effects), +by_rank+ the same highest rank first.
             # +slides+ says a note of the game's music slides its pitch (GBC::Music#slides?), +pans+
-            # that one plays from one speaker (GBC::Music#pans?), and +bytes+ is how many a note of
-            # it takes (GBC::Music.note_bytes).
-            def emit(asm, memory, effects, by_rank, slides: false, pans: false, bytes: GBC::Music::NOTE_BYTES)
-              emit_claim(asm, memory)
+            # that one plays from one speaker (GBC::Music#pans?), +fades+ that one fades or swells
+            # (GBC::Music#fades?), and +bytes+ is how many a note of it takes (GBC::Music.note_bytes).
+            def emit(asm, memory, effects, by_rank, slides: false, pans: false, fades: false, bytes: GBC::Music::NOTE_BYTES)
+              emit_claim(asm, memory, fades)
               emit_tune_rank(asm, memory)
               emit_sides(asm, memory, by_rank)
               effects.each do |effect|
@@ -64,9 +64,9 @@ module VBlank
 
             # rt_claim: may a note of rank C sound on the part's voice ([PART])? Carry set when a
             # higher rank holds it, and nothing changes. Otherwise the voice is rank C's while the note
-            # sounds — a rest, or a note at no volume, gives it to nobody — and carry is clear.
+            # sounds — a rest, or a note at no volume that does not swell up, gives it to nobody — and carry is clear.
             # HL = the note's tuning, then its volume. Keeps HL and C.
-            def emit_claim(asm, memory)
+            def emit_claim(asm, memory, fades)
               part = memory[Music::PART]
               holders = memory[HOLDERS]
               asm.label("rt_claim")
@@ -91,16 +91,27 @@ module VBlank
               asm.and_a(:a) # carry clear
               asm.ret
 
-              # rt_note_sounds: does the note at HL make a sound — not a rest, not at volume 0, and not
-              # at a volume the wave voice has no level for? Z when it does not. Keeps HL, DE and C.
+              # rt_note_sounds: does the note at HL make a sound (IR::Tunes.note_sounds?) — not a rest,
+              # not at volume 0 unless it swells up from there, and not at a volume the wave voice has
+              # no level for? Z when it does not. Keeps HL, DE and C. In a game whose notes fade, a
+              # note's fade rides in its tuning's top four bits (GBC::Music::FADE_SHIFT): the top one
+              # set for a swell, the three under it its step.
               asm.label("rt_note_sounds")
               asm.push(:hl)
               asm.load(:a, [:hli])
               asm.load(:b, :a)
-              asm.load(:a, [:hli])
+              asm.load(:a, fades ? [:hl] : [:hli])
               asm.and_a(:b)
               asm.inc(:a)
               asm.jump_relative(:z, "rt_note_sounds_said")
+              if fades
+                asm.load(:a, [:hli])
+                asm.bit(7, :a)
+                asm.jump_relative(:z, "rt_note_sounds_held")
+                asm.and_a(0x70)
+                asm.jump_relative(:nz, "rt_note_sounds_said") # it swells: it sounds
+                asm.label("rt_note_sounds_held")
+              end
               asm.load(:a, [:hl])
               asm.and_a(:a)
               asm.jump_relative(:z, "rt_note_sounds_said")
