@@ -17,24 +17,25 @@
 require_relative "../lib/vblank"
 
 module GridCursor
-  CELL = 8              # an 8x8 cell (even, so a cell can fast-fill)
-  COLS = 240 / CELL     # 30 cells across the screen
-  ROWS = 160 / CELL     # 20 cells down
+  CELL = 8 # an 8x8 cell (even, so a cell can fast-fill)
 
   # The game as a block the builder runs, so a test can drive the exact program
   # that ships — the headless interpreter runs THIS, the console runs the ROM.
-  GAME = VBlank.game("GRIDCURS", consoles: %i[gba]) do
+  GAME = VBlank.game("GRIDCURS", consoles: %i[gba snes]) do
     screen :bitmap
     clear_screen :black
 
+    cols = screen_width / CELL  # 30 cells across an Advance's screen
+    rows = screen_height / CELL # 20 cells down
+
     # The board: a field of black cells. `over: :black` is the color a cell returns
     # to when it's cleared, so the cursor leaves no trail.
-    board = grid :board, cols: COLS, rows: ROWS, cell: CELL, over: :black
+    board = grid :board, cols: cols, rows: rows, cell: CELL, over: :black
 
     # The cursor's cell, starting in the middle. It's just two variables counted in
     # cells; the board turns them into pixels.
-    cx = var :cx, COLS / 2
-    cy = var :cy, ROWS / 2
+    cx = var :cx, cols / 2
+    cy = var :cy, rows / 2
     board.set_cell cx, cy, :cyan
 
     game_loop do
@@ -48,10 +49,10 @@ module GridCursor
         board.set_cell cx, cy, :cyan
       end
 
-      pressed(:left).then  { step.call(cx, -1, COLS - 1) }
-      pressed(:right).then { step.call(cx,  1, COLS - 1) }
-      pressed(:up).then    { step.call(cy, -1, ROWS - 1) }
-      pressed(:down).then  { step.call(cy,  1, ROWS - 1) }
+      pressed(:left).then  { step.call(cx, -1, cols - 1) }
+      pressed(:right).then { step.call(cx,  1, cols - 1) }
+      pressed(:up).then    { step.call(cy, -1, rows - 1) }
+      pressed(:down).then  { step.call(cy,  1, rows - 1) }
     end
   end
 

@@ -14,8 +14,8 @@ class TestGridCursorExample < Minitest::Test
 
   CELL = GridCursor::CELL
   # The cursor starts in the middle cell; these are its top-left pixels.
-  START_COL = GridCursor::COLS / 2
-  START_ROW = GridCursor::ROWS / 2
+  START_COL = SCREEN_WIDTH / CELL / 2
+  START_ROW = SCREEN_HEIGHT / CELL / 2
   START_PX = START_COL * CELL
   START_PY = START_ROW * CELL
 
