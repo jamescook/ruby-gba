@@ -124,7 +124,7 @@ module VBlank
             def plan_tile_rooms
               tile_runs.each_value { |run| run.tiles.each { |tile| @art.run_tile(tile, run.colors) } unless run.picture }
               every = tiled_scenery.reject(&:scene)
-              every.reject(&:several_sets?).each { |bg| tiles_shown(bg).each { |name| background_tile_named(name) } }
+              every.reject(&:several_sets?).each { |bg| tiles_shown(bg).each { |name| background_tile_named(name, bg) } }
               @art.keep_art_asked_so_far
               @tile_rooms = {} # [scene, area] -> the Room brought in for a screen of that scene, at that area
               @scene_rooms = {} # a scene -> the Room its own tiles are numbered in
@@ -145,7 +145,7 @@ module VBlank
               walking = own.find(&:several_sets?)
               room = @art.add_room(scene_words(scene), brought_in: walking.nil?)
               @room_scenes[room.id] = scene
-              own.reject(&:several_sets?).each { |bg| tiles_shown(bg).each { |name| background_tile_named(name, room) } }
+              own.reject(&:several_sets?).each { |bg| tiles_shown(bg).each { |name| background_tile_named(name, bg, room) } }
               @scene_rooms[scene] = room
               walking ? plan_area_rooms(walking, room) : @tile_rooms[[scene, nil]] = room
             end
@@ -156,7 +156,7 @@ module VBlank
                 whose = "the area #{set.inspect} of the background #{bg.name.inspect}"
                 room = @art.add_room(bg.scene ? "#{whose} in #{scene_words(bg.scene)}" : whose, parent: parent)
                 @room_scenes[room.id] = bg.scene || :every
-                tiles_shown(bg, area).each { |name| background_tile_named(name, room) }
+                tiles_shown(bg, area).each { |name| background_tile_named(name, bg, room) }
                 @tile_rooms[[bg.scene, area]] = room
               end
             end
@@ -966,7 +966,7 @@ module VBlank
               @big_maps[[bg, which]] ||= begin
                 refuse_background!(bg)
                 @art.big_map(bg.every_map.fetch(which).map do |row|
-                  Array(row).map { |tile| tile.nil? || tile.negative? ? nil : background_tile_named(bg.tiles.fetch(tile), tile_room(bg, which)) }
+                  Array(row).map { |tile| tile.nil? || tile.negative? ? nil : background_tile_named(bg.tiles.fetch(tile), bg, tile_room(bg, which)) }
                 end)
               end
             end
@@ -1178,7 +1178,7 @@ module VBlank
 
             def emit_set_tile_for_declaration(bg, node)
               tile = node.tile
-              number, palette = tile.nil? || tile.negative? ? [0, 0] : background_tile_named(bg.tiles.fetch(tile), tile_room(bg))
+              number, palette = tile.nil? || tile.negative? ? [0, 0] : background_tile_named(bg.tiles.fetch(tile), bg, tile_room(bg))
               colours = palette | (number >= 256 ? Console::GBCHardware::ATTR_TILE_BANK : 0)
               cell = Build.int((number & 0xFF) | (colours << 8))
               return runtime_call("rt_big_set", [node.col, node.row, cell]) if big?(bg)
@@ -1313,7 +1313,7 @@ module VBlank
               swaps = step && swaps_for(bg, step)
               palettes = {}
               (@tile_rooms ? tiles_shown(bg) : bg.tiles.compact.uniq).each do |name|
-                _, palette = background_tile_named(name, tile_room(bg))
+                _, palette = background_tile_named(name, bg, tile_room(bg))
                 colors = tile_colors_with(name, swaps)
                 if palettes.key?(palette) && palettes[palette] != colors
                   raise LoweringError, "#{build_name} drew two tiles of the background #{bg.name.inspect} from one list " \
@@ -1375,22 +1375,22 @@ module VBlank
                                    "To fix this, draw the tile from fewer places."
             end
 
-            # Whether a background that shows the tile +name+ is drawn with other lists of colours.
-            def recolored_tile?(name)
-              @recolored_tiles ||= recolored_scenery.flat_map(&:tiles).to_set
-              @recolored_tiles.include?(name)
-            end
-
-            # The colours tile +name+'s palette shows with each list of colours every background that
-            # shows it is drawn with, in order: what its palette is written with as the game runs
-            # (GBC::Art#background_tile). Nil for a tile no background draws with other colours.
-            def recolor_steps_of(name)
-              return nil unless recolored_tile?(name)
+            # The colours tile +name+'s palette shows with each list of colours background +bg+ is
+            # drawn with, in order: what its palette is written with as the game runs
+            # (GBC::Art#background_tile), with +bg+'s name, since the interpreter keeps the list each
+            # background is drawn with by its name and two can be told theirs at different times.
+            # Nil for a background never drawn with other colours, and for a tile none of its lists
+            # changes, so a tile it shows beside one that is has a palette apart only where the two
+            # show it differently — as the interpreter swaps each background's colours on its own.
+            def recolor_steps_of(name, bg)
+              return nil if Array(bg.recolors).empty?
 
               @recolor_steps ||= {}
-              @recolor_steps[name] ||= recolored_scenery.select { |bg| bg.tiles.include?(name) }.flat_map do |bg|
-                bg.recolors.each_index.map { |step| tile_colors_with(name, swaps_for(bg, step)) }
-              end
+              return @recolor_steps[[name, bg]] if @recolor_steps.key?([name, bg])
+
+              own = tile_colors_with(name, nil)
+              steps = bg.recolors.each_index.map { |step| tile_colors_with(name, swaps_for(bg, step)) }
+              @recolor_steps[[name, bg]] = steps.all?(own) ? nil : [bg.name, steps]
             end
 
             # The backgrounds drawn with other lists of colours.
@@ -1421,7 +1421,7 @@ module VBlank
                     tile = map[row] && map[row][col]
                     next nil if tile.nil? || tile.negative?
 
-                    background_tile_named(bg.tiles.fetch(tile), tile_room(bg, which))
+                    background_tile_named(bg.tiles.fetch(tile), bg, tile_room(bg, which))
                   end
                 end
                 @art.grid(cells)

@@ -74,14 +74,17 @@ module VBlank
             # How many tiles a run's list holds.
             def run_tile_count(run) = run.picture ? (run.width / 8) * (run.height / 8) : run.tiles.length
 
-            # The tile number and palette number a background's tile +name+ is drawn with, as +room+ numbers
-            # it (GBC::Art#background_tile; nil for the tiles every screen keeps): a painted
-            # tile's own (GBC::Art#run_tile), or a drawn one's (GBC::Art#background_tile).
-            def background_tile_named(name, room = nil)
+            # The tile number and palette number background +bg+'s tile +name+ is drawn with, as +room+
+            # numbers it (GBC::Art#background_tile; nil for the tiles every screen keeps): a painted
+            # tile's own (GBC::Art#run_tile), or a drawn one's (GBC::Art#background_tile), in the
+            # palette +bg+ draws it in. Two backgrounds that change the tile's colours differently —
+            # one drawn with other lists and one not, or each with lists of its own — draw it from
+            # two palettes.
+            def background_tile_named(name, bg, room = nil)
               run = run_painting(name)
               return @art.run_tile(name, run.colors) if run
 
-              @art.background_tile(name, Assets::Image.of(@pictures.fetch(name)), room: room, recolor_steps: recolor_steps_of(name),
+              @art.background_tile(name, Assets::Image.of(@pictures.fetch(name)), room: room, recolor_steps: recolor_steps_of(name, bg),
                                                                                   empty_cells_shown: empty_cells_shown_with?(room))
             end
 

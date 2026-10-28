@@ -223,6 +223,102 @@ class TestTiledColorLists < Minitest::Test
     assert_backends_agree(b.program, frames: [3, 10], name: "LATE7")
   end
 
+  # ONE TILE IN TWO SCENES' BACKGROUNDS, the first drawn with another list and the second as drawn:
+  # the second shows the tile's own colours whatever the first was drawn with, and the first comes
+  # back in the other list's.
+  def test_a_tile_shown_by_a_recoloured_background_and_a_plain_one_shows_each_as_drawn
+    own = list_colors(0)
+    dusk = [:transparent, rgb_of(3, 3, 20), rgb_of(20, 3, 3), rgb_of(3, 20, 3), rgb_of(31, 31, 31)]
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :day, own
+      colors :dusk, dusk
+      image :tile, width: 8, height: 8, colors: :day, places: QUARTERS
+      tiles :set, "0" => :tile
+      state = var :state, 0
+      tick = var :tick, 0
+      scene(:dim) { background(:dim, tiles: :set, map: ["0"]).draw_with :dusk }
+      scene(:plain) { background :plain, tiles: :set, map: ["0"] }
+      game_loop do
+        tick.add! 1
+        state.set!((tick / 4) % 2)
+        case_var(:state) do
+          when_val 0, :dim
+          when_val 1, :plain
+        end
+      end
+    end
+    b.finalize_program
+    seen = ->(frames) { game_player.run(b.program, frames: frames).screen.pixel(4, 4) }
+
+    assert_equal rgb_of(31, 31, 31), seen.call(3), "the dim scene's place 4, drawn with the other list"
+    assert_equal 0, seen.call(7), "the plain scene's, its own black"
+    assert_equal rgb_of(31, 31, 31), seen.call(11), "the dim scene's again"
+  end
+
+  # TWO BACKGROUNDS OF THE SAME TILES AND LISTS, the second told its list in a branch that never
+  # runs: each is drawn with the list it was told, whatever the other was.
+  def test_two_backgrounds_given_the_same_lists_are_each_drawn_as_told
+    own = list_colors(0)
+    dusk = [:transparent, rgb_of(3, 3, 20), rgb_of(20, 3, 3), rgb_of(3, 20, 3), rgb_of(31, 31, 31)]
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :day, own
+      colors :dusk, dusk
+      image :tile, width: 8, height: 8, colors: :day, places: QUARTERS
+      tiles :set, "0" => :tile
+      state = var :state, 0
+      tick = var :tick, 0
+      never = var :never, 0
+      scene(:dim) { background(:dim, tiles: :set, map: ["0"]).draw_with :dusk }
+      scene(:plain) do
+        plain = background :plain, tiles: :set, map: ["0"]
+        (never == 1).then { plain.draw_with :dusk }
+      end
+      game_loop do
+        tick.add! 1
+        state.set!((tick / 4) % 2)
+        case_var(:state) do
+          when_val 0, :dim
+          when_val 1, :plain
+        end
+      end
+    end
+    b.finalize_program
+
+    assert_equal 0, game_player.run(b.program, frames: 7).screen.pixel(4, 4), "the plain scene's own black"
+  end
+
+  # A STATUS BAR OF THE SAME FIVE TILES AS A BACKGROUND told to draw one of their five lists with
+  # another: only that list's tile is drawn two ways, so six of the Color's eight are enough.
+  def test_a_bar_beside_a_background_drawn_with_one_other_list_fits
+    lists = (0...5).map { |n| [:transparent, rgb_of(31, n, n), 31 << 5, 31 << 10, 0] }
+    dusk = [:transparent, rgb_of(3, 3, 20), rgb_of(20, 3, 3), rgb_of(3, 20, 3), rgb_of(31, 31, 31)]
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      colors :dusk, dusk
+      lists.each_with_index do |list, n|
+        colors :"list#{n}", list
+        image :"tile#{n}", width: 8, height: 8, colors: :"list#{n}", places: QUARTERS
+      end
+      tiles :set, (0...5).to_h { |n| [n.to_s, :"tile#{n}"] }
+      field = background :field, tiles: :set, map: ["01234"]
+      status_bar :bar, tiles: :set, map: ["01234"], top: 128
+      game_loop do
+        field.draw_with({ list0: :dusk })
+        wait_vblank
+      end
+    end
+    b.finalize_program
+    shown = game_player.run(b.program, frames: 4).screen
+
+    assert_equal rgb_of(31, 31, 31), shown.pixel(4, 4), "the field's first tile, drawn with the other list"
+    assert_equal 0, shown.pixel(4, 132), "the bar's, its own"
+  end
+
   # TWO LISTS OF THE SAME COLOURS IN ANOTHER ORDER, each drawing a tile: the Color draws both from
   # the same four colours, black first, but drawn with other lists, each place of each shows its
   # own list's colour.

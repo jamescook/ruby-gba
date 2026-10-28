@@ -164,7 +164,7 @@ module VBlank
             @background_tile_numbers = {}
             @background_palettes = []
             @black_held = false # the first palette is black alone, until one that can be first comes
-            @background_tile_of = {} # picture name -> [tile number, palette number]
+            @background_tile_of = {} # [room, picture name, its recolour steps] -> [tile number, palette number]
             @run_tile_of = {} # a painted tile's name -> [tile number, palette number]
             @grids = []               # 2048 bytes each: the cells' tiles, then their attributes
             @big_maps = []            # [bytes, columns, rows] of each map bigger than the grid
@@ -408,16 +408,18 @@ module VBlank
 
           # The tile number and palette number a background's tile picture +name+ is drawn with, as
           # +room+ numbers it: one every screen keeps where there is one the same, or else the room's
-          # own. Without a room, in the tiles every screen keeps. +recolor_steps+ is nil for a tile no
-          # background draws with other lists of colours; for one that is, the colours its palette
-          # shows with each of those lists (Lowering::Picture#recolor_steps_of), which write into its
-          # palette — so two tiles that show the same colours but are drawn with other lists
-          # differently are given palettes of their own. +empty_cells_shown+ says an empty cell can
+          # own. Without a room, in the tiles every screen keeps. +recolor_steps+ is nil where the
+          # background showing it is never drawn with other lists of colours; for one that is, the
+          # colours its palette shows with each of that background's lists
+          # (Lowering::Picture#recolor_steps_of), which write into its palette. So two tiles that
+          # show the same colours but change differently have palettes of their own, and so does one
+          # tile shown by two backgrounds that change it differently: its picture is kept once, and
+          # each background's cells name their own palette. +empty_cells_shown+ says an empty cell can
           # show while its palette is in (Lowering::Picture#empty_cells_shown_with?); where none can,
           # the palette of a tile drawn with other lists can be the first, whatever its first colour
           # (#background_palette_number). Others keep to black first, as they always have.
           def background_tile(name, image, room: nil, recolor_steps: nil, empty_cells_shown: true)
-            @background_tile_of[[room&.id, name]] ||= begin
+            @background_tile_of[[room&.id, name, recolor_steps]] ||= begin
               unless image.width == 8 && image.height == 8
                 raise LoweringError, "the tile #{name.inspect} is #{image.width}×#{image.height}; the Game Boy Color " \
                                      "build makes 8×8 tiles only so far."
