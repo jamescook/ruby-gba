@@ -1334,14 +1334,14 @@ module VBlank
             def tile_colors_with(name, swaps)
               run = run_painting(name)
               if run
-                swapped = swaps && swaps[run.colors]
+                swapped = swaps && swaps[run.list_drawn_from]
                 own = run.colors.drop(1).first(Art::OWN_COLORS)
                 shown = own.each_with_index.map { |color, i| swapped && swapped[i + 1] || color }
                 return padded_colors(shown)
               end
 
               image = Assets::Image.of(@pictures.fetch(name))
-              swapped = swaps && swaps[image.colors]
+              swapped = swaps && swaps[image.list_drawn_from]
               order = @art.list_order(image)
               if order
                 shown = order.map { |place| ((swapped && swapped[place]) || image.colors[place]) & 0x7FFF }
@@ -1397,7 +1397,7 @@ module VBlank
             def recolored_scenery = @recolored_scenery ||= tiled_scenery.reject { |bg| Array(bg.recolors).empty? }
 
             # Each of +bg+'s own lists to the list it is drawn with at its step +step+.
-            def swaps_for(bg, step) = bg.palettes.zip(bg.recolors.fetch(step)).to_h
+            def swaps_for(bg, step) = bg.list_swaps(step)
 
             def padded_colors(colors) = [Art::BACKDROP, *colors.map { |color| color & 0x7FFF }].fill(Art::BACKDROP, colors.length + 1...Art::PLACES)
 

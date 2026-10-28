@@ -263,7 +263,8 @@ module VBlank
           def painted_image(run, places, width:, height:)
             pixels = places.map { |place| place.zero? ? Graphics::Image::TRANSPARENT : run.colors.fetch(place, 0) }
             Assets::Image.new(width: width, height: height, transparent: Graphics::Image::TRANSPARENT,
-                              pixels: pixels.pack("v*"), colors: run.colors, places: places.pack("C*"))
+                              pixels: pixels.pack("v*"), colors: run.colors, places: places.pack("C*"),
+                              colors_name: run.colors_name)
           end
 
           # A strip with one pixel at each place a run's colors have. What a painted pixel shows
@@ -491,7 +492,7 @@ module VBlank
           # Reference#background_swap, for every step a background can be told: each of the lists
           # its tiles were drawn from, to the list that step draws it with instead, or to nil
           # where that list stays as drawn.
-          def color_swaps(bg) = Array(bg.recolors).map { |step| bg.palettes.zip(step).to_h }
+          def color_swaps(bg) = Array(bg.recolors).each_index.map { |step| bg.list_swaps(step) }
 
           # Reference#tile_colors: a tile's pixels as colors, or as the colors +swaps+ gives the
           # list it was drawn from. A swap goes by place, and is read off the pixel as drawn, so
@@ -507,7 +508,7 @@ module VBlank
           end
 
           def colors_as_tile(image, swaps)
-            swapped = swaps && swaps[image.colors]
+            swapped = swaps && swaps[image.list_drawn_from]
             recolor = swapped && Assets::Recolor.of(image, swapped)
             Array.new(image.width * image.height) do |i|
               next 0xFFFF if image.tile_see_through_at?(i)

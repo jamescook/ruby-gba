@@ -1609,7 +1609,8 @@ module VBlank
         def run_picture_from_places(run, places, width:, height:)
           pixels = places.map { |place| place.zero? ? Graphics::Image::TRANSPARENT : run.colors.fetch(place, 0) }
           Assets::Image.new(width: width, height: height, transparent: Graphics::Image::TRANSPARENT,
-                            pixels: pixels.pack("v*"), colors: run.colors, places: places.pack("C*"))
+                            pixels: pixels.pack("v*"), colors: run.colors, places: places.pack("C*"),
+                            colors_name: run.colors_name)
         end
 
         def mutable_map(name)
@@ -1929,7 +1930,7 @@ module VBlank
         # +swaps+ is the list each of the layer's own lists is drawn with this frame, by own list
         # (see #background_swap); the tile takes the one for the list it was drawn from.
         def tile_colors(name, swaps = nil)
-          swapped = swaps && swaps[@bitmaps.fetch(name).colors]
+          swapped = swaps && swaps[@bitmaps.fetch(name).list_drawn_from]
           @tile_colors[[name, swapped]] ||= begin
             bmp = @bitmaps.fetch(name)
             recolor = swapped && tile_recolor(name, bmp, swapped)
@@ -1966,7 +1967,7 @@ module VBlank
           # Kept by declaration, not by name: two scenes can each declare a background by one
           # name with lists of their own, and the number the game tells the name picks out of
           # whichever is painted.
-          @bg_swaps[[bg.name, bg.scene, which]] ||= bg.palettes.zip(lists[which]).to_h
+          @bg_swaps[[bg.name, bg.scene, which]] ||= bg.list_swaps(which)
         end
 
         # Draw this background's tiles from the list of colours numbered +which+ from now on

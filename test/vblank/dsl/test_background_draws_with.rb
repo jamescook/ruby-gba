@@ -454,6 +454,124 @@ class TestBackgroundDrawsWith < Minitest::Test
     (2..4).each { |frames| assert_backends_agree(prog, frames: frames) }
   end
 
+  # TWO LISTS NAMED APART ARE TWO LISTS, whatever they hold. A game that brings a screen in
+  # from white declares every list of it white and walks each to its own colours, so a layer
+  # drawn from :sea and :sky starts with both holding the same. Each is still told its own.
+  # Given by place, since a list that holds white twice has no other way to say which is which.
+  WHITE = %i[transparent white white].freeze
+  BAR_PLACES = Array.new(64) { |i| (i % 8) < 4 ? 1 : 2 }.freeze
+
+  private def a_backdrop_of_two_white_lists
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      colors :sea, WHITE
+      colors :sky, WHITE
+      colors :sea_lit, SEA
+      colors :sky_lit, SKY
+      image :water, width: 8, height: 8, colors: :sea, places: BAR_PLACES
+      image :cloud, width: 8, height: 8, colors: :sky, places: BAR_PLACES
+      tiles :scene, "~" => :water, "o" => :cloud
+      backdrop = background :backdrop, tiles: :scene, map: Array.new(20) { ("~" * 15) + ("o" * 15) }
+      game_loop { backdrop.draw_with({ sea: :sea_lit, sky: :sky_lit }) }
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  def test_two_lists_alike_in_colour_are_each_drawn_with_their_own
+    screen = game_player.run(a_backdrop_of_two_white_lists, frames: 3).screen
+
+    assert_equal Color.resolve(:red), screen.pixel(*SEA_AT), ":sea's tiles take :sea_lit"
+    assert_equal Color.resolve(:blue), screen.pixel(*SKY_AT), ":sky's tiles take :sky_lit"
+  end
+
+  def test_the_console_draws_two_lists_alike_in_colour_apart
+    assert_backends_agree(a_backdrop_of_two_white_lists, frames: 3)
+  end
+
+  # A tile given the colours themselves, beside tiles given the list by name, is drawn from that
+  # list: one list, told one other.
+  def test_a_tile_given_a_lists_colours_themselves_is_recoloured_with_it
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      colors :sea, SEA
+      colors :sea_dusk, SEA_STEPS[1]
+      image :water, width: 8, height: 8, data: BAR, colors: :sea
+      image :pool, width: 8, height: 8, data: BAR, colors: SEA
+      tiles :scene, "~" => :water, "o" => :pool
+      backdrop = background :backdrop, tiles: :scene, map: Array.new(20) { ("~" * 15) + ("o" * 15) }
+      game_loop { backdrop.draw_with :sea_dusk }
+    end
+    builder.finalize_program
+    screen = game_player.run(builder.program, frames: 3).screen
+
+    assert_equal Color.resolve(:magenta), screen.pixel(*SEA_AT), "the tile given :sea by name"
+    assert_equal Color.resolve(:magenta), screen.pixel(*SKY_AT), "the tile given its colours"
+  end
+
+  # ...but where two lists named apart hold those colours, nothing says which.
+  def test_a_tile_given_colours_two_lists_hold_is_refused
+    err = assert_raises(ArgumentError) do
+      Builder.new.instance_eval do
+        screen :tiled
+        colors :sea, WHITE
+        colors :sky, WHITE
+        colors :sea_lit, SEA
+        image :water, width: 8, height: 8, colors: :sea, places: BAR_PLACES
+        image :cloud, width: 8, height: 8, colors: :sky, places: BAR_PLACES
+        image :mist, width: 8, height: 8, colors: WHITE, places: BAR_PLACES
+        tiles :scene, "~" => :water, "o" => :cloud, "." => :mist
+        backdrop = background :backdrop, tiles: :scene, map: ["~o."]
+        backdrop.draw_with({ sea: :sea_lit })
+      end
+    end
+    assert_match(/:sea and :sky/, err.message)
+    assert_match(/colors: :sea/, err.message)
+  end
+
+  # ...and a screen brought in the way a Color game brings one in: seven lists of four colours,
+  # all white, each walked to its own by one number. Each list's last step is a colour of its
+  # own, shown in a column of its own.
+  ARRIVING = %i[red green blue yellow cyan magenta orange].freeze
+
+  private def a_screen_of_seven_lists_brought_in_from_white
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      white = %i[white white white white]
+      steps = ARRIVING.each_with_index.to_h do |color, i|
+        colors :"list#{i}", [:transparent, *white]
+        colors :"list#{i}_half", [:transparent, :white, color, :white, color]
+        colors :"list#{i}_whole", [:transparent, color, color, color, color]
+        image :"tile#{i}", width: 8, height: 8, colors: :"list#{i}", places: Array.new(64) { |p| (p % 4) + 1 }
+        [:"list#{i}", [:"list#{i}_half", :"list#{i}_whole"]]
+      end
+      tiles :screen, ARRIVING.each_index.to_h { |i| [i.to_s, :"tile#{i}"] }
+      shown = background :shown, tiles: :screen, map: Array.new(18) { ARRIVING.each_index.map(&:to_s).join * 2 }
+      step = var :step, 0
+      game_loop do
+        shown.draw_with(steps, showing: step)
+        step.add! 1
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  def test_seven_lists_alike_in_colour_each_walk_their_own_steps
+    screen = game_player.run(a_screen_of_seven_lists_brought_in_from_white, frames: 3).screen
+
+    ARRIVING.each_with_index do |color, i|
+      assert_equal Color.resolve(color), screen.pixel((i * 8) + 1, 1), "list#{i}'s column at its last step"
+    end
+  end
+
+  def test_the_console_brings_seven_lists_in_from_white_apart
+    (1..3).each { |frames| assert_backends_agree(a_screen_of_seven_lists_brought_in_from_white, frames: frames) }
+  end
+
   # One step of each, with no number: the lists named, and the layer drawn with them from then on.
   def test_each_list_can_be_given_one_other_list
     builder = Builder.new

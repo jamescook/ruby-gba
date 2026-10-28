@@ -76,20 +76,22 @@ module VBlank
         return define_picture_run(name, opts) if opts[:from].is_a?(DSL::List)
 
         one_source_of_pixels!(name, opts, block)
-        opts = opts.merge(colors: declared_colors_for_image!(name, opts[:colors])) if opts[:colors].is_a?(Symbol)
+        # A list given by name keeps its name with the picture (IR::Assets::Image#colors_name).
+        colors_name = opts[:colors] if opts[:colors].is_a?(Symbol)
+        opts = opts.merge(colors: declared_colors_for_image!(name, colors_name)) if colors_name
         if block
-          define_ascii_image(name, opts, &block)
+          define_ascii_image(name, opts, colors_name: colors_name, &block)
         elsif opts[:places]
           define_placed_image(name, places: opts[:places], width: opts[:width], height: opts[:height],
-                                    colors: opts[:colors])
+                                    colors: opts[:colors], colors_name: colors_name)
         elsif opts[:from]
           bmp = Graphics::Image.load(resolve_asset_path(opts[:from]), width: opts[:width], height: opts[:height],
                                                             transparent: opts.fetch(:transparent, false))
           define_pixel_image(name, width: bmp.width, height: bmp.height, data: bmp.data,
-                                   transparent: bmp.transparent, colors: opts[:colors])
+                                   transparent: bmp.transparent, colors: opts[:colors], colors_name: colors_name)
         else
           define_pixel_image(name, width: opts[:width], height: opts[:height], data: opts[:data],
-                                   transparent: opts[:transparent], colors: opts[:colors])
+                                   transparent: opts[:transparent], colors: opts[:colors], colors_name: colors_name)
         end
       end
 
@@ -233,20 +235,41 @@ module VBlank
 
       # The lists a background's tiles were drawn from, each once, in the order first met — what
       # its other colours are matched against, list by list. Every tile has to have been given
-      # one, for the same reason a sprite's pictures do (see #shared_pose_colors!).
+      # one, for the same reason a sprite's pictures do (see #shared_pose_colors!). Each is the
+      # name it was declared under and its colours (#list_drawn_from), so two lists named apart
+      # are two lists whatever they hold. A tile given the colours themselves is drawn from the
+      # list of the layer that holds them, where one does (IR::Nodes::Background#recolored_list_of);
+      # where two named apart hold them, nothing says which, and the game is told.
       def lists_drawn_from(poses, subject:)
-        lists = poses.map { |pose| list_drawn_from(pose) }
-        return lists.uniq unless lists.include?(nil)
+        unless poses.all? { |pose| colors_drawn_from(pose) }
+          raise ArgumentError,
+                "#{subject} was told to draw_with other colors, but some of its tiles have no `colors:` list. " \
+                "Other colors swap a tile's own colors by their places in its list. To fix this, give each " \
+                "tile a `colors:` list with `image ..., colors:`."
+        end
 
-        raise ArgumentError,
-              "#{subject} was told to draw_with other colors, but some of its tiles have no `colors:` list. " \
-              "Other colors swap a tile's own colors by their places in its list. To fix this, give each " \
-              "tile a `colors:` list with `image ..., colors:`."
+        lists = poses.map { |pose| list_drawn_from(pose) }.uniq
+        named = lists.select(&:first)
+        lists.reject do |name, colors|
+          next false if name
+
+          alike = named.select { |_, own| own == colors }.map(&:first)
+          refuse_unnamed_colors_of_two_lists!(subject, alike) if alike.length > 1
+          alike.one?
+        end
       end
 
-      # The list one picture was drawn from, or nil where the framework worked it out. A picture
-      # painted from a list is drawn from the one it was given.
-      def list_drawn_from(pose) = @painted_colors[pose] || @pictures.fetch(pose).colors
+      # The colours one picture was drawn from, or nil where the framework worked them out. A
+      # picture painted from a list is drawn from the one it was given.
+      def colors_drawn_from(pose) = @painted_colors[pose] || @pictures.fetch(pose).colors
+
+      # ...as the list it was drawn from: the name it was declared under, nil for colours given
+      # themselves, and its colours (IR::Assets::Image#list_drawn_from).
+      def list_drawn_from(pose)
+        return [@painted_colors_names[pose], @painted_colors[pose]] if @painted_colors.key?(pose)
+
+        @pictures.fetch(pose).list_drawn_from
+      end
 
       # A list declared with `colors`, as a picture given it by name holds it: see-through first.
       # nil for a name nothing declared.
@@ -259,6 +282,15 @@ module VBlank
       def name_of_colors(colors) = @color_lists.keys.find { |name| declared_colors(name) == colors }
 
       private
+
+      # Tiles of one background given colours that two of its lists, named apart, both hold.
+      def refuse_unnamed_colors_of_two_lists!(subject, names)
+        named = names.map { |name| ":#{name}" }
+        raise ArgumentError,
+              "#{subject} has tiles given the colors themselves, and its lists #{named.join(' and ')} hold those " \
+              "colors too. Nothing says which list those tiles are drawn from. To fix this, give those tiles " \
+              "the list by name, for example `image ..., colors: #{named.first}`."
+      end
 
       # A LIST THAT HOLDS ONE COLOUR TWICE, SWAPPED ONTO ART THAT RECORDED NO PLACES.
       #
@@ -304,7 +336,7 @@ module VBlank
       # by place. Pictures with no list were given their places by the framework, so no
       # other list can line up with them.
       def shared_pose_colors!(poses, subject)
-        lists = poses.map { |pose| list_drawn_from(pose) }.uniq
+        lists = poses.map { |pose| colors_drawn_from(pose) }.uniq
         return lists.first if lists.length == 1 && lists.first
 
         if lists.compact.length > 1
@@ -390,7 +422,7 @@ module VBlank
           turned = picture.public_send(way)
           record_picture(Build.bitmap(name, width: turned.width, height: turned.height,
                                               pixels: turned.pixels, transparent: turned.transparent,
-                                              colors: turned.colors, places: turned.places))
+                                              colors: turned.colors, places: turned.places, colors_name: turned.colors_name))
           box_x, box_y, box_w, box_h = @image_bounds[source] || [0, 0, turned.width, turned.height]
           @image_bounds[name] = if way == :mirrored
                                   [turned.width - box_x - box_w, box_y, box_w, box_h]
@@ -458,7 +490,7 @@ module VBlank
       # color. That's for art a program builds itself — pictures converted out of
       # some other game's files, say — which arrives as an array rather than as
       # rows of characters, and otherwise had to know the marker color's value.
-      def define_pixel_image(name, width:, height:, data:, transparent: nil, colors: nil)
+      def define_pixel_image(name, width:, height:, data:, transparent: nil, colors: nil, colors_name: nil)
         positive_dims!(name, width, height)
         expected = width * height
         unless data.length == expected
@@ -471,7 +503,7 @@ module VBlank
         pixels = data.map { |c| c == transparent ? transparent : Graphics::Color.resolve(c) }.pack("v*")
         given = own_colors(name, colors, pixels, transparent)
         record_picture(Build.bitmap(name, width: width, height: height, pixels: pixels,
-                                            transparent: transparent, colors: given))
+                                            transparent: transparent, colors: given, colors_name: colors_name))
         record_visible_bounds(name: name, width: width, height: height, cells: data, transparent: transparent)
       end
 
@@ -483,7 +515,7 @@ module VBlank
       # The picture still keeps colors for everything that draws it; the places ride along
       # beside them, and only the two things that read a pixel as a NUMBER — the console's
       # sprite and tile storage, and swapping in another list of colors — look at them.
-      def define_placed_image(name, places:, width:, height:, colors:)
+      def define_placed_image(name, places:, width:, height:, colors:, colors_name: nil)
         positive_dims!(name, width, height)
         table = color_table(name, colors || [])
         refuse_bad_places!(name, places: places, width: width, height: height, table: table)
@@ -492,7 +524,7 @@ module VBlank
         marker = places.include?(0) ? TRANSPARENT_PIXEL : nil
         record_picture(Build.bitmap(name, width: width, height: height, pixels: drawn.pack("v*"),
                                             transparent: marker, colors: table.map { |value| value || 0x0000 },
-                                            places: places.pack("C*")))
+                                            places: places.pack("C*"), colors_name: colors_name))
         record_visible_bounds(name: name, width: width, height: height, cells: drawn, transparent: marker)
       end
 
@@ -554,7 +586,7 @@ module VBlank
 
       # ASCII-art form of #image: split the block's art into rows, infer the size
       # from its shape, map each char to a color (or transparency), and pack it.
-      def define_ascii_image(name, char_map)
+      def define_ascii_image(name, char_map, colors_name: nil)
         listed = char_map[:colors] # the picture's own list, beside the characters' colours
         rows = yield.to_s.each_line.map(&:chomp).reject(&:empty?)
         raise ArgumentError, "image :#{name} has no art. Add art rows to the block." if rows.empty?
@@ -582,7 +614,7 @@ module VBlank
         marker = transparent ? TRANSPARENT_PIXEL : nil
         record_picture(Build.bitmap(name, width: widths.first, height: rows.size, pixels: pixels,
                                             transparent: marker,
-                                            colors: own_colors(name, listed, pixels, marker)))
+                                            colors: own_colors(name, listed, pixels, marker), colors_name: colors_name))
         record_visible_bounds(name: name, width: widths.first, height: rows.size, cells: colors, transparent: transparent ? TRANSPARENT_PIXEL : nil)
       end
 

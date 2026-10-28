@@ -53,7 +53,10 @@ module VBlank
       # them: each one a list for every entry of +palettes+, at the same place, which that
       # list's tiles are then drawn from instead. Both are empty for a background only ever
       # drawn in its own colours. A tile keeps its own places whichever list it reads, the
-      # way Object's operand of the same name works for one picture.
+      # way Object's operand of the same name works for one picture. +palette_names+ is the
+      # name each of +palettes+ was declared under, at the same place, nil where its tiles were
+      # given the colours themselves: two lists named apart are two lists even when they hold
+      # the same colours, so a tile finds its own by #drawn_lists.
       #
       # +choice+ names the variables that say which of +maps+ is showing, empty where there is
       # only one. A background that belongs to a scene is put up as declared each time that
@@ -76,7 +79,24 @@ module VBlank
         # PlaceBar for how it moves). Absent on every other background.
         operands name: :name, tiles: :list, map: :list, maps: :list, choice: :list, tile_w: :int,
                  tile_h: :int, layer: :name, scene: :name, affine: :flag, recolors: :list, palettes: :list,
-                 sets: :list, set_starts: :list, map_sets: :list, bar_top: :int
+                 palette_names: :list, sets: :list, set_starts: :list, map_sets: :list, bar_top: :int
+
+        # Each of +palettes+ as a tile drawn from it says which list it was drawn from
+        # (Bitmap#list_drawn_from): its name and its colours.
+        def drawn_lists = palettes.each_with_index.map { |colors, at| [palette_names&.at(at), colors] }
+
+        # Which of #drawn_lists a tile drawn from +drawn+ (its name and colours) takes its other
+        # colours from: its own, or — for a tile given the colours themselves, beside tiles given
+        # the list by name — the list of the layer that holds them.
+        def recolored_list_of(drawn) = drawn_lists.include?(drawn) ? drawn : drawn_lists.find { |_, colors| colors == drawn.last }
+
+        # Each list a tile can be drawn from to the list it is drawn with at step +step+ of
+        # +recolors+, a tile given the colours themselves included (#recolored_list_of).
+        def list_swaps(step)
+          swaps = drawn_lists.zip(recolors.fetch(step)).to_h
+          drawn_lists.each { |_, colors| swaps[[nil, colors]] ||= swaps[recolored_list_of([nil, colors])] }
+          swaps
+        end
 
         # The variable that says which of a background's sets is in place now, one a target
         # with room for a single set keeps. Named here so every part of the program that resets
@@ -164,7 +184,11 @@ module VBlank
         declaration!
         category :data
         operands name: :name, list: :name, tiles: :list, colors: :list, picture: :name, width: :int,
-                 height: :int
+                 height: :int, colors_name: :name
+
+        # The list of colours its tiles are drawn from, as a background's recolouring keeps them
+        # apart (Assets::Image#list_drawn_from).
+        def list_drawn_from = [colors_name, colors]
       end
 
       # Show a TileRun's list on its tiles: every tile of the run takes the pixels its bytes
@@ -275,7 +299,11 @@ module VBlank
         declaration!
         category :data
         operands name: :name, width: :int, height: :int, pixels: :text, transparent: :int,
-                 colors: :list, places: :text
+                 colors: :list, places: :text, colors_name: :name
+
+        # The list of colours it was drawn from, as a background's recolouring keeps them apart
+        # (Assets::Image#list_drawn_from).
+        def list_drawn_from = [colors_name, colors]
       end
 
       class Blit

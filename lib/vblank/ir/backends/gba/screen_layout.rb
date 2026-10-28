@@ -262,16 +262,17 @@ module VBlank
 
           # A run's tiles, or the one picture a sprite shows, each blank until the first copy.
           def self.painted_tile_pictures(run)
-            return { run.picture => blank_picture(run.width, run.height, run.colors) } if run.picture
+            return { run.picture => blank_picture(run.width, run.height, run) } if run.picture
 
-            blank = blank_picture(TILE_PX, TILE_PX, run.colors)
+            blank = blank_picture(TILE_PX, TILE_PX, run)
             run.tiles.to_h { |tile| [tile, blank] }
           end
 
-          def self.blank_picture(width, height, colors)
+          # ...drawn from +run+'s list of colours, by its colours and its name.
+          def self.blank_picture(width, height, run)
             Assets::Image.new(width: width, height: height, transparent: Graphics::Image::TRANSPARENT,
                               pixels: ([Graphics::Image::TRANSPARENT] * (width * height)).pack("v*"),
-                              colors: colors, places: ("\x00" * (width * height)).b)
+                              colors: run.colors, places: ("\x00" * (width * height)).b, colors_name: run.colors_name)
           end
 
           # Does this sprite turn or change size? It does unless BOTH its angle and its size
@@ -1069,11 +1070,20 @@ module VBlank
               else
                 # A layer that can be drawn with other colours keeps its bank to itself: the
                 # swap writes into that bank, so anything else reading it would change colour
-                # along with the layer (see PaletteBanks::Picture#keeps_to).
-                keeps_to = node.recolors.empty? ? nil : node.name
-                node.tiles.each_index.map { |i| tile_bank_picture(node, i, keeps_to) }
+                # along with the layer (see PaletteBanks::Picture#keeps_to). And to each of its
+                # lists by name, since two named apart are swapped apart whatever they hold.
+                node.tiles.each_index.map { |i| tile_bank_picture(node, i, recolored_bank_owner(node, i)) }
               end
             end.flatten
+          end
+
+          # Whose bank tile +index+ of a recoloured layer keeps to: the layer's, and the list's by
+          # name (IR::Nodes::Background#recolored_list_of). Nil for a layer only ever drawn in its
+          # own colours.
+          def recolored_bank_owner(node, index)
+            return nil if node.recolors.empty?
+
+            [node.name, node.recolored_list_of(@bitmaps.fetch(node.tiles[index]).list_drawn_from)&.first]
           end
 
           def tile_bank_picture(node, index, keeps_to)
@@ -1353,15 +1363,16 @@ module VBlank
             end.pack("v*")
             keep_unpacked!(blob) # picked out of by a number the game works out, so it stays where it is put
             BackgroundColorLists.new(blob: blob, count: node.recolors.length,
-                                     banks: node.palettes.map { |list| bank_drawn_from(node, list, banks) },
+                                     banks: node.drawn_lists.map { |list| bank_drawn_from(node, list, banks) },
                                      at: :"__bg_#{node.name}_colors_at",
                                      shift: BackgroundDrawing::COLOR_LIST_SHIFT + room.bit_length - 1)
           end
 
-          # The group of sixteen a layer's tiles drawn from +list+ read. Every such tile reads the
-          # same one: a list someone wrote down shares a group only with that very list.
+          # The group of sixteen a layer's tiles drawn from +list+ (its name and colours) read. Every
+          # such tile reads the same one: a list someone wrote down shares a group only with that
+          # very list.
           def bank_drawn_from(node, list, banks)
-            tile = node.tiles.index { |image| @bitmaps.fetch(image).colors == list }
+            tile = node.tiles.index { |image| @bitmaps.fetch(image).list_drawn_from == list }
             banks.placement(tile_key(node, tile)).bank
           end
 

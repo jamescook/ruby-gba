@@ -69,7 +69,9 @@ module VBlank
         tile_map = tile_map.dup
         list = tile_map.delete(:from)
         count = tile_map.delete(:count)
-        colors = tile_run_colors(name, tile_map.delete(:colors))
+        given = tile_map.delete(:colors)
+        colors = tile_run_colors(name, given)
+        colors_name = given if given.is_a?(Symbol)
         refuse_tile_run_on_bitmap_screen!(name)
         refuse_bad_tile_run_count!(name, count)
         refuse_tile_run_list_unfit!(name, list, count)
@@ -79,8 +81,9 @@ module VBlank
         images.each do |image|
           @images[image] = [8, 8]
           @painted_colors[image] = colors
+          @painted_colors_names[image] = colors_name
         end
-        record(Build.tile_run(name, list: list.name, tiles: images, colors: colors))
+        record(Build.tile_run(name, list: list.name, tiles: images, colors: colors, colors_name: colors_name))
         register_tile_run(name)
 
         tiles(name, images.each_with_index.to_h { |image, i| [i + 1, image] }.merge(tile_map))

@@ -538,9 +538,11 @@ module VBlank
       # +places+, where the art was given as numbers into that table rather than as colors,
       # is one byte a pixel saying which place it came from. It is what tells two places
       # holding the SAME color apart, which the pixels themselves cannot.
-      def bitmap(name, width:, height:, pixels:, transparent: nil, colors: nil, places: nil)
+      # +colors_name+ names the list of colours +colors+ is, where the game declared it with `colors`
+      # (see Assets::Image#colors_name).
+      def bitmap(name, width:, height:, pixels:, transparent: nil, colors: nil, places: nil, colors_name: nil)
         Nodes.build(:bitmap, name: name, width: width, height: height,
-                          pixels: pixels, transparent: transparent, colors: colors, places: places)
+                          pixels: pixels, transparent: transparent, colors: colors, places: places, colors_name: colors_name)
       end
 
       # Draw a defined bitmap with its top-left at (x, y). x/y may be constants or
@@ -651,9 +653,10 @@ module VBlank
       # A run of tiles named +tiles+, in order, whose pixels come from the byte list +list+
       # (see Nodes::TileRun). +colors+ are the run's colours, place 0 first. A run that is one
       # sprite's picture names it +picture+, +width+ by +height+ pixels, and has no +tiles+.
-      def tile_run(name, list:, tiles:, colors:, picture: nil, width: 0, height: 0)
+      # +colors_name+ names +colors+ where the game declared them with `colors`.
+      def tile_run(name, list:, tiles:, colors:, picture: nil, width: 0, height: 0, colors_name: nil)
         Nodes.build(:tile_run, name: name, list: list, tiles: tiles, colors: colors, picture: picture,
-                               width: width, height: height)
+                               width: width, height: height, colors_name: colors_name)
       end
 
       # Show the run +name+'s list on its tiles (see Nodes::CopyTiles).

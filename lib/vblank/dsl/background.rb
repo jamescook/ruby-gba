@@ -504,12 +504,13 @@ module VBlank
       # tiles play the part a sprite's poses play: a list is matched to the one they were
       # drawn from, place by place, so it is the tiles that say whether another list fits.
       # A background's other colours are STEPS rather than single lists: each step one list for
-      # every list its tiles were drawn from, in the order of #palettes, nil where a list stays as
+      # every list its tiles were drawn from, in the order of #drawn_lists, nil where a list stays as
       # drawn. A layer drawn from one list has steps of one, which is today's swap exactly.
       def recolors
         @recolors ||= begin
           node = @builder.make_background_recolorable(@name)
-          node.palettes = palettes
+          node.palettes = drawn_lists.map(&:last)
+          node.palette_names = drawn_lists.map(&:first)
           Recolors.new(@builder, subject: error_subject, poses: @tile_pictures,
                                  colors_for: ->(steps) { steps.map { |step| colors_of_step(step) } }).attach_object(node)
         end
@@ -517,16 +518,21 @@ module VBlank
 
       def error_subject = "The background :#{@name}"
 
-      # The lists this layer's tiles were drawn from, each once, in the order first met.
-      def palettes = @palettes ||= @builder.lists_drawn_from(@tile_pictures, subject: error_subject)
+      # The lists this layer's tiles were drawn from, each once, in the order first met: the
+      # name each was declared under and its colours (Builder#lists_drawn_from).
+      def drawn_lists = @drawn_lists ||= @builder.lists_drawn_from(@tile_pictures, subject: error_subject)
 
       # One step's colours, a list per palette, each checked against the tiles drawn from it.
       def colors_of_step(step)
         step.each_with_index.map do |name, at|
-          own = palettes[at]
-          next own if name.nil?
+          own = drawn_lists[at]
+          next own.last if name.nil?
 
-          drawn_from_it = @tile_pictures.select { |pose| @builder.list_drawn_from(pose) == own }
+          # Its tiles, and any given its colours themselves (Builder#lists_drawn_from).
+          drawn_from_it = @tile_pictures.select do |pose|
+            tile_list, tile_colors = @builder.list_drawn_from(pose)
+            tile_colors == own.last && (tile_list == own.first || tile_list.nil?)
+          end
           @builder.remember_background_draws_with(name, error_subject)
           @builder.colors_to_draw_with([name], poses: drawn_from_it, subject: error_subject).first
         end
@@ -539,11 +545,11 @@ module VBlank
         names = recolors.requested_lists!(which, showing)
         return nil if names.nil?
 
-        unless palettes.length == 1
+        unless drawn_lists.length == 1
           raise ArgumentError,
                 "#{error_subject} was told to draw_with #{which.inspect}, but its tiles are drawn from " \
-                "#{palettes.length} lists of colors. Say what each of them is drawn with, by the name it " \
-                "was given: draw_with({ #{palette_names.join(': ..., ')}: ... }#{showing ? ', showing: ...' : ''})."
+                "#{drawn_lists.length} lists of colors. Say what each of them is drawn with, by the name it " \
+                "was given: draw_with({ #{drawn_list_names.join(': ..., ')}: ... }#{showing ? ', showing: ...' : ''})."
         end
         names.map { |name| [name] }
       end
@@ -560,19 +566,22 @@ module VBlank
         raise ArgumentError, uneven_steps_message(named, showing) unless each_list.values.all? { |lists| lists.length == count }
 
         (0...count).map do |step|
-          Array.new(palettes.length) { |palette| (list = at.key(palette)) && each_list.fetch(list)[step] }
+          Array.new(drawn_lists.length) { |palette| (list = at.key(palette)) && each_list.fetch(list)[step] }
         end
       end
 
+      # Where the list +list+ names is among the layer's: by its name, or, for tiles given the
+      # same colours themselves, by its colours.
       def palette_index!(list)
         colors = @builder.declared_colors(list)
-        at = colors && palettes.index(colors)
+        at = drawn_lists.index { |name, _| name == list } ||
+             (colors && drawn_lists.index { |name, own| name.nil? && own == colors })
         return at if at
 
         raise ArgumentError,
               "#{error_subject} was told to draw :#{list} with other colors, but none of its tiles is drawn " \
               "from :#{list}. Name a list its tiles were given with `image ..., colors: :name`" \
-              "#{palette_names.empty? ? '' : " — #{palette_names.map { |n| ":#{n}" }.join(', ')}"}."
+              "#{drawn_list_names.empty? ? '' : " — #{drawn_list_names.map { |n| ":#{n}" }.join(', ')}"}."
       end
 
       def uneven_steps_message(named, showing)
@@ -587,7 +596,7 @@ module VBlank
       end
 
       # The names this layer's lists were declared under, where they were.
-      def palette_names = palettes.filter_map { |colors| @builder.name_of_colors(colors) }
+      def drawn_list_names = drawn_lists.filter_map { |name, colors| name || @builder.name_of_colors(colors) }
 
       def unknown_map_message(named)
         "background :#{@name} has no map #{named.inspect}. Its maps are " \

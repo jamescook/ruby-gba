@@ -25,11 +25,22 @@ module VBlank
       # holds one color at two places, which a palette taken off a real cartridge usually
       # does — then a pixel's color no longer says which place drew it, and anything that
       # reads a pixel as a NUMBER has to ask here instead.
-      Image = Data.define(:width, :height, :transparent, :pixels, :colors, :places) do
+      #
+      # +colors_name+ is the name of the list of colours it was drawn from, where the game named one
+      # (`image ..., colors: :sea`), and nil where it gave the colours themselves. Two lists named
+      # apart are two lists even when they hold the same colours — a screen brought in from white
+      # starts with every list white — so a background told to draw each of its lists with
+      # another tells them apart by #list_drawn_from, the name and the colours together.
+      Image = Data.define(:width, :height, :transparent, :pixels, :colors, :places, :colors_name) do
+        def initialize(width:, height:, transparent:, pixels:, colors:, places:, colors_name: nil) = super
+
         def self.of(node)
           new(width: node.width, height: node.height, transparent: node.transparent,
-              pixels: node.pixels, colors: node.colors, places: node.places)
+              pixels: node.pixels, colors: node.colors, places: node.places, colors_name: node.colors_name)
         end
+
+        # The list this picture was drawn from, as a background's recolouring keeps them apart.
+        def list_drawn_from = [colors_name, colors]
 
         # Which place in the picture's own list this pixel was drawn at, or nil for a
         # picture whose art was given as colors and never recorded one.
