@@ -403,10 +403,15 @@ module VBlank
           # kept in work RAM, so nothing is handed between them.
           def routines_fitting(label, body, routine:)
             parts = []
-            body = cut_list(body, label, parts) if bytes_of(body) > MOST_ROUTINE_BYTES
-            [routine_section(label, body, routine: routine),
-             *parts.map { |part, statements| routine_section(part, statements, routine: routine) }]
+            body = statements_fitting(body, label, parts)
+            [routine_section(label, body, routine: routine), *part_sections(parts, routine)]
           end
+
+          # +body+, cut into the parts it adds to +parts+ ([label, statements] each) when it comes to
+          # more than a routine may.
+          def statements_fitting(body, base, parts) = bytes_of(body) > MOST_ROUTINE_BYTES ? cut_list(body, base, parts) : body
+
+          def part_sections(parts, routine) = parts.map { |part, statements| routine_section(part, statements, routine: routine) }
 
           def cut_list(list, base, parts)
             kept = []
@@ -460,7 +465,7 @@ module VBlank
           # with the build and the runtime, which would see a place reserved only to be measured.
           def bytes_of(list)
             saved = instance_variables.to_h { |name| [name, instance_variable_get(name)] }
-            saved.each { |name, value| instance_variable_set(name, kept_copy(value)) }
+            saved.except(*UNCHANGED_WHEN_MEASURING).each { |name, value| instance_variable_set(name, copy_for_measuring(name, value)) }
             @asm = W65816.new("measuring", holds: ROUTINES)
             @routine = "measuring"
             @labels = 0
@@ -472,18 +477,41 @@ module VBlank
           end
 
           # The objects the lowering adds to as it makes a statement, besides its own lists and tables:
-          # the work RAM it reserves and the pictures, tiles and colours it gathers.
-          GATHERING = [Memory, Art, PaintedArt].freeze
+          # the work RAM it reserves and the pictures, tiles and colours it gathers. Each is copied
+          # all the way down to be measured on.
+          COPIED_WHEN_MEASURING = [Memory, Art, PaintedArt].freeze
 
-          # A copy of +value+ that what the lowering does to it next leaves alone: a list or table
-          # copied all the way down, and one of the GATHERING objects with what it holds copied so.
-          def kept_copy(value)
+          # What the lowering only reads while it makes a statement, shared as it is: numbers, names,
+          # the program and what is worked out from it before any statement is made.
+          SHARED_WHEN_MEASURING = [Integer, Symbol, String, NilClass, TrueClass, FalseClass, IR::Node, SceneHandover,
+                                   SpriteNames, Music, W65816, PartCall].freeze
+
+          # What the lowering keeps that making a statement never changes, shared as it is: the
+          # statements already cut into parts, which only cutting adds to.
+          UNCHANGED_WHEN_MEASURING = %i[@cut_children].freeze
+
+          # A copy of the lowering's +value+ (held in +name+) that measuring can change and leave the
+          # lowering as it was. The lowering's own lists and tables are added to, never changed
+          # inside, so a copy of each is enough; a COPIED_WHEN_MEASURING object changes the lists it
+          # holds in place (a palette gaining a colour), so it is copied all the way down. Anything
+          # else is refused, so a new kind of thing the lowering keeps is never shared with a
+          # measurement by mistake.
+          def copy_for_measuring(name, value)
             case value
-            when Hash then value.dup.transform_values! { |held| kept_copy(held) }
-            when Array then value.map { |held| kept_copy(held) }
-            when *GATHERING
+            when Hash, Array then value.dup
+            when *COPIED_WHEN_MEASURING then deep_copy(value)
+            when *SHARED_WHEN_MEASURING then value
+            else raise ArgumentError, "#{name} holds a #{value.class}, which measuring a routine neither copies nor shares"
+            end
+          end
+
+          def deep_copy(value)
+            case value
+            when Hash then value.dup.transform_values! { |held| deep_copy(held) }
+            when Array then value.map { |held| deep_copy(held) }
+            when *COPIED_WHEN_MEASURING
               value.dup.tap do |copy|
-                copy.instance_variables.each { |name| copy.instance_variable_set(name, kept_copy(copy.instance_variable_get(name))) }
+                copy.instance_variables.each { |held| copy.instance_variable_set(held, deep_copy(copy.instance_variable_get(held))) }
               end
             else value
             end
@@ -879,7 +907,7 @@ module VBlank
           def timer_sections
             return [] if @timers.empty?
 
-            each_timer = @timers.map { |name, _| timer_section(name) }
+            each_timer = @timers.flat_map { |name, _| timer_section(name) }
             @frame_begins = "timers frame"
             in_order = routine_section(@frame_begins, [], routine: "the timers") do
               (1..@timers.size).each do |place_in_order|
@@ -899,31 +927,36 @@ module VBlank
 
           # One timer, a frame on: its sixtieths, the whole ticks they come to, and its handler run
           # once for each. How many that is is settled before the first of them runs, so a handler
-          # that stops or restarts its own timer still finishes the ticks this frame crossed.
+          # that stops or restarts its own timer still finishes the ticks this frame crossed. A
+          # handler too big for a bank is cut into parts as a routine is (#statements_fitting).
           def timer_section(name)
             parts = timer_number(name, :parts)
             ticks = timer_number(name, :ticks)
             sixtieths = Build.binop(:+, Build.var_ref(parts), Build.var_ref(timer_number(name, :part_rate)))
             rate = Build.int(FRAMES_A_SECOND)
-            routine_section(timer_label(name), [], routine: "timer #{name.inspect}") do
+            handler = @tick_handlers[name]
+            cut = []
+            body = handler ? statements_fitting(handler.children, timer_label(name), cut) : []
+            routine = "timer #{name.inspect}"
+            each_tick = routine_section(timer_label(name), [], routine: routine) do
               value(Build.binop(:+, Build.var_ref(timer_number(name, :whole_rate)), Build.binop(:/, sixtieths, rate)))
               store(@timer_crossed)
               value(Build.binop(:%, sixtieths, rate))
               store(parts)
               value(Build.binop(:&, Build.binop(:+, Build.var_ref(ticks), Build.var_ref(@timer_crossed)), Build.int(0xFFFF)))
               store(ticks)
-              handler = @tick_handlers[name]
               if handler
                 top = fresh("tick")
                 done = fresh("ticks_done")
                 @asm.label(top)
                 jump_unless(Build.binop(:>, Build.var_ref(@timer_crossed), Build.int(0)), done)
-                handler.children.each { |child| statement(child) }
+                body.each { |child| statement(child) }
                 emit_sum(@timer_crossed, :-, Build.int(1))
                 @asm.brl(top)
                 @asm.label(done)
               end
             end
+            [each_tick, *part_sections(cut, routine)]
           end
 
           # --- tests: jump unless one holds ---
