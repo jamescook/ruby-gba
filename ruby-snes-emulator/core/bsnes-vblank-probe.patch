@@ -128,3 +128,18 @@ index fc7f321..e87fb84 100644
 +	vblank_memory(id, size);
 +	return size;
  }
+diff --git a/bsnes/target-libretro/program.cpp b/bsnes/target-libretro/program.cpp
+index 9a5b12b..96c64de 100644
+--- a/bsnes/target-libretro/program.cpp
++++ b/bsnes/target-libretro/program.cpp
+@@ -168,7 +168,9 @@ auto Program::open(uint id, string name, vfs::file::mode mode, bool required) ->
+ auto Program::updateVideoPalette() -> void {
+   double luminance = 100.0 / 100.0;
+   double saturation = 100.0 / 100.0;
+-  double gamma = 150.0 / 100.0;
++  //VBlank probe: no gamma curve, so each of the console's 5-bit colours reaches the picture as
++  //itself widened to 8 bits, and a reader recovers it exactly from the top five.
++  double gamma = 100.0 / 100.0;
+ 
+   uint depth = 24;
+ 

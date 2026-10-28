@@ -51,6 +51,19 @@ class TestCore < Minitest::Test
     assert_equal [0x001F], @core.colors.uniq
   end
 
+  # Every one of the fifteen bits reaches the picture: no gamma curve or colour correction stands
+  # between the colour memory and what the core hands over.
+  def test_a_colour_reaches_the_picture_exactly
+    colour = 0x6A65 # red 5, green 19, blue 26
+    code = RED_BACKDROP.take(11) + [0xA9, colour & 0xFF, 0x8D, 0x22, 0x21, 0xA9, colour >> 8, 0x8D, 0x22, 0x21,
+                                   0xA9, 0x0F, 0x8D, 0x00, 0x21, 0x80, 0xFE]
+    core = RubySNESEmulator::Core.new(HandMadeCartridge.write(@dir, code))
+    3.times { core.run_frame }
+    assert_equal [colour], core.colors.uniq
+  ensure
+    core&.destroy
+  end
+
   def test_work_ram_reads_what_the_cartridge_stored
     assert_equal 0x1234, @core.wram_read16(0x0100)
   end
