@@ -35,6 +35,8 @@ module RubySNESEmulator
     CGRAM = 0x8001
     OAM = 0x8002
     REGISTERS = 0x8003
+    APU_RAM = 0x8004
+    DSP_REGISTERS = 0x8005
 
     # libretro's joypad: the number it asks about each button by.
     BUTTONS = { b: 0, y: 1, select: 2, start: 3, up: 4, down: 5, left: 6, right: 7,
@@ -137,6 +139,12 @@ module RubySNESEmulator
     def cgram = memory(CGRAM)
     def oam = memory(OAM)
     def save_ram = memory(SAVE_RAM)
+
+    # THE SOUND UNIT, which the console's own processor cannot see: the 64K the SPC700 runs its
+    # program from and keeps its recorded sounds in, and the S-DSP's 128 registers, which say what
+    # each of its eight voices is playing — the sound as it was told to sound, not as it was mixed.
+    def apu_ram = memory(APU_RAM)
+    def dsp_registers = memory(DSP_REGISTERS)
 
     # The 65816's registers: pc (bank and address, 24 bits), a, x, y, s, d, db, p, and whether
     # it is in emulation mode.

@@ -1,8 +1,8 @@
 diff --git a/bsnes/sfc/ppu/ppu.cpp b/bsnes/sfc/ppu/ppu.cpp
-index dc8d135..5bfd380 100644
+index dc8d135fc..50cd40d2b 100644
 --- a/bsnes/sfc/ppu/ppu.cpp
 +++ b/bsnes/sfc/ppu/ppu.cpp
-@@ -13,6 +13,60 @@ PPU ppu;
+@@ -13,6 +13,63 @@ PPU ppu;
  #include "serialization.cpp"
  #include "counter/serialization.cpp"
  
@@ -55,6 +55,9 @@ index dc8d135..5bfd380 100644
 +  if(id == 0) { size = sizeof(cpu.wram); return cpu.wram; }
 +  if(id == 5 && cartridge.has.SuperFX) { size = superfx.ram.size(); return size ? superfx.ram.data() : nullptr; }
 +  if(id == 5) { size = cartridge.ram.size(); return size ? cartridge.ram.data() : nullptr; }
++  //the sound unit: its 64K (live), and the S-DSP's 128 registers (copied, as it reads them)
++  if(id == 6) { size = sizeof(dsp.apuram); return dsp.apuram; }
++  if(id == 7) { for(uint n : range(128)) out[n] = dsp.read(n); size = 128; return out; }
 +  if(system.fastPPU() && id != 4) { size = 0; return nullptr; }
 +  size = ppu.probe(id, out);
 +  return size ? out : nullptr;
@@ -64,7 +67,7 @@ index dc8d135..5bfd380 100644
  bg1(Background::ID::BG1),
  bg2(Background::ID::BG2),
 diff --git a/bsnes/sfc/ppu/ppu.hpp b/bsnes/sfc/ppu/ppu.hpp
-index 353acf2..b1e0025 100644
+index 353acf270..b1e002554 100644
 --- a/bsnes/sfc/ppu/ppu.hpp
 +++ b/bsnes/sfc/ppu/ppu.hpp
 @@ -29,6 +29,9 @@ struct PPU : Thread, PPUcounter {
@@ -78,7 +81,7 @@ index 353acf2..b1e0025 100644
    //ppu.cpp
    alwaysinline auto step() -> void;
 diff --git a/bsnes/target-libretro/libretro.cpp b/bsnes/target-libretro/libretro.cpp
-index fc7f321..e5f5375 100644
+index fc7f32118..248f4f30a 100644
 --- a/bsnes/target-libretro/libretro.cpp
 +++ b/bsnes/target-libretro/libretro.cpp
 @@ -9,24 +9,31 @@ static retro_input_poll_t input_poll;
@@ -139,7 +142,7 @@ index fc7f321..e5f5375 100644
  }
  
  RETRO_API size_t retro_serialize_size()
-@@ -769,14 +780,43 @@ RETRO_API unsigned retro_get_region()
+@@ -769,14 +780,48 @@ RETRO_API unsigned retro_get_region()
  	return program->superFamicom.region == "NTSC" ? RETRO_REGION_NTSC : RETRO_REGION_PAL;
  }
  
@@ -149,11 +152,14 @@ index fc7f321..e5f5375 100644
 +// VBLANK PROBE: the console's memories for a test harness that compares a running cartridge with
 +// an interpreter (SuperFamicom::vblankProbe in sfc/ppu/ppu.cpp says how each is laid out). Work
 +// RAM and the cartridge's RAM are the standard ids; the colour memory, the sprite table and the
-+// 65816's registers are ids of their own. The PPU's are read from the accurate PPU, so the core
-+// must be told bsnes_ppu_fast=OFF.
++// 65816's registers are ids of their own, and so are the sound unit's 64K (live) and the S-DSP's
++// 128 registers (copied). The PPU's are read from the accurate PPU, so the core must be told
++// bsnes_ppu_fast=OFF.
 +#define RETRO_MEMORY_VBLANK_CGRAM     0x8001
 +#define RETRO_MEMORY_VBLANK_OAM       0x8002
 +#define RETRO_MEMORY_VBLANK_REGISTERS 0x8003
++#define RETRO_MEMORY_VBLANK_APU_RAM   0x8004
++#define RETRO_MEMORY_VBLANK_DSP       0x8005
 +
 +namespace SuperFamicom { auto vblankProbe(uint id, uint8* out, uint& size) -> uint8*; }
 +
@@ -169,6 +175,8 @@ index fc7f321..e5f5375 100644
 +		case RETRO_MEMORY_VBLANK_OAM:       return SuperFamicom::vblankProbe(3, vblank_copy, size);
 +		case RETRO_MEMORY_VBLANK_REGISTERS: return SuperFamicom::vblankProbe(4, vblank_copy, size);
 +		case RETRO_MEMORY_SAVE_RAM:         return SuperFamicom::vblankProbe(5, vblank_copy, size);
++		case RETRO_MEMORY_VBLANK_APU_RAM:   return SuperFamicom::vblankProbe(6, vblank_copy, size);
++		case RETRO_MEMORY_VBLANK_DSP:       return SuperFamicom::vblankProbe(7, vblank_copy, size);
 +	}
 +	size = 0;
  	return nullptr;
@@ -188,7 +196,7 @@ index fc7f321..e5f5375 100644
 +	return size;
  }
 diff --git a/bsnes/target-libretro/program.cpp b/bsnes/target-libretro/program.cpp
-index 9a5b12b..084692f 100644
+index 9a5b12b98..084692faf 100644
 --- a/bsnes/target-libretro/program.cpp
 +++ b/bsnes/target-libretro/program.cpp
 @@ -168,7 +168,9 @@ auto Program::open(uint id, string name, vfs::file::mode mode, bool required) ->
