@@ -68,6 +68,12 @@ module VBlank
             (@songs.index { |song| song.name == name } or raise LoweringError, "the song #{name.inspect} is not declared") + 1
           end
 
+          # Each wave part's waveform and loudness, as a `wave` names them (DSPWrites.wave_steps).
+          def waves
+            @songs.flat_map(&:voices).select { |part| IR::Tunes.part_kind(part) == :wave }
+                  .map { |part| { shape: part.wave, volume: part.volume } }
+          end
+
           # Each song's parts, by [the song's name, its channel] (DSPWrites::Voicing).
           def parts
             @songs.each_with_object({}) do |song, held|
@@ -133,28 +139,54 @@ module VBlank
               [pass.first, pass.again].map do |events|
                 events.map do |frame, frequency, _, volume|
                   [frame, group.call([[:note, song.name, frequency],
-                                      [:voice, channel, song.name, frequency, volume || part.volume]])]
+                                      [:voice, channel, song.name, frequency, volume || part.volume],
+                                      *wave_or_noise(part, frequency)])]
                 end
               end
             end
           end
 
-          # Each part with the channel the interpreter names its voice by (Reference::Player#console_channel).
-          def channels_of(song) = song.voices.each_with_index.map { |part, i| [part, i + 1] }
+          # What a note on the wave or noise voice also logs, as Reference::Player#log_wave_or_noise
+          # says it: that voice's own entry, which is the note's DSP writes.
+          def wave_or_noise(part, frequency)
+            case IR::Tunes.part_kind(part)
+            when :wave
+              [frequency.zero? ? [:stop_wave] : [:wave, { shape: part.wave, frequency: frequency, volume: part.volume }]]
+            when :noise
+              [[:noise, frequency.zero? ? nil : { pitch: frequency, decay: part.decay, volume: part.volume,
+                                                  metallic: part.metallic }]]
+            else []
+            end
+          end
+
+          # Each part with the channel the interpreter names its voice by (Reference::Player#console_channel):
+          # the square parts 1 and 2 in the order written, the wave part 3, the noise part 4.
+          def channels_of(song)
+            squares = 0
+            song.voices.map do |part|
+              channel = case IR::Tunes.part_kind(part)
+                        when :square then squares += 1
+                        when :wave then Reference::Player::WAVE_CHANNEL
+                        when :noise then Reference::Player::NOISE_CHANNEL
+                        end
+              [part, channel]
+            end
+          end
 
           def refuse_parts!(song)
-            squares = song.voices.count { |part| IR::Tunes.part_kind(part) == :square }
-            unless squares == song.voices.size
+            if song.voices.any? { |part| IR::Tunes.part_kind(part) == :recorded }
               raise Lowering::NotMadeYet.new(
-                "The song #{song.name.inspect} has a part on the wave or noise voice, or one that plays a recording. " \
-                "The Super Nintendo build does not make that yet. To fix this, build the game for the Game Boy " \
-                "Advance alone for now (`consoles: %i[gba]`).", part: "the sound"
+                "The song #{song.name.inspect} has a part that plays a recording. The Super Nintendo build does not " \
+                "make that yet. To fix this, build the game for the Game Boy Advance alone for now " \
+                "(`consoles: %i[gba]`).", part: "the sound"
               )
             end
-            return if squares <= 2
+            kinds = song.voices.map { |part| IR::Tunes.part_kind(part) }
+            return if kinds.count(:square) <= 2 && kinds.count(:wave) <= 1 && kinds.count(:noise) <= 1
 
-            raise LoweringError, "The song #{song.name.inspect} has #{squares} parts on the square voices, and there are " \
-                                 "two. To fix this, write it for two square parts."
+            raise LoweringError, "The song #{song.name.inspect} has more than one part on one of the voices. To fix " \
+                                 "this, write it for the square, wave and noise voices, one part each (two on the " \
+                                 "square voices)."
           end
         end
       end

@@ -13,8 +13,12 @@ class TestSNESSongs < Minitest::Test
   SNES = VBlank::IR::Backends::SNES
   FIRST = 0 << 4 # the first register of voice 0, the Advance's first square voice
   SECOND = 1 << 4
+  WAVE = 2 << 4 # the Advance's third voice
+  NOISE = 3 << 4 # ...and its fourth
   ENVX = 0x8
   KEY_OFF = 0x5C
+  NOISE_ON = 0x3D
+  FLAGS = 0x6C
 
   # Two parts, a quarter of eight frames each: A4 over A3, then a rest on the first part.
   TUNE = VBlank.game("TUNE", consoles: %i[gba snes]) do
@@ -150,6 +154,44 @@ class TestSNESSongs < Minitest::Test
 
     assert_equal 3, run.audio.count([:stop_music]), "stopped for the restart, for the finale, and at its end"
     assert_equal 0, run.dsp_registers.getbyte(FIRST + ENVX), "quiet after the finale"
+  end
+
+  # A wave part and a noise part, each on the voice the Advance's is: A4 on the wave voice (voice 2)
+  # as `wave` plays it — pitch $070A on 32 samples, the first waveform recorded (source 9), volume
+  # 120 ($78), held at the gain ($7F); and a hiss at 4096 Hz on the noise voice (voice 3). 4096 Hz is
+  # the Advance's rung 524288 / 1 / 2^7, and the DSP's nearest noise rate is 25 (32000 / 8 = 4000 a
+  # second, against 5333 for 26), so FLG reads $20 | $19; its volume 12 is 96, cut to the noise
+  # generator's swing (7/16) as a `noise` hit's is, 42 ($2A). A rest on each lets its voice go.
+  def test_wave_and_noise_parts_play_on_their_own_voices
+    dsp = parts_played(frames: 3)
+
+    assert_equal [0x0A, 0x07, 9], [dsp.getbyte(WAVE + 2), dsp.getbyte(WAVE + 3), dsp.getbyte(WAVE + 4)],
+                 "the wave part's pitch and recording"
+    assert_equal 0x78, dsp.getbyte(WAVE), "the wave part's volume"
+    assert_equal 0x7F, dsp.getbyte(WAVE + ENVX), "the wave part held at the gain"
+    assert_equal 1 << 3, dsp.getbyte(NOISE_ON), "the noise voice on the generator"
+    assert_equal 0x39, dsp.getbyte(FLAGS), "the generator's rate"
+    assert_equal 0x2A, dsp.getbyte(NOISE), "the hiss's volume"
+    assert_operator dsp.getbyte(NOISE + ENVX), :>, 0, "the hiss sounding"
+  end
+
+  def test_a_rest_on_a_wave_or_noise_part_lets_its_voice_go
+    dsp = parts_played(frames: 8)
+
+    assert_equal [0, 0], [dsp.getbyte(WAVE + ENVX), dsp.getbyte(NOISE + ENVX)]
+  end
+
+  private def parts_played(frames:)
+    build = VBlank::IR::Build
+    part = VBlank::Audio::Music::Part
+    program = build.program(
+      build.enable_sound,
+      build.song(:drums, total_frames: 12, voices: [part.new(events: [[0, 440], [4, 0]], wave: :triangle),
+                                                     part.new(events: [[0, 4096], [4, 0]], noise: true, decay: :none)]),
+      build.play_song(:drums),
+      build.loop_(build.wait_vblank)
+    )
+    SNES::CheckedRun.new.run(program, frames: frames).dsp_registers
   end
 
   private def played(frames:) = SNES::CheckedRun.new.run(TUNE.program(console: :snes), frames: frames).dsp_registers

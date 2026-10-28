@@ -145,12 +145,16 @@ module VBlank
              [NOISE_ON, 0], [PITCH_MODULATION, 0], [KEY_OFF, 0]]
           end
 
-          # A SONG'S SQUARE PARTS play on the voices the Advance's square voices are: the first part on
-          # voice 0, the second on voice 1, which beeps share as they share the Advance's second. A
-          # note holds at a fixed gain, as the Advance's song notes hold their volume, and a rest lets
-          # the voice go. A tune that stops lets go of the voices its own parts play on and no other,
-          # as the Advance's player does: a beep sounding beside a one-part tune is not cut off.
+          # A SONG'S PARTS play on the voices the Advance's are, by the channel the interpreter names
+          # each by (Reference::Player#console_channel): the first square part on voice 0, the second
+          # on voice 1, which beeps share as they share the Advance's second, a wave part on the wave
+          # voice and a noise part on the noise voice. A square note holds at a fixed gain, as the
+          # Advance's song notes hold their volume, and a rest lets the voice go. A wave or noise note
+          # is logged as that voice's own entry too ([:wave ...], [:noise ...]), and those are its
+          # writes. A tune that stops lets go of the voices its own parts play on and no other, as the
+          # Advance's player does: a beep sounding beside a one-part tune is not cut off.
           SQUARE_VOICES = { 1 => 0, 2 => 1 }.freeze
+          CHANNEL_VOICES = SQUARE_VOICES.merge(3 => WAVE_VOICE, 4 => NOISE_VOICE).freeze
 
           # WHAT A LOG ENTRY DOES NOT SAY. The interpreter logs a song's note as the voice set to a
           # frequency and volume, which is all the Advance's player writes; the square's width is the
@@ -163,7 +167,7 @@ module VBlank
 
             # The voices +song+'s parts play on, a bit each.
             def song_voices(song)
-              parts.keys.sum { |name, channel| name == song ? 1 << SQUARE_VOICES.fetch(channel) : 0 }
+              parts.keys.sum { |name, channel| name == song ? 1 << CHANNEL_VOICES.fetch(channel) : 0 }
             end
           end
 
@@ -177,7 +181,7 @@ module VBlank
             case entry.first
             when :enabled then [[SET_BITS, FLAGS, SWITCHES, SOUND_ON], [MAIN_LEFT, MAIN_VOLUME], [MAIN_RIGHT, MAIN_VOLUME]]
             when :beep then beep(entry.last)
-            when :noise then noise(entry.last)
+            when :noise then entry.last ? noise(entry.last) : key_off(1 << NOISE_VOICE)
             when :wave then wave(entry.last, voicing.waves)
             when :stop_wave then key_off(1 << WAVE_VOICE)
             when :note then []
@@ -188,11 +192,10 @@ module VBlank
           end
 
           # A song's note on channel +channel+: on a square voice, the note held at a fixed gain, or
-          # the voice let go for a rest or a note at volume nought.
+          # the voice let go for a rest or a note at volume nought; on the wave or noise voice,
+          # nothing, since the entry after it is the note.
           def song_note(channel, song, frequency, volume, parts)
-            voice = SQUARE_VOICES.fetch(channel) do
-              raise ArgumentError, "the Super Nintendo build does not play a song's part on channel #{channel} yet"
-            end
+            voice = SQUARE_VOICES[channel] or return []
             return key_off(1 << voice) if frequency.zero? || volume.zero?
 
             duty = parts.fetch([song, channel]) { raise ArgumentError, "no part of #{song.inspect} on #{channel}" }.duty
@@ -243,12 +246,13 @@ module VBlank
                [base + SOURCE, Samples.source(effect.duty, wave)], *key_on(BEEP_VOICE)]
           end
 
-          # A noise hit (Audio::Sound.resolve_noise's hash): the noise voice's loudness and fade, as a
-          # beep's; then the generator, its clock set and the voice switched to it, or the metallic
-          # recording read at the clock; and key-on last.
+          # A noise hit (Audio::Sound.resolve_noise's hash, or a song's noise note, whose pitch is a
+          # frequency): the noise voice's loudness and fade, as a beep's; then the generator, its
+          # clock set and the voice switched to it, or the metallic recording read at the clock; and
+          # key-on last.
           def noise(hit)
             base = NOISE_VOICE << 4
-            clock = VBlank::Audio::Sound.noise_rung_hz(0, VBlank::Audio::Sound::NOISE_HIT_HALVINGS.fetch(hit[:pitch]))
+            clock = noise_clock(hit[:pitch])
             if hit[:metallic]
               pitch = (clock * PITCH_ONE / DSP_RATE.to_f).round.clamp(1, PITCH_TOP)
               loudness(base, hit[:volume] * VOLUME_STEP, hit[:volume], hit[:decay]) +
@@ -269,6 +273,15 @@ module VBlank
           def loudness(base, level, volume, decay)
             [[base + VOLUME_LEFT, level], [base + VOLUME_RIGHT, level], [base + ADSR1, ATTACK],
              [base + ADSR2, SUSTAIN_AT_TOP | fade_rate(volume, decay)]]
+          end
+
+          # How many times a second the Advance steps its noise for +pitch+: a hit's word (:high, :mid,
+          # :low), or a song note's frequency, at the rung nearest it (Audio::Sound.noise_rung).
+          def noise_clock(pitch)
+            sound = VBlank::Audio::Sound
+            return sound.noise_rung_hz(0, sound::NOISE_HIT_HALVINGS.fetch(pitch)) if pitch.is_a?(Symbol)
+
+            sound.noise_rung_hz(*sound.noise_rung(pitch))
           end
 
           # The noise generator's rate (1..31) nearest to stepping +clock+ times a second.
