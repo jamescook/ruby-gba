@@ -111,7 +111,7 @@ module Tower
   # The two cells of the gate on the roof.
   GATE = Ractor.make_shareable([[9, 8], [10, 8]])
 
-  GAME = VBlank.game("TOWER", consoles: %i[gba gbc]) do
+  GAME = VBlank.game("TOWER", consoles: %i[gba gbc snes]) do
     screen :tiled
     image(:hero, "#" => :white, "." => :transparent) { HERO }
     image(:stone_wall, "#" => :gray) { SOLID }

@@ -195,6 +195,7 @@ module VBlank
             refuse_what_snes_lacks!
             refuse_routines_that_call_themselves!
             refuse_unmade_picture!
+            assign_background_layers unless painted?
             make_sprite_art
             reserve_patches
             Reach.variables(@program).each { |name| @variables[name] = @memory.reserve("the variable #{name.inspect}", 4) }
@@ -206,9 +207,11 @@ module VBlank
             @scene = keep_local(:scene, start: -1) unless @scenes.empty?
             keep_timer_numbers
             routines = @called.map do |name|
+              @lowering_scene = @scenes.key?(name) ? name : nil
               routine_section(self.class.routine_label(name), @funcs.fetch(name).children, routine: routine_said(name))
             end
             timers = timer_sections
+            @lowering_scene = nil
             main = routine_section(MAIN, @program.children, routine: "the game loop")
             [data_section, *table_sections, *routines, *timers, main]
           end
@@ -604,7 +607,10 @@ module VBlank
           end
 
           # The note of the scene running now, set to +number+.
-          def emit_scene_number(number) = store_number(place_of(@scene), number)
+          def emit_scene_number(number)
+            store_number(place_of(@scene), number)
+            emit_scene_arrival(@scenes.key(number))
+          end
 
           def emit_halt(_node) = @asm.jml(@asm.long("rt_halt"))
 

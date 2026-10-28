@@ -49,11 +49,8 @@ module VBlank
                 refuse_unmade!("a background on a painted (bitmap) screen") unless @backgrounds.empty?
                 refuse_unmade!("a hardware sprite on a painted (bitmap) screen") unless @objects.empty?
               end
-              names = @backgrounds.keys
-              refuse_unmade!("more than two backgrounds in one game") if names.length > BACKGROUND_LAYERS
-              @backgrounds.each_value do |bg|
+              @program.walk.select { |node| node.kind == :background }.each do |bg|
                 refuse_unmade!("background tiles of #{bg.tile_w}×#{bg.tile_h}") unless bg.tile_w == 8 && bg.tile_h == 8
-                refuse_unmade!("a background in a scene of its own") if bg.scene
                 refuse_unmade!("a status bar") if bg.bar?
                 refuse_unmade!("a background in a layer") if bg.layer
                 refuse_unmade!("a background drawn with other colours") unless Array(bg.recolors).empty? && Array(bg.palettes).empty?
@@ -151,23 +148,88 @@ module VBlank
             def emit_screen(_node) = nil
 
             # Reference#exec_background: put up, showing from its corner (Reference#put_up_background).
+            # A scene's own goes up as the scene takes over instead (#emit_scene_arrival).
             def emit_background(node)
               return if @handover.on_arrival?(node)
 
-              runtime_call("rt_background_put_up", [Build.int(layer_of(node)), Build.int(grid_of(node, 0).number), Build.int(1)])
+              emit_put_up(node)
             end
 
-            # The layer a background is on: the one declared last on BG1 (0), in front.
-            def layer_of(bg) = @backgrounds.length - 1 - @backgrounds.keys.index(bg.name)
+            def emit_put_up(bg)
+              runtime_call("rt_background_put_up", [Build.int(layer_of(bg)), Build.int(grid_of(bg, 0).number), Build.int(1)])
+            end
 
-            # The declared background a scroll, a changed cell or a map handed over names.
+            # WHICH OF THE TWO LAYERS EACH BACKGROUND IS ON (#assign_background_layers). A scene's own
+            # scenery is in front of the scenery every screen shows, as the interpreter paints it over
+            # what is up already, and within each the one declared last is in front: so the scenes' own
+            # take the front layers, BG1 first, as many as the scene with the most has, and the scenery
+            # every screen shows the layers behind those.
+            def assign_background_layers
+              @layers = {}.compare_by_identity
+              always = @handover.always_up.scenery
+              own = @scenes.keys.map { |scene| @handover.arrival(scene).scenery }
+              @scene_layers = own.map(&:length).max || 0
+              if always.length + @scene_layers > BACKGROUND_LAYERS
+                refuse_unmade!("more than two backgrounds on the screen at once")
+              end
+              always.each_with_index { |bg, i| @layers[bg] = @scene_layers + (always.length - 1 - i) }
+              own.each { |scenery| scenery.each_with_index { |bg, i| @layers[bg] = scenery.length - 1 - i } }
+            end
+
+            def layer_of(bg) = @layers.fetch(bg) { raise LoweringError, "the background #{bg.name.inspect} is on no layer" }
+
+            # THE DECLARED BACKGROUND a scroll, a changed cell or a map handed over names: the one by
+            # that name, or — where several scenes each declare their own by one name — the one of the
+            # scene whose routine is being lowered, or the one every screen shows.
             def background_declared_for(node)
-              @backgrounds.fetch(node.name) { raise LoweringError, "#{node.kind} of undeclared background #{node.name.inspect}" }
+              declared = @program.walk.select { |bg| bg.kind == :background && bg.name == node.name }
+              raise LoweringError, "#{node.kind} of undeclared background #{node.name.inspect}" if declared.empty?
+              return declared.first if declared.length == 1
+
+              own = @lowering_scene && @handover.arrival(@lowering_scene).scenery.find { |bg| bg.name == node.name }
+              own || @handover.always_up.scenery.find { |bg| bg.name == node.name }
             end
+
+            # +node+'s change made to the background it names (#background_declared_for), yielded
+            # to the block. Where that is not known while the game is built — a change outside every
+            # scene's routine, to a name several scenes declare — the change is made to the one of
+            # the scene up when it runs, each scene's its own branch.
+            def for_background(node)
+              bg = background_declared_for(node)
+              return yield(bg) if bg
+
+              @scenes.each do |scene, number|
+                own = @handover.arrival(scene).scenery.find { |declared| declared.name == node.name }
+                next unless own
+
+                other = fresh("not_scene")
+                jump_unless(Build.binop(:==, Build.var_ref(@scene), Build.int(number)), other)
+                yield own
+                @asm.label(other)
+              end
+            end
+
+            # A scene taking over (Lowering#emit_scene): what it shows of its own goes up from its
+            # corner, as declared, with every map it chooses back at the first; and the layers its own
+            # scenery does not use, which the scene before may have used, come down
+            # (IR::SceneHandover). The scenery every screen shows stays as it is.
+            def emit_scene_arrival(scene)
+              return if painted? || @scene_layers.zero?
+
+              arrival = @handover.arrival(scene)
+              arrival.map_choices.each { |var| store_number(place_of(var), 0) }
+              arrival.scenery.each { |bg| emit_put_up(bg) }
+              ((0...@scene_layers).to_a - arrival.scenery.map { |bg| layer_of(bg) }).each do |layer|
+                runtime_call("rt_background_put_up", [Build.int(layer), Build.int(empty_grid.number), Build.int(1)])
+              end
+            end
+
+            # A grid of nothing, put up on a layer to take down what was there.
+            def empty_grid = @empty_grid ||= @art.grid(Array.new(32) { Array.new(32) }, 32, 32)
 
             # The background's map number +which+ as a grid of cells (SNES::Art#grid).
             def grid_of(bg, which)
-              @grids[[bg.name, which]] ||= begin
+              @grids[[bg.object_id, which]] ||= begin
                 map = bg.every_map.fetch(which)
                 columns, rows = TileMap.grid(map)
                 cells = map.map { |row| Array(row).map { |tile| cell_of(bg, tile) } }
@@ -183,15 +245,17 @@ module VBlank
             end
 
             # Reference#exec_scroll_background.
-            def emit_scroll_background(node)
-              bg = background_declared_for(node)
+            def emit_scroll_background(node) = for_background(node) { |bg| emit_scroll_background_on(node, bg) }
+
+            def emit_scroll_background_on(node, bg)
               runtime_call("rt_background_scroll", [Build.int(layer_of(bg)), node.x, node.y])
             end
 
             # Reference#exec_set_tile: a tile the background does not have changes nothing, and nor
             # does a place outside its map.
-            def emit_set_tile(node)
-              bg = background_declared_for(node)
+            def emit_set_tile(node) = for_background(node) { |bg| emit_set_tile_on(node, bg) }
+
+            def emit_set_tile_on(node, bg)
               return if node.tile && node.tile >= bg.tiles.length
 
               columns, rows = TileMap.size_of(bg.every_map.first)
@@ -215,8 +279,9 @@ module VBlank
 
             # Reference#exec_show_map: a number naming no map leaves the cells alone; the view stays
             # where it was.
-            def emit_show_map(node)
-              bg = background_declared_for(node)
+            def emit_show_map(node) = for_background(node) { |bg| emit_show_map_on(node, bg) }
+
+            def emit_show_map_on(node, bg)
               which = keep_local(:map)
               value(node.which)
               store(which)
