@@ -11,6 +11,7 @@ require_relative "runtime/collide"
 require_relative "runtime/chip"
 require_relative "runtime/chip_paint"
 require_relative "runtime/saving"
+require_relative "runtime/sound"
 
 module VBlank
   module IR
