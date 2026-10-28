@@ -119,6 +119,7 @@ module VBlank
             @row_bend_base = {}     # name -> the layer's own scroll, which a row's offset is measured from
             @row_bend_table = {}    # name -> where its table of row offsets sits, worked out each frame
             @row_bend_engine = {}   # name -> which copying engine feeds it from that table
+            @scroll_in_table = {}   # name -> where the scroll its table's rows were worked out on is noted
             @copies_row_bends = false # are those tables fed by a copying engine rather than per-line interrupts?
             @light = nil            # the light's :shade_outside node, fed under the key LIGHT
           end
@@ -250,6 +251,9 @@ module VBlank
               @row_bend_table[name] = @memory.alloc(TABLE_BYTES)
               @row_bend_engine[name] = engines[i] if @copies_row_bends
             end
+            # ...and a word beside each bend's table for the scroll its rows were worked out on,
+            # taken back out as its background goes up (#emit_bend_put_up).
+            @row_bends.each_key { |name| @scroll_in_table[name] = @memory.alloc(4) }
           end
 
           # The table the copier walks: one 16-bit offset per row, and one spare (see
@@ -285,6 +289,9 @@ module VBlank
 
               @primitives.store_word_immediate(register_fed(name), COPIER_DAD[engine_for(name)])
             end
+            # ...and no scroll noted beside any table yet, for a background put up before the
+            # first gap has worked its rows out (#emit_bend_put_up).
+            @scroll_in_table.each_value { |note| @primitives.store_word_immediate(0, note) }
             emit_boot_light if @light
             emit_rearm_row_bend_copiers if copies_row_bends?
           end
@@ -442,6 +449,7 @@ module VBlank
           # whether its background is up or not, as the interpreter works them out; into the
           # layer's register only while its background is up.
           def emit_bend_first_row(key)
+            emit_note_scroll_in_table(key)
             return emit_first_row(key) unless @scene_of[key]
 
             emit_first_row_into_table(key)
@@ -478,6 +486,60 @@ module VBlank
               @primitives.store_word_immediate(COPIER_CONTROL, COPIER_CNT[engine])
             end
             @flat_on_bent_layers.each { |name, owner| emit_flat_scroll(name) if owner == scene }
+          end
+
+          # A BACKGROUND PUT UP SHOWS FROM ITS CORNER for the rest of the pass, bent or not
+          # (Reference#put_up_background) — a scene coming back, the scenery every screen shows
+          # coming back, or its statement reached again in a routine. A flat one has its scroll
+          # registers put back to 0 as it goes up. A bent one's rows come from its table, and the
+          # gap before worked each row out on top of the scroll the game had left it at. So the
+          # gap notes that scroll beside the table, and the background going up takes it back out
+          # of every row, which leaves the bend alone; the next gap works the rows out from the
+          # game's scroll again. A scene's own bend reaches its layer's register as the scene
+          # takes over (#emit_bends_on_arrival). Any other's row 0 goes there now, but only while
+          # the display is between pictures: once it is drawing, the register is fed a line at a
+          # time from the table, and a write would land on the line being drawn, unbending it.
+          def emit_bend_put_up(name)
+            emit_scroll_out_of_table(name)
+            return if @scene_of[name]
+
+            drawing = @emitter.gensym
+            @emitter.emit_number(ADDR, REG_VCOUNT)
+            @emitter.emit(ASM.load_halfword(TMP, ADDR))
+            @emitter.emit(ASM.cmp_imm(TMP, VISIBLE_LINES))
+            @emitter.emit_branch(:bcond, drawing, cond: :lt)
+            emit_table_top_into_register(name)
+            @emitter.place_label(drawing)
+          end
+
+          # Whether a background's sideways place comes from its bend's table on every line, so
+          # that the table, and not a plain write of the corner, puts it up (#emit_bend_put_up).
+          def bent_from_table?(name) = row_bend_tables? && @row_bends.key?(name)
+
+          # The scroll the gap works a bend's rows out on, noted beside its table.
+          def emit_note_scroll_in_table(key)
+            @lowering.value(@row_bend_base.fetch(key))
+            @emitter.emit_number(ADDR, @scroll_in_table.fetch(key))
+            @emitter.emit(ASM.str(ACC, ADDR))
+          end
+
+          # ...and the rows without it: each halfword less that scroll. Only the low bits of a
+          # row are read, so taking it off the halfword gives the bend alone, wrapped as before.
+          def emit_scroll_out_of_table(name)
+            top = @emitter.gensym
+            @emitter.emit_number(ADDR, @scroll_in_table.fetch(name))
+            @emitter.emit(ASM.ldr(SPARE, ADDR))
+            @emitter.emit_number(ADDR, @row_bend_table.fetch(name))
+            @emitter.emit(ASM.add_imm(TMP, ADDR, VISIBLE_LINES * 2)) # one past the last row, two bytes each
+            @emitter.place_label(top)
+            @emitter.emit(ASM.load_halfword(ACC, ADDR))
+            @emitter.emit(ASM.sub_reg(ACC, ACC, SPARE))
+            @emitter.emit(ASM.store_halfword(ACC, ADDR))
+            @emitter.emit(ASM.add_imm(ADDR, ADDR, 2))
+            @emitter.emit(ASM.cmp_reg(ADDR, TMP))
+            @emitter.emit_branch(:bcond, top, cond: :lt)
+            # The rows hold no scroll now, so a second put-up in the same pass takes none out.
+            @primitives.store_word_immediate(0, @scroll_in_table.fetch(name))
           end
 
           # Whether this frame works the light's rows out, 1 or 0; whether the rows in the table were

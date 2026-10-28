@@ -139,6 +139,19 @@ class TestSceneHandoverScenarios < Minitest::Test
                  frames: SCENE_BACK + 1, probe: [0, 0], color: :red),
     Scenario.new(name: :scrolled_room_back_with_a_sprite_scrolls_again, program: :scrolled_room_with_a_sprite,
                  frames: SCENE_BACK + 2, probe: [0, 0], color: :blue),
+    # ...and the same room with its rows bent (`scroll_each_row`): its corner, each row along by its
+    # own bend, on the frame it comes back.
+    Scenario.new(name: :bent_scrolled_room_back_shows_from_its_corner, program: :bent_scrolled_room_with_a_sprite,
+                 frames: SCENE_BACK + 1, probe: [0, 0], color: :red),
+    # Row 1 is bent a pixel along, so its last red pixel at the corner shows the blue cell beside it.
+    Scenario.new(name: :bent_scrolled_room_back_keeps_its_bend, program: :bent_scrolled_room_with_a_sprite,
+                 frames: SCENE_BACK + 1, probe: [7, 1], color: :blue),
+    Scenario.new(name: :bent_scrolled_room_back_scrolls_again, program: :bent_scrolled_room_with_a_sprite,
+                 frames: SCENE_BACK + 2, probe: [0, 0], color: :blue),
+    Scenario.new(name: :bent_background_put_up_every_pass_shows_from_its_corner, program: :bent_field_put_up_every_pass,
+                 frames: SCENE_AWAY, probe: [0, 0], color: :red),
+    Scenario.new(name: :bent_background_put_up_twice_a_pass_shows_from_its_corner, program: :bent_field_put_up_twice_a_pass,
+                 frames: SCENE_AWAY, probe: [0, 0], color: :red),
   ].freeze
 
   SCENARIOS.each_with_index do |scenario, i|
@@ -583,6 +596,48 @@ class TestSceneHandoverScenarios < Minitest::Test
       end
       scene(:walk) { (tick == SCENE_BACK).then { state.set! 0 } }
       two_scene_loop(tick, :room, :walk)
+    end
+  end
+
+  # The scrolled room with its rows bent, every other one a pixel further along.
+  private def bent_scrolled_room_with_a_sprite
+    built do
+      screen :tiled
+      red_and_blue_art
+      tiles :set, "r" => :red_art, "b" => :blue_art
+      state = var :state, 0
+      tick = var :tick, 0
+      scene(:room) do
+        field = background :field, tiles: :set, map: Array.new(20) { "r" + ("b" * 29) }
+        field.scroll_each_row { |row| row & 1 }
+        sprite :blue_box, at: [112, 72]
+        field.scroll_by 3, 0
+        (tick == SCENE_AWAY).then { state.set! 1 }
+      end
+      scene(:walk) { (tick == SCENE_BACK).then { state.set! 0 } }
+      two_scene_loop(tick, :room, :walk)
+    end
+  end
+
+  # A bent, scrolled background in no scene whose statement runs from a routine every pass: put up
+  # again each time, it shows from its corner each time.
+  private def bent_field_put_up_every_pass = bent_field_put_up(times: 1)
+
+  # ...and put up twice in each pass, which takes the scroll out of its rows once.
+  private def bent_field_put_up_twice_a_pass = bent_field_put_up(times: 2)
+
+  private def bent_field_put_up(times:)
+    built do
+      screen :tiled
+      red_and_blue_art
+      tiles :set, "r" => :red_art, "b" => :blue_art
+      func(:field_up) do
+        field = background :field, tiles: :set, map: Array.new(20) { "r" + ("b" * 29) }
+        field.scroll_each_row { |row| row & 1 }
+        field.scroll_by 3, 0
+      end
+      sprite :blue_box, at: [112, 72]
+      game_loop { times.times { call :field_up } }
     end
   end
 
