@@ -17,8 +17,16 @@ module VBlank
           # console's 64K of video RAM (word addresses, as the console counts them):
           #
           #   $0000-$6FFF  the screen's tiles, in the order they are shown, row by row
-          #   $7000-$73FF  the layer's map: which tile each cell shows
+          #   $7000-$77FF  the layer's map, 32 cells across and 64 down: which tile each cell shows
           #   $7860-$787F  the CLEAR TILE, every pixel the colour the screen was last cleared to
+          #   $7880-$78BF  the SEE-THROUGH TILE, every pixel nought, never written (Boot leaves it so)
+          #
+          # The map's rows past the picture's 28 show the see-through tile, so a view moved down or
+          # up past the picture (`camera`) shows the backdrop there, colour 0 of the colour memory,
+          # which is black and fades with the picture (Tint) as the interpreter's backdrop does. The
+          # map is 32 cells across, as wide as the screen, so a view moved across wraps round; the
+          # console's first WINDOW hides the layer outside the columns where the picture is
+          # (rt_paint_camera), and the backdrop shows there.
           #
           # THE GAME PAINTS INTO A COPY in work RAM — $7F:0000 to $7F:DFFF of its upper bank, laid out
           # the same way — and the tiles it changed go to video RAM after the pass (rt_paint_upload).
@@ -58,6 +66,7 @@ module VBlank
           #
           #   rt_paint_start    at power-on: Mode 3, the map, the colours, the whole screen to paint in
           #   rt_paint_area     what follows paints only inside a rectangle (`inside`)
+          #   rt_paint_camera   the view moved over the picture (`camera`)
           #   rt_paint_clear    the screen, or the rectangle, in one colour
           #   rt_paint_fill     a rectangle in one colour
           #   rt_paint_blit     a picture (SNES::PaintedArt's) at a place
@@ -89,6 +98,29 @@ module VBlank
             CLEAR_TILE = 963
             CLEAR_TILE_AT = CLEAR_TILE * TILE_BYTES / 2
             CLEAR_CELL = 0xC3C3
+            # The cell that shows the see-through tile, the tile after the clear tile.
+            SEE_THROUGH_CELL = CLEAR_TILE + 1
+            # The map's rows: the picture's, then the see-through ones to its foot.
+            MAP_ROWS = 64
+            # BG1SC's size bits for a map 32 cells across and 64 down.
+            MAP_32_BY_64 = 0x02
+            # Where the camera puts the view: how far it is scrolled across, how far down (one less,
+            # for the screen's first row, see rt_paint_start), the window's left and right columns
+            # as WH0 and WH1 take them (a byte each, the left lowest), whether they changed since
+            # the last blank sent them, and the place the game gave, 32 bits each way, for a reader
+            # of the run (SNES::HeadlessRun).
+            CAMERA = "rt paint camera"
+            CAMERA_ACROSS = 0
+            CAMERA_DOWN = 2
+            CAMERA_WINDOW = 4
+            CAMERA_CHANGED = 6
+            CAMERA_X = 8
+            CAMERA_Y = 12
+            CAMERA_BYTES = 16
+            # The window when the picture shows across the whole screen, and when none of it does
+            # (its left past its right: no columns).
+            WHOLE_WINDOW = 0xFF00
+            NO_WINDOW = 0x00FF
 
             # Where painting is held to (`inside`): its left, top, right and bottom, right and bottom
             # just past it.
@@ -152,6 +184,7 @@ module VBlank
               memory.reserve(MAP_CHANGED, 2)
               memory.reserve(CLEAR_CHANGED, 2)
               memory.reserve(RUNS_END, 2)
+              memory.reserve(CAMERA, CAMERA_BYTES)
             end
 
             def scratch(memory)
@@ -171,6 +204,7 @@ module VBlank
               bank = chip ? ChipPaint::COPY >> 16 : COPY >> 16
               emit_start(asm, memory)
               emit_area(asm, memory, s)
+              emit_camera(asm, memory, s)
               emit_helpers(asm, memory, s, bank)
               emit_clear(asm, memory, s)
               emit_fill(asm, memory, s, bank)
@@ -190,8 +224,17 @@ module VBlank
               asm.lda(0x03) # mode 3: the first layer's tiles eight bits a pixel
               asm.sta(asm.abs(h::BGMODE))
               asm.stz(asm.abs(h::BG12NBA)) # its tiles from $0000
-              asm.lda((MAP >> 10) << 2) # its map at $7000, 32×32 cells
+              asm.lda(((MAP >> 10) << 2) | MAP_32_BY_64) # its map at $7000, 32 cells across and 64 down
               asm.sta(asm.abs(h::BG1SC))
+              # The first window hides the layer outside its columns (W12SEL: the window on, its
+              # outside the part hidden; TMW: on the main screen), every column at power-on.
+              asm.stz(asm.abs(h::WH0))
+              asm.lda(0xFF)
+              asm.sta(asm.abs(h::WH1))
+              asm.lda(0x03)
+              asm.sta(asm.abs(h::W12SEL))
+              asm.lda(0x01)
+              asm.sta(asm.abs(h::TMW))
               asm.lda(0x01) # the first layer alone on the main screen
               asm.sta(asm.abs(h::TM))
               # The screen's first row is the console's line 1 (see Runtime::Picture's scroll), so the
@@ -201,14 +244,20 @@ module VBlank
               asm.lda(0x03)
               asm.sta(asm.abs(h::BG1VOFS))
               asm.rep(0x20)
-              # The map: every cell shows the clear tile, black at power-on, as the screen starts.
+              # The map: every cell of the picture shows the clear tile, black at power-on, as the
+              # screen starts, and every cell past it the see-through tile.
               asm.lda(MAP)
               asm.sta(asm.abs(h::VMADDL))
-              asm.ldx(COLUMNS * COLUMNS)
-              asm.lda(CLEAR_CELL)
+              asm.ldx(0)
               asm.label("rt_paint_start_cell")
+              asm.lda(CLEAR_CELL)
+              asm.cpx(TILES)
+              asm.bcc("rt_paint_start_cell_shown")
+              asm.lda(SEE_THROUGH_CELL)
+              asm.label("rt_paint_start_cell_shown")
               asm.sta(asm.abs(h::VMDATAL))
-              asm.dex
+              asm.inx
+              asm.cpx(COLUMNS * MAP_ROWS)
               asm.bne("rt_paint_start_cell")
               # The colours, all 256.
               asm.sep(0x20)
@@ -223,6 +272,14 @@ module VBlank
               emit_fill_work_ram(asm, memory[MAP_COPY], MAP_BYTES, "rt_paint_clear_cell")
               [GENERATION, CLEAR_PLACE, MAP_CHANGED, CLEAR_CHANGED, RUNS_END].each do |name|
                 asm.stz(asm.abs(memory[name]))
+              end
+              asm.stz(asm.abs(memory[CAMERA] + CAMERA_ACROSS))
+              asm.lda(0x03FF)
+              asm.sta(asm.abs(memory[CAMERA] + CAMERA_DOWN))
+              asm.lda(WHOLE_WINDOW)
+              asm.sta(asm.abs(memory[CAMERA] + CAMERA_WINDOW))
+              [CAMERA_CHANGED, CAMERA_X, CAMERA_X + 2, CAMERA_Y, CAMERA_Y + 2].each do |at|
+                asm.stz(asm.abs(memory[CAMERA] + at))
               end
               asm.ldx(0)
               asm.label("rt_paint_start_row")
@@ -317,6 +374,93 @@ module VBlank
               asm.bra("#{tag} keep")
               asm.label("#{tag} high")
               asm.lda(asm.direct(high))
+              asm.label("#{tag} keep")
+              asm.sta(asm.direct(out))
+            end
+
+            # --- the camera ---
+
+            # rt_paint_camera(x, y): screen (0, 0) shows what was painted at (x, y) from the next
+            # blank on, and the backdrop past the picture's edges. A view the picture's width or
+            # more across, or its height or more down, shows nothing of it, so the place is held to
+            # those first and the rest is worked in 16 bits:
+            #
+            #   across: the layer scrolled across by x; the window keeps the columns from -x (or 0)
+            #           to 255 - x (or 255), the ones the picture is in, and hides the rest — all of
+            #           them when x is 256 or -256, the window's left then past its right
+            #   down:   the layer scrolled down by y, one less for the screen's first row; the map's
+            #           rows past the picture show the see-through tile, 288 rows of them, enough for
+            #           a view from 224 above the picture to 224 below it
+            def emit_camera(asm, memory, s)
+              camera = memory[CAMERA]
+              asm.label("rt_paint_camera")
+              [[R.call(0), CAMERA_X], [R.call(1), CAMERA_Y]].each do |from, to|
+                asm.lda(asm.direct(from))
+                asm.sta(asm.abs(camera + to))
+                asm.lda(asm.direct(from + 2))
+                asm.sta(asm.abs(camera + to + 2))
+              end
+              emit_clamp_signed(asm, R.call(0), WIDTH, s.left)
+              emit_clamp_signed(asm, R.call(1), HEIGHT, s.top)
+              asm.lda(asm.direct(s.left))
+              asm.sta(asm.abs(camera + CAMERA_ACROSS))
+              asm.lda(asm.direct(s.top))
+              asm.dec
+              asm.sta(asm.abs(camera + CAMERA_DOWN))
+              # The window's left: -x for a view moved left, else the first column.
+              asm.lda(asm.direct(s.left))
+              asm.bpl("rt_paint_camera_from_first")
+              asm.eor(0xFFFF)
+              asm.inc
+              asm.bra("rt_paint_camera_left")
+              asm.label("rt_paint_camera_from_first")
+              asm.lda(0)
+              asm.label("rt_paint_camera_left")
+              asm.cmp(WIDTH)
+              asm.bcs("rt_paint_camera_none")
+              asm.sta(asm.direct(s.temp))
+              # ...and its right: 255 - x for a view moved right, else the last column.
+              asm.lda(WIDTH - 1)
+              asm.sec
+              asm.sbc(asm.direct(s.left))
+              asm.bit(asm.direct(s.left))
+              asm.bpl("rt_paint_camera_right")
+              asm.lda(WIDTH - 1)
+              asm.label("rt_paint_camera_right")
+              asm.cmp(0)
+              asm.bmi("rt_paint_camera_none")
+              asm.xba
+              asm.ora(asm.direct(s.temp))
+              asm.bra("rt_paint_camera_window")
+              asm.label("rt_paint_camera_none")
+              asm.lda(NO_WINDOW)
+              asm.label("rt_paint_camera_window")
+              asm.sta(asm.abs(camera + CAMERA_WINDOW))
+              asm.lda(1)
+              asm.sta(asm.abs(camera + CAMERA_CHANGED))
+              asm.rtl
+            end
+
+            # +out+ = the 32-bit number at +at+ held between -+limit+ and +limit+, as 16 bits.
+            def emit_clamp_signed(asm, at, limit, out)
+              tag = "rt paint clamp signed #{at}"
+              asm.lda(asm.direct(at + 2))
+              asm.bmi("#{tag} below")
+              asm.bne("#{tag} high")
+              asm.lda(asm.direct(at))
+              asm.cmp(limit + 1)
+              asm.bcc("#{tag} keep")
+              asm.label("#{tag} high")
+              asm.lda(limit)
+              asm.bra("#{tag} keep")
+              asm.label("#{tag} below")
+              asm.cmp(0xFFFF)
+              asm.bne("#{tag} low")
+              asm.lda(asm.direct(at))
+              asm.cmp(0x10000 - limit)
+              asm.bcs("#{tag} keep")
+              asm.label("#{tag} low")
+              asm.lda(0x10000 - limit)
               asm.label("#{tag} keep")
               asm.sta(asm.direct(out))
             end
@@ -1326,8 +1470,14 @@ module VBlank
                 asm.sta(asm.direct(s.chunk))
                 asm.label(skip)
               end
+              # Nothing to copy, the camera alone moved: a line of the blank for its registers.
               asm.lda(asm.direct(s.chunk))
-              asm.beq("rt_paint_upload_done")
+              asm.bne("rt_paint_upload_copies")
+              asm.lda(asm.abs(memory[CAMERA] + CAMERA_CHANGED))
+              asm.branch_long(:beq, "rt_paint_upload_done")
+              asm.jsr(asm.abs("rt_blank_time"))
+              asm.bra("rt_paint_upload_camera")
+              asm.label("rt_paint_upload_copies")
               asm.jsr(asm.abs("rt_blank_room"))
               [[CLEAR_CHANGED, CLEAR_TILE_COPY, CLEAR_TILE_AT, TILE_BYTES],
                [MAP_CHANGED, MAP_COPY, MAP, MAP_BYTES]].each do |flag, from, to, bytes|
@@ -1347,6 +1497,22 @@ module VBlank
                 asm.label(skip)
               end
               asm.jsr(asm.abs("rt_tint_upload"))
+              # The camera: the layer's scroll, each register written twice, its low byte and then
+              # its high, and the window's columns.
+              asm.label("rt_paint_upload_camera")
+              asm.lda(asm.abs(memory[CAMERA] + CAMERA_CHANGED))
+              asm.beq("rt_paint_upload_done")
+              asm.stz(asm.abs(memory[CAMERA] + CAMERA_CHANGED))
+              asm.lda(asm.abs(memory[CAMERA] + CAMERA_ACROSS))
+              Picture.emit_scroll_register(asm, h::BG1HOFS)
+              asm.lda(asm.abs(memory[CAMERA] + CAMERA_DOWN))
+              Picture.emit_scroll_register(asm, h::BG1VOFS)
+              asm.lda(asm.abs(memory[CAMERA] + CAMERA_WINDOW))
+              asm.sep(0x20)
+              asm.sta(asm.abs(h::WH0))
+              asm.xba
+              asm.sta(asm.abs(h::WH1))
+              asm.rep(0x20)
               asm.label("rt_paint_upload_done")
               asm.rts
             end

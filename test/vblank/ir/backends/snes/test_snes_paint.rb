@@ -177,6 +177,62 @@ class TestSNESPaint < Minitest::Test
     assert_equal Color.resolve(:blue), run.screen.pixel(5, 5)
   end
 
+  # THE CAMERA moves the view over the painted picture: screen (0, 0) shows what was painted at the
+  # camera's place, and past the picture's edges the backdrop shows, black, faded with the rest. The
+  # picture has a different colour along each edge, so a view that wraps round shows one edge's
+  # colour where the backdrop should be. The view goes past every edge, and past the picture
+  # altogether, from -330 to 326 across (in a shuffled order, so a view far up or down is not
+  # always far across too) and -330 to 310 down, and once to 65546 across: far enough that a view
+  # not held to the picture's size would come round onto it.
+  def test_the_camera_shows_the_backdrop_past_every_edge_of_the_picture
+    run = checked(frames: 17) do
+      screen :bitmap
+      clear_screen :gray
+      fill_rect 0, 0, 256, 8, :red        # the top edge
+      fill_rect 0, 216, 256, 8, :green    # the bottom edge
+      fill_rect 0, 0, 8, 224, :blue       # the left edge
+      fill_rect 248, 0, 8, 224, :yellow   # the right edge
+      t = var :t, 0
+      game_loop do
+        camera (((t * 7) % 17) * 41) - 330, (t * 40) - 330
+        (t == 16).then { camera 65_546, 3 }
+        fade :white, (t % 3) * 25
+        t.add! 1
+      end
+    end
+
+    assert_equal 17, run[:t]
+  end
+
+  # Breakout's shake: the camera jolted a few pixels and put back.
+  def test_a_shaken_screen_shows_what_the_interpreter_shows
+    run = checked(frames: 12) do
+      screen :bitmap
+      clear_screen :gray
+      fill_rect 100, 100, 20, 20, :red
+      n = var :n, 0
+      game_loop do
+        (n == 2).then { shake_screen intensity: 3, frames: 6 }
+        n.add! 1
+      end
+    end
+
+    assert_equal 12, run[:n]
+  end
+
+  # A tiled screen's view moves with `scroll_to`; the camera there is refused in plain words, as
+  # it is on the Advance.
+  def test_the_camera_on_a_tiled_screen_is_refused_in_plain_words
+    error = assert_raises(SNES::LoweringError) do
+      SNES.new.build(program_of do
+        screen :tiled
+        game_loop { camera 3, 3 }
+      end)
+    end
+
+    assert_match(/scroll_to/, error.message)
+  end
+
   private def clear_and_draw_program
     program_of do
       screen :bitmap

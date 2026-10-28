@@ -20,11 +20,12 @@ module VBlank
                                                  pixel: :emit_pixel, inside: :emit_inside, blit: :emit_blit,
                                                  blit_pose: :emit_blit_pose, draw_text: :emit_draw_text,
                                                  draw_digit: :emit_draw_digit, save_region: :emit_save_region,
-                                                 restore_region: :emit_restore_region
+                                                 restore_region: :emit_restore_region, camera: :emit_camera
                                                })
 
-            # The kinds that paint, which make a screen painted when the game names none.
-            PAINTING = STATEMENTS.keys.freeze
+            # The kinds that paint, which make a screen painted when the game names none. The camera
+            # only moves the view over what was painted.
+            PAINTING = (STATEMENTS.keys - [:camera]).freeze
 
             # Whether +program+'s screen is painted: it says `screen :bitmap`, or it says no screen and
             # paints. A program can have only one kind (see #refuse_unmade_picture!).
@@ -184,6 +185,19 @@ module VBlank
               runtime_call("rt_paint_blit_one_of", [Build.int(picture_list(digits)), node.value,
                                                     value_node(node.x), value_node(node.y)])
             end
+
+            # Reference#exec_camera: the view moved over the painted picture (Runtime::Paint's
+            # rt_paint_camera). A tiled screen's view moves with its background's scroll instead, as
+            # on the Advance.
+            def emit_camera(node)
+              raise LoweringError, CAMERA_ON_TILES unless painted?
+
+              runtime_call("rt_paint_camera", [value_node(node.x), value_node(node.y)])
+            end
+
+            CAMERA_ON_TILES = "This game moves the camera on a tiled screen. The camera moves a painted " \
+                              "(bitmap) screen only. To move a tiled background, use `scroll_to` or " \
+                              "`scroll_by` on the background."
 
             # Reference#exec_save_region and #exec_restore_region.
             def emit_save_region(node) = emit_patch("rt_paint_save", node)

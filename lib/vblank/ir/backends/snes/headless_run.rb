@@ -231,18 +231,18 @@ module VBlank
           # to play +frames+ frames, plays one pass more and stops as that one ends, without a frame
           # boundary for it: the end of the run is that pass.
           def play_passes(frames)
-            pending = nil # [pass, variables, lists, sprites, sounds] whose picture is not on the screen yet
+            pending = nil # [pass, variables, lists, sprites, sounds, camera] whose picture is not on the screen yet
             waited = 0
             loop do
               play_frame
               waited += 1
               refuse_stuck_game! if waited > LONGEST_PASS_FRAMES
               if pending && shown_pass == pending.first && (pending.first > frames || sounds_counted?(pending.first))
-                pass, variables, lists, @sprites, sounds = pending
+                pass, variables, lists, @sprites, sounds, camera = pending
                 pending = nil
-                return record_moment(:end, variables, lists, picture_now, sounds) if pass > frames
+                return record_moment(:end, variables, lists, picture_now(camera), sounds) if pass > frames
 
-                record_moment(pass, variables, lists, picture_now, sounds)
+                record_moment(pass, variables, lists, picture_now(camera), sounds)
               end
               case state
               when Runtime::Frame::HALTED then return finish_after_halt
@@ -250,7 +250,7 @@ module VBlank
               end
               next unless pending.nil? && waiting? && passes > @moments.size
 
-              pending = [passes, read_variables, read_lists, read_sprites, read_sounds]
+              pending = [passes, read_variables, read_lists, read_sprites, read_sounds, read_camera]
               note_frames_took(passes - 1) if passes > 1
               mark_last_pass_taken if passes == frames
               hold_after_this_pass if passes > frames
@@ -396,7 +396,7 @@ module VBlank
             end
             play_frame
             @sprites = read_sprites
-            record_moment(:end, read_variables, read_lists, picture_now, read_sounds)
+            record_moment(:end, read_variables, read_lists, picture_now(read_camera), read_sounds)
           end
 
           def play_frame
@@ -410,8 +410,19 @@ module VBlank
             @picture_each_frame << RunComparison.picture_check(colors)
           end
 
-          # The emulator's picture, each pixel the 15-bit colour the console holds.
-          def picture_now = Picture.new(shown: @core.colors, width: @core.width, height: @core.height, camera_x: 0, camera_y: 0)
+          # The emulator's picture, each pixel the 15-bit colour the console holds, and where the
+          # camera put the view, [x, y], as the pass left it.
+          def picture_now(camera) = Picture.new(shown: @core.colors, width: @core.width, height: @core.height,
+                                                camera_x: camera[0], camera_y: camera[1])
+
+          # Where a painted screen's camera puts the view, as the game gave it (Runtime::Paint's
+          # CAMERA); [0, 0] for a screen with no camera.
+          def read_camera
+            return [0, 0] unless @places.runtime.key?(Runtime::Paint::CAMERA)
+
+            at = runtime_place(Runtime::Paint::CAMERA)
+            [word(at + Runtime::Paint::CAMERA_X), word(at + Runtime::Paint::CAMERA_Y)]
+          end
 
           def read_variables = @places.variables.transform_values { |address| word(address) }
 
