@@ -38,10 +38,17 @@ module VBlank
             end
 
             # Each piece of the picture this lowering does not make yet, refused by name: the
-            # build makes a tiled screen of 8×8 tiles, at most two backgrounds, and plain sprites.
+            # build makes a tiled screen of 8×8 tiles, at most two backgrounds, and plain sprites,
+            # or a painted screen (Lowering::Paint) with nothing drawn from tiles over it.
             def refuse_unmade_picture!
               screens = @program.walk.select { |node| node.kind == :screen }.map(&:mode).uniq
-              refuse_unmade!("a painted (bitmap) screen") unless (screens - [:tiled]).empty?
+              others = screens - %i[tiled bitmap]
+              refuse_unmade!("a `screen :#{others.first}`") unless others.empty?
+              refuse_unmade!("both a painted (bitmap) screen and a tiled one") if screens.include?(:tiled) && painted?
+              if painted?
+                refuse_unmade!("a background on a painted (bitmap) screen") unless @backgrounds.empty?
+                refuse_unmade!("a hardware sprite on a painted (bitmap) screen") unless @objects.empty?
+              end
               names = @backgrounds.keys
               refuse_unmade!("more than two backgrounds in one game") if names.length > BACKGROUND_LAYERS
               @backgrounds.each_value do |bg|
@@ -84,8 +91,10 @@ module VBlank
               data.data_words(@art.background_tile_data.bytesize)
               data.label("art sprite tiles bytes")
               data.data_words(@art.sprite_tile_data.bytesize)
-              data.label("art colors")
-              data.data_bytes(@art.cgram.bytes)
+              unless painted? # Lowering::Paint's colours, then
+                data.label("art colors")
+                data.data_bytes(@art.cgram.bytes)
+              end
               data.label("art sprite pictures")
               data.data_longs(@art.sprite_pictures.each_value.map { |picture| pieces_label(picture.number) })
               @art.sprite_pictures.each_value do |picture|
@@ -108,7 +117,8 @@ module VBlank
               end
               [data.section, *bytes_section("art background tiles", @art.background_tile_data),
                *bytes_section("art sprite tiles", @art.sprite_tile_data),
-               *@art.grids.map { |grid| bytes_section(grid_label(grid.number), grid.bytes) }]
+               *@art.grids.map { |grid| bytes_section(grid_label(grid.number), grid.bytes) },
+               *(painted? ? paint_sections : [])]
             end
 
             ART = W65816::Holding.new(what: "the game's pictures", fix: "use fewer different pictures and maps")

@@ -83,19 +83,26 @@ module VBlank
             end
 
             # +work+ is four words of the direct page the routines use.
-            def emit(asm, memory, work:)
-              emit_start(asm, memory)
+            def emit(asm, memory, work:, painted: false)
+              emit_start(asm, memory, painted)
               emit_sprites(asm, memory, work)
               emit_backgrounds(asm, memory, work)
-              emit_upload(asm, memory)
+              emit_upload(asm, memory, painted)
               asm.label("rt_picture_prepare")
               asm.rtl
             end
 
-            # The registers, then the tiles and the colours copied in while the screen is off.
-            def emit_start(asm, memory)
+            # The registers, then the tiles and the colours copied in while the screen is off — or,
+            # for a +painted+ screen, Runtime::Paint's.
+            def emit_start(asm, memory, painted)
               h = Console::SNESHardware
               asm.label("rt_picture_start")
+              if painted
+                asm.jsl(asm.long("rt_paint_start"))
+                asm.jml(asm.long("rt_sprites_begin"))
+                return
+              end
+
               asm.sep(0x20)
               asm.lda(0x01) # mode 1, every tile 8×8
               asm.sta(asm.abs(h::BGMODE))
@@ -471,7 +478,7 @@ module VBlank
 
             # THE COPY IN THE BLANK. The screen is switched off first, so nothing below needs to fit
             # in the blank; then on again — straight away while the blank lasts, or in the next one.
-            def emit_upload(asm, memory)
+            def emit_upload(asm, memory, painted)
               h = Console::SNESHardware
               layers = memory[LAYERS]
               # The first pass's: the screen is off already, and Frame switches it on.
@@ -500,6 +507,11 @@ module VBlank
               asm.rtl
 
               asm.label("rt_upload_copy")
+              if painted
+                asm.jmp(asm.abs("rt_paint_upload"))
+                return
+              end
+
               # The sprite table, whole.
               asm.stz(asm.abs(h::OAMADDL))
               emit_dma(asm, h::DMA_TO_ONE_PORT, h::OAMDATA, asm.imm(memory[SHADOW_OAM] & 0xFFFF),

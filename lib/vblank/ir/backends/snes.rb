@@ -18,7 +18,9 @@ require_relative "snes/linker"
 require_relative "snes/memory"
 require_relative "snes/runtime"
 require_relative "snes/art"
+require_relative "snes/painted_art"
 require_relative "snes/lowering/picture"
+require_relative "snes/lowering/paint"
 require_relative "snes/lowering"
 require_relative "snes/headless_run"
 require_relative "snes/checked_run"
@@ -56,10 +58,11 @@ module VBlank
         # +program+ as a cartridge (Cartridge::SNESROM), carrying its Places.
         def build(program, title: "VBLANK")
           memory = Memory.new
-          Runtime.reserve(memory)
+          painted = Lowering::Paint.painted?(program)
+          Runtime.reserve(memory, painted: painted)
           lowering = Lowering.new(program, memory: memory)
           game = lowering.sections + lowering.art_sections
-          runtime = Runtime.sections(memory, main: Lowering::MAIN, frame_begins: lowering.frame_begins)
+          runtime = Runtime.sections(memory, main: Lowering::MAIN, frame_begins: lowering.frame_begins, painted: painted)
           linked = Linker.new(runtime + game).link
           routines = lowering.section_routines.map do |label, routine|
             placed = linked.sections.fetch(label)

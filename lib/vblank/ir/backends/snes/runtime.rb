@@ -5,6 +5,7 @@ require_relative "runtime/int32"
 require_relative "runtime/frame"
 require_relative "runtime/lists"
 require_relative "runtime/picture"
+require_relative "runtime/paint"
 
 module VBlank
   module IR
@@ -23,16 +24,19 @@ module VBlank
         module Runtime
           module_function
 
-          # The runtime's own places in work RAM, asked for before the game's.
-          def reserve(memory)
+          # The runtime's own places in work RAM, asked for before the game's. A game whose screen is
+          # +painted+ (Paint) keeps its copy of the screen in work RAM's last bank.
+          def reserve(memory, painted: false)
+            Paint.reserve(memory) if painted
             Frame.reserve(memory)
             Picture.reserve(memory)
           end
 
           # The runtime's sections: the entry points in the first bank, and everything else in one.
           # +main+ is the label of the game's main routine; +frame_begins+ the label of the game's
-          # routine run at each frame boundary (its timers moving on), or nil for none.
-          def sections(memory, main:, frame_begins: nil)
+          # routine run at each frame boundary (its timers moving on), or nil for none; +painted+
+          # for a game whose screen is painted rather than drawn from tiles.
+          def sections(memory, main:, frame_begins: nil, painted: false)
             vectors = W65816.new("runtime vectors", home: :first)
             Boot.emit_vectors(vectors)
             asm = W65816.new("runtime")
@@ -41,7 +45,8 @@ module VBlank
             Int32.emit(asm, Int32.scratch(memory))
             Frame.emit(asm, memory, pad: memory.scratch(4))
             Lists.emit(asm, memory, Lists.scratch(memory))
-            Picture.emit(asm, memory, work: memory.scratch(8))
+            Picture.emit(asm, memory, work: memory.scratch(8), painted: painted)
+            Paint.emit(asm, memory, Paint.scratch(memory)) if painted
             emit_start(asm)
             emit_frame_begins(asm, frame_begins)
             [vectors.section, asm.section]

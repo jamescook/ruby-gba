@@ -38,6 +38,7 @@ module VBlank
 
           FAR_FIRST = 0x7E2000
           FAR_END = 0x800000
+          LAST_BANK = 0x7F0000
 
           # The direct page address of working number +n+.
           def self.register(n) = n * 4
@@ -50,6 +51,7 @@ module VBlank
             @next = FIRST
             @next_far = FAR_FIRST
             @next_scratch = SCRATCH
+            @far_end = FAR_END
             @places = {}
           end
 
@@ -69,9 +71,23 @@ module VBlank
           def reserve_far(name, bytes)
             @places.fetch(name) do
               @next_far = (@next_far & 0xFF0000) + 0x10000 if (@next_far & 0xFFFF) + bytes > 0x10000
-              raise Full, full_message(name, bytes, FAR_END - @next_far, "its work RAM") if @next_far + bytes > FAR_END
+              raise Full, full_message(name, bytes, @far_end - @next_far, "its work RAM") if
+                @next_far + bytes > @far_end
 
               @places[name] = @next_far.tap { @next_far += bytes }
+            end
+          end
+
+          # +bytes+ from the start of work RAM's last bank, $7F:0000, for +name+ — a painted screen's
+          # copy, which wants a bank of its own so a 16-bit address is a byte of it — and the far
+          # places asked for after it end where it starts. Asked before any other far place.
+          def reserve_last_bank(name, bytes)
+            @places.fetch(name) do
+              @far_end = LAST_BANK
+              raise Full, full_message(name, bytes, FAR_END - LAST_BANK, "its work RAM") if
+                @next_far > LAST_BANK || bytes > FAR_END - LAST_BANK
+
+              @places[name] = LAST_BANK
             end
           end
 
