@@ -162,10 +162,13 @@ module VBlank
           # console's eight as it runs (Art::TooManySpriteLists). +tile_rooms+ builds it with each screen
           # bringing its own background tiles in (Art::TooManyBackgroundTiles, Picture#plan_tile_rooms),
           # and +room_colors+ with its own background colours too (Art::TooManyBackgroundLists).
-          def initialize(program, memory:, lends_sprite_colors: false, tile_rooms: false, room_colors: false)
+          # +banked_songs+ keeps its songs' notes in the cartridge's banks (GBC::Music#sections).
+          def initialize(program, memory:, lends_sprite_colors: false, tile_rooms: false, room_colors: false,
+                         banked_songs: false)
             @program = program
             @memory = memory
             @lends_sprite_colors = lends_sprite_colors
+            @banked_songs = banked_songs
             @plans_tile_rooms = tile_rooms # each screen brings its own tiles in (Picture#plan_tile_rooms)
             @plans_room_colors = room_colors
             @funcs = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }

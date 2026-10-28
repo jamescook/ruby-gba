@@ -412,7 +412,7 @@ module VBlank
             def emit_tables_in_view(asm)
               asm.label("rt_paint_tables_in_view")
               asm.load_bank_of(:a, "rt_paint_cells")
-              asm.load([Console::GBCHardware::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
               asm.ret
             end
 
@@ -1032,7 +1032,7 @@ module VBlank
               # The picture's bank in view, for as long as it is read, and the game's after
               # (rt_bank_back): the build keeps them in a bank of their own.
               asm.load_high(:a, arg.call(3) + 2)
-              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
 
               asm.label("rt_paint_bits_column")
               # The pixels of this column of tiles from left on and before right: the from mask

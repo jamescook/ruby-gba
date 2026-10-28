@@ -168,7 +168,7 @@ module VBlank
               asm.load(:a, [:hli])
               asm.load(:b, :a)
               asm.load(:a, [:hli])
-              asm.load([Console::GBCHardware::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
               asm.load(:a, :l)
               asm.load([at + CELL], :a)
               asm.load(:a, :h)
@@ -455,7 +455,7 @@ module VBlank
               asm.load(:a, [:hli])
               asm.load(:d, :a)
               asm.load(:a, [:hl])
-              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
               # HL = the row + the column × 2: the cell's tile, then its colours.
               asm.load(:a, [at + CELL])
               asm.load(:l, :a)

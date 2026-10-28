@@ -24,7 +24,6 @@ module VBlank
             def arg(memory, i, n) = memory.args + (4 * (n - 1 - i))
 
             def emit(asm, memory)
-              h = Console::GBCHardware
               # Copy B bytes from (HL) into the arguments' place in quick memory: a number, four
               # bytes, to a turn of the loop.
               asm.label("rt_take_args")
@@ -67,13 +66,13 @@ module VBlank
               asm.push(:af)
               asm.load(:a, :l)
               asm.load_high(Memory::CURRENT_BANK, :a)
-              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
               asm.load(:h, :d)
               asm.load(:l, :e)
               asm.call("rt_jump_hl")
               asm.pop(:af)
               asm.load_high(Memory::CURRENT_BANK, :a)
-              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
               asm.ret
               asm.label("rt_jump_hl")
               asm.jump(:hl)
@@ -87,11 +86,11 @@ module VBlank
               asm.push(:af)
               asm.load(:a, :c)
               asm.load_high(Memory::CURRENT_BANK, :a)
-              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
               asm.call("rt_jump_de")
               asm.pop(:af)
               asm.load_high(Memory::CURRENT_BANK, :a)
-              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
               asm.ret
               asm.label("rt_jump_de") # the return address is already pushed: DE is gone to
               asm.push(:de)

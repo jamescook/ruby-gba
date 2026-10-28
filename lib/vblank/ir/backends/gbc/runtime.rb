@@ -36,14 +36,15 @@ module VBlank
           # slot (Frame#emit_groups_together). +bar_rows+ is how many rows of the window's grid its status
           # bars fill, or nil for a game with none (Picture#emit_bar). +slides+ says a note of its music
           # slides its pitch (GBC::Music#slides?), +wobbles+ that one wobbles (GBC::Music#wobbles?), and
-          # +shapes+ that a square note says its shapes (GBC::Music#shapes?).
+          # +shapes+ that a square note says its shapes (GBC::Music#shapes?). +banked_songs+ says its
+          # songs' notes are kept in the cartridge's banks (GBC::Music#banked?).
           def reserve(memory, art:, effects: [], together: false, bar_rows: nil, slides: false, wobbles: false,
-                      shapes: false)
+                      shapes: false, banked_songs: false)
             Frame.reserve(memory, together: together)
             Picture.reserve(memory, lends: art.lends?, groups: art.groups?, bar_rows: bar_rows, rooms: art.rooms.any?)
             BigMaps.reserve(memory)
             Paint.reserve(memory, painting: art.painting?)
-            Music.reserve(memory, effects: effects, slides: slides, wobbles: wobbles, shapes: shapes)
+            Music.reserve(memory, effects: effects, slides: slides, wobbles: wobbles, shapes: shapes, banked: banked_songs)
           end
 
           # The runtime's sections: the processor's entry points, and everything else in one.
@@ -59,7 +60,10 @@ module VBlank
           # the list of cells for the blank (Runtime::BigMaps), or nil. +together+ is as for #reserve.
           def sections(memory, main:, art:, music_level: nil, songs: false, music: nil, frame_begins: nil, runs: [],
                        drawn_palettes: nil, big_maps: nil, together: false, bar_rows: nil)
-            asm = SM83.new("runtime", home: :fixed)
+            # A game whose songs are kept in banks notes every bank the runtime puts in view, for the
+            # music player to put back (SM83#select_rom_bank, Music::BANK_NOTED).
+            noted = memory[Music::BANK_NOTED] if Music.banked?(memory)
+            asm = SM83.new("runtime", home: :fixed, bank_noted_at: noted)
             Boot.emit(asm, main: "rt_main")
             Boot.emit_display_off(asm)
             Boot.emit_clear(asm)

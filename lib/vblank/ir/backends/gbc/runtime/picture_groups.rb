@@ -128,7 +128,7 @@ module VBlank
               asm.dec(:b)
               asm.push(:bc)
               asm.load(:a, [job + 3])
-              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
               asm.load(:a, [job + 1])
               asm.load(:l, :a)
               asm.load(:a, [job + 2])

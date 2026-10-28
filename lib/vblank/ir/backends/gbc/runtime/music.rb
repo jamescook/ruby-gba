@@ -50,8 +50,17 @@ module VBlank
 
             module_function
 
-            def reserve(memory, effects: [], slides: false, wobbles: false, shapes: false)
-              reserve_song_player(memory)
+            # SONGS KEPT IN THE CARTRIDGE'S BANKS (GBC::Music#sections): the bank the game's code put
+            # in view last (SM83#select_rom_bank notes it here), which the player puts back once it
+            # has read a part's notes from that part's own bank — kept at PART_BANK in [PART].
+            BANK_NOTED = "rt music bank noted"
+            PART_BANK = 6
+
+            def banked?(memory) = memory.reserved?(BANK_NOTED)
+
+            def reserve(memory, effects: [], slides: false, wobbles: false, shapes: false, banked: false)
+              memory.reserve(BANK_NOTED, 1) if banked
+              reserve_song_player(memory, banked)
               memory.reserve(WAVE_LOADED, 1) unless effects.empty?
               memory.reserve(NOTE_SLIDE, 1) if slides
               memory.reserve(WOBBLES, WOBBLE_BYTES * WOBBLE_VOICES) if wobbles
@@ -92,7 +101,7 @@ module VBlank
 
             def wobbles?(memory) = memory.reserved?(WOBBLES)
 
-            def reserve_song_player(memory)
+            def reserve_song_player(memory, banked)
               memory.reserve(NAMED, 1)
               memory.reserve(PLAYING, 1)
               memory.reserve(START, 1)
@@ -100,7 +109,7 @@ module VBlank
               memory.reserve(AGAIN, 1)
               memory.reserve(SONG, 2)
               memory.reserve(NEXT, PARTS * 2)
-              memory.reserve(PART, 6)
+              memory.reserve(PART, banked ? PART_BANK + 1 : PART_BANK)
               memory.reserve(HELD, HELD_VOICES)
               memory.reserve(TUNINGS, 4)
               memory.reserve(DUTIES, 2)
@@ -617,9 +626,14 @@ module VBlank
               asm.jump_relative(:z, "rt_music_tick_parts_done")
               asm.push(:bc)
               asm.push(:hl)
+              emit_part_bank_in_view(asm, memory) if banked?(memory)
               asm.call("rt_music_part")
+              if banked?(memory) # the game's bank back in view
+                asm.load(:a, [memory[BANK_NOTED]])
+                asm.select_rom_bank_unnoted
+              end
               asm.pop(:hl)
-              asm.load(:de, 10)
+              asm.load(:de, GBC::Music.part_entry_bytes(banked?(memory)))
               asm.add_hl(:de)
               asm.pop(:bc)
               asm.inc(:c)
@@ -692,7 +706,7 @@ module VBlank
               asm.load(:a, [:hli])
               asm.cp_a(GBC::Music::WAVE_VOICE)
               asm.jump_relative(:z, "rt_music_waveform_found")
-              asm.load(:de, 9)
+              asm.load(:de, GBC::Music.part_entry_bytes(banked?(memory)) - 1)
               asm.add_hl(:de)
               asm.dec(:b)
               asm.jump_relative("rt_music_waveform_part")
@@ -751,6 +765,19 @@ module VBlank
                 asm.label("rt_music_quiet_kept_#{voice}")
               end
               asm.ret
+            end
+
+            # The bank the part at HL keeps its notes in (the last byte of its entry,
+            # GBC::Music#emit_song) put in view, and kept at PART_BANK, without noting it: the bank
+            # noted stays the game's code's, for the player to put back. Keeps BC and HL.
+            def emit_part_bank_in_view(asm, memory)
+              asm.push(:hl)
+              asm.load(:de, GBC::Music::ENTRY_BANK)
+              asm.add_hl(:de)
+              asm.load(:a, [:hl])
+              asm.load([memory[PART] + PART_BANK], :a)
+              asm.select_rom_bank_unnoted
+              asm.pop(:hl)
             end
 
             # One part (HL = its entry, C = its number): each of its notes whose frame has come. With
@@ -824,6 +851,9 @@ module VBlank
                 asm.call("rt_claim")
                 asm.jump_relative(:c, "rt_music_part_passed")
               end
+              # A run of the cartridge tells a note by its place, and two banks have notes at one
+              # address, so A holds the note's bank as it arrives (GBC::SoundLog).
+              asm.load(:a, [part + PART_BANK]) if banked?(memory)
               asm.call("rt_music_note")
               # One note on, and the part done for this frame: a part plays one note a frame, as the
               # interpreter's does (Reference::Player#play_song_frame), so a second note written on

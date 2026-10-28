@@ -103,7 +103,7 @@ module VBlank
               end
               asm.load(:a, 1)
               asm.load_high(Memory::CURRENT_BANK, :a)
-              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
               # Sound on, both speakers at full, every voice to both.
               asm.load(:a, 0x80)
               asm.load_high(h::NR52, :a)

@@ -342,7 +342,7 @@ module VBlank
                 asm.load(:a, bank)
                 asm.load_high(h::VBK, :a)
                 asm.load_bank_of(:a, label)
-                asm.load([h::MBC_ROM_BANK_LOW], :a)
+                asm.select_rom_bank
                 asm.load(:hl, label)
                 asm.load(:de, first * 16)
                 asm.add_hl(:de)
@@ -375,7 +375,7 @@ module VBlank
               # The bank the game had in view, back in view after the runtime borrowed the window.
               asm.label("rt_bank_back")
               asm.load_high(:a, Memory::CURRENT_BANK)
-              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
               asm.ret
 
               # B bytes from HL to DE (none for 0 is 256).
@@ -1249,7 +1249,7 @@ module VBlank
               asm.load(:a, [:hli])
               asm.load(:d, :a) # DE = where they are
               asm.load(:a, [:hli])
-              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
               asm.load(:a, [:hli])
               asm.load_high(h::VBK, :a)
               asm.load(:a, [:hli])
@@ -1306,7 +1306,7 @@ module VBlank
               asm.sub_a(:b)
               asm.load([job], :a)
               asm.load(:a, [job + 5])
-              asm.load([h::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
               asm.load(:a, :b) # rows × 32 bytes = rows × 2 blocks of 16
               asm.add_a(:a)
               asm.dec(:a)
@@ -1572,7 +1572,7 @@ module VBlank
               asm.load(:a, [:hli])
               asm.load(:d, :a)
               asm.load(:a, [:hl])
-              asm.load([Console::GBCHardware::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
             end
 
             # The collision's working memory: a record for each of the two masks (width, height,
@@ -1749,7 +1749,7 @@ module VBlank
               asm.load(:a, [:hli])
               asm.load(:c, :a)
               asm.load(:a, [:hli])
-              asm.load([Console::GBCHardware::MBC_ROM_BANK_LOW], :a)
+              asm.select_rom_bank
               asm.load(:a, [:hli])
               asm.load(:h, [:hl])
               asm.load(:l, :a) # HL = its rows

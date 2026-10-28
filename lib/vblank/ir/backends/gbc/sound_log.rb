@@ -55,9 +55,13 @@ module VBlank
             @tables = places.sound_tables.to_h { |label, entry| [code.fetch(label).address, entry] }
             bytes = Music.note_bytes(Music.slides_in?(places.notes), Music.pans_in?(places.notes),
                                      Music.shapes_in?(places.notes), Music.wobbles_in?(places.notes))
+            # Each note by where it is. Songs kept in the cartridge's banks (GBC::Music#sections) put
+            # notes of two banks at one address, so there a note is known by its bank as well, which
+            # the player holds in A as the note arrives (Runtime::Music#emit_notes).
+            @banked = places.notes.each_key.any? { |label| code.fetch(label).bank.positive? }
             @notes = places.notes.each_with_object({}) do |(label, notes), at|
-              start = code.fetch(label).address
-              notes.each_with_index { |note, k| at[start + (k * bytes)] = note }
+              place = code.fetch(label)
+              notes.each_with_index { |note, k| at[note_key(place.bank, place.address + (k * bytes))] = note }
             end
             @routines = ROUTINES.filter_map { |name| [code.fetch(name).address, name] if code.key?(name) }.to_h
             # A sound effect starting (Runtime::Effects#emit_frame), and letting a voice go at its end
@@ -98,7 +102,7 @@ module VBlank
             arrivals.each do |pc, af, bc, _de, hl, _sp, _back, handed|
               case @routines[pc]
               when "rt_sound_writes" then @entries << @tables.fetch(handed)
-              when "rt_music_note" then note_arrived(@notes.fetch(hl - 2)) # handed past the note's frame
+              when "rt_music_note" then note_arrived(@notes.fetch(note_key(af >> 8, hl - 2))) # handed past the note's frame
               when "rt_music_note_voice" then voice_told(bc >> 8) if @note
               when "rt_music_quiet"
                 @music << [:stop_music] if @playing
@@ -114,7 +118,7 @@ module VBlank
                 @music << [:wobble, WOBBLE_TURNS.fetch(@routines[pc]), steps >= 0x80 ? steps - 0x100 : steps]
               when *SHAPE_CHANGES.keys
                 @music << [:duty, SHAPE_CHANGES.fetch(@routines[pc]), VBlank::Audio::Duty::NAMES.fetch((af >> 8) & 3)]
-              when "rt_sfx_note" then effect_note(@notes.fetch(hl - 2)) # handed past the note's frame
+              when "rt_sfx_note" then effect_note(@notes.fetch(note_key(0, hl - 2))) # in view, past the note's frame
               when :effect_starting then @music << [:sound_effect, @effects_starting.fetch(pc)]
               when :voice_let_go then voice_let_go(*@voices_let_go.fetch(pc))
               end
@@ -123,6 +127,10 @@ module VBlank
           end
 
           private
+
+          # What a note at +address+ in bank +bank+ is found by: its address alone, unless songs are
+          # kept in the banks.
+          def note_key(bank, address) = @banked ? [bank, address] : address
 
           # A note's entries, at once for music played at full, or once its loudness is known.
           def note_arrived(note)

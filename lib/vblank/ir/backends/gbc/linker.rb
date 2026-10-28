@@ -45,6 +45,10 @@ module VBlank
           # and it names the game's parts by what they are, never by the sections they went in.
           class TooBig < LoweringError; end
 
+          # ...the part always in view too full, which a game with songs can mend by keeping its
+          # songs' notes in the banks (GBC#build).
+          class TooBigForView < TooBig; end
+
           # Where each section went: its bank and the address of its first byte.
           Placed = Data.define(:section, :bank, :address)
 
@@ -137,10 +141,10 @@ module VBlank
             own = needed - placed.select { |p| p.section.holds }.sum { |p| p.section.size }
             raise Error, "the part of the cartridge always in view is #{needed} bytes, over #{BANK_SIZE}" if own > BANK_SIZE
 
-            raise TooBig, "#{DOES_NOT_FIT} The part of the cartridge that is always in view holds #{BANK_SIZE} " \
-                          "bytes. The game needs #{needed} bytes there. Of those, " \
-                          "#{taken_words(placed.map(&:section))}, and the framework's own code takes the rest. " \
-                          "To fix this, #{biggest(placed.map(&:section)).fix}."
+            raise TooBigForView, "#{DOES_NOT_FIT} The part of the cartridge that is always in view holds #{BANK_SIZE} " \
+                                 "bytes. The game needs #{needed} bytes there. Of those, " \
+                                 "#{taken_words(placed.map(&:section))}, and the framework's own code takes the rest. " \
+                                 "To fix this, #{biggest(placed.map(&:section)).fix}."
           end
 
           # One section bigger than a bank, which no placing can mend: the game's, when it is one of

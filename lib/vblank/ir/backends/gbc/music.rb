@@ -26,6 +26,13 @@ module VBlank
           # What the songs are to the author, for a cartridge too full for them (see Linker::TooBig).
           SONGS = SM83::Holding.new(what: "the game's songs", fix: "make its songs shorter, or use fewer of them")
 
+          # A PART'S ENTRY IN A SONG (#emit_song): its voice, its tone, how many notes each of its two
+          # lists holds and where each is — and in a game whose songs are kept in banks, at ENTRY_BANK,
+          # the bank they are in.
+          ENTRY_BANK = 10
+
+          def self.part_entry_bytes(banked) = ENTRY_BANK + (banked ? 1 : 0)
+
           # How many bytes a note takes in a part's list: when it starts, its tuning, its volume.
           NOTE_BYTES = 5
 
@@ -84,10 +91,15 @@ module VBlank
           # part has it, #tone_of), and the label of its notes and how many there are.
           EffectPart = Data.define(:voice, :tone, :label, :count)
 
-          def initialize(program)
+          # +banked+ keeps each song's notes in the cartridge's banks rather than the part always in
+          # view (#sections).
+          def initialize(program, banked: false)
             @songs = program.walk.select { |node| node.kind == :song }.uniq(&:name)
             @effect_names = Tunes.effects(program).uniq
+            @banked = banked
           end
+
+          def banked? = @banked
 
           # The number +name+ is played by.
           def number(name)
@@ -126,16 +138,23 @@ module VBlank
           # each part its voice, what the voice sounds like, and its two lists of notes. Then each
           # song's rank (#rank), and for each rank whether it is a sound effect's; and each sound
           # effect's notes, as it plays them once.
-          def section
+          #
+          # SONGS KEPT IN BANKS. The part of the cartridge always in view holds 16384 bytes, the
+          # framework's own code among them, so a game with much music cannot keep every note there.
+          # One whose songs do not fit (GBC#build) keeps each part's notes in a bank of the cartridge
+          # instead, a section a part, and its entry says which bank; the player puts that bank in
+          # view while it reads the part (Runtime::Music). What a song is — how long, its parts —
+          # and the sound effects' notes stay in view.
+          def sections
             asm = SM83.new("music", home: :fixed, holds: SONGS)
             asm.label("music_songs")
             @songs.each_index { |i| asm.data_words("music_song_#{i}") }
-            @songs.each_with_index { |song, i| emit_song(asm, song, i) }
+            parts = @songs.each_with_index.map { |song, i| emit_song(asm, song, i) }
             asm.label("music_waves")
             waveforms.each { |shape| asm.data_bytes(packed_waveform(shape)) }
             asm.data_bytes(0) # a label has to be somewhere
             emit_effects(asm) unless effects.empty?
-            asm.section
+            [asm.section, *parts.flatten]
           end
 
           # Every list of notes in the section, by its label: each note, in the order the list holds
@@ -268,6 +287,8 @@ module VBlank
             end
           end
 
+          # Song number +i+ into +asm+: its entry, and its parts' notes after it — or, for songs kept
+          # in banks, a section of each part's notes, handed back.
           def emit_song(asm, song, i)
             parts = voices_of(song)
             passes = Tunes.loop_passes(song)
@@ -279,13 +300,19 @@ module VBlank
               asm.data_bytes(voice, tone_of(part, voice))
               again = Music.again_shared?(pass) ? "first" : "again"
               asm.data_words(pass.first.length, pass.again.length, "music_notes_#{i}_#{p}_first", "music_notes_#{i}_#{p}_#{again}")
+              asm.data_bank_of("music_notes_#{i}_#{p}_first") if banked?
             end
-            parts.each_with_index do |(part, voice), p|
+            parts.each_with_index.filter_map do |(part, voice), p|
+              notes_asm = banked? ? SM83.new("music notes #{i} #{p}", home: :banked, holds: SONGS) : asm
               pass = passes.fetch(song.voices.index(part))
               Music.lists_kept(pass).each do |which, notes|
-                asm.label("music_notes_#{i}_#{p}_#{which}")
-                notes.each { |event| emit_note(asm, voice, part, event) }
+                notes_asm.label("music_notes_#{i}_#{p}_#{which}")
+                notes.each { |event| emit_note(notes_asm, voice, part, event) }
               end
+              next unless banked?
+
+              notes_asm.data_bytes(0) if notes_asm.here.zero? # a label has to be somewhere
+              notes_asm.section
             end
           end
 

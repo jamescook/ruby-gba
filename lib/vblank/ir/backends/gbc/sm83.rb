@@ -84,10 +84,13 @@ module VBlank
 
           attr_reader :bytes
 
-          def initialize(name, home: :banked, holds: nil)
+          # +bank_noted_at+ is where #select_rom_bank notes the bank it puts in view, or nil for code
+          # that need not note it (see #select_rom_bank).
+          def initialize(name, home: :banked, holds: nil, bank_noted_at: nil)
             @name = name
             @home = home
             @holds = holds
+            @bank_noted_at = bank_noted_at
             @bytes = +"".b
             @labels = {}
             @fixups = []
@@ -109,6 +112,22 @@ module VBlank
             Section.new(name: @name, bytes: @bytes.dup.freeze, labels: @labels.dup.freeze, fixups: @fixups.dup.freeze,
                         home: @home, holds: @holds)
           end
+
+          # BANK A OF THE CARTRIDGE PUT IN VIEW, in the window at 0x4000 that shows one bank at a time:
+          # the cartridge's memory bank controller is told it. The controller cannot be asked which
+          # bank it shows. So where the music player can interrupt the code to read a song kept in a
+          # bank (Runtime::Music), the code notes each bank it puts in view, at +bank_noted_at+, and
+          # the player puts that bank back when it is done. The bank is noted before the controller
+          # is told: an interruption between the two puts back the bank about to be shown, which
+          # the controller is then told again.
+          def select_rom_bank
+            load([@bank_noted_at], :a) if @bank_noted_at
+            select_rom_bank_unnoted
+          end
+
+          # ...without noting it: the music player's own bank, for the length of its reading, and
+          # the noted one put back after it.
+          def select_rom_bank_unnoted = load([Console::GBCHardware::MBC_ROM_BANK_LOW], :a)
 
           # --- data ---
 

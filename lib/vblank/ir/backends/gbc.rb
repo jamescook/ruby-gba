@@ -115,7 +115,9 @@ module VBlank
         # A game whose backgrounds need more tiles than the console holds at once is built again with
         # each screen bringing its own tiles in (Art::TooManyBackgroundTiles), and one whose
         # backgrounds draw from more lists of colours than it holds at once with each screen bringing
-        # its own colours in as well (Art::TooManyBackgroundLists).
+        # its own colours in as well (Art::TooManyBackgroundLists). And one whose part of the
+        # cartridge always in view is too full is built again with its songs' notes kept in the
+        # banks (Linker::TooBigForView, GBC::Music#sections).
         def build(program, title: "RUBYGBA")
           build_with_rooms_if_needed(program, title)
         rescue Art::TooManyBackgroundLists
@@ -136,14 +138,15 @@ module VBlank
           build_cartridge(program, title, lends: true, tile_rooms: tile_rooms, room_colors: room_colors)
         end
 
-        def build_cartridge(program, title, lends:, tile_rooms:, room_colors:)
+        def build_cartridge(program, title, lends:, tile_rooms:, room_colors:, banked_songs: false)
           memory = Memory.new
           lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends, tile_rooms: tile_rooms,
-                                           room_colors: room_colors)
+                                           room_colors: room_colors, banked_songs: banked_songs)
           # The runtime's places first, so they are in the half of work memory always in view.
           Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?,
                                   bar_rows: lowering.bar_rows, slides: lowering.music.slides?,
-                                  wobbles: lowering.music.wobbles?, shapes: lowering.music.shapes?)
+                                  wobbles: lowering.music.wobbles?, shapes: lowering.music.shapes?,
+                                  banked_songs: lowering.music.banked?)
           game = lowering.sections
           runs = lowering.run_uploads
           runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art, frame_begins: lowering.frame_begins,
@@ -151,9 +154,16 @@ module VBlank
                                              music: lowering.music, runs: runs, drawn_palettes: lowering.drawn_palettes,
                                              big_maps: lowering.big_map_places, together: lowering.groups_up_together?,
                                              bar_rows: lowering.bar_rows)
-          data = [*lowering.art.sections, *(lowering.music.any? ? [lowering.music.section] : [])]
-          linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END,
-                                                     clock: lowering.clock?).link
+          data = [*lowering.art.sections, *(lowering.music.any? ? lowering.music.sections : [])]
+          begin
+            linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END,
+                                                       clock: lowering.clock?).link
+          rescue Linker::TooBigForView
+            raise if banked_songs || !lowering.music.any?
+
+            return build_cartridge(program, title, lends: lends, tile_rooms: tile_rooms, room_colors: room_colors,
+                                                   banked_songs: true)
+          end
           routines = lowering.section_routines.map do |label, routine|
             placed = linked.sections.fetch(label)
             GameRoutine.new(bank: placed.bank, addresses: placed.address...(placed.address + placed.section.size), routine: routine)
