@@ -181,6 +181,48 @@ class TestSNESSongs < Minitest::Test
     assert_equal [0, 0], [dsp.getbyte(WAVE + ENVX), dsp.getbyte(NOISE + ENVX)]
   end
 
+  # A note's own volume, not its part's, on the wave and noise voices too, as the Color's player
+  # plays it: a hiss note at 5 of a part at 12 is 5 * 8 * 7/16 = 17.5, 18 ($12).
+  def test_a_noise_note_plays_at_its_own_volume
+    build = VBlank::IR::Build
+    part = VBlank::Audio::Music::Part
+    program = build.program(
+      build.enable_sound,
+      build.song(:drum, total_frames: 8, voices: [part.new(events: [[0, 4096, nil, 5]], noise: true, decay: :none)]),
+      build.play_song(:drum),
+      build.loop_(build.wait_vblank)
+    )
+    dsp = SNES::CheckedRun.new.run(program, frames: 3).dsp_registers
+
+    assert_equal 0x12, dsp.getbyte(NOISE)
+  end
+
+  # The wave part, after its rest, sounds again as the tune comes round (frame 12): its key-off
+  # cleared before its key-on.
+  def test_a_wave_part_sounds_again_after_its_rest
+    assert_equal 0x7F, parts_played(frames: 15).getbyte(WAVE + ENVX)
+  end
+
+  # A square part written after a wave part still plays on the first square voice, and stop_music
+  # lets go of the wave voice the song plays on.
+  def test_mixed_parts_and_stop_music
+    build = VBlank::IR::Build
+    part = VBlank::Audio::Music::Part
+    n = build.var_ref(:n)
+    program = build.program(
+      build.enable_sound,
+      build.song(:mix, total_frames: 16, voices: [part.new(events: [[0, 220]], wave: :sine), part.new(events: [[0, 440]])]),
+      build.play_song(:mix),
+      build.loop_(build.add(:n, 1), build.if_(build.binop(:==, n, build.int(4)), build.stop_music), build.wait_vblank)
+    )
+    sounding = SNES::CheckedRun.new.run(program, frames: 3).dsp_registers
+    stopped = SNES::CheckedRun.new.run(program, frames: 7).dsp_registers
+
+    assert_equal [0x0A, 0x07], [sounding.getbyte(FIRST + 2), sounding.getbyte(FIRST + 3)], "the square on voice 0"
+    assert_equal 0x7F, sounding.getbyte(WAVE + ENVX), "the wave part sounding"
+    assert_equal [0, 0], [stopped.getbyte(FIRST + ENVX), stopped.getbyte(WAVE + ENVX)], "both let go"
+  end
+
   private def parts_played(frames:)
     build = VBlank::IR::Build
     part = VBlank::Audio::Music::Part

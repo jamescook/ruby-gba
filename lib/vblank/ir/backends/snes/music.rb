@@ -68,10 +68,12 @@ module VBlank
             (@songs.index { |song| song.name == name } or raise LoweringError, "the song #{name.inspect} is not declared") + 1
           end
 
-          # Each wave part's waveform and loudness, as a `wave` names them (DSPWrites.wave_steps).
+          # Each wave part's waveform at each volume its notes play it at, as a `wave` names them
+          # (DSPWrites.wave_steps): a note's own volume, or the part's.
           def waves
-            @songs.flat_map(&:voices).select { |part| IR::Tunes.part_kind(part) == :wave }
-                  .map { |part| { shape: part.wave, volume: part.volume } }
+            @songs.flat_map(&:voices).select { |part| IR::Tunes.part_kind(part) == :wave }.flat_map do |part|
+              part.events.map { |_, _, _, volume| { shape: part.wave, volume: volume || part.volume } }.uniq
+            end
           end
 
           # Each song's parts, by [the song's name, its channel] (DSPWrites::Voicing).
@@ -87,9 +89,8 @@ module VBlank
             @songs.each { |song| refuse_parts!(song) }
             groups = [] # every group's commands, each once, in the order first met
             group = lambda do |entries, song = nil|
-              commands = entries.flat_map do |entry|
-                DSPWrites.for_entry(entry, voicing, song: song).map { |write| Runtime::Sound.command_for(write) } +
-                  [[GROUP_LOG, yield(entry), 0]]
+              commands = DSPWrites.each_entry_writes(entries, voicing, song: song).flat_map do |entry, writes|
+                writes.map { |write| Runtime::Sound.command_for(write) } + [[GROUP_LOG, yield(entry), 0]]
               end
               groups << commands unless groups.include?(commands)
               commands
@@ -140,7 +141,7 @@ module VBlank
                 events.map do |frame, frequency, _, volume|
                   [frame, group.call([[:note, song.name, frequency],
                                       [:voice, channel, song.name, frequency, volume || part.volume],
-                                      *wave_or_noise(part, frequency)])]
+                                      *wave_or_noise_entries(part, frequency)])]
                 end
               end
             end
@@ -148,7 +149,7 @@ module VBlank
 
           # What a note on the wave or noise voice also logs, as Reference::Player#log_wave_or_noise
           # says it: that voice's own entry, which is the note's DSP writes.
-          def wave_or_noise(part, frequency)
+          def wave_or_noise_entries(part, frequency)
             case IR::Tunes.part_kind(part)
             when :wave
               [frequency.zero? ? [:stop_wave] : [:wave, { shape: part.wave, frequency: frequency, volume: part.volume }]]
@@ -184,9 +185,8 @@ module VBlank
             kinds = song.voices.map { |part| IR::Tunes.part_kind(part) }
             return if kinds.count(:square) <= 2 && kinds.count(:wave) <= 1 && kinds.count(:noise) <= 1
 
-            raise LoweringError, "The song #{song.name.inspect} has more than one part on one of the voices. To fix " \
-                                 "this, write it for the square, wave and noise voices, one part each (two on the " \
-                                 "square voices)."
+            raise LoweringError, "The song #{song.name.inspect} has too many parts for one voice. A song can have two " \
+                                 "square parts, one wave part and one noise part. To fix this, remove the extra parts."
           end
         end
       end

@@ -321,24 +321,44 @@ module VBlank
             steps
           end
 
+          # THE WRITES A RUN OF THE LOG MEANS, in order, with what one entry says of the next:
+          #
+          # - the tune a [:stop_music] stops is the one whose note was logged last (or +song+ before
+          #   any), since a tune plays its first frame's notes, rests included, as it starts;
+          # - a song's note on the wave or noise voice plays at the note's own volume, which its
+          #   [:voice ...] entry carries, where the [:wave ...] or [:noise ...] entry after it carries
+          #   the part's (Reference::Player#log_wave_or_noise), as the Color's player plays it.
+          def writes(entries, voicing = NO_VOICING, song: nil)
+            each_entry_writes(entries, voicing, song: song).flat_map { |_, writes| writes }
+          end
+
+          # Each of +entries+ with the writes it means, as #writes works them out.
+          def each_entry_writes(entries, voicing = NO_VOICING, song: nil)
+            return enum_for(:each_entry_writes, entries, voicing, song: song) unless block_given?
+
+            note_volume = nil
+            entries.each do |entry|
+              song = entry[1] if entry.first == :note
+              played = note_volume && wave_or_noise_note?(entry) ? [entry.first, entry.last.merge(volume: note_volume)] : entry
+              note_volume = entry.first == :voice && !SQUARE_VOICES.key?(entry[1]) ? entry[4] : nil
+              yield entry, for_entry(played, voicing, song: song)
+            end
+          end
+
+          # A [:wave ...] or [:noise ...] entry that plays a note, not a rest.
+          def wave_or_noise_note?(entry) = %i[wave noise].include?(entry.first) && entry.last.is_a?(Hash)
+
           # What the registers hold after the sound log +entries+, by register, for each one written,
           # and FLG and KOFF, which the sound unit starts as at_power_on says and whose bits an entry
           # changes only some of. +voicing+ as for #for_entry.
-          #
-          # The tune a [:stop_music] stops is the one whose note was logged last: a tune plays its
-          # first frame's notes, rests included, as it starts.
           def after(entries, voicing = NO_VOICING)
             held = { FLAGS => SOUND_OFF, KEY_OFF => 0 }
-            song = nil
-            entries.each do |entry|
-              song = entry[1] if entry.first == :note
-              for_entry(entry, voicing, song: song).each do |register, *value|
-                if register == SET_BITS
-                  register, mask, bits = value
-                  held[register] = (held[register] & ~mask & 0xFF) | (bits & mask)
-                else
-                  held[register] = value.first
-                end
+            writes(entries, voicing).each do |register, *value|
+              if register == SET_BITS
+                register, mask, bits = value
+                held[register] = (held[register] & ~mask & 0xFF) | (bits & mask)
+              else
+                held[register] = value.first
               end
             end
             held

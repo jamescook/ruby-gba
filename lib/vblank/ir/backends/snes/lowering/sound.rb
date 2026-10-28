@@ -44,8 +44,8 @@ module VBlank
               @sound_entries = []
               @defined_sounds = @program.walk.select { |node| node.kind == :define_sound }.to_h { |node| [node.name, node.effect] }
               @music = SNES::Music.new(@program)
-              played = @program.walk.select { |node| node.kind == :wave }.map { |node| wave_params(node) }
-              @sound_waves = (played + @music.waves).map { |params| DSPWrites.wave_steps(params) }.uniq
+              verb_waves = @program.walk.select { |node| node.kind == :wave }.map { |node| wave_params(node) }
+              @sound_waves = (verb_waves + @music.waves).map { |params| DSPWrites.wave_steps(params) }.uniq
             end
 
             # What the build does not make of a game's music yet: a music volume, and its fades.
