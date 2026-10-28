@@ -100,7 +100,7 @@ module VBlank
       end
 
       Part = Data.define(:notes, :plays, :volume, :duty, :decay, :swell, :metallic, :envelope, :slide_up,
-                         :slide_down, :vibrato)
+                         :slide_down, :vibrato, :pan)
 
       class Part
         # +decay+ is how fast each note fades out, and +swell+ how fast it swells in, as a `song`
@@ -112,13 +112,15 @@ module VBlank
         # +slide_up+ and +slide_down+ are how each note slides its pitch, as a song block's part
         # says them (Music::VoiceContext#slide_up), and only the song's first square part can.
         # +vibrato+ is how each note wobbles its pitch, :none or { depth:, speed:, after: } with the
-        # wait in frames (Audio::Vibrato.said), and the square parts and the wave part can.
+        # wait in frames (Audio::Vibrato.said), and the square parts and the wave part can. +pan+ is
+        # the speaker each note plays from, :left, :right or :center (Audio::Pan.said), and every
+        # part but one that plays a recording can.
         #
         # +envelope+ shapes how each of this part's notes starts and ends — read only by a part
         # that plays a recording, since the console's own voices shape their own. A part that says
         # nothing takes whatever the instrument it plays was declared with.
         def initialize(notes:, plays: nil, volume: 12, duty: :half, decay: nil, swell: nil, metallic: false,
-                       envelope: nil, slide_up: nil, slide_down: nil, vibrato: nil)
+                       envelope: nil, slide_up: nil, slide_down: nil, vibrato: nil, pan: nil)
           super
         end
 
@@ -136,15 +138,16 @@ module VBlank
                                      fade: NoteFade.for_part(NoteFade.said(decay: decay, swell: swell, where: who),
                                                              drum: drum),
                                      slide: PitchSlide.said(up: slide_up, down: slide_down, where: who),
-                                     vibrato: Vibrato.said(vibrato, where: who))
+                                     vibrato: Vibrato.said(vibrato, where: who), pan: Pan.said(pan, where: who))
         end
       end
 
       # A note of a Score. +volume+ (0-15) is its loudness instead of its part's, +decay+ or
       # +swell+ how it fades out or swells in instead of how its part's notes do, and +slide_up+ or
-      # +slide_down+ how it slides its pitch, and +vibrato+ how it wobbles (see Part).
+      # +slide_down+ how it slides its pitch, +vibrato+ how it wobbles, and +pan+ the speaker it
+      # plays from (see Part).
       Note = Data.define(:at, :key, :length, :instrument, :volume, :envelope, :hz, :decay, :swell, :slide_up,
-                         :slide_down, :vibrato)
+                         :slide_down, :vibrato, :pan)
 
       class Note
         # A NOTE ON THE NOISE VOICE CAN GIVE +hz+ IN PLACE OF A KEY: how many times a second its
@@ -154,7 +157,7 @@ module VBlank
         # still plays the rung of its ladder nearest the rate (Sound.noise_rung), as it does for a
         # key.
         def initialize(at:, key: nil, length: nil, instrument: nil, volume: nil, envelope: nil, hz: nil,
-                       decay: nil, swell: nil, slide_up: nil, slide_down: nil, vibrato: nil)
+                       decay: nil, swell: nil, slide_up: nil, slide_down: nil, vibrato: nil, pan: nil)
           super
         end
 
@@ -169,6 +172,9 @@ module VBlank
 
         # How this note wobbles its pitch, when it says (an Audio::Vibrato), or nil.
         def wobble(part) = Vibrato.said(vibrato, where: "The note at tick #{at} of #{part.downcase}")
+
+        # The speaker this note plays from, when it says (an Audio::Pan), or nil.
+        def side(part) = Pan.said(pan, where: "The note at tick #{at} of #{part.downcase}")
 
         # How high the note is, in Hz — 0 for a rest. A note that gives +hz+ is that; a MIDI note
         # number is tuned the usual way, from A above middle C (number 69) at 440 Hz.
@@ -222,7 +228,7 @@ module VBlank
         def of(part, frames, total, who)
           notes = part.notes.sort_by(&:at)
           events = notes.each_with_index.flat_map do |note, n|
-            said = Music.without_trailing_nils([note.fade(who), note.slide(who), note.wobble(who)])
+            said = Music.without_trailing_nils([note.fade(who), note.slide(who), note.wobble(who), note.side(who)])
             on = [frames.at(note.at), note.frequency, note.instrument_name, note.volume,
                   Envelope.of(note.envelope, "a note"), *said]
             next [on] unless note.length

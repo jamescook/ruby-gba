@@ -46,9 +46,10 @@ module VBlank
             end
 
             # +effects+ are the game's (GBC::Music#effects), +by_rank+ the same highest rank first.
-            # +slides+ says a note of the game's music slides its pitch (GBC::Music#slides?), and
-            # +bytes+ is how many a note of it takes (GBC::Music.note_bytes).
-            def emit(asm, memory, effects, by_rank, slides: false, bytes: GBC::Music::NOTE_BYTES)
+            # +slides+ says a note of the game's music slides its pitch (GBC::Music#slides?), +pans+
+            # that one plays from one speaker (GBC::Music#pans?), and +bytes+ is how many a note of
+            # it takes (GBC::Music.note_bytes).
+            def emit(asm, memory, effects, by_rank, slides: false, pans: false, bytes: GBC::Music::NOTE_BYTES)
               emit_claim(asm, memory)
               emit_tune_rank(asm, memory)
               emit_sides(asm, memory, by_rank)
@@ -58,7 +59,7 @@ module VBlank
                 emit_ask(asm, memory, effect, effects, now: false)
                 emit_ask(asm, memory, effect, effects, now: true, by_rank: by_rank)
               end
-              emit_note(asm, memory, slides)
+              emit_note(asm, memory, slides, pans)
             end
 
             # rt_claim: may a note of rank C sound on the part's voice ([PART])? Carry set when a
@@ -357,14 +358,14 @@ module VBlank
             # It is not the music, so it keeps its own volume, and the voice no longer holds a note of
             # the song's for a new music level to reach. A run of the cartridge reads the note here
             # (GBC::SoundLog).
-            def emit_note(asm, memory, slides)
+            def emit_note(asm, memory, slides, pans)
               asm.label("rt_sfx_note")
               asm.load(:a, [:hli])
               asm.load(:e, :a)
               asm.load(:a, [:hli])
               asm.load(:d, :a)
               asm.load(:b, [:hl])
-              Music.emit_store_slide_and_vibrato(asm, memory, slides)
+              Music.emit_store_slide_speaker_vibrato(asm, memory, slides, pans)
               asm.load(:a, [memory[Music::PART]])
               asm.cp_a(Music::HELD_VOICES + 1)
               asm.jump(:nc, "rt_voice_write")

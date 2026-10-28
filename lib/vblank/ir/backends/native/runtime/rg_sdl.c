@@ -792,14 +792,20 @@ static void keep_sound_in_step(int waiting, int frame_bytes) {
 /* The sound of the frame that has just been played goes to the speaker. It is made whether or
  * not there is a speaker, since making it is what moves the voices on. */
 static void play_frame_sound(void) {
-  int16_t samples[RG_SOUND_FRAME_MOST];
-  int count = (int)rg_sound_render_frame(samples);
+  int16_t left[RG_SOUND_FRAME_MOST], right[RG_SOUND_FRAME_MOST];
+  int count = (int)rg_sound_render_frame(left, right);
   if (!speaker || count <= 0) return;
   /* Paused, or fast forwarding, the speaker is given nothing: it was emptied when that began. */
   if (rg_window_paused() || rg_window_fast_forwarding()) return;
-  rg_window_apply_volume(samples, (size_t)count);
+  /* The two speakers' samples side by side, a moment at a time, as the speaker takes them. */
+  int16_t samples[2 * RG_SOUND_FRAME_MOST];
+  for (int i = 0; i < count; i++) {
+    samples[2 * i] = left[i];
+    samples[(2 * i) + 1] = right[i];
+  }
+  rg_window_apply_volume(samples, (size_t)(2 * count));
 
-  int bytes = count * (int)sizeof samples[0];
+  int bytes = 2 * count * (int)sizeof samples[0];
   int waiting = SDL_GetAudioStreamQueued(speaker);
   keep_sound_in_step(waiting, bytes);
   if (waiting > SOUND_BEHIND_FRAMES * bytes) {
@@ -807,7 +813,7 @@ static void play_frame_sound(void) {
     return;
   }
   if (waiting < bytes) {
-    static const int16_t quiet[RG_SOUND_FRAME_MOST];
+    static const int16_t quiet[2 * RG_SOUND_FRAME_MOST];
     for (int i = 0; i < SOUND_AHEAD_FRAMES; i++) SDL_PutAudioStreamData(speaker, quiet, bytes);
     /* After a pause or fast forward the speaker is empty on purpose: not the game running late. */
     if (!speaker_emptied_on_purpose) sound_ran_dry++;
@@ -816,11 +822,11 @@ static void play_frame_sound(void) {
   SDL_PutAudioStreamData(speaker, samples, bytes);
 }
 
-/* One speaker's worth of whole numbers, as rg_sound.c makes them; SDL turns that into whatever
- * the computer's own sound wants. */
+/* Two speakers' worth of whole numbers, the left's and the right's a moment at a time, as
+ * rg_sound.c makes them; SDL turns that into whatever the computer's own sound wants. */
 static void open_speaker(void) {
   if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) return;
-  SDL_AudioSpec made = {SDL_AUDIO_S16, 1, RG_SOUND_RATE};
+  SDL_AudioSpec made = {SDL_AUDIO_S16, 2, RG_SOUND_RATE};
   speaker = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &made, NULL, NULL);
   if (speaker) SDL_ResumeAudioStreamDevice(speaker);
 }

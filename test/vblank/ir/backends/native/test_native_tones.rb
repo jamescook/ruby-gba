@@ -235,6 +235,35 @@ class TestNativeTones < Minitest::Test
     assert_native_sounds_like_the_console program, frames: 100, voices: [:square1]
   end
 
+  # A SONG'S PARTS ON ONE SPEAKER EACH: the melody on the left moving to the right for its second
+  # note, the bass on the right, the pad on the left and the drums on both. Each speaker sounds as
+  # the console's does, and a voice is never heard from the speaker it is not on. A beep then takes
+  # the bass's voice, and plays from both.
+  def test_a_songs_parts_play_from_their_own_speakers
+    program = program_of do
+      enable_sound
+      song :tune do
+        tempo 120
+        voice(:melody) { pan :left; note :A4, :half; note :C5, :half, pan: :right }
+        voice(:bass) { pan :right; duty :eighth; note :A3, :whole }
+        voice(:pad, plays: :wave) { pan :left; note :E4, :whole }
+        voice(:drums, plays: :noise) { note :C4, :whole, decay: :none }
+      end
+      play_song :tune
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 100).then { beep 880, duty: :half, decay: :none, volume: 12 }
+      end
+    end
+
+    assert_native_sounds_like_the_console program, frames: 130, voices: %i[square1 wave noise], side: :left
+    assert_native_sounds_like_the_console program, frames: 130, voices: %i[square1 square2 noise], side: :right
+    assert_equal [0], native_samples(program, frames: 95, only: :square2, side: :left).uniq, "the bass on the left"
+    assert_equal [0], native_samples(program, frames: 130, only: :wave, side: :right).uniq, "the pad on the right"
+    refute_equal [0], native_samples(program, frames: 130, only: :square2, side: :left).uniq, "the beep on the left"
+  end
+
   # The music turned down by hand and then faded out and back: a held note follows it.
   def test_the_music_volume_and_its_fades_are_heard
     program = program_of do

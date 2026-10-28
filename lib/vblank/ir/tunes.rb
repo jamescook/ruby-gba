@@ -114,12 +114,16 @@ module VBlank
       # HOW A NOTE WOBBLES ITS PITCH (an Audio::Vibrato), as the note or its part said it, or nil.
       def said_vibrato(part, event) = event[Audio::Music::Part::VIBRATO_SLOT] || part.vibrato
 
+      # THE SPEAKER A NOTE PLAYS FROM, as the note or its part said it: :left or :right, or nil for
+      # both (Audio::Pan.side_of) — which a note that says :center plays from, in a part that pans.
+      def note_side(part, event) = Audio::Pan.side_of(event[Audio::Music::Part::PAN_SLOT] || part.pan)
+
       # A NOTE SETTING ITS VOICE, as every backend's log says it: [:voice, channel, who, frequency,
       # volume], then the note's fade, its slide and its wobble when it said them (#said_fade,
-      # #said_slide, #said_vibrato), with a nil before one said after it. A rest says none of them:
-      # nothing sounds to change.
-      def voice_entry(channel, who, frequency, volume, fade: nil, slide: nil, vibrato: nil)
-        said = frequency.positive? ? Audio::Music.without_trailing_nils([fade, slide, vibrato]) : []
+      # #said_slide, #said_vibrato), and its side when it is one speaker (#note_side), with a nil
+      # before one said after it. A rest says none of them: nothing sounds to change.
+      def voice_entry(channel, who, frequency, volume, fade: nil, slide: nil, vibrato: nil, side: nil)
+        said = frequency.positive? ? Audio::Music.without_trailing_nils([fade, slide, vibrato, side]) : []
         [:voice, channel, who, frequency, volume, *said]
       end
 

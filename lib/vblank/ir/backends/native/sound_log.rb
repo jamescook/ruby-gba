@@ -78,12 +78,13 @@ module VBlank
             when "beep" then [:beep, @effects.fetch(numbers[0])]
             when "note" then [:note, @songs.fetch(numbers[0]).name, @pitches.fetch(numbers[1])]
             when "voice"
-              # A fade or a slide of -1 is none, said before one that came after it.
+              # A fade, a slide or a wobble of -1 is none, said before one that came after it. The
+              # speaker is its bits (Audio::Pan.bits_of), and a note on both prints none.
               fade = Audio::NoteFade.from_bits(numbers[4]) if numbers[4] && numbers[4] >= 0
               slide = Audio::PitchSlide.from_bits(numbers[5]) if numbers[5] && numbers[5] >= 0
-              vibrato = Audio::Vibrato.from_bits(numbers[6]) if numbers[6]
+              vibrato = Audio::Vibrato.from_bits(numbers[6]) if numbers[6] && numbers[6] >= 0
               Tunes.voice_entry(numbers[0], @songs.fetch(numbers[1]).name, @pitches.fetch(numbers[2]), numbers[3],
-                                fade: fade, slide: slide, vibrato: vibrato)
+                                fade: fade, slide: slide, vibrato: vibrato, side: Audio::Pan.side_from_bits(numbers[7]))
             when "wobble" then [:wobble, numbers[0], numbers[1]]
             when "loudness" then [:loudness, numbers[0], numbers[1]]
             when "mixer_loudness" then [:loudness, [:mixer, numbers[0]], numbers[1]]

@@ -136,6 +136,29 @@ module RuntimeSounds
     assert_sounds_like_the_native_runtime program, frames: 130
   end
 
+  # Parts on one speaker each, a note moving to the other side, the drums on both, and a beep that
+  # takes the right-hand part's voice back to both.
+  def test_parts_on_their_own_speakers_sound_as_on_the_native_runtime
+    program = sound_program do
+      enable_sound
+      song :tune do
+        tempo 120
+        voice(:melody) { pan :left; note :A4, :half; note :C5, :half, pan: :right }
+        voice(:bass) { pan :right; note :A3, :whole }
+        voice(:pad, plays: :wave) { pan :left; note :E4, :whole }
+        voice(:drums, plays: :noise) { note :C4, :quarter; note :C5, :quarter, pan: :left }
+      end
+      count = var :count, 0
+      play_song :tune
+      game_loop do
+        count.add! 1
+        (count == 90).then { beep 880, duty: :half, decay: :none, volume: 12 }
+      end
+    end
+
+    assert_sounds_like_the_native_runtime program, frames: 130
+  end
+
   # The wave voice told what to play at each loudness, then stopped; hits on the noise voice at
   # each of its pitches, plain and metallic. Each voice is heard on its own as well, the way a test
   # of one voice hears it.
@@ -259,16 +282,18 @@ module RuntimeSounds
   # Runs of frames to the buttons held through them, as a frame number to its buttons.
   def held(runs) = runs.flat_map { |frames, buttons| frames.map { |frame| [frame, buttons] } }.to_h
 
-  # Every sample of +frames+ frames, the same from both runtimes, and some of them not silence.
-  # +only+ hears one voice (:square1, :square2, :wave, :noise).
+  # Every sample of +frames+ frames, from each speaker, the same from both runtimes, and some of
+  # them not silence. +only+ hears one voice (:square1, :square2, :wave, :noise).
   def assert_sounds_like_the_native_runtime(program, frames:, only: nil, buttons: {})
-    native, under_test = [:native, runtime_under_test].map do |on|
-      VBlank::Diagnostics::SoundRecording.of(program, on: on, frames: frames, buttons: buttons, only: only)
-    end
+    %i[left right].each do |side|
+      native, under_test = [:native, runtime_under_test].map do |on|
+        VBlank::Diagnostics::SoundRecording.of(program, on: on, frames: frames, buttons: buttons, only: only, side: side)
+      end
 
-    refute native.samples.all?(&:zero?), "the native runtime made no sound, so there is nothing to compare"
-    first = native.first_difference(under_test)
-    assert_nil first, "the two runtimes' sound differs first at sample #{first} " \
-                      "(#{native.samples.length} samples against #{under_test.samples.length})"
+      refute native.samples.all?(&:zero?), "the native runtime made no sound on the #{side}, so there is nothing to compare"
+      first = native.first_difference(under_test)
+      assert_nil first, "the two runtimes' sound on the #{side} differs first at sample #{first} " \
+                        "(#{native.samples.length} samples against #{under_test.samples.length})"
+    end
   end
 end

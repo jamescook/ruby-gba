@@ -90,7 +90,8 @@
  *       or its part said so: the voice's four bits of it (Audio::NoteFade#bits) with SAID_FADE
  *       set, or 0 to leave it to the voice (see note_fade) — and in the same number, how it
  *       slides its pitch when it or its part said so: SAID_SLIDE set, and the slide's seven bits
- *       (Audio::PitchSlide#bits) from SLIDE_AT up (see note_slide)
+ *       (Audio::PitchSlide#bits) from SLIDE_AT up (see note_slide), how it wobbles (SAID_VIBRATO
+ *       and VIBRATO_AT), and the speaker it plays from in the top two bits (see note_pan)
  *
  * rg_game_note_sounds: how many rows, then eight numbers each — the recording a note plays, how
  * far through it the mixer reads for each of its own samples (the note's pitch), how far back it
@@ -142,6 +143,10 @@
 #define VIBRATO_FOUR_BITS 0xF  /* the depth, */
 #define VIBRATO_SPEED_AT 4     /* ...the speed above it, */
 #define VIBRATO_AFTER_AT 8     /* ...and the wait above that */
+#define PAN_AT 30              /* ...and at the top of a note, its speaker (Audio::Pan.bits_of): */
+#define PAN_BITS 3
+#define PAN_LEFT 1             /* the left alone, */
+#define PAN_RIGHT 2            /* ...the right alone, or nought for both */
 #define NUMBERS_PER_NOTE_SOUND 8
 #define NUMBERS_PER_BEEP 4
 #define NUMBERS_PER_WAVE 3
@@ -482,7 +487,26 @@ void rg_sound_hear_only(int32_t voice) { heard_only = voice; }
 
 static int32_t heard(int32_t voice, int32_t sample) { return heard_only == 0 || heard_only == voice ? sample : 0; }
 
-int32_t rg_sound_render_frame(int16_t *samples) {
+/* WHICH SPEAKER EACH CONSOLE VOICE PLAYS FROM (Audio::Pan), by the voice's number: PAN_LEFT,
+ * PAN_RIGHT, or nought for both, which every voice is at power-on. A song's note sets its voice's
+ * as it starts, and the game's own sound sets its voice back to both. */
+static int32_t sides[RG_NOISE_VOICE + 1];
+
+/* A sample of a voice, added to the speakers it plays from. */
+static void add_to_sides(int32_t voice, int32_t sample, int32_t *left, int32_t *right) {
+  if (sides[voice] != PAN_RIGHT) *left += sample;
+  if (sides[voice] != PAN_LEFT) *right += sample;
+}
+
+/* Past what a sample holds, it is held at the end: left to wrap, the loudest moment of a game
+ * would come out as a jump to the other side of nought. */
+static int16_t held_in_range(int32_t sum) {
+  if (sum > INT16_MAX) return INT16_MAX;
+  if (sum < INT16_MIN) return INT16_MIN;
+  return (int16_t)sum;
+}
+
+int32_t rg_sound_render_frame(int16_t *left, int16_t *right) {
   sample_carry += (uint64_t)RG_SOUND_RATE * FRAME_TICKS;
   int32_t count = (int32_t)(sample_carry >> TICKS_A_SECOND_BITS);
   sample_carry &= ((uint64_t)1 << TICKS_A_SECOND_BITS) - 1;
@@ -498,16 +522,19 @@ int32_t rg_sound_render_frame(int16_t *samples) {
       slide_clock = 0;
       for (int32_t voice = 1; voice <= RG_SQUARE_VOICES; voice++) slide_one_tick(&squares[voice - 1]);
     }
-    int32_t sum = 0; /* every voice moves on, heard or not */
-    for (int32_t voice = 1; voice <= RG_SQUARE_VOICES; voice++) sum += heard(voice, square_sample(&squares[voice - 1]));
-    sum += heard(RG_WAVE_VOICE, wave_sample());
-    sum += heard(RG_NOISE_VOICE, noise_sample());
-    if (mixed_count > 0) sum += mixed[(int64_t)i * mixed_count / count] * MIX_STEP;
-    /* Past what a sample holds, it is held at the end: left to wrap, the loudest moment of a
-     * game would come out as a jump to the other side of nought. */
-    if (sum > INT16_MAX) sum = INT16_MAX;
-    if (sum < INT16_MIN) sum = INT16_MIN;
-    samples[i] = (int16_t)sum;
+    int32_t on_left = 0, on_right = 0; /* every voice moves on, heard or not */
+    for (int32_t voice = 1; voice <= RG_SQUARE_VOICES; voice++) {
+      add_to_sides(voice, heard(voice, square_sample(&squares[voice - 1])), &on_left, &on_right);
+    }
+    add_to_sides(RG_WAVE_VOICE, heard(RG_WAVE_VOICE, wave_sample()), &on_left, &on_right);
+    add_to_sides(RG_NOISE_VOICE, heard(RG_NOISE_VOICE, noise_sample()), &on_left, &on_right);
+    if (mixed_count > 0) { /* the recordings play from both */
+      int32_t sample = mixed[(int64_t)i * mixed_count / count] * MIX_STEP;
+      on_left += sample;
+      on_right += sample;
+    }
+    left[i] = held_in_range(on_left);
+    right[i] = held_in_range(on_right);
   }
   return count;
 }
@@ -525,7 +552,10 @@ void rg_sound_log(const char *format, ...) {
 
 /* --- the sounds the game makes itself --- */
 
-void rg_sound_enabled(void) { rg_sound_log("enabled"); }
+void rg_sound_enabled(void) {
+  rg_sound_log("enabled");
+  for (int32_t voice = 1; voice <= RG_NOISE_VOICE; voice++) sides[voice] = 0; /* every voice from both */
+}
 
 /* The game's own sound takes a voice, which then wobbles no song's note (Reference::Player#game_sound_on). */
 static void wobble_stop(int32_t voice);
@@ -535,6 +565,7 @@ void rg_sound_beep(int32_t which) {
   const int32_t *beep = &rg_game_beeps[1 + (which * NUMBERS_PER_BEEP)];
   rg_sound_log("beep %d", (int)which);
   wobble_stop(BEEP_VOICE);
+  sides[BEEP_VOICE] = 0;
   square_start(BEEP_VOICE, beep[0], beep[1], beep[2], beep[3], 0);
 }
 
@@ -543,6 +574,7 @@ void rg_sound_wave(int32_t which) {
   const int32_t *said = &rg_game_waves[1 + (which * NUMBERS_PER_WAVE)];
   rg_sound_log("wave %d", (int)which);
   wobble_stop(RG_WAVE_VOICE);
+  sides[RG_WAVE_VOICE] = 0;
   wave_load(said[0]);
   wave_start(said[1], said[2]);
   loaded_waveform = -1; /* no player's waveform is there now (see wave_put_in) */
@@ -559,6 +591,7 @@ void rg_sound_noise(int32_t which) {
   if (which < 0 || which >= rg_game_hits[0]) rg_fault("there is no hit number %d", (int)which);
   const int32_t *hit = &rg_game_hits[1 + (which * NUMBERS_PER_HIT)];
   rg_sound_log("noise %d", (int)which);
+  sides[RG_NOISE_VOICE] = 0;
   noise_start(hit[0], hit[1], hit[2], hit[3]);
 }
 
@@ -933,23 +966,25 @@ static int32_t note_fade(const part_walk *part, const int32_t *note) {
  * bits of it, or 0 to hold it. Only the song's first square part can say one. */
 static int32_t note_slide(const int32_t *note) { return (note[4] >> SLIDE_AT) & SLIDE_BITS; }
 
+/* THE SPEAKER A NOTE PLAYS FROM (IR::Tunes.note_side): PAN_LEFT, PAN_RIGHT, or nought for both. */
+static int32_t note_pan(const int32_t *note) { return (int32_t)(((uint32_t)note[4] >> PAN_AT) & PAN_BITS); }
+
 /* The log's line for a note setting its voice (IR::Tunes.voice_entry): with the note's fade after it
- * when it said one, its slide after that and its wobble after that when it said them — with -1, for
- * none, before one said after it. */
+ * when it said one, its slide, its wobble and its speaker after that when it said them — with -1,
+ * for none, before one said after it. */
 static void log_voice_set(int32_t voice, int32_t who, int32_t pitch, int32_t volume, const int32_t *note) {
-  int32_t fade = note[4] & SAID_FADE ? note[4] & (FADE_UP | FADE_STEP_BITS) : -1;
-  int32_t slide = note[4] & SAID_SLIDE ? note_slide(note) : -1;
-  if (note[4] & SAID_VIBRATO) {
-    rg_sound_log("voice %d %d %d %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume, (int)fade,
-                 (int)slide, (int)note_vibrato(note));
-  } else if (note[4] & SAID_SLIDE) {
-    rg_sound_log("voice %d %d %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume, (int)fade,
-                 (int)slide);
-  } else if (note[4] & SAID_FADE) {
-    rg_sound_log("voice %d %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume, (int)fade);
-  } else {
-    rg_sound_log("voice %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume);
+  int32_t said[] = {note[4] & SAID_FADE ? note[4] & (FADE_UP | FADE_STEP_BITS) : -1,
+                    note[4] & SAID_SLIDE ? note_slide(note) : -1,
+                    note[4] & SAID_VIBRATO ? note_vibrato(note) : -1,
+                    note_pan(note) ? note_pan(note) : -1};
+  int32_t count = 4;
+  while (count > 0 && said[count - 1] < 0) count--;
+  char line[64];
+  int at = snprintf(line, sizeof line, "voice %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume);
+  for (int32_t i = 0; i < count && at < (int)sizeof line; i++) {
+    at += snprintf(line + at, sizeof line - (size_t)at, " %d", (int)said[i]);
   }
+  rg_sound_log("%s", line);
 }
 
 /* One note of a part, due on this frame: said in the log the way the interpreter's player says
@@ -971,6 +1006,7 @@ static void play_note(part_walk *part, const int32_t *note) {
   rg_sound_log("note %d %d", (int)playing, (int)pitch);
   log_voice_set(part->voice, playing, pitch, volume, note);
   wobble_start(part->voice, note);
+  sides[part->voice] = note_pan(note);
   switch (part->kind) {
   case PART_WAVE:
     if (level_variable) hold_note((held_note){part->voice, 0, written, 0, 0, 0});
@@ -1109,6 +1145,7 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
   rg_sound_log("note %d %d", (int)number, (int)pitch);
   log_voice_set(part->voice, number, pitch, volume, note);
   wobble_start(part->voice, note);
+  sides[part->voice] = note_pan(note);
   switch (part->kind) {
   case PART_WAVE:
     if (pitch == 0) {

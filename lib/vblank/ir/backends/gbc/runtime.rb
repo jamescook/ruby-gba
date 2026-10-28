@@ -74,7 +74,7 @@ module VBlank
             Sound.emit(asm)
             Music.emit(asm, memory, level: music_level, songs: songs, effects: music&.effects || [],
                                     by_rank: music&.effects_by_rank || [], fades: music&.fades? || false,
-                                    slides: music&.slides? || false)
+                                    slides: music&.slides? || false, pans: music&.pans? || false)
             Saving.emit(asm, memory)
             emit_start(asm)
             emit_main(asm, main)

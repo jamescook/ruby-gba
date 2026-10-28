@@ -49,7 +49,8 @@ module VBlank
           def initialize(places)
             code = places.code
             @tables = places.sound_tables.to_h { |label, entry| [code.fetch(label).address, entry] }
-            bytes = Music.note_bytes(Music.slides_in?(places.notes), Music.wobbles_in?(places.notes))
+            bytes = Music.note_bytes(Music.slides_in?(places.notes), Music.pans_in?(places.notes),
+                                     Music.wobbles_in?(places.notes))
             @notes = places.notes.each_with_object({}) do |(label, notes), at|
               start = code.fetch(label).address
               notes.each_with_index { |note, k| at[start + (k * bytes)] = note }
@@ -143,7 +144,8 @@ module VBlank
           end
 
           def voice_log_entry(note) = Tunes.voice_entry(note.voice, note.song, note.pitch, note.volume,
-                                                        fade: note.fade, slide: note.slide, vibrato: note.vibrato)
+                                                        fade: note.fade, slide: note.slide, vibrato: note.vibrato,
+                                                        side: note.side)
 
           # An effect over, letting a voice it held go quiet (Reference::Player#finish_effect).
           def voice_let_go(name, voice)

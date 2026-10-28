@@ -94,19 +94,20 @@ module VBlank
             # +level+ is where the game keeps the music's level, or nil for a game that never sets it.
             # +songs+ says whether the game has any songs at all; +effects+ are its sound effects
             # (GBC::Music#effects), and +by_rank+ the same in the order a frame plays them. +fades+
-            # says whether any note says how it fades or swells (GBC::Music#fades?), and +slides+
-            # whether any slides its pitch (GBC::Music#slides?). Whether any wobbles is whether its
-            # place was reserved (#wobbles?).
-            def emit(asm, memory, level:, songs:, effects: [], by_rank: [], fades: false, slides: false)
+            # says whether any note says how it fades or swells (GBC::Music#fades?), +slides+ whether
+            # any slides its pitch (GBC::Music#slides?), and +pans+ whether any plays from one speaker
+            # (GBC::Music#pans?). Whether any wobbles is whether its place was reserved (#wobbles?).
+            def emit(asm, memory, level:, songs:, effects: [], by_rank: [], fades: false, slides: false, pans: false)
               sharing = !effects.empty?
               emit_game_side(asm, memory, sharing)
               return emit_no_songs(asm) unless songs
 
-              bytes = GBC::Music.note_bytes(slides, wobbles?(memory))
+              bytes = GBC::Music.note_bytes(slides, pans, wobbles?(memory))
               emit_tick(asm, memory, level, sharing)
-              emit_notes(asm, memory, level, sharing, fades, slides, bytes)
+              emit_notes(asm, memory, level, sharing, fades, slides, pans, bytes)
               emit_wobbles(asm, memory) if wobbles?(memory)
-              Effects.emit(asm, memory, effects, by_rank, slides: slides, bytes: bytes) if sharing
+              emit_set_speakers(asm, memory) if pans
+              Effects.emit(asm, memory, effects, by_rank, slides: slides, pans: pans, bytes: bytes) if sharing
             end
 
             # HL = HL × +bytes+, the bytes a note takes (GBC::Music.note_bytes), with DE its number too:
@@ -120,13 +121,20 @@ module VBlank
             end
 
             # The slide of the note whose volume is at HL, kept for rt_voice_write: the byte after the
-            # volume, in a game where a note slides. And in one where a note wobbles, the voice set
-            # to wobble the note from the two after that (rt_wobble_start). Keeps B and DE.
-            def emit_store_slide_and_vibrato(asm, memory, slides)
+            # volume, in a game where a note slides. In one where a note plays from one speaker, the
+            # voice's speakers set from the byte after that (rt_set_speakers). And in one where a
+            # note wobbles, the voice set to wobble the note from the two after those
+            # (rt_wobble_start). Keeps B and DE.
+            def emit_store_slide_speaker_vibrato(asm, memory, slides, pans)
               if slides
                 asm.inc(:hl)
                 asm.load(:a, [:hl])
                 asm.load([memory[NOTE_SLIDE]], :a)
+              end
+              if pans
+                asm.inc(:hl)
+                asm.load(:a, [:hl])
+                asm.call("rt_set_speakers")
               end
               return unless wobbles?(memory)
 
@@ -260,6 +268,51 @@ module VBlank
                 asm.load_high(high, :a) # no start bit: the note carries on
                 asm.label(still)
               end
+              asm.ret
+            end
+
+            # WHICH SPEAKERS A VOICE PLAYS FROM is a pair of switches for each voice in NR51: the four
+            # voices' right switches in bits 0 to 3 and their left ones in bits 4 to 7, all on since
+            # power-on (Runtime::Boot).
+            #
+            # rt_set_speakers: A = a note's speaker (Audio::Pan.bits_of), the part's voice ([PART])
+            # set to it — the left alone, the right alone, or both — and the other voices' switches
+            # left as they are. Keeps BC, DE and HL.
+            def emit_set_speakers(asm, memory)
+              pan = VBlank::Audio::Pan
+              asm.label("rt_set_speakers")
+              asm.push(:bc)
+              asm.load(:c, :a) # the speaker
+              asm.load(:a, [memory[PART]])
+              asm.load(:b, :a)
+              asm.load(:a, 0x11) # the first voice's two switches, moved up to this voice's
+              asm.label("rt_set_speakers_shift")
+              asm.dec(:b)
+              asm.jump_relative(:z, "rt_set_speakers_found")
+              asm.add_a(:a)
+              asm.jump_relative("rt_set_speakers_shift")
+              asm.label("rt_set_speakers_found")
+              asm.load(:b, :a) # this voice's two switches
+              asm.load(:a, :c)
+              asm.cp_a(pan::LEFT_BITS)
+              asm.load(:a, :b)
+              asm.jump_relative(:nz, "rt_set_speakers_not_left")
+              asm.and_a(0xF0)
+              asm.jump_relative("rt_set_speakers_chosen")
+              asm.label("rt_set_speakers_not_left")
+              asm.load(:a, :c)
+              asm.cp_a(pan::RIGHT_BITS)
+              asm.load(:a, :b)
+              asm.jump_relative(:nz, "rt_set_speakers_chosen")
+              asm.and_a(0x0F)
+              asm.label("rt_set_speakers_chosen")
+              asm.load(:c, :a) # the switches it is on
+              asm.load_high(:a, Console::GBCHardware::NR51)
+              asm.or_a(:b)
+              asm.xor_a(:b) # this voice's switches off
+              asm.or_a(:c)
+              asm.load_high(Console::GBCHardware::NR51, :a)
+              asm.pop(:bc)
               asm.ret
             end
 
@@ -569,7 +622,7 @@ module VBlank
             # +fades+, a note's fade comes out of its tuning's top four bits (GBC::Music::FADE_SHIFT)
             # and goes under its volume. With +slides+, a note on the first square voice writes its
             # slide (the byte after its volume) to the voice's sweep register before it starts.
-            def emit_notes(asm, memory, level, sharing, fades, slides, bytes)
+            def emit_notes(asm, memory, level, sharing, fades, slides, pans, bytes)
               h = Console::GBCHardware
               part = memory[PART]
               asm.label("rt_music_part")
@@ -657,7 +710,7 @@ module VBlank
               asm.load(:a, [:hli])
               asm.load(:d, :a)
               asm.load(:b, [:hl]) # its volume, times the music's level over 16
-              emit_store_slide_and_vibrato(asm, memory, slides)
+              emit_store_slide_speaker_vibrato(asm, memory, slides, pans)
               asm.load(:a, :b)
               asm.load([memory[NOTE_VOLUME]], :a)
               if level

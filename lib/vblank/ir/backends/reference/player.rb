@@ -239,7 +239,8 @@ module VBlank
             vibrato = IR::Tunes.said_vibrato(part, event) if frequency.positive?
             @log << IR::Tunes.voice_entry(channel, who, frequency, event[3] || part.volume,
                                           fade: IR::Tunes.said_fade(part, event),
-                                          slide: IR::Tunes.said_slide(part, event), vibrato: vibrato)
+                                          slide: IR::Tunes.said_slide(part, event), vibrato: vibrato,
+                                          side: IR::Tunes.note_side(part, event))
             if Audio::Vibrato.moves?(vibrato)
               @wobbles[channel] = IR::Tunes::Wobble.starting(vibrato)
             else

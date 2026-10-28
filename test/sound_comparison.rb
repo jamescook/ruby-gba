@@ -259,14 +259,17 @@ module SoundComparison
   # +frames+ frames of +program+. +buttons+ maps a frame (from 1) to the buttons held in it; the
   # console starts a frame or two apart from the desktop build, so hold a button for a few frames
   # rather than one. +voices+ is the two square voices unless it is said, and every one of them
-  # has to be heard: name the voices the run uses, and leave out one it never does.
+  # has to be heard: name the voices the run uses, and leave out one it never does. +side+ is the
+  # speaker both are heard from, the left unless it says the right.
   #
   # For the same reason a button reaches the two on DIFFERENT PASSES of the game, which matters
   # where the game is racing something of its own; "The console starts its game a frame or two
   # after the desktop build" in .claude/testing/native-sound.md says how to hold one so it does not.
-  def assert_native_sounds_like_the_console(program, frames:, buttons: {}, voices: SQUARE_VOICES)
-    console = voices.to_h { |voice| [voice, console_voice(program, voice, frames: frames + MOST_FRAMES_APART, buttons: buttons)] }
-    native = voices.to_h { |voice| [voice, native_voice(program, voice, frames: frames, buttons: buttons)] }
+  def assert_native_sounds_like_the_console(program, frames:, buttons: {}, voices: SQUARE_VOICES, side: :left)
+    console = voices.to_h do |voice|
+      [voice, console_voice(program, voice, frames: frames + MOST_FRAMES_APART, buttons: buttons, side: side)]
+    end
+    native = voices.to_h { |voice| [voice, native_voice(program, voice, frames: frames, buttons: buttons, side: side)] }
     later = frames_console_starts_later!(console, native)
     differences = [later, later - 1, later + 1].map { |apart| differences_lined_up(console, native, apart, frames) }.min_by(&:length)
 
@@ -289,9 +292,10 @@ module SoundComparison
     frames.select { |frame| loudest.positive? && frame.loudness >= loudest * READABLE_SHARE }.sum(&:waves_broken)
   end
 
-  # One voice of the cartridge's sound in the emulator, with the other voices left out of the mix.
-  def console_voice(program, voice, frames:, buttons: {})
-    samples = console_samples(program, frames: frames, buttons: buttons, only: voice)
+  # One voice of the cartridge's sound in the emulator, with the other voices left out of the mix,
+  # from the speaker on +side+.
+  def console_voice(program, voice, frames:, buttons: {}, side: :left)
+    samples = console_samples(program, frames: frames, buttons: buttons, only: voice, side: side)
     Heard.new(kind: kind_of(voice), samples: voice == :wave ? without_drift(samples) : samples,
               rate: CONSOLE_RATE, full_jump: full_jump(:console))
   end
@@ -317,8 +321,9 @@ module SoundComparison
   end
 
   # The same voice of the desktop build's sound.
-  def native_voice(program, voice, frames:, buttons: {})
-    Heard.new(kind: kind_of(voice), samples: native_samples(program, frames: frames, buttons: buttons, only: voice),
+  def native_voice(program, voice, frames:, buttons: {}, side: :left)
+    Heard.new(kind: kind_of(voice), samples: native_samples(program, frames: frames, buttons: buttons, only: voice,
+                                                                     side: side),
               rate: Native::HeadlessRun::SOUND_RATE, full_jump: full_jump(:native))
   end
 
@@ -335,15 +340,16 @@ module SoundComparison
     end
   end
 
-  # The cartridge's sound in the emulator: its left speaker, every voice or +only+ one. Asked of
-  # the emulator directly, because here it is the answer key and not the thing under test
-  # (`require_emulator!` skips on a native run, for a test that is about the cartridge).
-  def console_samples(program, frames:, buttons: {}, only: nil)
-    Recording.of(program, on: :cartridge, frames: frames, buttons: buttons, only: only).samples
+  # The cartridge's sound in the emulator: its left speaker unless +side+ says the right, every
+  # voice or +only+ one. Asked of the emulator directly, because here it is the answer key and not
+  # the thing under test (`require_emulator!` skips on a native run, for a test that is about the
+  # cartridge).
+  def console_samples(program, frames:, buttons: {}, only: nil, side: :left)
+    Recording.of(program, on: :cartridge, frames: frames, buttons: buttons, only: only, side: side).samples
   end
 
-  def native_samples(program, frames:, buttons: {}, only: nil)
-    Recording.of(program, on: :native, frames: frames, buttons: buttons, only: only).samples
+  def native_samples(program, frames:, buttons: {}, only: nil, side: :left)
+    Recording.of(program, on: :native, frames: frames, buttons: buttons, only: only, side: side).samples
   end
 
   # How far the wave jumps on a square note at full volume, on the console or the desktop build:

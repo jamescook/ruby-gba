@@ -77,6 +77,8 @@ module VBlank
       INIT_AUDIO = 0x10
       AUDIO_S16 = 0x8010 # 16-bit samples, the low byte first
       SAMPLE_BYTES = 2 # ...so two bytes each
+      SPEAKERS = 2 # the left's sample and the right's, a moment at a time
+      MOMENT_BYTES = SAMPLE_BYTES * SPEAKERS
       AUDIO_DEVICE_DEFAULT_PLAYBACK = 0xFFFFFFFF
 
       # The most frames' worth of sound kept waiting before a frame is thrown away. Played live, the
@@ -250,16 +252,16 @@ module VBlank
         (from_keys + @pads.values.flat_map { |pad| pad_held(pad) }).uniq
       end
 
-      # A frame's sound, +samples+ 16-bit numbers at +rate+ a second, into the speaker's queue. The
-      # speaker is opened the first time, at that rate.
-      def play_sound(samples, rate)
+      # A frame's sound, the left speaker's +samples+ and the +right+ one's, 16-bit numbers at +rate+
+      # a second, into the speaker's queue. The speaker is opened the first time, at that rate.
+      def play_sound(samples, rate, right = samples)
         speaker = open_speaker_once(rate) or return
         return if samples.empty?
 
-        bytes = samples.length * SAMPLE_BYTES
+        bytes = samples.length * MOMENT_BYTES
         return if @sdl.SDL_GetAudioStreamQueued(speaker) > SOUND_BEHIND_FRAMES * bytes
 
-        @sdl.SDL_PutAudioStreamData(speaker, samples.pack("s<*"), bytes)
+        @sdl.SDL_PutAudioStreamData(speaker, samples.zip(right).flatten.pack("s<*"), bytes)
       end
 
       # Seconds of sound waiting for the speaker, or nil before the first frame's sound opens one,
@@ -267,7 +269,7 @@ module VBlank
       def sound_waiting
         return nil unless live?(@speaker)
 
-        @sdl.SDL_GetAudioStreamQueued(@speaker) / SAMPLE_BYTES / @speaker_rate.to_f
+        @sdl.SDL_GetAudioStreamQueued(@speaker) / MOMENT_BYTES / @speaker_rate.to_f
       end
 
       # The window was closed, or Escape is down, as SDL last heard it (#show reads what SDL has
@@ -502,16 +504,17 @@ module VBlank
 
       def live?(pointer) = pointer && !pointer.null?
 
-      # The speaker, opened at +rate+ the first time and the same one every time after: one
-      # speaker's worth of 16-bit samples, which SDL turns into whatever the computer's own sound
-      # wants. Nil on a computer whose sound SDL cannot open, which then plays the game silent.
+      # The speaker, opened at +rate+ the first time and the same one every time after: two
+      # speakers' worth of 16-bit samples, the left's and the right's a moment at a time, which SDL
+      # turns into whatever the computer's own sound wants. Nil on a computer whose sound SDL cannot
+      # open, which then plays the game silent.
       def open_speaker_once(rate)
         return @speaker if @speaker_tried
 
         @speaker_tried = true
         return nil if @sdl.SDL_InitSubSystem(INIT_AUDIO).zero?
 
-        spec = [AUDIO_S16, 1, rate].pack("Lll")
+        spec = [AUDIO_S16, SPEAKERS, rate].pack("Lll")
         speaker = @sdl.SDL_OpenAudioDeviceStream(AUDIO_DEVICE_DEFAULT_PLAYBACK, spec, nil, nil)
         return nil if speaker.null?
 

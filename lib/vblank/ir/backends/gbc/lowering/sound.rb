@@ -111,7 +111,23 @@ module VBlank
               effect = VBlank::Audio::Sound.resolve_effect(node.tone, duty: node.duty, decay: node.decay,
                                                             volume: node.volume, defined: @defined_sounds)
               emit_stop_wobble(BEEP_VOICE)
+              emit_speakers_both(BEEP_VOICE)
               sound_writes(VBlank::Audio::Sound::Registers.beep_writes(**effect.to_h), [:beep, effect])
+            end
+
+            # The game's own sound on +voice+ plays from both speakers, whichever a song's note left
+            # its voice at (Runtime::Music#emit_set_speakers). The screen's interrupt, where the player
+            # sets a voice's speakers, is held off while they are read and written, so it cannot set
+            # one between the two and have it undone. Nothing in a game where every note plays from
+            # both.
+            def emit_speakers_both(voice)
+              return unless @music.pans?
+
+              @asm.di
+              @asm.load_high(:a, Console::GBCHardware::NR51)
+              @asm.or_a(0x11 << (voice - 1))
+              @asm.load_high(Console::GBCHardware::NR51, :a)
+              @asm.ei
             end
 
             # The square voice a `beep` plays on, the song's second square part's.
@@ -130,12 +146,14 @@ module VBlank
             def emit_noise(node)
               hit = VBlank::Audio::Sound.resolve_noise(node.preset, pitch: node.pitch, decay: node.decay,
                                                         volume: node.volume, metallic: node.metallic)
+              emit_speakers_both(GBC::Music::NOISE_VOICE)
               sound_writes(VBlank::Audio::Sound::Registers.noise_hit_writes(**hit), [:noise, hit])
             end
 
             def emit_wave(node)
               samples = VBlank::Audio::Sound.wavetable(node.shape)
               emit_stop_wobble(GBC::Music::WAVE_VOICE)
+              emit_speakers_both(GBC::Music::WAVE_VOICE)
               sound_writes(VBlank::Audio::Sound::Registers.wave_start_writes(samples, frequency: node.frequency,
                                                                                         volume: node.volume),
                            [:wave, { shape: node.shape, frequency: node.frequency, volume: node.volume }])

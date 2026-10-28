@@ -35,11 +35,12 @@ module VBlank
         @rate = nil
       end
 
-      def play_sound(samples, rate)
+      # The left speaker's sound is kept, as a recording is one speaker's (Diagnostics::SoundRecording).
+      def play_sound(samples, rate, right = samples)
         @log << FrameSound.new(at: now, waiting: sound_waiting, samples: samples.length)
         @samples.concat(samples)
         @rate = rate
-        super
+        super(samples, rate, right)
       end
 
       # Every sample handed to the speaker so far, one after another, or nil before any was.

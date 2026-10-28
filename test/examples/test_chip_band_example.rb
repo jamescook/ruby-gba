@@ -5,8 +5,9 @@ require VBlank.root.join("examples/chip_band").to_s
 
 # The chip band example (examples/chip_band.rb): a list of tunes on the console's own voices, the
 # one the cursor is on playing. HELD NOTES holds every note; FADING NOTES is the same notes,
-# faded and swelled by the voices; SLIDING NOTES slides the lead's pitch, and WOBBLING NOTES
-# wobbles it. Played on every lowering, on the console each run plays a game as.
+# faded and swelled by the voices; SLIDING NOTES slides the lead's pitch, WOBBLING NOTES wobbles
+# it, and LEFT AND RIGHT spreads the parts across the two speakers. Played on every lowering, on
+# the console each run plays a game as.
 class TestChipBandExample < Minitest::Test
   NoteFade = VBlank::Audio::NoteFade
 
@@ -64,5 +65,15 @@ class TestChipBandExample < Minitest::Test
     assert_equal vibrato.new(depth: 4, speed: 4, after: 14), vibratos[1], "the lead waits an eighth"
     assert_equal vibrato.new(depth: 2, speed: 8, after: 0), vibratos[2], "the chords wobble slightly and slowly"
     assert(log.any? { |entry| entry.first == :wobble }, "and the voices move")
+  end
+
+  # The [:voice] entry names a note's speaker last, after its fade, slide and wobble.
+  def test_the_fifth_tune_spreads_its_parts_across_the_speakers
+    sides = log_after(4).select { |entry| entry.first == :voice && entry[2] == :spread && entry[3].positive? }
+                        .group_by { |entry| entry[1] }.transform_values { |entries| entries.map { |entry| entry[8] }.uniq }
+
+    assert_equal [:left], sides[1], "the lead on the left"
+    assert_equal [:right], sides[2], "the chords on the right"
+    assert_equal [nil, :left, :right].sort_by(&:to_s), sides[4].sort_by(&:to_s), "the kicks on both, the hats side to side"
   end
 end

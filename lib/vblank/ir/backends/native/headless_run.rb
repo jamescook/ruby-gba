@@ -98,8 +98,9 @@ module VBlank
           # Every variable as the run ended, each moment of the run, and the sound log in the
           # interpreter's words (see SoundLog) — which, read from an input script or a watching
           # block, are as they stood at the frame it is asked about. +sound+ is the sound
-          # itself, one speaker's worth as whole numbers, for a run asked to record it.
-          attr_reader :vars, :moments, :audio, :sound
+          # itself, the left speaker's as whole numbers, for a run asked to record it, and
+          # +sound_right+ the right speaker's.
+          attr_reader :vars, :moments, :audio, :sound, :sound_right
 
           # The sound log as the run made it, every entry, whatever a test did to #audio: a test may
           # clear that one as it watches, the way it may clear the interpreter's, and this is what
@@ -332,7 +333,7 @@ module VBlank
                 play_frames(exe, frames, ["--picture-out", pictures.path, *sound_options(dir), *save_options(dir),
                                           *held_options, *clock_options])
               end
-              @sound = File.binread(File.join(dir, "sound")).unpack("s<*") if @records_sound
+              read_sound(File.join(dir, "sound")) if @records_sound
               @save.replace_with_sav(File.binread(save_file(dir)), from: "The save memory the program wrote") if @keeps_save
             end
           ensure
@@ -340,6 +341,13 @@ module VBlank
           end
 
           def save_file(dir) = File.join(dir, "save")
+
+          # The program writes the two speakers' samples a moment at a time, the left's first.
+          def read_sound(path)
+            samples = File.binread(path).unpack("s<*")
+            @sound = samples.each_slice(2).map(&:first)
+            @sound_right = samples.each_slice(2).map(&:last)
+          end
 
           # A game that names save memory is handed this run's, as the .sav file the program
           # starts from and writes back when it ends (see #play) — and a cut waiting on it, as

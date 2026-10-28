@@ -27,9 +27,9 @@ end
 # once the frame boundary has passed, and the buttons the player answers are read for the pass
 # that starts.
 def rg_driver_wait_vblank
-  samples = rg_sound_render_frame
+  left, right = rg_sound_render_frame
   rg_frame_begins
-  buttons = @rg_live.buttons_after(rg_screen_shown, samples)
+  buttons = @rg_live.buttons_after(rg_screen_shown, left, right)
   throw :rg_live_stop, :player if buttons.nil?
 
   rg_buttons_read(buttons)

@@ -36,6 +36,12 @@
 #      short note stays straight and a long one blooms.
 #   2. The chords wobble slightly and slowly from the start, a string section.
 #
+# LEFT AND RIGHT is the tune spread across the two speakers, the way a band stands on a stage
+# (best heard on headphones):
+#   1. The lead plays from the left (`pan :left`) and the chords from the right.
+#   2. The drums play from both, and the hats between the kicks step from one side to the other
+#      (`pan: :left`, `pan: :right` on a note of their own).
+#
 # Run it to build examples/chip_band.gba and examples/chip_band.gbc:
 #   ruby examples/chip_band.rb
 
@@ -47,6 +53,7 @@ module ChipBand
     { name: :fading, label: "FADING NOTES" },
     { name: :sliding, label: "SLIDING NOTES" },
     { name: :wobbling, label: "WOBBLING NOTES" },
+    { name: :spread, label: "LEFT AND RIGHT" },
   ])
 
   # The tune, as four bars of notes every version plays: the lead's [note, length] and the
@@ -155,6 +162,32 @@ module ChipBand
       voice :drums, plays: :noise do |v|
         v.volume 9
         4.times { DRUMS.each { |pitch, length, fade| v.note pitch, length, **fade } }
+      end
+    end
+
+    song :spread do
+      tempo 132
+      voice :lead do |v|
+        v.duty :half
+        v.pan :left
+        LEAD.each { |pitch, length| v.note pitch, length }
+      end
+      voice :chords do |v|
+        v.duty :quarter
+        v.volume 6
+        v.pan :right
+        CHORDS.each { |pitch| v.note pitch, :whole }
+      end
+      # The two hats of each bar, the first on the left and the second on the right.
+      voice :drums, plays: :noise do |v|
+        v.volume 9
+        hats = %i[left right]
+        4.times do
+          DRUMS.each do |pitch, length, fade|
+            side = pitch == 4000 ? { pan: hats.first.tap { hats.rotate! } } : {}
+            v.note pitch, length, **fade, **side
+          end
+        end
       end
     end
 

@@ -52,20 +52,30 @@ module VBlank
 
       # +program+ played for +frames+ frames on +on+ — :cartridge, the cartridge of the console it is
       # built for, or one of the runtimes written again from the native one (:native, :js, :ruby) —
-      # with +buttons+ (a frame number, from 1, to the buttons held through it).
-      def self.of(program, on:, frames:, buttons: {}, only: nil)
+      # with +buttons+ (a frame number, from 1, to the buttons held through it), heard from the
+      # speaker on +side+, :left or :right.
+      def self.of(program, on:, frames:, buttons: {}, only: nil, side: :left)
+        refuse_unknown_side!(side)
         frame_seconds = program.described_console.frame_seconds
         if on == :cartridge
-          return new(samples: cartridge_samples(program, frames, buttons, only), rate: CARTRIDGE_RATE,
+          return new(samples: cartridge_samples(program, frames, buttons, only, side), rate: CARTRIDGE_RATE,
                      frame_seconds: frame_seconds)
         end
 
         run = RUNTIMES.fetch(on) do
           raise ArgumentError, "on: must be :cartridge, #{RUNTIMES.keys.map(&:inspect).join(', ')}, not #{on.inspect}"
         end
-        new(samples: runtime_samples(IR::Backends.const_get(run)::HeadlessRun.new, program, frames, buttons, only),
+        new(samples: runtime_samples(IR::Backends.const_get(run)::HeadlessRun.new, program, frames, buttons, only, side),
             rate: IR::Backends::Native::HeadlessRun::SOUND_RATE, frame_seconds: frame_seconds)
       end
+
+      def self.refuse_unknown_side!(side)
+        return if %i[left right].include?(side)
+
+        raise ArgumentError, "side: is #{side.inspect}. A recording is of one speaker. To fix this, give " \
+                             "`side: :left` or `side: :right`."
+      end
+      private_class_method :refuse_unknown_side!
 
       # The lowering whose run with no window plays each runtime, by the name +of+ takes. Named,
       # and looked up when asked, since the lowerings load after the readers (and a test in a
@@ -148,19 +158,21 @@ module VBlank
       class << self
         private
 
-        def cartridge_samples(program, frames, buttons, only)
+        # The emulator hands both speakers over a moment at a time, the left's first.
+        def cartridge_samples(program, frames, buttons, only, side)
           Emulator.load!
           keys = ->(frame) { IR::Buttons.mask(buttons.fetch(frame + 1, [])) }
           cartridge = Console.for(program.described_console.name).builder.cartridge_for(program, title: "HEARD")
           verifier = Verifier.new(cartridge, frames: 0, keys: keys)
           verifier.hearing(only: only) if only
           verifier.step(frames)
-          verifier.audio_samples.each_slice(2).map(&:first) # the left speaker
+          verifier.audio_samples.each_slice(2).map { |left, right| side == :left ? left : right }
         end
 
-        def runtime_samples(run, program, frames, buttons, only)
+        def runtime_samples(run, program, frames, buttons, only, side)
           run.recording_sound(only: only && VOICES.fetch(only))
-          run.input_each_frame { |frame| buttons.fetch(frame, []) }.run(program, frames: frames).sound
+          played = run.input_each_frame { |frame| buttons.fetch(frame, []) }.run(program, frames: frames)
+          side == :left ? played.sound : played.sound_right
         end
       end
     end

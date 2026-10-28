@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "sound_comparison"
+require "speakers"
 
 # THE COLOR CARTRIDGE'S SOUND, for a wobble its music player moves a frame at a time: the run's log
 # says the player made each move, but not that the voice was told. Read off the cartridge's own
@@ -10,6 +11,7 @@ require "sound_comparison"
 # cartridge holds for the same notes (test/vblank/ir/backends/native/test_native_tones.rb).
 class TestGBCTones < Minitest::Test
   include SoundComparison
+  include Speakers
 
   private def color_program(&block)
     b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
@@ -83,5 +85,37 @@ class TestGBCTones < Minitest::Test
     pitches = held_pitches(program, :square1, frames: 60)
     assert_includes pitches, 537, "C5, seven steps above"
     assert_includes pitches, 508, "...and seven below"
+  end
+
+  # PARTS ON ONE SPEAKER EACH, the drums on both — and the game's own beep, hit and tone, which take
+  # the voices of parts on one speaker, play from both again.
+  def test_each_part_plays_from_its_own_speaker
+    program = color_program do
+      enable_sound
+      song :tune do
+        tempo 120
+        voice(:melody) { |v| v.pan :left; v.note :A4, :whole }
+        voice(:harmony) { |v| v.pan :right; v.note :E4, :whole }
+        voice(:pad, plays: :wave) { |v| v.pan :left; v.note :E3, :whole }
+        voice(:drums, plays: :noise) { |v| v.note :C4, :whole, decay: :none }
+      end
+      play_song :tune
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 50).then do
+          beep 880, duty: :half, decay: :none, volume: 12
+          noise :kick, decay: :none
+          wave :sawtooth, :A3, volume: :half
+        end
+      end
+    end
+
+    { square1: :left, square2: :right, wave: :left, noise: :both }.each do |voice, side|
+      assert_heard_from side, loudest_on_each_side(program, voice, frames: 45, from: 15), voice
+    end
+    %i[square2 wave noise].each do |voice|
+      assert_heard_from :both, loudest_on_each_side(program, voice, frames: 80, from: 60), "the game's own #{voice}"
+    end
   end
 end

@@ -52,7 +52,9 @@ module VBlank
         @pictures << Picture.new(pixels: pixels.dup, width: width, height: height)
       end
 
-      def play_sound(samples, rate)
+      # The left speaker's sound is kept. The right one's is as long, so it says nothing more about
+      # when the speaker runs out.
+      def play_sound(samples, rate, _right = samples)
         @sounds << samples
         @sound_rate = rate
         return unless @speaker

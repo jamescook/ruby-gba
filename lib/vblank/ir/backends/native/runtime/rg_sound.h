@@ -80,11 +80,12 @@ void rg_music_follow_level(const int32_t *level);
 /* One frame of the player, at the start of each frame (rg_frame_begins). */
 void rg_music_frame(void);
 
-/* The sound of the frame that has just been played, written to +samples+ (room for
- * RG_SOUND_FRAME_MOST); gives back how many. Asked once a frame, at the frame's end and before
- * rg_frame_begins starts the next: a beep the game made during the frame is then in that frame's
- * sound, where the console plays it, and not a frame behind. */
-int32_t rg_sound_render_frame(int16_t *samples);
+/* The sound of the frame that has just been played, the left speaker's written to +left+ and the
+ * right's to +right+ (room for RG_SOUND_FRAME_MOST each); gives back how many each. Asked once a
+ * frame, at the frame's end and before rg_frame_begins starts the next: a beep the game made
+ * during the frame is then in that frame's sound, where the console plays it, and not a frame
+ * behind. */
+int32_t rg_sound_render_frame(int16_t *left, int16_t *right);
 
 /* One line of the sound log, said the way printf says it, handed to the driver as it happens. */
 void rg_sound_log(const char *format, ...);

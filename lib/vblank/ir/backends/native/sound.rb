@@ -37,6 +37,11 @@ module VBlank
           SAID_VIBRATO = 1 << 13
           VIBRATO_AT = 14
 
+          # ...and at the top, the speaker it plays from (Audio::Pan.bits_of), nought for both, so
+          # it needs nothing said beside it (rg_sound.c's PAN_AT). The top bit is the sign's, so a
+          # note on the right alone is a negative number.
+          PAN_AT = 30
+
           private
 
           def prepare_sound
@@ -325,8 +330,8 @@ module VBlank
           # hold a fraction. Then how it fades or swells, when its part or the note said so
           # (IR::Tunes.said_fade): the voice's four bits of it, and SAID_FADE beside them; 0 for a
           # note that leaves it to the voice, and for a rest. With them, in the same number, how it
-          # slides its pitch when it or its part said so (IR::Tunes.said_slide), and how it wobbles
-          # (IR::Tunes.said_vibrato).
+          # slides its pitch when it or its part said so (IR::Tunes.said_slide), how it wobbles
+          # (IR::Tunes.said_vibrato), and which speaker it plays from (IR::Tunes.note_side).
           def encoded_note(note, part, kind)
             at, pitch, _, volume = note
             volume ||= part.volume
@@ -340,7 +345,8 @@ module VBlank
             wobble = Tunes.said_vibrato(part, note) unless pitch.zero?
             said = (fade ? SAID_FADE | fade.bits : 0) | (slide ? SAID_SLIDE | (slide.bits << SLIDE_AT) : 0) |
                    (wobble ? SAID_VIBRATO | (wobble.bits << VIBRATO_AT) : 0)
-            [at, @sound_log.pitch_number(pitch), heard, last, said]
+            side = pitch.zero? ? 0 : Audio::Pan.bits_of(Tunes.note_side(part, note))
+            [at, @sound_log.pitch_number(pitch), heard, last, Int32.wrap(said | (side << PAN_AT))]
           end
 
           # EVERYTHING A RECORDED NOTE IS BUT HOW LOUD, the interpreter's way

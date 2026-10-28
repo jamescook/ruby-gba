@@ -117,13 +117,18 @@ static void write_save_file(void) {
   exit(1);
 }
 
-/* The sound of the frame that has just been played, written down. A machine that keeps its
- * numbers the other way round would write them the other way round; every machine this is built
- * for keeps the low byte first. */
+/* The sound of the frame that has just been played, written down: a sample of the left speaker,
+ * then the right's at the same moment, and so on. A machine that keeps its numbers the other way
+ * round would write them the other way round; every machine this is built for keeps the low byte
+ * first. */
 static void write_frame_sound(void) {
-  int16_t samples[RG_SOUND_FRAME_MOST];
-  int32_t count = rg_sound_render_frame(samples);
-  if (sound_out) fwrite(samples, sizeof samples[0], (size_t)count, sound_out);
+  int16_t left[RG_SOUND_FRAME_MOST], right[RG_SOUND_FRAME_MOST], both[2 * RG_SOUND_FRAME_MOST];
+  int32_t count = rg_sound_render_frame(left, right);
+  for (int32_t i = 0; i < count; i++) {
+    both[2 * i] = left[i];
+    both[(2 * i) + 1] = right[i];
+  }
+  if (sound_out) fwrite(both, sizeof both[0], (size_t)(2 * count), sound_out);
 }
 
 /* A whole picture as one line: +word+ and then every pixel, row by row, as four hex digits. */

@@ -12,8 +12,8 @@ module VBlank
     #
     #   show(pixels, width, height)  the picture, as the screen shows it (15-bit colours, a row at a time),
     #                                which the game draws over next frame: a device that keeps it copies it
-    #   play_sound(samples, rate)    the sound of the frame just shown, one speaker's worth of 16-bit
-    #                                samples, +rate+ a second
+    #   play_sound(left, rate, right) the sound of the frame just shown, the left speaker's 16-bit
+    #                                samples and the right's, +rate+ a second each
     #   sound_waiting                seconds of sound the speaker has still to play, or nil for a
     #                                device with no speaker (yet)
     #   held_buttons(pass)           the buttons held as picture number +pass+ is shown (1, 2, 3, …),
@@ -92,13 +92,16 @@ module VBlank
       # A speaker opens with the first frame's sound, so the first pass is played on the clock, and
       # paces the play from the second on. The first pass is the frame the game sets itself up in,
       # and counts the frames it took on the clock, which can be more than one.
-      def buttons_after(pixels, samples)
+      #
+      # +left+ and +right+ are the two speakers' sound; a sound that is the same from both can be
+      # handed over once.
+      def buttons_after(pixels, left, right = left)
         speed = @uncapped ? 1 : @device.fast_forward_speed(@passes + 1)
         if speed > 1
           play_fast_forward(pixels, speed)
         else
           end_fast_forward if @fast_frame_began
-          play_at_console_speed(pixels, samples)
+          play_at_console_speed(pixels, left, right)
         end
         leave_pause_out_of_pacing
         return nil if @device.stop? || @passes == @stop_after_passes
@@ -125,11 +128,11 @@ module VBlank
         end
       end
 
-      def play_at_console_speed(pixels, samples)
+      def play_at_console_speed(pixels, left, right)
         wait_for_frame_end unless @paced_by_speaker
         @passes += 1
         @device.show(pixels, @game.width, @game.height)
-        @device.play_sound(samples, @game.sound_rate)
+        @device.play_sound(left, @game.sound_rate, right)
         if @paced_by_speaker
           wait_for_speaker
         else

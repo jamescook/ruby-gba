@@ -137,10 +137,11 @@ def rg_driver_sound_logged(line)
 end
 
 # The sound of the frame that has just been played, written down, two bytes a sample with the low
-# byte first. Worked out whether or not anyone is listening, so the voices are where they would be.
+# byte first: a sample of the left speaker, then the right's at the same moment, and so on. Worked
+# out whether or not anyone is listening, so the voices are where they would be.
 def rg_headless_write_frame_sound
-  samples = rg_sound_render_frame
-  @rg_sound_out&.write(samples.pack("s<*"))
+  left, right = rg_sound_render_frame
+  @rg_sound_out&.write(left.zip(right).flatten.pack("s<*"))
 end
 
 # For a game that mixes recordings: the slice made since the last moment ("mix" and its samples),

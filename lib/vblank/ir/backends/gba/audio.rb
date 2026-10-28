@@ -62,6 +62,7 @@ module VBlank
             effect = VBlank::Audio::Sound.resolve_effect(node.tone, duty: node.duty, decay: node.decay,
                                                        volume: node.volume, defined: @defined_sounds)
             emit_stop_wobble(Lane.new(:square, BEEP_CHANNEL))
+            emit_speakers_both(BEEP_CHANNEL)
             emit_register_writes(VBlank::Audio::Sound::Registers.beep_writes(**effect.to_h))
           end
 
@@ -74,6 +75,7 @@ module VBlank
           def emit_noise(node)
             hit = VBlank::Audio::Sound.resolve_noise(node.preset, pitch: node.pitch, decay: node.decay,
                                                      volume: node.volume, metallic: node.metallic)
+            emit_speakers_both(NOISE_CHANNEL)
             emit_register_writes(VBlank::Audio::Sound::Registers.noise_hit_writes(**hit))
           end
 
@@ -82,6 +84,7 @@ module VBlank
           def emit_wave(node)
             samples = VBlank::Audio::Sound.wavetable(node.shape)
             emit_stop_wobble(Lane.new(:wave, WAVE_CHANNEL))
+            emit_speakers_both(WAVE_CHANNEL)
             emit_register_writes(VBlank::Audio::Sound::Registers.wave_start_writes(samples, frequency: node.frequency, volume: node.volume))
             emit_forget_waveform
           end
@@ -157,11 +160,15 @@ module VBlank
           # all three read the same row and the player copies two halfwords whichever it is.
           SQUARE_ROW = 8
 
-          # ...and in a game where a note wobbles, a word more after them: the note's vibrato
-          # (Audio::Vibrato#bits, nought for a note that holds still), which no register takes and
-          # the player keeps for the frames after (#emit_start_wobble).
+          # ...and in a game where a note wobbles or plays from one speaker, a word more after them:
+          # the note's vibrato in its low half (Audio::Vibrato#bits, nought for a note that holds
+          # still), which no register takes and the player keeps for the frames after
+          # (#emit_start_wobble), and its speaker above (Audio::Pan.bits_of, nought for both; see
+          # #emit_set_speakers).
           WOBBLE_AT = SQUARE_ROW
-          def console_row_bytes = @wobbles ? SQUARE_ROW + 4 : SQUARE_ROW
+          PAN_SHIFT = 16
+          def note_word? = @wobbles || @pans
+          def console_row_bytes = note_word? ? SQUARE_ROW + 4 : SQUARE_ROW
 
           # Where a console row's pitch value is (after its frame and its control value), its
           # eleven bits, and the most they can be.
@@ -373,6 +380,11 @@ module VBlank
             # #emit_step_wobbles).
             @wobbles = IR::Tunes.playable_songs(program).any? do |song|
               song.voices.any? { |part| part.events.any? { |event| VBlank::Audio::Vibrato.moves?(IR::Tunes.said_vibrato(part, event)) } }
+            end
+            # ...and one where every note plays from both speakers never writes which (see
+            # #emit_set_speakers).
+            @pans = IR::Tunes.playable_songs(program).any? do |song|
+              song.voices.any? { |part| part.events.any? { |event| IR::Tunes.note_side(part, event) } }
             end
             @slides = IR::Tunes.playable_songs(program).any? do |song|
               song.voices.any? { |part| part.events.any? { |event| VBlank::Audio::PitchSlide.moves?(IR::Tunes.said_slide(part, event)) } }
@@ -1180,6 +1192,7 @@ module VBlank
                 emit_start_wobble(lane, row)
                 song_lane = @lanes.index(lane)
                 emit_clear_held_note(song_lane) if song_lane && holds_notes?(lane)
+                emit_set_speakers(lane, row)
               end
               e.place_label(skip)
             end
@@ -1795,10 +1808,12 @@ module VBlank
               emit_hold_note(lane, number) if holds_notes?(lane)
               emit_scaled_note(lane)
               emit_start_wobble(lane, at)
+              emit_set_speakers(lane, at)
               @emitter.emit(ASM.add_imm(cursor, cursor, console_row_bytes))
             else
               emit_console_note(lane, at)
               emit_start_wobble(lane, at)
+              emit_set_speakers(lane, at)
               @emitter.emit(ASM.add_imm(cursor, cursor, console_row_bytes))
             end
             @primitives.store_var(cursor, self.class.music_cursor(number))
@@ -1852,6 +1867,10 @@ module VBlank
 
             var = ->(what) { self.class.wobble_var(lane.index, what) }
             @emitter.emit(ASM.ldr_offset(ACC, row, WOBBLE_AT))
+            if @pans # the speaker above it is not the wobble's
+              @emitter.emit(ASM.lsl_imm(ACC, ACC, 32 - PAN_SHIFT))
+              @emitter.emit(ASM.lsr_imm(ACC, ACC, 32 - PAN_SHIFT))
+            end
             @primitives.store_var(ACC, var.call(:vibrato))
             @emitter.emit(ASM.lsr_imm(ACC, ACC, VBlank::Audio::Vibrato::AFTER_AT))
             @primitives.store_var(ACC, var.call(:wait))
@@ -1861,6 +1880,54 @@ module VBlank
             @primitives.store_var(TMP, var.call(:pitch))
             @emitter.emit(ASM.load_immediate(ACC, 0))
             %i[left rising steps].each { |what| @primitives.store_var(ACC, var.call(what)) }
+          end
+
+          # WHICH SPEAKERS A VOICE PLAYS FROM is a pair of switches for each voice in SOUNDCNT_L: the
+          # four voices' right switches in bits 8 to 11 and their left ones in bits 12 to 15, all on
+          # since sound was switched on. Two switches per voice, for the left and the right.
+          def speaker_bits(channel) = 0x1100 << (channel - 1)
+          def right_speaker_bit(channel) = 0x100 << (channel - 1)
+          def left_speaker_bit(channel) = 0x1000 << (channel - 1)
+
+          # The note in the row at +row+, just written to +lane+'s voice, sets the voice's switches
+          # to its speaker: the left alone, the right alone, or both. The other voices' switches are
+          # left as they are. Emitted last for the note, since it uses +row+'s register and does not
+          # keep it.
+          def emit_set_speakers(lane, row)
+            return unless @pans
+
+            channel = lane.index
+            @emitter.emit(ASM.ldr_offset(ACC, row, WOBBLE_AT))
+            @emitter.emit(ASM.lsr_imm(ACC, ACC, PAN_SHIFT)) # the speaker
+            @emitter.emit(ASM.load_immediate(TMP, REG_SOUNDCNT_L))
+            @emitter.emit(ASM.load_halfword(row, TMP))
+            @emitter.emit(ASM.bic_imm(row, row, speaker_bits(channel)))
+            @emitter.emit(ASM.cmp_imm(ACC, VBlank::Audio::Pan::RIGHT_BITS))
+            @emitter.emit(ASM.add_imm_cond(:ne, row, row, left_speaker_bit(channel)))
+            @emitter.emit(ASM.cmp_imm(ACC, VBlank::Audio::Pan::LEFT_BITS))
+            @emitter.emit(ASM.add_imm_cond(:ne, row, row, right_speaker_bit(channel)))
+            @emitter.emit(ASM.store_halfword(row, TMP))
+          end
+
+          # The game's own sound on +channel+ plays from both speakers, whichever a song's note left
+          # its voice at. The screen's interrupt, where the player sets a voice's switches, is held
+          # off while they are read and written, so it cannot set one between the two and have it
+          # undone.
+          SAVED_IME = 2 # a statement's own register, as every low one is (see GAME_CALL_KEEPS)
+
+          def emit_speakers_both(channel)
+            return unless @pans
+
+            @emitter.emit(ASM.load_immediate(TMP, REG_IME))
+            @emitter.emit(ASM.load_halfword(SAVED_IME, TMP))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @emitter.emit(ASM.store_halfword(ACC, TMP))
+            @emitter.emit(ASM.load_immediate(TMP, REG_SOUNDCNT_L))
+            @emitter.emit(ASM.load_halfword(ACC, TMP))
+            @emitter.emit(ASM.orr_imm(ACC, ACC, speaker_bits(channel)))
+            @emitter.emit(ASM.store_halfword(ACC, TMP))
+            @emitter.emit(ASM.load_immediate(TMP, REG_IME))
+            @emitter.emit(ASM.store_halfword(SAVED_IME, TMP))
           end
 
           # +lane+'s voice went quiet, or the game's own sound takes it: it wobbles nothing. The game's
@@ -2226,12 +2293,13 @@ module VBlank
                 slide = IR::Tunes.said_slide(part, event) if frequency.positive?
                 control, pitch = packed_with_slide(control, pitch, slide) if slide
                 row = [frame, control, pitch].pack("Vvv")
-                next row unless @wobbles
+                next row unless note_word?
 
                 wobble = IR::Tunes.said_vibrato(part, event) if frequency.positive?
-                row + [VBlank::Audio::Vibrato.moves?(wobble) ? wobble.bits : 0].pack("V")
+                side = frequency.positive? ? VBlank::Audio::Pan.bits_of(IR::Tunes.note_side(part, event)) : 0
+                row + [(VBlank::Audio::Vibrato.moves?(wobble) ? wobble.bits : 0) | (side << PAN_SHIFT)].pack("V")
               end
-              rows.join + [NEVER, 0, 0].pack("Vvv") + (@wobbles ? [0].pack("V") : "")
+              rows.join + [NEVER, 0, 0].pack("Vvv") + (note_word? ? [0].pack("V") : "")
             end
           end
 
