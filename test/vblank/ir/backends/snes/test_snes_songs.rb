@@ -310,33 +310,36 @@ class TestSNESSongs < Minitest::Test
     assert_equal 0x60, dsp.getbyte(FIRST)
   end
 
-  # A song picked from a list by a number the game works out: the second song of the list plays (its
-  # A4 on the first square voice, pitch $070A), a number past the list's end or below nought leaves
-  # the music as it is, and one named `this_frame:` starts where it is named.
+  # A song picked from a list by a number the game works out. The first song of the list plays (A3 on
+  # the first square voice, pitch $0385); places past the list's end (2, and 65537, whose low half
+  # is 1), and below nought, leave it playing — a place held to the list's end would have switched
+  # to the second. The second, named `this_frame:` in pass 6, plays its first frame there, so the
+  # frame boundary after the pass plays its second note: B4, 494 Hz on 32 samples, pitch $07E7
+  # (where a start at that boundary would play its first, A4, $070A).
   def test_play_from_list_picks_a_song_by_its_place
     build = VBlank::IR::Build
     n = build.var_ref(:n)
+    picks = { 1 => 0, 2 => 2, 3 => -1, 4 => 65_537 }.map do |pass, which|
+      build.if_(build.binop(:==, n, build.int(pass)), build.play_from_list(:tracks, which: build.int(which)))
+    end
     program = build.program(
       build.enable_sound,
       build.song(:low, events: [[0, 220]], total_frames: 8),
-      build.song(:high, events: [[0, 440]], total_frames: 8),
+      build.song(:high, events: [[0, 440], [1, 494]], total_frames: 8),
       build.song_list(:tracks, %i[low high]),
       build.loop_(
-        build.add(:n, 1),
-        build.if_(build.binop(:==, n, build.int(1)), build.play_from_list(:tracks, which: build.int(1))),
-        build.if_(build.binop(:==, n, build.int(3)), build.play_from_list(:tracks, which: build.int(2))),
-        build.if_(build.binop(:==, n, build.int(4)), build.play_from_list(:tracks, which: build.int(-1))),
-        build.if_(build.binop(:==, n, build.int(6)), build.play_from_list(:tracks, which: build.int(0), this_frame: true)),
+        build.add(:n, 1), *picks,
+        build.if_(build.binop(:==, n, build.int(6)), build.play_from_list(:tracks, which: build.int(1), this_frame: true)),
         build.wait_vblank
       )
     )
-    playing = SNES::CheckedRun.new.run(program, frames: 4).dsp_registers
-    picked_again = SNES::CheckedRun.new.run(program, frames: 7)
+    before = SNES::CheckedRun.new.run(program, frames: 4)
+    after = SNES::CheckedRun.new.run(program, frames: 6).dsp_registers
 
-    assert_equal [0x0A, 0x07], [playing.getbyte(FIRST + 2), playing.getbyte(FIRST + 3)], "the second song"
-    assert_equal [0x85, 0x03], [picked_again.dsp_registers.getbyte(FIRST + 2), picked_again.dsp_registers.getbyte(FIRST + 3)],
-                 "the first, started where it is named"
-    assert_equal 1, picked_again.audio.count([:stop_music]), "one switch: the numbers out of range changed nothing"
+    assert_equal [0x85, 0x03], [before.dsp_registers.getbyte(FIRST + 2), before.dsp_registers.getbyte(FIRST + 3)],
+                 "the first song, still"
+    assert_empty before.audio.select { |entry| entry == [:stop_music] }, "no switch for a place outside the list"
+    assert_equal [0xE7, 0x07], [after.getbyte(FIRST + 2), after.getbyte(FIRST + 3)], "the second song's second note"
   end
 
   # Under a level, the writes of a new wave note put the level's recording in the voice before its

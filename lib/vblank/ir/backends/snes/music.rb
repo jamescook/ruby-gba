@@ -49,7 +49,7 @@ module VBlank
           NOTES_AT = 0
           NOTE_COUNT = 2
           AGAIN = 4 # the same two for every time round after the first
-          LOUDNESS = 8 # where the places of the part's loudness groups are, one for each of VOLUMES
+          LOUDNESS_GROUPS = 8 # where the places of the part's loudness groups are, one for each of VOLUMES
           HOLDS = 10 # 1 when its voice holds a note for a new level to reach
           PART_BYTES = 16
           NOTE_FRAME = 0
@@ -139,7 +139,7 @@ module VBlank
               table.concat([list.songs.size, *list.songs.map { |name| number(name) }])
             end
             songs_at = table.size
-            table[0] = songs_at * 2
+            table[SONGS_AT / 2] = songs_at * 2
             table.concat(Array.new(songs.size, 0))
             songs.each_with_index do |(song, quiet, parts), i|
               table[songs_at + i] = table.size * 2
@@ -155,7 +155,7 @@ module VBlank
                   notes.each { |frame, head, tail, written| table.concat([frame, places.fetch(head), places.fetch(tail), written]) }
                 end
                 if part[:loudness]
-                  table[entry + (LOUDNESS / 2)] = table.size * 2
+                  table[entry + (LOUDNESS_GROUPS / 2)] = table.size * 2
                   table.concat(part[:loudness].map { |commands| places.fetch(commands) })
                 end
                 table[entry + (HOLDS / 2)] = part[:holds] ? 1 : 0
