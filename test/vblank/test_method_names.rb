@@ -21,8 +21,9 @@ class TestMethodNames < Minitest::Test
   MOST_WORDS = 6
 
   # Two letters is an abbreviation unless it is one of these, which every reader already knows.
-  # `bx` is the ARM instruction of that name, and `ok?` is plain English.
-  SHORT_NAMES = %w[x y w h id at of to io op ok bx].freeze
+  # `bx` is the ARM instruction of that name, `lm` and `sm` the Super FX's (SNES::GSU), and `ok?`
+  # is plain English.
+  SHORT_NAMES = %w[x y w h id at of to io op ok bx lm sm].freeze
 
   private def defined_methods
     Dir.glob("#{LIB}/**/*.rb").flat_map do |path|
