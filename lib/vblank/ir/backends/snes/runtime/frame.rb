@@ -114,8 +114,9 @@ module VBlank
             end
 
             # +pad+ is two words of the direct page, the same on the game's page and the
-            # interrupt's, that reading the controller works in.
-            def emit(asm, memory, pad:)
+            # interrupt's, that reading the controller works in. +sound+ for a game that makes sound,
+            # whose wait ends in Sound's rt_sound_frame.
+            def emit(asm, memory, pad:, sound: false)
               h = Console::SNESHardware
               at = ->(name, plus = 0) { asm.abs(memory[name], plus) }
 
@@ -171,6 +172,7 @@ module VBlank
               asm.label("rt_wait_vblank_buttons")
               asm.jsr(asm.abs("rt_read_buttons"))
               asm.stz(at.call(WAITING))
+              asm.jsl(asm.long("rt_sound_frame")) if sound # the music of the frames the pass took (Sound)
               asm.rtl
 
               # rt_show_pass: what the pass drew, on the screen, and SHOWN saying so. The first time,

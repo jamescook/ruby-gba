@@ -54,6 +54,7 @@ class TestSNESSound < Minitest::Test
 
   private def new_memory
     memory = SNES::Memory.new
+    SNES::Runtime::Frame.reserve(memory) # where a wait ends, Sound counts the pass's sounds by its number
     Sound.reserve(memory)
     memory
   end

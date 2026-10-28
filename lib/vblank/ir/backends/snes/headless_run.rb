@@ -85,7 +85,7 @@ module VBlank
             @sounds = 0
             @audio = []
             @audio_handed = 0
-            @dsp_moments = []
+            @dsp_reads = []
             play(frames || Reference::DEFAULT_FRAMES)
             self
           end
@@ -117,13 +117,15 @@ module VBlank
           # Every entry the cartridge logged, past where the run ended too.
           def whole_audio = @sound_entries.dup
 
-          # The S-DSP's 128 registers as the emulator held them at each moment, in the order of
-          # #moments, and at the moment the run ended — what the sound unit was really told, for a
-          # checked run to hold to the interpreter's sound log (DSPWrites.after). Empty for a game
-          # that makes no sound.
-          attr_reader :dsp_moments
+          # The S-DSP's 128 registers as the emulator held them each time the game was found waiting
+          # at a pass's end, each with how many entries the sound log held then: [entries, registers],
+          # oldest first — what the sound unit was really told, for a checked run to hold to the
+          # interpreter's sound log as far as those entries (DSPWrites.after). Empty for a game that
+          # makes no sound.
+          attr_reader :dsp_reads
 
-          def dsp_registers = @dsp_moments.last
+          # The registers as the run ended.
+          def dsp_registers = @dsp_reads.last&.last
 
           # The rest of what the interpreter answers, each refused by name.
           %i[mixed_sound active_samples peak_voices sound_drops sound_owners frame log screen_mode
@@ -223,25 +225,46 @@ module VBlank
           end
 
           # The moment of +frame+ — a pass's number, or :end for the moment the run ended on. +sounds+
-          # is [how many entries the sound log held, the DSP's registers], as #read_sounds read them.
+          # is how many entries the sound log held as the game was found waiting (#read_sounds).
+          #
+          # A PASS'S SOUNDS INCLUDE ITS FRAME BOUNDARY'S MUSIC, which the interpreter plays after the
+          # pass, before anything reads the frame (Reference#advance_frame). The cartridge plays it
+          # where the wait ends (Runtime::Music), after the game was found waiting, so a pass's moment
+          # takes the count the cartridge kept as that wait ended (Runtime::Sound::LOGGED_BY_PASS) —
+          # which it has by now, since the moment is taken once the pass's picture shows, and the
+          # wait ends as it does. The moment the run ended on has no boundary after it.
           def record_moment(frame, variables, lists, picture, sounds)
             @vars = variables
             @lists = lists
             @screen = picture
-            @sounds, dsp = sounds
-            @dsp_moments << dsp if dsp
+            @sounds = frame == :end || !sound? ? sounds : logged_by_pass(frame)
+            read_sound_entries(@sounds) if sound?
             @moments << Moment.new(frame: frame, variables: variables, picture: RunComparison.picture_check(picture.shown),
                                    sounds: @sounds, sprites: @sprites, collections: game_state.except(:vars), sounding: [])
             @on_vblank&.call(frame) unless frame == :end
           end
 
-          # How many entries the cartridge's sound log holds now, the new ones read into the log in the
-          # interpreter's words, and the S-DSP's registers as the emulator holds them; [0, nil] for a
-          # game that makes no sound.
+          # How many entries the cartridge's sound log holds now, those read into the log in the
+          # interpreter's words, and the S-DSP's registers kept beside the count (#dsp_reads); 0 for
+          # a game that makes no sound.
           def read_sounds
-            return [0, nil] unless @places.runtime.key?(Runtime::Sound::LOGGED)
+            return 0 unless sound?
 
             logged = half(runtime_place(Runtime::Sound::LOGGED))
+            read_sound_entries(logged)
+            @dsp_reads << [logged, @core.dsp_registers]
+            logged
+          end
+
+          def sound? = @places.runtime.key?(Runtime::Sound::LOGGED)
+
+          # How many entries the sound log held as pass +pass+'s wait ended.
+          def logged_by_pass(pass)
+            half(runtime_place(Runtime::Sound::LOGGED_BY_PASS) + ((pass % Runtime::Frame::STEPS_KEPT) * 2))
+          end
+
+          # The cartridge's sound log read into the interpreter's words as far as +logged+ entries.
+          def read_sound_entries(logged)
             if logged - @sound_entries.size > Runtime::Sound::LOG_LENGTH
               raise CannotAnswer, "the Super Nintendo cartridge logged more than #{Runtime::Sound::LOG_LENGTH} sounds in " \
                                   "one pass, more than its sound log holds"
@@ -251,7 +274,6 @@ module VBlank
             (@sound_entries.size...logged).each do |count|
               @sound_entries << @places.sound_entries.fetch(@core.wram_read8(ring + (count % Runtime::Sound::LOG_LENGTH)))
             end
-            [logged, @core.dsp_registers]
           end
 
           # The game halted: its picture shown once more (copied over several blanks on a Super FX

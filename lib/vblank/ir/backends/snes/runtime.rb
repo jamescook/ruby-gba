@@ -12,6 +12,7 @@ require_relative "runtime/chip"
 require_relative "runtime/chip_paint"
 require_relative "runtime/saving"
 require_relative "runtime/sound"
+require_relative "runtime/music"
 
 module VBlank
   module IR
@@ -34,13 +35,14 @@ module VBlank
           # +painted+ (Paint) keeps its copy of the screen in work RAM's last bank. A cartridge with a
           # Super FX (+chip+) keeps the chip's waiting loop and its counts (Chip), after the rest so
           # a plain cartridge's places do not move.
-          def reserve(memory, painted: false, chip: false, sound: false)
+          def reserve(memory, painted: false, chip: false, sound: false, songs: false)
             Paint.reserve(memory, chip: chip) if painted
             Frame.reserve(memory)
             Picture.reserve(memory)
             Tint.reserve(memory)
             Chip.reserve(memory) if chip
             Sound.reserve(memory) if sound
+            Music.reserve(memory) if songs
           end
 
           # The runtime's sections: the entry points in the first bank, and everything else in one.
@@ -50,9 +52,10 @@ module VBlank
           # board (Cartridge::SNESROM::BOARDS); +saves+ for a game that reaches save memory, whose
           # routines a game that does not is made without, so its cartridge is the same bytes; +sound+
           # for a game that makes sound, which sends the sound unit its program at power-on, with
-          # +sound_waves+, the wave voice's waveforms, recorded beside it.
+          # +sound_waves+, the wave voice's waveforms, recorded beside it; +music+ the section of its
+          # songs (SNES::Music#section), for a game with songs, whose player (Music) it then carries.
           def sections(memory, main:, frame_begins: nil, painted: false, board: Cartridge::SNESROM::PLAIN, saves: false,
-                       sound: false, sound_waves: [])
+                       sound: false, sound_waves: [], music: nil)
             chip = board.name == :super_fx
             vectors = W65816.new("runtime vectors", home: :first)
             Boot.emit_vectors(vectors)
@@ -60,7 +63,7 @@ module VBlank
             Boot.emit(asm, main: main, fast: board.fast)
             Boot.emit_zero(asm)
             Int32.emit(asm, Int32.scratch(memory))
-            Frame.emit(asm, memory, pad: memory.scratch(4))
+            Frame.emit(asm, memory, pad: memory.scratch(4), sound: sound)
             Lists.emit(asm, memory, Lists.scratch(memory))
             Picture.emit(asm, memory, work: memory.scratch(8), painted: painted, chip: chip)
             Paint.emit(asm, memory, Paint.scratch(memory), chip: chip) if painted
@@ -68,11 +71,12 @@ module VBlank
             Collide.emit(asm, memory, Collide.scratch(memory))
             Chip.emit(asm, memory) if chip
             Saving.emit(asm, memory, Saving.scratch(memory)) if saves
-            Sound.emit(asm, memory, sound_waves) if sound
+            Sound.emit(asm, memory, sound_waves, songs: !music.nil?) if sound
+            Music.emit(asm, memory) if music
             emit_start(asm, chip: chip, sound: sound)
             emit_frame_begins(asm, frame_begins)
             [vectors.section, asm.section] + (chip && painted ? [ChipPaint.gsu_section] : []) +
-              (sound ? Sound.sections(sound_waves) : [])
+              (sound ? Sound.sections(sound_waves) : []) + (music ? [music] : [])
           end
 
           # What a game needs before its first line: its variables that do not start at nought (the

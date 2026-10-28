@@ -22,11 +22,15 @@ class TestSNESConformance < Minitest::Test
       refused = VBlank::IR::Guardrails::Checks::ConsoleAnswers.new.detect(alone).any? { |found| found.severity == :error }
       refused || part.walk.any? { |node| UNMADE.include?(node.kind) } || not_made_yet?(alone)
     end
-    # ...and the parts that change a background or place a sprite whose declaration was left out.
-    declared = kept.flat_map { |part| part.walk.to_a }.select { |node| %i[background object].include?(node.kind) }.map(&:name)
+    # ...and the parts that change a background, place a sprite or play a song whose declaration was
+    # left out.
+    declared = kept.flat_map { |part| part.walk.to_a }.select { |node| %i[background object song].include?(node.kind) }
+                   .map(&:name)
     kept.reject do |part|
       part.walk.any? do |node|
-        (%i[scroll_background set_tile show_map].include?(node.kind) && !declared.include?(node.name)) ||
+        (%i[scroll_background set_tile show_map play_song].include?(node.kind) && !declared.include?(node.name)) ||
+          (node.kind == :song_list && !(node.songs - declared).empty?) ||
+          (node.kind == :sound_effect_list && !(node.effects - declared).empty?) ||
           (node.kind == :present_objects && !(node.names - declared).empty?)
       end
     end

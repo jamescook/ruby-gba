@@ -90,7 +90,7 @@ class TestSNESBeep < Minitest::Test
       end
     end
     run = SNES::HeadlessRun.new.run(game.program(console: :snes), frames: 100)
-    envelope = run.dsp_moments.map { |dsp| dsp.getbyte((SNES::DSPWrites::BEEP_VOICE << 4) + 8) }
+    envelope = run.dsp_reads.map { |_, dsp| dsp.getbyte((SNES::DSPWrites::BEEP_VOICE << 4) + 8) }
     sounding = envelope.index(&:positive?)
     sounding && (envelope.drop(sounding).index(&:zero?) || envelope.size)
   end

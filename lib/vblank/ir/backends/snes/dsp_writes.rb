@@ -66,10 +66,15 @@ module VBlank
           # FLG IS SHARED. Its top three bits mute the sound unit, hold every voice off and stop the
           # echo writing; its low five are the noise clock. So neither enable_sound nor a noise hit
           # writes all of FLG: each changes only its own bits, which the sound unit's program does
-          # with the DSP's register in hand (Runtime::Sound's "set FLG's bits" command), written here
-          # as [SET_FLG_BITS, mask, bits]. A hit before enable_sound sets the clock and leaves the
+          # with the DSP's register in hand (Runtime::Sound's "set some bits" commands), written here
+          # as [SET_BITS, FLAGS, mask, bits]. A hit before enable_sound sets the clock and leaves the
           # sound unit muted, as the Advance makes no sound before it either.
-          SET_FLG_BITS = :set_flg_bits
+          #
+          # KEY-OFF IS SHARED TOO, a bit a voice, and a voice's bit holds until something clears it: a
+          # key-on under it plays nothing (fullsnes, "KON/KOFF Notes"). So a voice is let go by
+          # setting its bit alone, and every key-on clears its own bit first (#key_on); writing all
+          # of KOFF would let go of, or take back, another voice's note.
+          SET_BITS = :set_bits
           SWITCHES = 0xE0
           NOISE_CLOCK = 0x1F
           GENERATOR_SWING = 0x4000
@@ -140,18 +145,59 @@ module VBlank
              [NOISE_ON, 0], [PITCH_MODULATION, 0], [KEY_OFF, 0]]
           end
 
+          # A SONG'S SQUARE PARTS play on the voices the Advance's square voices are: the first part on
+          # voice 0, the second on voice 1, which beeps share as they share the Advance's second. A
+          # note holds at a fixed gain, as the Advance's song notes hold their volume, and a rest lets
+          # the voice go. stop_music lets go of every voice a song plays on, as the Color's player
+          # quiets all four.
+          SQUARE_VOICES = { 1 => 0, 2 => 1 }.freeze
+          SONG_VOICES = 0x0F
+
+          # WHAT A LOG ENTRY DOES NOT SAY. The interpreter logs a song's note as the voice set to a
+          # frequency and volume, which is all the Advance's player writes; the square's width is the
+          # part's, written once. So the writes are worked out with the game's +waves+ (its wave
+          # voice's waveforms, in the order its build recorded them, Samples::FIRST_WAVE on) and
+          # +duties+, each song's square parts' widths by [the song's name, its channel].
+          Voicing = Data.define(:waves, :duties) do
+            def initialize(waves: [], duties: {}) = super
+          end
+
+          NO_VOICING = Voicing.new
+
           # The writes one sound-log entry means: [:enabled], [:beep, effect], [:noise, hit], [:wave,
-          # params] or [:stop_wave]. Each is [register, value], or [SET_FLG_BITS, mask, bits] for FLG's.
-          # +waves+ is the game's waveforms, in the order its build recorded them (Samples::FIRST_WAVE on).
-          def for_entry(entry, waves = [])
+          # params], [:stop_wave], a song's [:note, ...] (nothing: the [:voice, ...] after it is the
+          # note) and [:voice, channel, song, frequency, volume], and [:stop_music]. Each is [register,
+          # value], or [SET_BITS, register, mask, bits].
+          def for_entry(entry, voicing = NO_VOICING)
             case entry.first
-            when :enabled then [[SET_FLG_BITS, SWITCHES, SOUND_ON], [MAIN_LEFT, MAIN_VOLUME], [MAIN_RIGHT, MAIN_VOLUME]]
+            when :enabled then [[SET_BITS, FLAGS, SWITCHES, SOUND_ON], [MAIN_LEFT, MAIN_VOLUME], [MAIN_RIGHT, MAIN_VOLUME]]
             when :beep then beep(entry.last)
             when :noise then noise(entry.last)
-            when :wave then wave(entry.last, waves)
-            when :stop_wave then [[KEY_OFF, 1 << WAVE_VOICE]]
+            when :wave then wave(entry.last, voicing.waves)
+            when :stop_wave then key_off(1 << WAVE_VOICE)
+            when :note then []
+            when :voice then song_note(*entry.drop(1), voicing.duties)
+            when :stop_music then key_off(SONG_VOICES)
             else raise ArgumentError, "the Super Nintendo build does not play #{entry.first.inspect} yet"
             end
+          end
+
+          # A song's note on channel +channel+: on a square voice, the note held at a fixed gain, or
+          # the voice let go for a rest or a note at volume nought.
+          def song_note(channel, song, frequency, volume, duties)
+            voice = SQUARE_VOICES.fetch(channel) do
+              raise ArgumentError, "the Super Nintendo build does not play a song's part on channel #{channel} yet"
+            end
+            return key_off(1 << voice) if frequency.zero? || volume.zero?
+
+            duty = duties.fetch([song, channel]) { raise ArgumentError, "no square part of #{song.inspect} on #{channel}" }
+            base = voice << 4
+            wave = wave_for(frequency)
+            pitch = pitch_for(frequency, wave)
+            level = volume * VOLUME_STEP
+            [[base + VOLUME_LEFT, level], [base + VOLUME_RIGHT, level], [base + PITCH_LOW, pitch & 0xFF],
+             [base + PITCH_HIGH, pitch >> 8], [base + SOURCE, Samples.source(duty, wave)], [base + ADSR1, ADSR_OFF],
+             [base + GAIN, FIXED_TOP]] + key_on(voice)
           end
 
           # The wave voice playing +params+ ({shape:, frequency:, volume:}, as the interpreter logs a
@@ -164,8 +210,14 @@ module VBlank
             level = VBlank::Audio::Sound::WAVE_STEP_MAX * VOLUME_STEP
             [[base + VOLUME_LEFT, level], [base + VOLUME_RIGHT, level], [base + PITCH_LOW, pitch & 0xFF],
              [base + PITCH_HIGH, pitch >> 8], [base + SOURCE, Samples::FIRST_WAVE + index], [base + ADSR1, ADSR_OFF],
-             [base + GAIN, FIXED_TOP], [KEY_OFF, 0], [KEY_ON, 1 << WAVE_VOICE]]
+             [base + GAIN, FIXED_TOP]] + key_on(WAVE_VOICE)
           end
+
+          # Voice +voice+ started from the top: its key-off bit cleared, then its key-on.
+          def key_on(voice) = [[SET_BITS, KEY_OFF, 1 << voice, 0], [KEY_ON, 1 << voice]]
+
+          # The voices whose bits +voices+ holds let go, every other voice's key-off as it is.
+          def key_off(voices) = [[SET_BITS, KEY_OFF, voices, voices]]
 
           # The 32 steps a wave plays, cut down to its loudness as the Advance cuts them
           # (Audio::Sound.wave_step_at): what its recording holds.
@@ -183,7 +235,7 @@ module VBlank
             pitch = pitch_for(effect.frequency, wave)
             loudness(base, effect.volume * VOLUME_STEP, effect.volume, effect.decay) +
               [[base + PITCH_LOW, pitch & 0xFF], [base + PITCH_HIGH, pitch >> 8],
-               [base + SOURCE, Samples.source(effect.duty, wave)], [KEY_ON, 1 << BEEP_VOICE]]
+               [base + SOURCE, Samples.source(effect.duty, wave)], *key_on(BEEP_VOICE)]
           end
 
           # A noise hit (Audio::Sound.resolve_noise's hash): the noise voice's loudness and fade, as a
@@ -196,14 +248,14 @@ module VBlank
               pitch = (clock * PITCH_ONE / DSP_RATE.to_f).round.clamp(1, PITCH_TOP)
               loudness(base, hit[:volume] * VOLUME_STEP, hit[:volume], hit[:decay]) +
                 [[base + PITCH_LOW, pitch & 0xFF], [base + PITCH_HIGH, pitch >> 8], [base + SOURCE, Samples::METALLIC],
-                 [NOISE_ON, 0], [KEY_ON, 1 << NOISE_VOICE]]
+                 [NOISE_ON, 0], *key_on(NOISE_VOICE)]
             else
               # The generator still reads a recording beside it, and one that ends would end the
               # noise (fullsnes, "NON"): a looping one, read at any pitch.
               loudness(base, (hit[:volume] * VOLUME_STEP * HISS_SCALE).round, hit[:volume], hit[:decay]) +
                 [[base + PITCH_LOW, 0], [base + PITCH_HIGH, PITCH_ONE >> 8],
                  [base + SOURCE, Samples.source(:half, Samples::LONG_WAVE)],
-                 [SET_FLG_BITS, NOISE_CLOCK, noise_rate(clock)], [NOISE_ON, 1 << NOISE_VOICE], [KEY_ON, 1 << NOISE_VOICE]]
+                 [SET_BITS, FLAGS, NOISE_CLOCK, noise_rate(clock)], [NOISE_ON, 1 << NOISE_VOICE], *key_on(NOISE_VOICE)]
             end
           end
 
@@ -252,15 +304,15 @@ module VBlank
           end
 
           # What the registers hold after the sound log +entries+, by register, for each one written,
-          # and FLG, which the sound unit starts as SOUND_OFF (at_power_on) and whose bits each entry
-          # changes only some of. +waves+ as for #for_entry.
-          def after(entries, waves = [])
-            held = { FLAGS => SOUND_OFF }
+          # and FLG and KOFF, which the sound unit starts as at_power_on says and whose bits an entry
+          # changes only some of. +voicing+ as for #for_entry.
+          def after(entries, voicing = NO_VOICING)
+            held = { FLAGS => SOUND_OFF, KEY_OFF => 0 }
             entries.each do |entry|
-              for_entry(entry, waves).each do |register, *value|
-                if register == SET_FLG_BITS
-                  mask, bits = value
-                  held[FLAGS] = (held[FLAGS] & ~mask & 0xFF) | (bits & mask)
+              for_entry(entry, voicing).each do |register, *value|
+                if register == SET_BITS
+                  register, mask, bits = value
+                  held[register] = (held[register] & ~mask & 0xFF) | (bits & mask)
                 else
                   held[register] = value.first
                 end

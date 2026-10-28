@@ -55,10 +55,17 @@ module VBlank
             FIRST_KICK = 0xCC
 
             # The commands the program knows, in mailbox 1: write a DSP register (mailbox 2 names it,
-            # mailbox 3 is its value), and set some of FLG's bits (mailbox 2 says which, mailbox 3
-            # what they become), leaving the rest as the DSP holds them (DSPWrites, "FLG is shared").
+            # mailbox 3 is its value), and set some of FLG's or KOFF's bits (mailbox 2 says which,
+            # mailbox 3 what they become), leaving the rest as the DSP holds them (DSPWrites, "FLG is
+            # shared" and "KOFF is shared").
             WRITE_DSP = 1
             SET_FLAG_BITS = 2
+            SET_KEY_OFF_BITS = 3
+
+            # Which command sets bits of which register, and the routine that sends each command.
+            SET_BITS_COMMANDS = { DSPWrites::FLAGS => SET_FLAG_BITS, DSPWrites::KEY_OFF => SET_KEY_OFF_BITS }.freeze
+            ROUTINES = { WRITE_DSP => "rt_sound_write", SET_FLAG_BITS => "rt_sound_flag_bits",
+                         SET_KEY_OFF_BITS => "rt_sound_key_off_bits" }.freeze
 
             # The SPC700's mailboxes and the DSP's two registers that reach the rest of it: $F2
             # picks a DSP register, and $F3 is its value.
@@ -84,6 +91,11 @@ module VBlank
             LOG = "rt sound log"
             LOGGED = "rt sound logged"
             LOG_LENGTH = 256
+            # ...and how many there were where each of the last Frame::STEPS_KEPT passes' waits ended,
+            # the music of the frames it took played (Music): a word each, by the pass's number less
+            # its multiples of STEPS_KEPT. That is the interpreter's log as the pass's frame boundary
+            # leaves it.
+            LOGGED_BY_PASS = "rt sound logged by pass"
 
             R0 = Memory.register(0)
             R1 = Memory.register(1)
@@ -91,12 +103,23 @@ module VBlank
 
             module_function
 
+            # The command a DSP write (DSPWrites.for_entry) is sent as: [the command, its first number,
+            # its second].
+            def command_for(write)
+              register, *values = write
+              return [WRITE_DSP, register, values.first] unless register == DSPWrites::SET_BITS
+
+              target, mask, bits = values
+              [SET_BITS_COMMANDS.fetch(target), mask, bits]
+            end
+
             def reserve(memory)
               memory.reserve(LIVE, 2)
               memory.reserve(SENT, 2)
               memory.reserve(DROPPED, 2)
               memory.reserve(LOGGED, 2)
               memory.reserve(LOG, LOG_LENGTH)
+              memory.reserve(LOGGED_BY_PASS, Frame::STEPS_KEPT * 2)
             end
 
             # Everything sent across at power-on, from DRIVER_AT: the program, then from TABLE_AT the
@@ -130,8 +153,14 @@ module VBlank
                 bra "answer"
                 label "flag_bits"
                 cmp :a, imm(SET_FLAG_BITS)
-                bne "answer"
+                bne "key_off_bits"
                 mov direct(DSP_ADDRESS), imm(DSPWrites::FLAGS)
+                bra "set_bits"
+                label "key_off_bits"
+                cmp :a, imm(SET_KEY_OFF_BITS)
+                bne "answer"
+                mov direct(DSP_ADDRESS), imm(DSPWrites::KEY_OFF)
+                label "set_bits"
                 mov :a, direct(ports[2]) # which bits change
                 eor :a, imm(0xFF)
                 and_ :a, direct(DSP_DATA) # FLG's other bits, as the DSP holds them
@@ -156,10 +185,26 @@ module VBlank
               [asm.section]
             end
 
-            def emit(asm, memory, waves)
+            # +songs+ for a game with songs, whose player (Music) runs where each wait ends.
+            def emit(asm, memory, waves, songs: false)
               emit_start(asm, memory, image(waves).size)
               emit_write(asm, memory)
               emit_log(asm, memory)
+              emit_frame(asm, memory, songs)
+            end
+
+            # rt_sound_frame, where a pass's wait ends: the music of every frame the pass took, and
+            # how many entries the log holds then kept for the pass (LOGGED_BY_PASS).
+            def emit_frame(asm, memory, songs)
+              asm.label("rt_sound_frame")
+              asm.jsr(asm.abs("rt_music_frames")) if songs
+              asm.lda(asm.abs(memory[Frame::PASSES]))
+              asm.and_a(Frame::STEPS_KEPT - 1)
+              asm.asl
+              asm.tax
+              asm.lda(asm.abs(memory[LOGGED]))
+              asm.sta(asm.abs_x(memory[LOGGED_BY_PASS]))
+              asm.rtl
             end
 
             # rt_sound_log: entry number R0 (one byte) into the ring, and one more counted.
@@ -249,9 +294,14 @@ module VBlank
             # or dropped and counted when it is not answered in time. Nothing at all before the
             # program has been sent.
             #
-            # rt_sound_flag_bits: FLG's bits R0 set to R1's, the rest as they are, sent the same way.
+            # rt_sound_flag_bits: FLG's bits R0 set to R1's, the rest as they are, sent the same way;
+            # rt_sound_key_off_bits the same for KOFF's. rt_sound_command: command A, with its two
+            # numbers in R0 and R1.
             def emit_write(asm, memory)
               h = Console::SNESHardware
+              asm.label("rt_sound_key_off_bits")
+              asm.lda(SET_KEY_OFF_BITS)
+              asm.bra("rt_sound_command")
               asm.label("rt_sound_flag_bits")
               asm.lda(SET_FLAG_BITS)
               asm.bra("rt_sound_command")

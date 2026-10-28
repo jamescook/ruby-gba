@@ -65,7 +65,7 @@ module VBlank
             moments = play_on_interpreter(program, frames, width, height, before)
             difference = self.class.first_difference(moments, @cartridge.moments)
             difference ||= self.class.sounds_difference(@interpreter_sounds, @cartridge.audio_played)
-            difference ||= dsp_difference(moments)
+            difference ||= dsp_difference
             difference ||= self.class.save_difference(before, @save) if SaveLayout.named_by?(program)
             raise Disagreement, "the Super Nintendo lowering and the interpreter disagree at #{difference}" if difference
 
@@ -102,7 +102,6 @@ module VBlank
           def play_on_interpreter(program, frames, width, height, save)
             interpreter = Reference.new(save: save).hold(*@held)
             moments = []
-            @expected_dsp = []
             interpreter.frames_each_pass { |pass| @cartridge.frames_took(pass) }
             interpreter.input_each_frame { |frame| @played.fetch(frame, []) }
                        .each_vblank { |frame| moments << moment_of(interpreter, frame, width, height) }
@@ -111,25 +110,23 @@ module VBlank
             moments << moment_of(interpreter, :end, width, height)
           end
 
-          # The interpreter's moment, and what its sound log up to then says the S-DSP's registers hold.
           def moment_of(interpreter, frame, width, height)
-            @expected_dsp << DSPWrites.after(interpreter.audio, @cartridge.rom.built.sound_waves)
             Moment.new(frame: frame, variables: interpreter.vars.dup, picture: picture_check(interpreter.screen, width, height),
                        sounds: interpreter.audio.size, sprites: interpreter.sprites,
                        collections: interpreter.game_state.except(:vars), sounding: [])
           end
 
-          # THE SOUND UNIT ITSELF, held to the sound log: at the first moment a register of the S-DSP
-          # holds something other than what the interpreter's log up to then says it must (each
-          # register the log's entries write, DSPWrites.after), the moment and the registers that
-          # differ. The log agreeing is not enough: a write dropped on the way, sent to the wrong
-          # register or never answered would leave the log right and the sound wrong.
-          def dsp_difference(moments)
-            return nil if @cartridge.dsp_moments.empty?
-
-            moments.zip(@expected_dsp, @cartridge.dsp_moments).each do |moment, expected, held|
-              return "#{self.class.heading(moment.frame)}: the sound unit's DSP registers were never read" unless held
-
+          # THE SOUND UNIT ITSELF, held to the sound log: the first time the game was found waiting with
+          # a register of the S-DSP holding something other than what the interpreter's log says it
+          # must, as far as the entries the cartridge had logged then (each register those entries
+          # write, DSPWrites.after), the pass and the registers that differ. The log agreeing is not
+          # enough: a write dropped on the way, sent to the wrong register or never answered would
+          # leave the log right and the sound wrong. The logs themselves are held to each other
+          # first, so the interpreter's entries as far as that count are the cartridge's.
+          def dsp_difference
+            voicing = @cartridge.rom.built.sound_voicing
+            @cartridge.dsp_reads.each_with_index do |(logged, held), i|
+              expected = DSPWrites.after(@interpreter_sounds.take(logged), voicing)
               wrong = expected.filter_map do |register, value|
                 got = held.getbyte(register)
                 format("$%<register>02X holds $%<got>02X, the log says $%<value>02X", register: register, got: got,
@@ -137,7 +134,7 @@ module VBlank
               end
               next if wrong.empty?
 
-              return "#{self.class.heading(moment.frame)}: the sound unit's DSP registers: #{wrong.join(', ')}"
+              return "the wait at the end of pass #{i + 1}: the sound unit's DSP registers: #{wrong.join(', ')}"
             end
             nil
           end
