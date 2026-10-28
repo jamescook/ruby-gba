@@ -13,7 +13,7 @@ module VBlank
           module Sound
             STATEMENTS = Ractor.make_shareable({ enable_sound: :emit_enable_sound, beep: :emit_beep, noise: :emit_noise,
                                                  wave: :emit_wave, stop_wave: :emit_stop_wave, play_song: :emit_play_song,
-                                                 stop_music: :emit_stop_music })
+                                                 stop_music: :emit_stop_music, play_from_list: :emit_play_from_list })
 
             # The kinds that reach the sound unit: a program with none of them is built without it.
             KINDS = STATEMENTS.keys.freeze
@@ -22,7 +22,7 @@ module VBlank
             def self.sounds?(program) = program.walk.any? { |node| KINDS.include?(node.kind) }
 
             # Whether +program+ plays songs, and so carries their player (Runtime::Music).
-            def self.songs?(program) = program.walk.any? { |node| %i[song play_song stop_music].include?(node.kind) }
+            def self.songs?(program) = program.walk.any? { |node| %i[song play_song stop_music play_from_list].include?(node.kind) }
 
             # Every entry of the sound log the cartridge can write, by the number it writes.
             def sound_entries = @sound_entries.dup
@@ -55,6 +55,12 @@ module VBlank
             end
 
             def emit_stop_music(_node) = runtime_call("rt_music_stop", [])
+
+            # Reference#exec_play_from_list: the song at the place the game works out, of the list.
+            def emit_play_from_list(node)
+              routine = node.this_frame ? "rt_music_play_from_list_now" : "rt_music_play_from_list"
+              runtime_call(routine, [node.which, Build.int(@music.list_number(node.name))])
+            end
 
             # Reference#exec_wave's entry.
             def wave_params(node) = { shape: node.shape, frequency: node.frequency, volume: node.volume }

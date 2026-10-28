@@ -99,6 +99,53 @@ module VBlank
               asm.stz(at.call(NAMED))
               asm.inc(at.call(STOPS))
               asm.rtl
+
+              # rt_music_play_from_list(which, list): the song at place +which+ of song list +list+
+              # (SNES::Music#list_number), from the next frame; a place outside the list leaves the
+              # music as it is (Reference::Player#request_song_at). rt_music_play_from_list_now: the
+              # same, and a song it names that is starting plays its first frame here.
+              asm.label("rt_music_play_from_list")
+              asm.jsr(asm.abs("rt_music_name_from_list"))
+              asm.rtl
+
+              asm.label("rt_music_play_from_list_now")
+              asm.jsr(asm.abs("rt_music_name_from_list"))
+              asm.beq("rt_music_play_from_list_done")
+              asm.jsr(asm.abs("rt_music_switch"))
+              asm.beq("rt_music_play_from_list_done")
+              asm.lda(at.call(PLAYING))
+              asm.beq("rt_music_play_from_list_done")
+              asm.jsr(asm.abs("rt_music_song_frame"))
+              asm.label("rt_music_play_from_list_done")
+              asm.rtl
+
+              # rt_music_name_from_list: NAMED = the song at place R0 (32 bits) of list R1, and A = 1;
+              # or A = nought, and nothing named, for a place outside the list.
+              asm.label("rt_music_name_from_list")
+              asm.lda(asm.direct(Sound::R0 + 2))
+              asm.bne("rt_music_name_from_list_outside") # below nought, or far past any list's end
+              asm.lda(asm.direct(Sound::R1))
+              asm.asl
+              asm.clc
+              asm.adc(asm.long("music_data", SNES::Music::LISTS_AT))
+              asm.tax
+              asm.lda(asm.long_x("music_data"))
+              asm.sta(at.call(LIST))
+              asm.tax
+              asm.lda(asm.direct(Sound::R0))
+              asm.cmp(asm.long_x("music_data")) # how many songs the list holds
+              asm.bcs("rt_music_name_from_list_outside")
+              asm.asl
+              asm.clc
+              asm.adc(at.call(LIST))
+              asm.tax
+              asm.lda(asm.long_x("music_data", 2))
+              asm.sta(at.call(NAMED))
+              asm.lda(1)
+              asm.rts
+              asm.label("rt_music_name_from_list_outside")
+              asm.lda(0)
+              asm.rts
             end
 
             # rt_music_frames: the player, once for each frame the pass just ended took.

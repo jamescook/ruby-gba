@@ -17,7 +17,10 @@ module VBlank
         # THE TABLE, all of it 16-bit words, every place in it counted from its start:
         #
         #   0             where the table of songs is
+        #   2             where the table of song lists is
         #   the groups    [command, first number, second number] each, nought after the last
+        #   the lists     a word for each song list, numbered in the order declared: where it is;
+        #                 then each list, how many songs and each one's number
         #   the songs     a word for each song, numbered in the order declared: where its record is
         #   a record      its length in frames, the frame it comes round from, 1 if it plays once,
         #                 how many parts, and where its group for stopping is (the voices its parts
@@ -29,6 +32,11 @@ module VBlank
         class Music
           # What the songs are to the author, for a cartridge too full for them.
           SONGS = W65816::Holding.new(what: "the game's songs", fix: "make its songs shorter, or use fewer of them")
+
+          # Where the table's two first words are: where the table of songs is, and where the table of
+          # song lists is (each list how many songs, then each song's number).
+          SONGS_AT = 0
+          LISTS_AT = 2
 
           # Where each number is, in bytes: in a song's record, then in each part's entry after it
           # (where its notes are, and how many), in a note, and how long a group's command is.
@@ -75,7 +83,13 @@ module VBlank
 
           def initialize(program)
             @songs = program.walk.select { |node| node.kind == :song }.uniq(&:name)
+            @lists = program.walk.select { |node| node.kind == :song_list }.uniq(&:name)
             @follows_level = self.class.follows_level?(program)
+          end
+
+          # The number list +name+ is picked from by, counted from nought.
+          def list_number(name)
+            @lists.index { |list| list.name == name } or raise LoweringError, "the song list #{name.inspect} is not declared"
           end
 
           # The number +name+ is played by, counted from 1: nought is no tune.
@@ -111,11 +125,18 @@ module VBlank
                channels_of(song).map { |part, channel| part_layout(song, part, channel, voicing, &number_of) }]
             end
 
-            table = [0]
+            table = [0, 0]
             places = {}
             @groups.each do |commands|
               places[commands] = table.size * 2
               table.concat(commands.flatten, [GROUP_END])
+            end
+            table[LISTS_AT / 2] = table.size * 2
+            lists_at = table.size
+            table.concat(Array.new(@lists.size, 0))
+            @lists.each_with_index do |list, i|
+              table[lists_at + i] = table.size * 2
+              table.concat([list.songs.size, *list.songs.map { |name| number(name) }])
             end
             songs_at = table.size
             table[0] = songs_at * 2

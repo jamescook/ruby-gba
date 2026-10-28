@@ -310,6 +310,35 @@ class TestSNESSongs < Minitest::Test
     assert_equal 0x60, dsp.getbyte(FIRST)
   end
 
+  # A song picked from a list by a number the game works out: the second song of the list plays (its
+  # A4 on the first square voice, pitch $070A), a number past the list's end or below nought leaves
+  # the music as it is, and one named `this_frame:` starts where it is named.
+  def test_play_from_list_picks_a_song_by_its_place
+    build = VBlank::IR::Build
+    n = build.var_ref(:n)
+    program = build.program(
+      build.enable_sound,
+      build.song(:low, events: [[0, 220]], total_frames: 8),
+      build.song(:high, events: [[0, 440]], total_frames: 8),
+      build.song_list(:tracks, %i[low high]),
+      build.loop_(
+        build.add(:n, 1),
+        build.if_(build.binop(:==, n, build.int(1)), build.play_from_list(:tracks, which: build.int(1))),
+        build.if_(build.binop(:==, n, build.int(3)), build.play_from_list(:tracks, which: build.int(2))),
+        build.if_(build.binop(:==, n, build.int(4)), build.play_from_list(:tracks, which: build.int(-1))),
+        build.if_(build.binop(:==, n, build.int(6)), build.play_from_list(:tracks, which: build.int(0), this_frame: true)),
+        build.wait_vblank
+      )
+    )
+    playing = SNES::CheckedRun.new.run(program, frames: 4).dsp_registers
+    picked_again = SNES::CheckedRun.new.run(program, frames: 7)
+
+    assert_equal [0x0A, 0x07], [playing.getbyte(FIRST + 2), playing.getbyte(FIRST + 3)], "the second song"
+    assert_equal [0x85, 0x03], [picked_again.dsp_registers.getbyte(FIRST + 2), picked_again.dsp_registers.getbyte(FIRST + 3)],
+                 "the first, started where it is named"
+    assert_equal 1, picked_again.audio.count([:stop_music]), "one switch: the numbers out of range changed nothing"
+  end
+
   # Under a level, the writes of a new wave note put the level's recording in the voice before its
   # key-on, and never the note's own: the voice reads a new source only from its loop point, so one
   # written after the key-on would play the note's own recording once round first (fullsnes, "SRCN").

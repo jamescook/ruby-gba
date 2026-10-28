@@ -86,7 +86,7 @@ module VBlank
                                                                         scroll_rows camera show_picture_group
                                                                         color_list_holds
                                                                         copy_tiles copy_owed_tiles data_byte],
-                                                    "the sound" => %i[play_from_list play_sound_effect
+                                                    "the sound" => %i[play_sound_effect
                                                                       play_sample stop_sample]
                                                   })
 
