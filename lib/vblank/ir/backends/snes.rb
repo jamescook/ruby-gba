@@ -14,6 +14,7 @@ module VBlank
 end
 
 require_relative "snes/w65816"
+require_relative "snes/gsu"
 require_relative "snes/linker"
 require_relative "snes/memory"
 require_relative "snes/runtime"
@@ -62,7 +63,7 @@ module VBlank
           board = board_for(program)
           memory = Memory.new
           painted = Lowering::Paint.painted?(program)
-          Runtime.reserve(memory, painted: painted)
+          Runtime.reserve(memory, painted: painted, chip: board.name == :super_fx)
           lowering = Lowering.new(program, memory: memory)
           game = lowering.sections + lowering.art_sections
           runtime = Runtime.sections(memory, main: Lowering::MAIN, frame_begins: lowering.frame_begins, painted: painted,

@@ -8,6 +8,7 @@ require_relative "runtime/picture"
 require_relative "runtime/paint"
 require_relative "runtime/tint"
 require_relative "runtime/collide"
+require_relative "runtime/chip"
 
 module VBlank
   module IR
@@ -27,12 +28,15 @@ module VBlank
           module_function
 
           # The runtime's own places in work RAM, asked for before the game's. A game whose screen is
-          # +painted+ (Paint) keeps its copy of the screen in work RAM's last bank.
-          def reserve(memory, painted: false)
+          # +painted+ (Paint) keeps its copy of the screen in work RAM's last bank. A cartridge with a
+          # Super FX (+chip+) keeps the chip's waiting loop and its counts (Chip), after the rest so
+          # a plain cartridge's places do not move.
+          def reserve(memory, painted: false, chip: false)
             Paint.reserve(memory) if painted
             Frame.reserve(memory)
             Picture.reserve(memory)
             Tint.reserve(memory)
+            Chip.reserve(memory) if chip
           end
 
           # The runtime's sections: the entry points in the first bank, and everything else in one.
@@ -41,6 +45,7 @@ module VBlank
           # for a game whose screen is painted rather than drawn from tiles; +board+ the cartridge's
           # board (Cartridge::SNESROM::BOARDS).
           def sections(memory, main:, frame_begins: nil, painted: false, board: Cartridge::SNESROM::PLAIN)
+            chip = board.name == :super_fx
             vectors = W65816.new("runtime vectors", home: :first)
             Boot.emit_vectors(vectors)
             asm = W65816.new("runtime")
@@ -53,7 +58,8 @@ module VBlank
             Paint.emit(asm, memory, Paint.scratch(memory)) if painted
             Tint.emit(asm, memory, Tint.scratch(memory))
             Collide.emit(asm, memory, Collide.scratch(memory))
-            emit_start(asm)
+            Chip.emit(asm, memory) if chip
+            emit_start(asm, chip: chip)
             emit_frame_begins(asm, frame_begins)
             [vectors.section, asm.section]
           end
@@ -62,8 +68,9 @@ module VBlank
           # table "game_starts": each place as a word and its number as two, and a place of nought
           # after the last), its lists' headers, the picture's start, the screen's interrupt
           # switched on, and the buttons held from power-on.
-          def emit_start(asm)
+          def emit_start(asm, chip: false)
             asm.label("rt_start")
+            asm.jsl(asm.long("rt_chip_start")) if chip
             asm.ldx(0)
             asm.label("rt_start_next")
             asm.lda(asm.long_x("game_starts"))
