@@ -20,7 +20,7 @@ class TestRaycasterExample < Minitest::Test
   # This is the whole picture reduced to 30 numbers, which is what makes the shape of the
   # view assertable instead of something you have to look at.
   private def wall_tops(screen)
-    (0...Raycaster::NUM_COLS).map do |col|
+    (0...Raycaster.layout(240, 160)[:columns]).map do |col|
       x = (col * Raycaster::COL_W) + (Raycaster::COL_W / 2)
       (0...160).find { |row| screen.pixel(x, row) != Raycaster::SKY } || 160
     end

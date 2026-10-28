@@ -24,7 +24,7 @@
 # step and distance here is one. Writing a Float is all it takes to declare one, and the
 # arithmetic carries it: adding works as it is, and multiplying or dividing two of them
 # is handled for you (both would otherwise come out wrong by a factor of thousands).
-# The wall height is the interesting one — `WALL_SCALE / (seen + SOFTEN)` is the
+# The wall height is the interesting one — `scale / (seen + SOFTEN)` is the
 # perspective divide, the single line that turns a distance into a picture.
 #
 # A note on speed: this casts a ray per screen column, and each column is one fill as
@@ -49,12 +49,10 @@ module Raycaster
     1, 1, 1, 1, 1, 1, 1, 1
   ])
 
-  NUM_COLS = 30 # screen strips: 30 columns x 8px = 240px wide
-  COL_W = 8
+  COL_W = 8 # each screen strip is 8 pixels wide
   STEPS_PER_CELL = 4          # a ray advances a quarter of a cell at a time...
   STEP = 1.0 / STEPS_PER_CELL
   STEPS = 20                  # ...20 times, so it sees five cells before it gives up
-  HORIZON = 80                # the eye line: wall columns are centered here
   WALK = 0.09                 # how far a step of walking moves, in cells
 
   # The direction tables. A full turn is 512 angle units. Cosine is the same curve read
@@ -63,14 +61,21 @@ module Raycaster
   QUARTER = TURN / 4
   SIN = Ractor.make_shareable((0...TURN).map { |a| Math.sin(a * 2 * Math::PI / TURN) })
 
-  # How tall a wall one cell away stands on screen. Everything closer is taller and
-  # everything further is shorter, in proportion — that is the perspective divide below.
-  # The band keeps a wall you are nose-to-nose with from filling the world, and one at
-  # the far end of the corridor from vanishing.
-  WALL_SCALE = 90
   SOFTEN = 0.5
-  MAX_H = 120
   MIN_H = 8
+
+  # The view laid out on a screen +width+ by +height+ (240 by 160 on the Advance):
+  #
+  # - columns: how many strips, COL_W pixels each, fill the width (30 on the Advance);
+  # - horizon: the eye line, half way down — wall columns are centered on it;
+  # - scale: how tall a wall one cell away stands on screen. Everything closer is taller
+  #   and everything further is shorter, in proportion — that is the perspective divide
+  #   below;
+  # - tallest: the band's top, which keeps a wall you are nose-to-nose with from filling
+  #   the world (MIN_H keeps one at the far end of the corridor from vanishing).
+  def self.layout(width, height)
+    { columns: width / COL_W, horizon: height / 2, scale: height * 9 / 16, tallest: height * 3 / 4 }
+  end
 
   # The palette. Sky and floor bracket the eye line, and the three wall shades are the
   # depth cue: a near wall catches the light, a far one falls into the gloom.
@@ -81,8 +86,10 @@ module Raycaster
   FAR = Ractor.make_shareable(VBlank::Graphics::Color.rgb(11, 10, 9))
   WALL_SHADES = [NEAR, MID, FAR].freeze
 
-  GAME = VBlank.game("RAYCAST", consoles: %i[gba]) do
+  GAME = VBlank.game("RAYCAST", consoles: %i[gba snes]) do
     screen :bitmap, tear_free: true # double-buffered: the whole view is repainted each frame
+    laid = Raycaster.layout(screen_width, screen_height)
+    cols, horizon, scale, tallest = laid.values_at(:columns, :horizon, :scale, :tallest)
 
     # A table written with Floats holds numbers with a fraction, and every read from it
     # hands one back — so nothing below has to mention a scale.
@@ -117,8 +124,8 @@ module Raycaster
       # pixels and is SLOWER. Measured: 20 frames a second against 30. Setting up a
       # transfer costs about what a short one moves, so ninety small fills lose to two
       # big ones.
-      dma_fill_rect 0, 0, 240, HORIZON, SKY
-      dma_fill_rect 0, HORIZON, 240, 160 - HORIZON, FLOOR
+      dma_fill_rect 0, 0, screen_width, horizon, SKY
+      dma_fill_rect 0, horizon, screen_width, screen_height - horizon, FLOOR
 
       held(:left).then  { view.sub! 4 }
       held(:right).then { view.add! 4 }
@@ -143,7 +150,7 @@ module Raycaster
         end
       end
 
-      repeat(NUM_COLS) do |col|
+      repeat(cols) do |col|
         # Fan the rays across the view: this column looks a little left or right of center.
         # Two angle units apart, centered on the ODD number in between, so the fan is
         # symmetric and no ray ever points exactly straight ahead. That last part matters.
@@ -153,7 +160,7 @@ module Raycaster
         # the middle of the view, wherever you look. Offset, every ray is treated alike.
         ang.set! view
         ang.add!(col * 2)
-        ang.sub!(NUM_COLS - 1)
+        ang.sub!(cols - 1)
 
         # Step vector for this ray. cos(ang) = sin[ang + QUARTER]; a quarter cell per step.
         dx.set!(sin[ang + QUARTER] * STEP)
@@ -191,15 +198,15 @@ module Raycaster
         # five, but scaled up twice that is past where a variable wraps. Nothing here
         # says so, because nothing here has to: the framework knows both sides hold a
         # fraction and works the product out at full width.
-        seen.set!(dist * sin[(col * 2) + (QUARTER - (NUM_COLS - 1))])
+        seen.set!(dist * sin[(col * 2) + (QUARTER - (cols - 1))])
 
         # The perspective divide, which is the whole trick of a view like this: a wall
         # twice as far away covers half as much of the screen, so its height on screen is
         # one over its distance. SOFTEN keeps a wall you are nose-to-nose with from being
         # infinitely tall, and the band keeps the answer on screen at both ends.
-        col_h.set!((WALL_SCALE / (seen + SOFTEN)).to_i)
-        col_h.clamp! MIN_H, MAX_H
-        top.set! HORIZON
+        col_h.set!((scale / (seen + SOFTEN)).to_i)
+        col_h.clamp! MIN_H, tallest
+        top.set! horizon
         top.sub!(col_h / 2)
         # Shade the wall by how far away it is, which is what reads as depth: near walls
         # catch the light, far ones fall into the gloom. draw_rect_at takes a fixed color,
