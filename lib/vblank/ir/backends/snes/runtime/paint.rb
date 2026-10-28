@@ -26,6 +26,8 @@ module VBlank
           # so each row is one copy. The screen is switched off for the copy (Runtime::Picture's
           # rt_upload), so a pass that changed the whole screen is copied whole, over the blank and on
           # into the frame after; that frame is black, and the pass counts as shown once it is done.
+          # On a cartridge with a Super FX the copy is the chip's RAM instead, and it is sent with the
+          # screen on, a blank at a time (ChipPaint).
           #
           # A TILE KEEPS ITS PIXELS IN PLANES. A pixel's colour is a place in the colour memory, eight
           # bits; a tile keeps the first bit of each of its 64 pixels together, a row of eight pixels
