@@ -58,6 +58,14 @@ module VBlank
           # Its source number: after the long and the short square recordings.
           METALLIC = WIDTHS.size * 2
 
+          # THE WAVE VOICE'S WAVEFORMS, which are the game's own: 32 steps of 0 to 15 each (Audio::
+          # Sound.wavetable), at the loudness the game plays it (each step already cut down as the
+          # Advance cuts it). Each is recorded as it is, a step a sample, less eight so the middle
+          # sits near nought, in two blocks looping back to the first, and they come after every
+          # recording above, in the order the game's build lists them (DSPWrites.wave_steps).
+          FIRST_WAVE = METALLIC + 1
+          WAVE_MIDDLE = 8
+
           # The source number of the recording of +width+, a wave of +wave+ samples: the long waves
           # first, then the short ones.
           def source(width, wave)
@@ -89,6 +97,9 @@ module VBlank
             looped(steps * BLOCK_SAMPLES)
           end
 
+          # One of the game's waveforms, +steps+ (32 of 0 to 15), as a looped recording.
+          def wave(steps) = looped(steps.map { |step| step - WAVE_MIDDLE })
+
           # +samples+ (a whole number of blocks' worth, each -8..7) as BRR blocks, the last looping
           # back to the first.
           def looped(samples)
@@ -101,9 +112,9 @@ module VBlank
 
           # The table and the recordings after it, as bytes for +at+ in the sound unit's memory: a
           # row for each recording (its start and its loop point, both its first byte) and then the
-          # recordings themselves.
-          def image(at)
-            all = recordings
+          # recordings themselves, the game's +waves+ (each 32 steps) last.
+          def image(at, waves = [])
+            all = recordings + waves.map { |steps| wave(steps) }
             start = at + (all.size * ROW)
             rows = all.map do |bytes|
               row = [start & 0xFF, start >> 8] * 2

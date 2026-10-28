@@ -11,7 +11,8 @@ module VBlank
           # to the cartridge's own sound log (rt_sound_log), which a run reads back as the
           # interpreter's words (#sound_entries). Mixed into Lowering.
           module Sound
-            STATEMENTS = Ractor.make_shareable({ enable_sound: :emit_enable_sound, beep: :emit_beep, noise: :emit_noise })
+            STATEMENTS = Ractor.make_shareable({ enable_sound: :emit_enable_sound, beep: :emit_beep, noise: :emit_noise,
+                                                 wave: :emit_wave, stop_wave: :emit_stop_wave })
 
             # The kinds that reach the sound unit: a program with none of them is built without it.
             KINDS = STATEMENTS.keys.freeze
@@ -22,12 +23,24 @@ module VBlank
             # Every entry of the sound log the cartridge can write, by the number it writes.
             def sound_entries = @sound_entries.dup
 
+            # The wave voice's waveforms this game plays, each at the loudness it plays it, in the
+            # order they are recorded beside the sound program (Samples::FIRST_WAVE on).
+            def sound_waves = @sound_waves.dup
+
             private
 
             def prepare_sound
               @sound_entries = []
               @defined_sounds = @program.walk.select { |node| node.kind == :define_sound }.to_h { |node| [node.name, node.effect] }
+              @sound_waves = @program.walk.select { |node| node.kind == :wave }
+                                     .map { |node| DSPWrites.wave_steps(wave_params(node)) }.uniq
             end
+
+            # Reference#exec_wave's entry.
+            def wave_params(node) = { shape: node.shape, frequency: node.frequency, volume: node.volume }
+
+            def emit_wave(node) = emit_sound_entry([:wave, wave_params(node)])
+            def emit_stop_wave(_node) = emit_sound_entry([:stop_wave])
 
             # Reference#exec_enable_sound.
             def emit_enable_sound(_node) = emit_sound_entry([:enabled])
@@ -48,7 +61,7 @@ module VBlank
 
             # +entry+'s DSP writes, then its number into the cartridge's sound log.
             def emit_sound_entry(entry)
-              DSPWrites.for_entry(entry).each do |register, *values|
+              DSPWrites.for_entry(entry, @sound_waves).each do |register, *values|
                 if register == DSPWrites::SET_FLG_BITS
                   runtime_call("rt_sound_flag_bits", values.map { |number| Build.int(number) })
                 else

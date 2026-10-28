@@ -113,7 +113,7 @@ module VBlank
 
           # The interpreter's moment, and what its sound log up to then says the S-DSP's registers hold.
           def moment_of(interpreter, frame, width, height)
-            @expected_dsp << DSPWrites.after(interpreter.audio)
+            @expected_dsp << DSPWrites.after(interpreter.audio, @cartridge.rom.built.sound_waves)
             Moment.new(frame: frame, variables: interpreter.vars.dup, picture: picture_check(interpreter.screen, width, height),
                        sounds: interpreter.audio.size, sprites: interpreter.sprites,
                        collections: interpreter.game_state.except(:vars), sounding: [])

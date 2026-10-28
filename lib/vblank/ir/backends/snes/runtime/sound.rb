@@ -100,13 +100,13 @@ module VBlank
             end
 
             # Everything sent across at power-on, from DRIVER_AT: the program, then from TABLE_AT the
-            # sample table and the recordings.
-            def image
+            # sample table and the recordings, the game's +waves+ last (Samples.image).
+            def image(waves = [])
               program = driver.assembled.bytes
               room = TABLE_AT - DRIVER_AT
               raise ArgumentError, "the sound program is #{program.size} bytes, more than #{room}" if program.size > room
 
-              program + Array.new(room - program.size, 0) + Samples.image(TABLE_AT)
+              program + Array.new(room - program.size, 0) + Samples.image(TABLE_AT, waves)
             end
 
             # The program the SPC700 runs once it has been sent.
@@ -148,15 +148,15 @@ module VBlank
             end
 
             # What is sent across, in the cartridge, for rt_sound_start to send.
-            def sections
+            def sections(waves = [])
               asm = W65816.new("sound driver")
               asm.label("sound driver")
-              asm.data_bytes(image)
+              asm.data_bytes(image(waves))
               [asm.section]
             end
 
-            def emit(asm, memory)
-              emit_start(asm, memory)
+            def emit(asm, memory, waves = [])
+              emit_start(asm, memory, image(waves).size)
               emit_write(asm, memory)
               emit_log(asm, memory)
             end
@@ -175,11 +175,10 @@ module VBlank
               asm.rtl
             end
 
-            # rt_sound_start: the program sent, a byte at a time, and started; then the DSP told where
-            # the sample table is, with every voice quiet (DSPWrites.at_power_on).
-            def emit_start(asm, memory)
+            # rt_sound_start: the program sent, +length+ bytes a byte at a time, and started; then the
+            # DSP told where the sample table is, with every voice quiet (DSPWrites.at_power_on).
+            def emit_start(asm, memory, length)
               h = Console::SNESHardware
-              length = image.size
               kick = ((length + 2) & 0xFF) | 1 # past the last byte's number, and never nought
               asm.label("rt_sound_start")
               asm.php

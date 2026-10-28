@@ -39,6 +39,17 @@ module VBlank
           BEEP_VOICE = 1
           NOISE_VOICE = 3
 
+          # THE WAVE VOICE, the Advance's third, plays the game's own 32-step waveforms (Samples.wave).
+          # The Advance makes its four quieter loudnesses by cutting every step down, so each
+          # loudness is a waveform of its own (#wave_steps), recorded at the loudness of a beep at
+          # 15; the voice has no fade, so its envelope is a fixed gain at the top (ADSR1 bit 7 nought
+          # and GAIN $7F) until stop_wave keys it off. A key-off holds until it is cleared, and a
+          # key-on under it plays nothing (fullsnes, "KON/KOFF Notes"), so each wave clears it first.
+          WAVE_VOICE = 2
+          GAIN = 0x7
+          GAIN_MODE = 0x00
+          FIXED_TOP = 0x7F
+
           # NOISE. A hiss is the S-DSP's own noise generator, a register of fifteen random bits, as
           # the Advance's is: the noise voice's bit in NON switches it from its recording to the
           # generator, and the generator's clock is FLG's low five bits, one of the 32 rates (a rate
@@ -129,15 +140,40 @@ module VBlank
              [NOISE_ON, 0], [PITCH_MODULATION, 0], [KEY_OFF, 0]]
           end
 
-          # The writes one sound-log entry means: [:enabled], [:beep, effect] or [:noise, hit]. Each is
-          # [register, value], or [SET_FLG_BITS, mask, bits] for FLG's.
-          def for_entry(entry)
+          # The writes one sound-log entry means: [:enabled], [:beep, effect], [:noise, hit], [:wave,
+          # params] or [:stop_wave]. Each is [register, value], or [SET_FLG_BITS, mask, bits] for FLG's.
+          # +waves+ is the game's waveforms, in the order its build recorded them (Samples::FIRST_WAVE on).
+          def for_entry(entry, waves = [])
             case entry.first
             when :enabled then [[SET_FLG_BITS, SWITCHES, SOUND_ON], [MAIN_LEFT, MAIN_VOLUME], [MAIN_RIGHT, MAIN_VOLUME]]
             when :beep then beep(entry.last)
             when :noise then noise(entry.last)
+            when :wave then wave(entry.last, waves)
+            when :stop_wave then [[KEY_OFF, 1 << WAVE_VOICE]]
             else raise ArgumentError, "the Super Nintendo build does not play #{entry.first.inspect} yet"
             end
+          end
+
+          # The wave voice playing +params+ ({shape:, frequency:, volume:}, as the interpreter logs a
+          # wave): its recording among +waves+, read at the note's pitch, held at a fixed gain.
+          def wave(params, waves)
+            base = WAVE_VOICE << 4
+            steps = wave_steps(params)
+            index = waves.index(steps) or raise ArgumentError, "the waveform #{steps.inspect} was not recorded for this game"
+            pitch = pitch_for(params[:frequency], Samples::LONG_WAVE)
+            level = VBlank::Audio::Sound::WAVE_STEP_MAX * VOLUME_STEP
+            [[base + VOLUME_LEFT, level], [base + VOLUME_RIGHT, level], [base + PITCH_LOW, pitch & 0xFF],
+             [base + PITCH_HIGH, pitch >> 8], [base + SOURCE, Samples::FIRST_WAVE + index], [base + ADSR1, GAIN_MODE],
+             [base + GAIN, FIXED_TOP], [KEY_OFF, 0], [KEY_ON, 1 << WAVE_VOICE]]
+          end
+
+          # The 32 steps a wave plays, cut down to its loudness as the Advance cuts them
+          # (Audio::Sound.wave_step_at): what its recording holds.
+          def wave_steps(params)
+            sound = VBlank::Audio::Sound
+            volume = params[:volume]
+            level = volume.is_a?(Symbol) ? volume : sound.wave_level(volume)
+            sound.wavetable(params[:shape]).map { |step| sound.wave_step_at(step, level) }
           end
 
           # A beep: its voice's registers, and key-on last, which starts it from the top.
@@ -217,11 +253,11 @@ module VBlank
 
           # What the registers hold after the sound log +entries+, by register, for each one written,
           # and FLG, which the sound unit starts as SOUND_OFF (at_power_on) and whose bits each entry
-          # changes only some of.
-          def after(entries)
+          # changes only some of. +waves+ as for #for_entry.
+          def after(entries, waves = [])
             held = { FLAGS => SOUND_OFF }
             entries.each do |entry|
-              for_entry(entry).each do |register, *value|
+              for_entry(entry, waves).each do |register, *value|
                 if register == SET_FLG_BITS
                   mask, bits = value
                   held[FLAGS] = (held[FLAGS] & ~mask & 0xFF) | (bits & mask)

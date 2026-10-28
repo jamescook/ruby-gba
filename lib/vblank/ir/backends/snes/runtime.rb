@@ -49,9 +49,10 @@ module VBlank
           # for a game whose screen is painted rather than drawn from tiles; +board+ the cartridge's
           # board (Cartridge::SNESROM::BOARDS); +saves+ for a game that reaches save memory, whose
           # routines a game that does not is made without, so its cartridge is the same bytes; +sound+
-          # for a game that makes sound, which sends the sound unit its program at power-on.
+          # for a game that makes sound, which sends the sound unit its program at power-on, with
+          # +sound_waves+, the wave voice's waveforms, recorded beside it.
           def sections(memory, main:, frame_begins: nil, painted: false, board: Cartridge::SNESROM::PLAIN, saves: false,
-                       sound: false)
+                       sound: false, sound_waves: [])
             chip = board.name == :super_fx
             vectors = W65816.new("runtime vectors", home: :first)
             Boot.emit_vectors(vectors)
@@ -67,11 +68,11 @@ module VBlank
             Collide.emit(asm, memory, Collide.scratch(memory))
             Chip.emit(asm, memory) if chip
             Saving.emit(asm, memory, Saving.scratch(memory)) if saves
-            Sound.emit(asm, memory) if sound
+            Sound.emit(asm, memory, sound_waves) if sound
             emit_start(asm, chip: chip, sound: sound)
             emit_frame_begins(asm, frame_begins)
             [vectors.section, asm.section] + (chip && painted ? [ChipPaint.gsu_section] : []) +
-              (sound ? Sound.sections : [])
+              (sound ? Sound.sections(sound_waves) : [])
           end
 
           # What a game needs before its first line: its variables that do not start at nought (the
