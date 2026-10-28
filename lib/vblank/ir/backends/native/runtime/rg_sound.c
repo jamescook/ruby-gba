@@ -136,6 +136,12 @@
 #define SLIDE_EVERY_AT 4 /* ...and the 128ths of a second a step waits, above them, */
 #define SLIDE_EVERY_BITS 7 /* ...in three bits */
 #define PITCH_COUNT_TOP 2048 /* the square voices keep a pitch as this less its ticks a wave */
+#define SAID_VIBRATO (1 << 13) /* ...and in a note, set when it or its part said a wobble, */
+#define VIBRATO_AT 14          /* ...whose sixteen bits (Audio::Vibrato#bits) are above it: */
+#define VIBRATO_BITS 0xFFFF
+#define VIBRATO_FOUR_BITS 0xF  /* the depth, */
+#define VIBRATO_SPEED_AT 4     /* ...the speed above it, */
+#define VIBRATO_AFTER_AT 8     /* ...and the wait above that */
 #define NUMBERS_PER_NOTE_SOUND 8
 #define NUMBERS_PER_BEEP 4
 #define NUMBERS_PER_WAVE 3
@@ -521,10 +527,14 @@ void rg_sound_log(const char *format, ...) {
 
 void rg_sound_enabled(void) { rg_sound_log("enabled"); }
 
+/* The game's own sound takes a voice, which then wobbles no song's note (Reference::Player#game_sound_on). */
+static void wobble_stop(int32_t voice);
+
 void rg_sound_beep(int32_t which) {
   if (which < 0 || which >= rg_game_beeps[0]) rg_fault("there is no beep number %d", (int)which);
   const int32_t *beep = &rg_game_beeps[1 + (which * NUMBERS_PER_BEEP)];
   rg_sound_log("beep %d", (int)which);
+  wobble_stop(BEEP_VOICE);
   square_start(BEEP_VOICE, beep[0], beep[1], beep[2], beep[3], 0);
 }
 
@@ -532,6 +542,7 @@ void rg_sound_wave(int32_t which) {
   if (which < 0 || which >= rg_game_waves[0]) rg_fault("there is no wave number %d", (int)which);
   const int32_t *said = &rg_game_waves[1 + (which * NUMBERS_PER_WAVE)];
   rg_sound_log("wave %d", (int)which);
+  wobble_stop(RG_WAVE_VOICE);
   wave_load(said[0]);
   wave_start(said[1], said[2]);
   loaded_waveform = -1; /* no player's waveform is there now (see wave_put_in) */
@@ -539,6 +550,7 @@ void rg_sound_wave(int32_t which) {
 
 void rg_sound_stop_wave(void) {
   rg_sound_log("stop_wave");
+  wobble_stop(RG_WAVE_VOICE);
   wave_switch_off();
   loaded_waveform = -1;
 }
@@ -708,9 +720,72 @@ static void follow_level(int32_t now) {
   }
 }
 
+/* --- a pitch that wobbles --- */
+
+/* A NOTE A VOICE WOBBLES, by the voice it is on (Audio::Vibrato says what a wobble is, and
+ * IR::Tunes::Wobble how it steps): its vibrato's bits (no depth holds still), the frames still to
+ * wait, the frames the swing it is in has left, whether that swing is the one above, the steps it
+ * moves the pitch by now, and the ticks a wave of the note's own pitch lasts. */
+typedef struct {
+  int32_t vibrato, wait, left, rising, steps, ticks;
+} wobble;
+
+static wobble wobbles[RG_WAVE_VOICE + 1];
+
+static int32_t note_vibrato(const int32_t *note) {
+  return note[4] & SAID_VIBRATO ? (note[4] >> VIBRATO_AT) & VIBRATO_BITS : 0;
+}
+
+/* +voice+ has just been given +note+: it wobbles that, or — a rest, or a note that says none —
+ * holds still. The hiss has no pitch to wobble. */
+static void wobble_start(int32_t voice, const int32_t *note) {
+  if (voice > RG_WAVE_VOICE) return;
+  int32_t vibrato = note[1] == 0 ? 0 : note_vibrato(note);
+  wobbles[voice] = (wobble){vibrato, vibrato >> VIBRATO_AFTER_AT, 0, 0, 0, note[3]};
+}
+
+static void wobble_stop(int32_t voice) {
+  if (voice <= RG_WAVE_VOICE) wobbles[voice].vibrato = 0;
+}
+
+/* EVERY WOBBLING VOICE MOVED ON, once at the end of the player's frame, the voices in order
+ * (Reference::Player#step_wobbles), and logged as each moves its pitch. Once its wait is over a
+ * voice is put at its note's pitch moved by its steps every frame, so a held note sounded again at
+ * a new music volume, at its own pitch, is back where its wobble has it. A square voice takes the
+ * pitch up at the start of its next eighth of a wave, as the chip does; the pitch number never
+ * goes past the voice's ends. */
+static void step_wobbles(void) {
+  for (int32_t voice = 1; voice <= RG_WAVE_VOICE; voice++) {
+    wobble *moving = &wobbles[voice];
+    int32_t depth = moving->vibrato & VIBRATO_FOUR_BITS;
+    if (depth == 0) continue;
+    if (moving->wait > 0) {
+      moving->wait--;
+      continue;
+    }
+    if (moving->left == 0) {
+      moving->rising = !moving->rising;
+      moving->left = ((moving->vibrato >> VIBRATO_SPEED_AT) & VIBRATO_FOUR_BITS) + 1; /* kept less one */
+      int32_t steps = moving->rising ? (depth + 1) / 2 : -(depth / 2);
+      if (steps != moving->steps) rg_sound_log("wobble %d %d", (int)voice, (int)steps);
+      moving->steps = steps;
+    }
+    moving->left--;
+    int32_t count = PITCH_COUNT_TOP - moving->ticks + moving->steps;
+    if (count < 0) count = 0;
+    if (count > PITCH_COUNT_TOP - 1) count = PITCH_COUNT_TOP - 1;
+    if (voice == RG_WAVE_VOICE) {
+      if (wave.wave_ticks != 0) wave.wave_ticks = PITCH_COUNT_TOP - count;
+    } else if (squares[voice - 1].wave_ticks != 0) {
+      squares[voice - 1].slid_ticks = PITCH_COUNT_TOP - count;
+    }
+  }
+}
+
 /* A console voice goes quiet, the way a rest on it does: a square voice and the noise voice with
  * nothing to play, the wave voice at no loudness. */
 static void silence_voice(int32_t voice) {
+  wobble_stop(voice);
   switch (voice) {
   case RG_WAVE_VOICE: wave_set_loudness(0); break;
   case RG_NOISE_VOICE: noise_start(0, hiss.bits, 0, 0); break;
@@ -858,14 +933,18 @@ static int32_t note_fade(const part_walk *part, const int32_t *note) {
  * bits of it, or 0 to hold it. Only the song's first square part can say one. */
 static int32_t note_slide(const int32_t *note) { return (note[4] >> SLIDE_AT) & SLIDE_BITS; }
 
-/* The log's line for a note setting its voice (Reference::Player#voice_log_entry): with the note's
- * fade after it when it said one, and its slide after that when it said one — with a fade of -1, for
- * none, before a slide said alone. */
+/* The log's line for a note setting its voice (IR::Tunes.voice_entry): with the note's fade after it
+ * when it said one, its slide after that and its wobble after that when it said them — with -1, for
+ * none, before one said after it. */
 static void log_voice_set(int32_t voice, int32_t who, int32_t pitch, int32_t volume, const int32_t *note) {
   int32_t fade = note[4] & SAID_FADE ? note[4] & (FADE_UP | FADE_STEP_BITS) : -1;
-  if (note[4] & SAID_SLIDE) {
+  int32_t slide = note[4] & SAID_SLIDE ? note_slide(note) : -1;
+  if (note[4] & SAID_VIBRATO) {
+    rg_sound_log("voice %d %d %d %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume, (int)fade,
+                 (int)slide, (int)note_vibrato(note));
+  } else if (note[4] & SAID_SLIDE) {
     rg_sound_log("voice %d %d %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume, (int)fade,
-                 (int)note_slide(note));
+                 (int)slide);
   } else if (note[4] & SAID_FADE) {
     rg_sound_log("voice %d %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume, (int)fade);
   } else {
@@ -891,6 +970,7 @@ static void play_note(part_walk *part, const int32_t *note) {
   int32_t fade = note_fade(part, note);
   rg_sound_log("note %d %d", (int)playing, (int)pitch);
   log_voice_set(part->voice, playing, pitch, volume, note);
+  wobble_start(part->voice, note);
   switch (part->kind) {
   case PART_WAVE:
     if (level_variable) hold_note((held_note){part->voice, 0, written, 0, 0, 0});
@@ -1028,6 +1108,7 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
   drop_held_note(part->voice);
   rg_sound_log("note %d %d", (int)number, (int)pitch);
   log_voice_set(part->voice, number, pitch, volume, note);
+  wobble_start(part->voice, note);
   switch (part->kind) {
   case PART_WAVE:
     if (pitch == 0) {
@@ -1110,6 +1191,7 @@ void rg_music_frame(void) {
   while (at < EFFECT_COUNT && effect_row(by_rank[at])[EFFECT_RANK] > tune) play_effect_frame(by_rank[at++]);
   if (playing >= 0) play_song_frame();
   while (at < EFFECT_COUNT) play_effect_frame(by_rank[at++]);
+  step_wobbles();
 }
 
 /* A TUNE NAMED `this_frame: true`, started where the game names it rather than at the next frame

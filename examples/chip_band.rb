@@ -30,6 +30,12 @@
 #
 # The chords and the drums play as they do in FADING NOTES.
 #
+# WOBBLING NOTES is the tune sung: the music player moves each note's pitch a little above and
+# below where it began, a few frames each way, the way a singer's voice wobbles on a held note.
+#   1. The lead waits an eighth into each note before it wobbles (`vibrato after: :eighth`), so a
+#      short note stays straight and a long one blooms.
+#   2. The chords wobble slightly and slowly from the start, a string section.
+#
 # Run it to build examples/chip_band.gba and examples/chip_band.gbc:
 #   ruby examples/chip_band.rb
 
@@ -40,6 +46,7 @@ module ChipBand
     { name: :held, label: "HELD NOTES" },
     { name: :fading, label: "FADING NOTES" },
     { name: :sliding, label: "SLIDING NOTES" },
+    { name: :wobbling, label: "WOBBLING NOTES" },
   ])
 
   # The tune, as four bars of notes every version plays: the lead's [note, length] and the
@@ -124,6 +131,25 @@ module ChipBand
         v.duty :quarter
         v.volume 0
         v.swell 7
+        CHORDS.each { |pitch| v.note pitch, :whole }
+      end
+      voice :drums, plays: :noise do |v|
+        v.volume 9
+        4.times { DRUMS.each { |pitch, length, fade| v.note pitch, length, **fade } }
+      end
+    end
+
+    song :wobbling do
+      tempo 132
+      voice :lead do |v|
+        v.duty :half
+        v.vibrato depth: :medium, speed: :medium, after: :eighth
+        LEAD.each { |pitch, length| v.note pitch, length }
+      end
+      voice :chords do |v|
+        v.duty :quarter
+        v.volume 6
+        v.vibrato depth: :slight, speed: :slow
         CHORDS.each { |pitch| v.note pitch, :whole }
       end
       voice :drums, plays: :noise do |v|

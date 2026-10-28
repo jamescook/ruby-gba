@@ -46,14 +46,14 @@ module VBlank
             end
 
             # +effects+ are the game's (GBC::Music#effects), +by_rank+ the same highest rank first.
-            # +slides+ says a note of the game's music slides its pitch (GBC::Music#slides?), and so
-            # takes a byte more.
-            def emit(asm, memory, effects, by_rank, slides: false)
+            # +slides+ says a note of the game's music slides its pitch (GBC::Music#slides?), and
+            # +bytes+ is how many a note of it takes (GBC::Music.note_bytes).
+            def emit(asm, memory, effects, by_rank, slides: false, bytes: GBC::Music::NOTE_BYTES)
               emit_claim(asm, memory)
               emit_tune_rank(asm, memory)
               emit_sides(asm, memory, by_rank)
               effects.each do |effect|
-                emit_frame(asm, memory, effect, slides)
+                emit_frame(asm, memory, effect, bytes)
                 emit_finish(asm, memory, effect)
                 emit_ask(asm, memory, effect, effects, now: false)
                 emit_ask(asm, memory, effect, effects, now: true, by_rank: by_rank)
@@ -161,7 +161,7 @@ module VBlank
             # of the cartridge reads it starting at rt_sfx_started_N; past its last frame it lets its
             # voices go; and sounding, each part plays its note whose frame this is, on the voice its
             # rank lets it take.
-            def emit_frame(asm, memory, effect, slides)
+            def emit_frame(asm, memory, effect, bytes)
               n = effect.number
               at = memory[state(effect)]
               frame = at + FRAME
@@ -198,7 +198,7 @@ module VBlank
               asm.cp_a(total & 0xFF)
               asm.jump(:nc, "rt_sfx_finish_#{n}")
               asm.label("rt_sfx_#{n}_play")
-              effect.parts.each_with_index { |part, p| emit_effect_part(asm, memory, effect, part, p, slides) }
+              effect.parts.each_with_index { |part, p| emit_effect_part(asm, memory, effect, part, p, bytes) }
               asm.load(:hl, frame)
               asm.inc([:hl])
               asm.ret(:nz)
@@ -209,7 +209,7 @@ module VBlank
 
             # Part +p+ of an effect: its next note, if this is its frame — the part moved on past it,
             # and the note played if the voice is the effect's to take.
-            def emit_effect_part(asm, memory, effect, part, p, slides)
+            def emit_effect_part(asm, memory, effect, part, p, bytes)
               at = memory[state(effect)]
               cursor = at + CURSORS + (2 * p)
               frame = at + FRAME
@@ -227,7 +227,7 @@ module VBlank
               asm.label("rt_sfx_#{effect.number}_part_#{p}_more")
               asm.load(:h, :d) # HL = where its notes are + the number × a note's bytes
               asm.load(:l, :e)
-              Music.emit_times_note_bytes(asm, slides)
+              Music.emit_times_note_bytes(asm, bytes)
               asm.load(:de, part.label)
               asm.add_hl(:de)
               asm.load(:a, [frame])
@@ -274,7 +274,7 @@ module VBlank
                 asm.xor_a(:a)
                 asm.load([holder], :a)
                 asm.label("rt_sfx_#{n}_free_#{voice}")
-                Music.emit_silence(asm, voice)
+                Music.emit_silence(asm, memory, voice)
                 asm.label("rt_sfx_#{n}_kept_#{voice}")
               end
               asm.ret
@@ -364,7 +364,7 @@ module VBlank
               asm.load(:a, [:hli])
               asm.load(:d, :a)
               asm.load(:b, [:hl])
-              Music.emit_keep_slide(asm, memory, slides)
+              Music.emit_store_slide_and_vibrato(asm, memory, slides)
               asm.load(:a, [memory[Music::PART]])
               asm.cp_a(Music::HELD_VOICES + 1)
               asm.jump(:nc, "rt_voice_write")

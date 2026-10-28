@@ -32,6 +32,11 @@ module VBlank
           SAID_SLIDE = 32
           SLIDE_AT = 6
 
+          # ...and above those, set when the note or its part said a wobble (Audio::Vibrato#bits),
+          # whose sixteen bits are above that again (rg_sound.c's SAID_VIBRATO and VIBRATO_AT).
+          SAID_VIBRATO = 1 << 13
+          VIBRATO_AT = 14
+
           private
 
           def prepare_sound
@@ -320,7 +325,8 @@ module VBlank
           # hold a fraction. Then how it fades or swells, when its part or the note said so
           # (IR::Tunes.said_fade): the voice's four bits of it, and SAID_FADE beside them; 0 for a
           # note that leaves it to the voice, and for a rest. With them, in the same number, how it
-          # slides its pitch when it or its part said so (IR::Tunes.said_slide).
+          # slides its pitch when it or its part said so (IR::Tunes.said_slide), and how it wobbles
+          # (IR::Tunes.said_vibrato).
           def encoded_note(note, part, kind)
             at, pitch, _, volume = note
             volume ||= part.volume
@@ -331,7 +337,9 @@ module VBlank
                           end
             fade = Tunes.said_fade(part, note) unless pitch.zero?
             slide = Tunes.said_slide(part, note) unless pitch.zero?
-            said = (fade ? SAID_FADE | fade.bits : 0) | (slide ? SAID_SLIDE | (slide.bits << SLIDE_AT) : 0)
+            wobble = Tunes.said_vibrato(part, note) unless pitch.zero?
+            said = (fade ? SAID_FADE | fade.bits : 0) | (slide ? SAID_SLIDE | (slide.bits << SLIDE_AT) : 0) |
+                   (wobble ? SAID_VIBRATO | (wobble.bits << VIBRATO_AT) : 0)
             [at, @sound_log.pitch_number(pitch), heard, last, said]
           end
 

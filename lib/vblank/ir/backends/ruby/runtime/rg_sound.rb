@@ -34,6 +34,12 @@ RG_SLIDE_SHIFT_BITS = 7 # ...the shift,
 RG_SLIDE_EVERY_AT = 4 # ...and the 128ths of a second a step waits, above them,
 RG_SLIDE_EVERY_BITS = 7 # ...in three bits
 RG_PITCH_COUNT_TOP = 2048 # the square voices keep a pitch as this less its ticks a wave
+RG_SAID_VIBRATO = 1 << 13 # ...and in a note, set when it or its part said a wobble,
+RG_VIBRATO_AT = 14 # ...whose sixteen bits (Audio::Vibrato#bits) are above it:
+RG_VIBRATO_BITS = 0xFFFF
+RG_VIBRATO_FOUR_BITS = 0xF # the depth,
+RG_VIBRATO_SPEED_AT = 4 # ...the speed above it,
+RG_VIBRATO_AFTER_AT = 8 # ...and the wait above that
 RG_SLIDE_TICK_SAMPLES = RG_SOUND_RATE / 128 # the slide clock ticks 128 times a second
 RG_NUMBERS_PER_NOTE_SOUND = 8
 RG_NUMBERS_PER_BEEP = 4
@@ -199,6 +205,7 @@ def rg_sound_setup
   @rg_heard_only = 0 # a test listening to one voice: its number, or 0 for every voice
   @rg_sample_carry = 0 # the part of a sample left over from the last frame, in console cycles
   @rg_slide_clock = 0  # samples since the slide clock last ticked (rg_sound.c's slide_clock)
+  @rg_wobbles = Array.new(RG_WAVE_VOICE + 1) { RgWobble.new(0, 0, 0, false, 0, 0) } # by voice (rg_sound.c's wobbles)
   @rg_loaded_waveform = -1
   # the player
   @rg_wanted = -1
@@ -407,6 +414,7 @@ def rg_sound_beep(which)
   rg_fault("there is no beep number #{which}") if which < 0 || which >= @rg_game_beeps[0]
   beep = 1 + (which * RG_NUMBERS_PER_BEEP)
   rg_sound_log("beep #{which}")
+  rg_wobble_stop(RG_BEEP_VOICE)
   rg_square_start(RG_BEEP_VOICE, @rg_game_beeps[beep], @rg_game_beeps[beep + 1], @rg_game_beeps[beep + 2],
                   @rg_game_beeps[beep + 3], 0)
 end
@@ -415,6 +423,7 @@ def rg_sound_wave(which)
   rg_fault("there is no wave number #{which}") if which < 0 || which >= @rg_game_waves[0]
   said = 1 + (which * RG_NUMBERS_PER_WAVE)
   rg_sound_log("wave #{which}")
+  rg_wobble_stop(RG_WAVE_VOICE)
   rg_wave_load(@rg_game_waves[said])
   rg_wave_start(@rg_game_waves[said + 1], @rg_game_waves[said + 2])
   @rg_loaded_waveform = -1
@@ -422,6 +431,7 @@ end
 
 def rg_sound_stop_wave
   rg_sound_log("stop_wave")
+  rg_wobble_stop(RG_WAVE_VOICE)
   rg_wave_switch_off
   @rg_loaded_waveform = -1
 end
@@ -525,7 +535,52 @@ def rg_follow_level(now)
   end
 end
 
+# --- a pitch that wobbles (rg_sound.c's own section says how) ---
+
+RgWobble = Struct.new(:vibrato, :wait, :left, :rising, :steps, :ticks)
+
+def rg_note_vibrato(note)
+  said = @rg_game_music[note + 4]
+  said.anybits?(RG_SAID_VIBRATO) ? (said >> RG_VIBRATO_AT) & RG_VIBRATO_BITS : 0
+end
+
+def rg_wobble_start(voice, note)
+  return if voice > RG_WAVE_VOICE
+
+  vibrato = @rg_game_music[note + 1] == 0 ? 0 : rg_note_vibrato(note)
+  @rg_wobbles[voice] = RgWobble.new(vibrato, vibrato >> RG_VIBRATO_AFTER_AT, 0, false, 0, @rg_game_music[note + 3])
+end
+
+def rg_wobble_stop(voice)
+  @rg_wobbles[voice].vibrato = 0 if voice <= RG_WAVE_VOICE
+end
+
+def rg_step_wobbles
+  (1..RG_WAVE_VOICE).each do |voice|
+    moving = @rg_wobbles[voice]
+    depth = moving.vibrato & RG_VIBRATO_FOUR_BITS
+    next if depth == 0
+    next moving.wait -= 1 if moving.wait > 0
+
+    if moving.left == 0
+      moving.rising = !moving.rising
+      moving.left = ((moving.vibrato >> RG_VIBRATO_SPEED_AT) & RG_VIBRATO_FOUR_BITS) + 1 # kept less one
+      steps = moving.rising ? (depth + 1) / 2 : -(depth / 2)
+      rg_sound_log("wobble #{voice} #{steps}") unless steps == moving.steps
+      moving.steps = steps
+    end
+    moving.left -= 1
+    count = (RG_PITCH_COUNT_TOP - moving.ticks + moving.steps).clamp(0, RG_PITCH_COUNT_TOP - 1)
+    if voice == RG_WAVE_VOICE
+      @rg_wave.wave_ticks = RG_PITCH_COUNT_TOP - count unless @rg_wave.wave_ticks == 0
+    elsif @rg_squares[voice - 1].wave_ticks != 0
+      @rg_squares[voice - 1].slid_ticks = RG_PITCH_COUNT_TOP - count
+    end
+  end
+end
+
 def rg_silence_voice(voice)
+  rg_wobble_stop(voice)
   case voice
   when RG_WAVE_VOICE then rg_wave_set_loudness(0)
   when RG_NOISE_VOICE then rg_noise_start(0, @rg_hiss.bits, 0, 0)
@@ -635,7 +690,9 @@ def rg_note_slide(note) = (@rg_game_music[note + 4] >> RG_SLIDE_AT) & RG_SLIDE_B
 def rg_log_voice_set(voice, who, pitch, volume, note)
   said = @rg_game_music[note + 4]
   fade = said.anybits?(RG_SAID_FADE) ? said & (RG_FADE_UP | RG_FADE_STEP_BITS) : -1
-  told = if said.anybits?(RG_SAID_SLIDE) then " #{fade} #{rg_note_slide(note)}"
+  slide = said.anybits?(RG_SAID_SLIDE) ? rg_note_slide(note) : -1
+  told = if said.anybits?(RG_SAID_VIBRATO) then " #{fade} #{slide} #{rg_note_vibrato(note)}"
+         elsif said.anybits?(RG_SAID_SLIDE) then " #{fade} #{slide}"
          elsif said.anybits?(RG_SAID_FADE) then " #{fade}"
          end
   rg_sound_log("voice #{voice} #{who} #{pitch} #{volume}#{told}")
@@ -655,6 +712,7 @@ def rg_play_note(part, note)
   fade = rg_note_fade(part, note)
   rg_sound_log("note #{@rg_playing} #{pitch}")
   rg_log_voice_set(part.voice, @rg_playing, pitch, volume, note)
+  rg_wobble_start(part.voice, note)
   case part.kind
   when RG_PART_WAVE
     rg_hold_note(RgHeldNote.new(part.voice, 0, written, 0, 0, 0)) if @rg_level_variable
@@ -772,6 +830,7 @@ def rg_play_effect_note(effect, part, note)
   rg_drop_held_note(part.voice)
   rg_sound_log("note #{number} #{pitch}")
   rg_log_voice_set(part.voice, number, pitch, volume, note)
+  rg_wobble_start(part.voice, note)
   case part.kind
   when RG_PART_WAVE
     if pitch == 0
@@ -856,6 +915,7 @@ def rg_music_frame
     rg_play_effect_frame(@rg_game_effects[by_rank + at])
     at += 1
   end
+  rg_step_wobbles
 end
 
 def rg_music_start_here

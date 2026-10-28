@@ -1005,6 +1005,7 @@ module VBlank
 
         def exec_beep(node)
           @audio << [:beep, resolve_effect(node)]
+          @player.game_sound_on(Player::BEEP_CHANNEL)
         end
 
         def exec_noise(node)
@@ -1013,10 +1014,12 @@ module VBlank
 
         def exec_wave(node)
           @audio << [:wave, { shape: node.shape, frequency: node.frequency, volume: node.volume }]
+          @player.game_sound_on(Player::WAVE_CHANNEL)
         end
 
         def exec_stop_wave(node)
           @audio << [:stop_wave]
+          @player.game_sound_on(Player::WAVE_CHANNEL)
         end
 
         def exec_play_song(node)

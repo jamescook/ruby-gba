@@ -110,7 +110,21 @@ module VBlank
             def emit_beep(node)
               effect = VBlank::Audio::Sound.resolve_effect(node.tone, duty: node.duty, decay: node.decay,
                                                             volume: node.volume, defined: @defined_sounds)
+              emit_stop_wobble(BEEP_VOICE)
               sound_writes(VBlank::Audio::Sound::Registers.beep_writes(**effect.to_h), [:beep, effect])
+            end
+
+            # The square voice a `beep` plays on, the song's second square part's.
+            BEEP_VOICE = 2
+
+            # THE GAME'S OWN SOUND TAKES +voice+, so it wobbles no song's note (Runtime::Music#emit_wobbles)
+            # — said before the sound is written, so a frame of the player in between writes the song's
+            # pitch under the game's sound and not over it. Nothing in a game where no note wobbles.
+            def emit_stop_wobble(voice)
+              return unless Runtime::Music.wobbles?(@memory)
+
+              @asm.xor_a(:a)
+              @asm.load([@memory[Runtime::Music::WOBBLES] + ((voice - 1) * Runtime::Music::WOBBLE_BYTES)], :a)
             end
 
             def emit_noise(node)
@@ -121,12 +135,16 @@ module VBlank
 
             def emit_wave(node)
               samples = VBlank::Audio::Sound.wavetable(node.shape)
+              emit_stop_wobble(GBC::Music::WAVE_VOICE)
               sound_writes(VBlank::Audio::Sound::Registers.wave_start_writes(samples, frequency: node.frequency,
                                                                                         volume: node.volume),
                            [:wave, { shape: node.shape, frequency: node.frequency, volume: node.volume }])
             end
 
-            def emit_stop_wave(_node) = sound_writes(VBlank::Audio::Sound::Registers.wave_stop, [:stop_wave])
+            def emit_stop_wave(_node)
+              emit_stop_wobble(GBC::Music::WAVE_VOICE)
+              sound_writes(VBlank::Audio::Sound::Registers.wave_stop, [:stop_wave])
+            end
 
             # The writes as a table of the Color's (SoundRegisters), made where the game says the word;
             # +logged+ is what the interpreter logs for the word.

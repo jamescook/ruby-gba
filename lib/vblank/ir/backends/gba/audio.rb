@@ -61,8 +61,12 @@ module VBlank
           def emit_beep(node)
             effect = VBlank::Audio::Sound.resolve_effect(node.tone, duty: node.duty, decay: node.decay,
                                                        volume: node.volume, defined: @defined_sounds)
+            emit_stop_wobble(Lane.new(:square, BEEP_CHANNEL))
             emit_register_writes(VBlank::Audio::Sound::Registers.beep_writes(**effect.to_h))
           end
+
+          # The square voice a `beep` plays on: the song's second square part's.
+          BEEP_CHANNEL = 2
 
           # A one-off percussion / explosion hit on channel 4 (the noise voice).
           # Resolve the hit to concrete musical values (a preset name plus any
@@ -77,12 +81,14 @@ module VBlank
           # sample table, then write the wave-RAM upload and channel-3 control.
           def emit_wave(node)
             samples = VBlank::Audio::Sound.wavetable(node.shape)
+            emit_stop_wobble(Lane.new(:wave, WAVE_CHANNEL))
             emit_register_writes(VBlank::Audio::Sound::Registers.wave_start_writes(samples, frequency: node.frequency, volume: node.volume))
             emit_forget_waveform
           end
 
           # Silence the wave voice.
           def emit_stop_wave(_node = nil)
+            emit_stop_wobble(Lane.new(:wave, WAVE_CHANNEL))
             emit_register_writes(VBlank::Audio::Sound::Registers.wave_stop)
             emit_forget_waveform
           end
@@ -150,6 +156,18 @@ module VBlank
           # the note's two register values (u16 each)]. All three are two register writes, so
           # all three read the same row and the player copies two halfwords whichever it is.
           SQUARE_ROW = 8
+
+          # ...and in a game where a note wobbles, a word more after them: the note's vibrato
+          # (Audio::Vibrato#bits, nought for a note that holds still), which no register takes and
+          # the player keeps for the frames after (#emit_start_wobble).
+          WOBBLE_AT = SQUARE_ROW
+          def console_row_bytes = @wobbles ? SQUARE_ROW + 4 : SQUARE_ROW
+
+          # Where a console row's pitch value is (after its frame and its control value), its
+          # eleven bits, and the most they can be.
+          ROW_PITCH_AT = 6
+          PITCH_BITS = 11
+          PITCH_MOST = (1 << PITCH_BITS) - 1
 
           # The wave voice's channel number, and the noise voice's, in the console's own count.
           # There is one of each, so a lane's index is the channel rather than a number among
@@ -351,6 +369,11 @@ module VBlank
             end
             # ...and one where no note slides its pitch, a song's or a sound effect's, writes nothing
             # but 0 to the first square voice's slide (see #emit_slide).
+            # ...and one where no note wobbles keeps its rows at their size and steps nothing (see
+            # #emit_step_wobbles).
+            @wobbles = IR::Tunes.playable_songs(program).any? do |song|
+              song.voices.any? { |part| part.events.any? { |event| VBlank::Audio::Vibrato.moves?(IR::Tunes.said_vibrato(part, event)) } }
+            end
             @slides = IR::Tunes.playable_songs(program).any? do |song|
               song.voices.any? { |part| part.events.any? { |event| VBlank::Audio::PitchSlide.moves?(IR::Tunes.said_slide(part, event)) } }
             end
@@ -881,6 +904,7 @@ module VBlank
               @emitter.emit_branch(:bl, SOUND_EFFECTS)
             end
             @emitter.place_label(finished)
+            emit_step_wobbles if in_interrupt && @wobbles
           end
 
           # The registers a frame of the player works in: the score, an entry or a row in it, the
@@ -1153,6 +1177,7 @@ module VBlank
                   emit_load_waveform(row)
                 end
                 emit_console_note(lane, row)
+                emit_start_wobble(lane, row)
                 song_lane = @lanes.index(lane)
                 emit_clear_held_note(song_lane) if song_lane && holds_notes?(lane)
               end
@@ -1172,7 +1197,7 @@ module VBlank
           # note starts the voice and a rest does not, so the bit that starts it says which.
           def emit_load_waveform(row)
             rest = @emitter.gensym
-            @emitter.emit(ASM.load_halfword_offset(TMP, row, 6))
+            @emitter.emit(ASM.load_halfword_offset(TMP, row, ROW_PITCH_AT))
             @emitter.emit(ASM.tst_imm(TMP, 0x8000))
             @emitter.emit_branch(:bcond, rest, cond: :eq)
             upload_wave_in_interrupt? ? emit_call_interrupt_routine(UPLOAD_WAVE) : @emitter.emit_branch(:bl, UPLOAD_WAVE)
@@ -1277,6 +1302,7 @@ module VBlank
           # Silence +lane+'s voice, and nobody holds it.
           def emit_free_voice(lane)
             emit_register_writes(console_note(lane, SILENCE, 0, 0))
+            emit_stop_wobble(lane)
             @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, self.class.voice_rank(lane.index))
           end
@@ -1539,6 +1565,7 @@ module VBlank
               @mixer.emit_music_voice_off
             elsif !shared_lane?(lane)
               emit_register_writes(console_note(lane, SILENCE, 0, 0))
+              emit_stop_wobble(lane)
               emit_clear_held_note(number) if holds_notes?(lane)
             else
               # A voice a sound effect holds is the effect's, and is left alone: its rank's bottom
@@ -1750,7 +1777,7 @@ module VBlank
               heard = @emitter.gensym
               @emitter.emit_branch(:b, heard)
               @emitter.place_label(dropped)
-              @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
+              @emitter.emit(ASM.add_imm(cursor, cursor, console_row_bytes))
               @primitives.store_var(cursor, self.class.music_cursor(number))
               @emitter.emit_branch(:b, skip)
               @emitter.place_label(heard)
@@ -1767,10 +1794,12 @@ module VBlank
               @emitter.emit(ASM.ldr_offset(NOTE_REG, at, 4))           # both register values
               emit_hold_note(lane, number) if holds_notes?(lane)
               emit_scaled_note(lane)
-              @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
+              emit_start_wobble(lane, at)
+              @emitter.emit(ASM.add_imm(cursor, cursor, console_row_bytes))
             else
               emit_console_note(lane, at)
-              @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
+              emit_start_wobble(lane, at)
+              @emitter.emit(ASM.add_imm(cursor, cursor, console_row_bytes))
             end
             @primitives.store_var(cursor, self.class.music_cursor(number))
             @emitter.place_label(skip)
@@ -1805,6 +1834,104 @@ module VBlank
 
           # Whether this lane's notes can slide: the first square voice, in a game where one does.
           def slides_on?(lane) = @slides && lane.kind == :square && lane.index == 1
+
+          # A WOBBLING NOTE, as the player keeps it between frames, by the voice it is on: its
+          # vibrato (Audio::Vibrato#bits, nought when the voice holds still), its own pitch value,
+          # and where its wobble is (IR::Tunes::Wobble — the frames still to wait, the frames the
+          # swing it is in has left, whether that swing is the one above, and the steps it moves).
+          def self.wobble_var(channel, what) = :"__wobble_#{what}_#{channel}"
+
+          # Whether this lane's notes can wobble: a square voice or the wave voice, in a game where
+          # a note does.
+          def wobbles_on?(lane) = @wobbles && %i[square wave].include?(lane.kind)
+
+          # The note in the row at +row+, just written to +lane+'s voice, is the one the voice
+          # wobbles now — or, saying no vibrato, holds still. Starting, it has moved nothing.
+          def emit_start_wobble(lane, row)
+            return unless wobbles_on?(lane)
+
+            var = ->(what) { self.class.wobble_var(lane.index, what) }
+            @emitter.emit(ASM.ldr_offset(ACC, row, WOBBLE_AT))
+            @primitives.store_var(ACC, var.call(:vibrato))
+            @emitter.emit(ASM.lsr_imm(ACC, ACC, VBlank::Audio::Vibrato::AFTER_AT))
+            @primitives.store_var(ACC, var.call(:wait))
+            @emitter.emit(ASM.load_halfword_offset(TMP, row, ROW_PITCH_AT))
+            @emitter.emit(ASM.lsl_imm(TMP, TMP, 32 - PITCH_BITS))
+            @emitter.emit(ASM.lsr_imm(TMP, TMP, 32 - PITCH_BITS)) # the pitch, without the start bit
+            @primitives.store_var(TMP, var.call(:pitch))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            %i[left rising steps].each { |what| @primitives.store_var(ACC, var.call(what)) }
+          end
+
+          # +lane+'s voice went quiet, or the game's own sound takes it: it wobbles nothing. The game's
+          # sound says so before it writes the voice, so a frame of the player in between writes the
+          # song's pitch under the game's and not over it.
+          def emit_stop_wobble(lane)
+            return unless wobbles_on?(lane)
+
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, self.class.wobble_var(lane.index, :vibrato))
+          end
+
+          # EVERY WOBBLING VOICE MOVED ON, at the end of the interrupt's frame, once every note due on
+          # it has been written — the voices in order, as IR::Tunes::Wobble steps them. Once its wait
+          # is over a voice's pitch is written every frame, its own pitch and the steps it is moved
+          # by, never past the voice's ends, and without starting the note again: so a held note the
+          # music volume started again this frame, at its own pitch, is back where its wobble has it
+          # before the frame is heard.
+          def emit_step_wobbles
+            vibrato = VBlank::Audio::Vibrato
+            channels = (@lanes + (@effect_lanes || [])).select { |lane| wobbles_on?(lane) }.uniq.sort_by(&:index)
+            channels.each do |lane|
+              var = ->(what) { self.class.wobble_var(lane.index, what) }
+              still = @emitter.gensym
+              waited = @emitter.gensym
+              holding = @emitter.gensym
+              @primitives.load_var(WORK_REG, var.call(:vibrato))
+              @emitter.emit(ASM.and_imm(ACC, WORK_REG, vibrato::FOUR_BITS))   # its depth: nought holds still
+              @emitter.emit(ASM.cmp_imm(ACC, 0))
+              @emitter.emit_branch(:bcond, still, cond: :eq)
+              @primitives.load_var(ACC, var.call(:wait))
+              @emitter.emit(ASM.cmp_imm(ACC, 0))
+              @emitter.emit_branch(:bcond, waited, cond: :eq)
+              @emitter.emit(ASM.sub_imm(ACC, ACC, 1))
+              @primitives.store_var(ACC, var.call(:wait))
+              @emitter.emit_branch(:b, still)
+
+              @emitter.place_label(waited)
+              @primitives.load_var(ACC, var.call(:left))
+              @emitter.emit(ASM.cmp_imm(ACC, 0))
+              @emitter.emit_branch(:bcond, holding, cond: :ne)
+              # The swing ran out: to the other side, above first, for the vibrato's speed in frames.
+              @primitives.load_var(TMP, var.call(:rising))
+              @emitter.emit(ASM.eor_imm(TMP, TMP, 1))
+              @primitives.store_var(TMP, var.call(:rising))
+              @emitter.emit(ASM.lsr_imm(ACC, WORK_REG, vibrato::SPEED_AT))
+              @emitter.emit(ASM.and_imm(ACC, ACC, vibrato::FOUR_BITS))
+              @emitter.emit(ASM.add_imm(ACC, ACC, 1)) # the speed is kept less one
+              @emitter.emit(ASM.and_imm(WRITE_REG, WORK_REG, vibrato::FOUR_BITS))
+              @emitter.emit(ASM.cmp_imm(TMP, 0))
+              @emitter.emit(ASM.add_imm_cond(:ne, WRITE_REG, WRITE_REG, 1)) # above: half the depth, rounded up
+              @emitter.emit(ASM.lsr_imm(WRITE_REG, WRITE_REG, 1))
+              @emitter.emit(ASM.rsb_imm_cond(:eq, WRITE_REG, WRITE_REG, 0)) # below: the other half
+              @primitives.store_var(WRITE_REG, var.call(:steps))
+              @emitter.place_label(holding)
+              @emitter.emit(ASM.sub_imm(ACC, ACC, 1))
+              @primitives.store_var(ACC, var.call(:left))
+
+              @primitives.load_var(TMP, var.call(:pitch))
+              @primitives.load_var(WRITE_REG, var.call(:steps))
+              @emitter.emit(ASM.add_reg(TMP, TMP, WRITE_REG))
+              @emitter.emit(ASM.cmp_imm(TMP, 0))
+              @emitter.emit(ASM.mov_imm_cond(:lt, TMP, 0))
+              @emitter.emit(ASM.load_immediate(WRITE_REG, PITCH_MOST))
+              @emitter.emit(ASM.cmp_reg(TMP, WRITE_REG))
+              @emitter.emit(ASM.mov_reg_cond(:gt, TMP, WRITE_REG))
+              @emitter.emit(ASM.load_immediate(WRITE_REG, music_voice_regs(lane)[:reg_b]))
+              @emitter.emit(ASM.store_halfword(TMP, WRITE_REG))
+              @emitter.place_label(still)
+            end
+          end
 
           # CHANNEL 1'S SLIDE, out of the row's two values in ACC (the control low, the pitch high):
           # the six bits under the control and the one at the pitch's bit 11 (#packed_with_slide), back
@@ -2054,7 +2181,7 @@ module VBlank
             shape ? wave_at.fetch(shape) : 0
           end
 
-          def row_bytes(lane) = lane.kind == :recorded ? RECORDED_ROW : SQUARE_ROW
+          def row_bytes(lane) = lane.kind == :recorded ? RECORDED_ROW : console_row_bytes
 
           # Which lane each of a song's parts plays on: each kind takes its own lanes in the
           # order the parts are written. Refused before this by Checks::SongTooManyParts, so a
@@ -2098,9 +2225,13 @@ module VBlank
                 pitch = note_reg_value(writes, regs[:reg_b])
                 slide = IR::Tunes.said_slide(part, event) if frequency.positive?
                 control, pitch = packed_with_slide(control, pitch, slide) if slide
-                [frame, control, pitch].pack("Vvv")
+                row = [frame, control, pitch].pack("Vvv")
+                next row unless @wobbles
+
+                wobble = IR::Tunes.said_vibrato(part, event) if frequency.positive?
+                row + [VBlank::Audio::Vibrato.moves?(wobble) ? wobble.bits : 0].pack("V")
               end
-              rows.join + [NEVER, 0, 0].pack("Vvv")
+              rows.join + [NEVER, 0, 0].pack("Vvv") + (@wobbles ? [0].pack("V") : "")
             end
           end
 

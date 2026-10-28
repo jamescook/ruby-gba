@@ -110,6 +110,32 @@ module RuntimeSounds
     assert_sounds_like_the_native_runtime program, frames: 160
   end
 
+  # Notes that wobble their pitch on a square voice and the wave voice, one holding still, with the
+  # music turned down while they wobble.
+  def test_notes_that_wobble_sound_as_on_the_native_runtime
+    program = sound_program do
+      enable_sound
+      song :tune do
+        tempo 120
+        voice(:melody) do
+          vibrato depth: 9, speed: 3, after: 6
+          note :A4, :half
+          note :C5, :quarter, vibrato: :none
+          note :E5, :quarter
+        end
+        voice(:pad, plays: :wave) { vibrato depth: 6, speed: 5; note :E4, :whole }
+      end
+      count = var :count, 0
+      play_song :tune
+      game_loop do
+        count.add! 1
+        (count == 40).then { music_volume 50 }
+      end
+    end
+
+    assert_sounds_like_the_native_runtime program, frames: 130
+  end
+
   # The wave voice told what to play at each loudness, then stopped; hits on the noise voice at
   # each of its pitches, plain and metallic. Each voice is heard on its own as well, the way a test
   # of one voice hears it.

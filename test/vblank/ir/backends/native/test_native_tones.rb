@@ -164,6 +164,77 @@ class TestNativeTones < Minitest::Test
     assert_native_sounds_like_the_console program, frames: 120, voices: [:square1]
   end
 
+  # A song whose notes wobble their pitch, the player moving it a frame at a time: a wide, slow
+  # wobble on the first voice after a wait, a note that holds still in the middle, and a pad on the
+  # wave voice wobbling too. The music is turned down while they wobble, which sounds the held
+  # square note again at its own pitch, and the wobble has it back where it was.
+  def test_a_songs_notes_wobble_as_the_consoles_do
+    program = program_of do
+      enable_sound
+      song :tune do
+        tempo 120
+        voice :melody do
+          vibrato depth: 15, speed: 8, after: 10
+          note :A4, :half
+          note :C5, :quarter, vibrato: :none
+          note :E5, :quarter
+        end
+        voice :pad, plays: :wave do
+          vibrato depth: 15, speed: 8
+          note :E4, :whole
+        end
+      end
+      play_song :tune
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 40).then { music_volume 60 }
+      end
+    end
+
+    assert_native_sounds_like_the_console program, frames: 130, voices: %i[square1 wave]
+  end
+
+  # A beep over a song's second part while that part's note wobbles: the beep takes the voice, and
+  # the player bends no beep with the song's wobble.
+  def test_a_beep_over_a_wobbling_note_is_not_bent
+    program = program_of do
+      enable_sound
+      song :tune do
+        tempo 120
+        voice(:melody) { note :C5, :whole }
+        voice(:harmony) { vibrato depth: 15, speed: 6; note :E4, :whole }
+      end
+      play_song :tune
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 30).then { beep 880, duty: :half, decay: :none, volume: 12 }
+      end
+    end
+
+    assert_native_sounds_like_the_console program, frames: 70, voices: [:square2]
+  end
+
+  # A sound effect's note wobbles the same way.
+  def test_a_sound_effects_notes_wobble_as_the_consoles_do
+    score = VBlank::Audio::Score
+    siren = score.new(tempo: 120, parts: [score::Part.new(vibrato: { depth: 14, speed: 8 }, notes: [
+                                            score::Note.new(at: 0, key: :C5, length: 72),
+                                          ])])
+    program = program_of do
+      enable_sound
+      sfx = sound_effects :sfx, { siren: siren }
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 4).then { sfx.play :siren }
+      end
+    end
+
+    assert_native_sounds_like_the_console program, frames: 100, voices: [:square1]
+  end
+
   # The music turned down by hand and then faded out and back: a held note follows it.
   def test_the_music_volume_and_its_fades_are_heard
     program = program_of do

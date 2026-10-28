@@ -50,9 +50,9 @@ module VBlank
         @frame_seconds = frame_seconds.to_r
       end
 
-      # +program+ played for +frames+ frames on +on+ — :cartridge, or one of the runtimes written
-      # again from the native one (:native, :js, :ruby) — with +buttons+ (a frame number, from 1, to
-      # the buttons held through it).
+      # +program+ played for +frames+ frames on +on+ — :cartridge, the cartridge of the console it is
+      # built for, or one of the runtimes written again from the native one (:native, :js, :ruby) —
+      # with +buttons+ (a frame number, from 1, to the buttons held through it).
       def self.of(program, on:, frames:, buttons: {}, only: nil)
         frame_seconds = program.described_console.frame_seconds
         if on == :cartridge
@@ -151,7 +151,8 @@ module VBlank
         def cartridge_samples(program, frames, buttons, only)
           Emulator.load!
           keys = ->(frame) { IR::Buttons.mask(buttons.fetch(frame + 1, [])) }
-          verifier = Verifier.new(Cartridge::AdvanceBuild.cartridge_for(program, title: "HEARD"), frames: 0, keys: keys)
+          cartridge = Console.for(program.described_console.name).builder.cartridge_for(program, title: "HEARD")
+          verifier = Verifier.new(cartridge, frames: 0, keys: keys)
           verifier.hearing(only: only) if only
           verifier.step(frames)
           verifier.audio_samples.each_slice(2).map(&:first) # the left speaker

@@ -104,19 +104,42 @@ module VBlank
       # A note that said nothing is left to its voice: a drum hit rings out as its part's +decay+
       # says, and a square note holds. Every backend that plays a note works that out itself, from
       # this and the part.
-      def said_fade(part, event) = event[5] || part.fade
+      def said_fade(part, event) = event[Audio::Music::Part::FADE_SLOT] || part.fade
 
       # HOW A NOTE SLIDES ITS PITCH (an Audio::PitchSlide), as the note or its part said it, or nil
       # when neither did. Only the first square voice slides, and a part elsewhere saying one was
       # refused before it got here.
-      def said_slide(part, event) = event[6] || part.slide
+      def said_slide(part, event) = event[Audio::Music::Part::SLIDE_SLOT] || part.slide
+
+      # HOW A NOTE WOBBLES ITS PITCH (an Audio::Vibrato), as the note or its part said it, or nil.
+      def said_vibrato(part, event) = event[Audio::Music::Part::VIBRATO_SLOT] || part.vibrato
 
       # A NOTE SETTING ITS VOICE, as every backend's log says it: [:voice, channel, who, frequency,
-      # volume], then the note's fade and its slide when it said them (#said_fade, #said_slide), with
-      # a nil fade before a slide said alone. A rest says neither: nothing sounds to change.
-      def voice_entry(channel, who, frequency, volume, fade: nil, slide: nil)
-        said = frequency.positive? ? Audio::Music.without_trailing_nils([fade, slide]) : []
+      # volume], then the note's fade, its slide and its wobble when it said them (#said_fade,
+      # #said_slide, #said_vibrato), with a nil before one said after it. A rest says none of them:
+      # nothing sounds to change.
+      def voice_entry(channel, who, frequency, volume, fade: nil, slide: nil, vibrato: nil)
+        said = frequency.positive? ? Audio::Music.without_trailing_nils([fade, slide, vibrato]) : []
         [:voice, channel, who, frequency, volume, *said]
+      end
+
+      # THE WOBBLE OF A NOTE A VOICE HOLDS, a frame at a time — the same steps on every backend
+      # (Audio::Vibrato says what they mean). +wait+ is the frames still to go before it starts,
+      # +left+ the frames the swing it is in has still to hold, +rising+ whether that swing is the
+      # one above, and +steps+ how far from the note's own pitch it has the voice now.
+      Wobble = Data.define(:vibrato, :wait, :left, :rising, :steps) do
+        # A voice given a note that wobbles: nothing moved yet.
+        def self.starting(vibrato) = new(vibrato: vibrato, wait: vibrato.after, left: 0, rising: false, steps: 0)
+
+        # The wobble a frame on, stepped once at the end of every frame the player plays, the frame
+        # its note began included. It waits, and then, as each swing runs out, turns to the other
+        # side of the note's pitch, above first, and holds there for the vibrato's speed in frames.
+        def stepped
+          return with(wait: wait - 1) if wait.positive?
+
+          turned = left.zero? ? with(rising: !rising, left: vibrato.speed, steps: rising ? -vibrato.below : vibrato.above) : self
+          turned.with(left: turned.left - 1)
+        end
       end
 
       # DOES THE VOICE CHANGE THIS NOTE ITSELF — a square note that said a fade or a swell with a

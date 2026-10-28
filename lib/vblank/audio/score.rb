@@ -100,7 +100,7 @@ module VBlank
       end
 
       Part = Data.define(:notes, :plays, :volume, :duty, :decay, :swell, :metallic, :envelope, :slide_up,
-                         :slide_down)
+                         :slide_down, :vibrato)
 
       class Part
         # +decay+ is how fast each note fades out, and +swell+ how fast it swells in, as a `song`
@@ -111,12 +111,14 @@ module VBlank
         #
         # +slide_up+ and +slide_down+ are how each note slides its pitch, as a song block's part
         # says them (Music::VoiceContext#slide_up), and only the song's first square part can.
+        # +vibrato+ is how each note wobbles its pitch, :none or { depth:, speed:, after: } with the
+        # wait in frames (Audio::Vibrato.said), and the square parts and the wave part can.
         #
         # +envelope+ shapes how each of this part's notes starts and ends — read only by a part
         # that plays a recording, since the console's own voices shape their own. A part that says
         # nothing takes whatever the instrument it plays was declared with.
         def initialize(notes:, plays: nil, volume: 12, duty: :half, decay: nil, swell: nil, metallic: false,
-                       envelope: nil, slide_up: nil, slide_down: nil)
+                       envelope: nil, slide_up: nil, slide_down: nil, vibrato: nil)
           super
         end
 
@@ -124,32 +126,25 @@ module VBlank
         # is worked out by the same reader a `song` block's parts use, so the two ways a song
         # reaches the IR cannot disagree about it (see Music::Part.playing). A drum's `decay` is its
         # +decay+, as it always was; only a swell is a fade of its own there. +who+ names the part
-        # in a friendly error, as the start of a sentence.
+        # in a friendly error, as the start of a sentence; what its voice cannot do is refused by
+        # the part it makes (Music::Part#initialize).
         def to_voice(frames, total, who)
-          fade = NoteFade.said(decay: decay, swell: swell, where: who)
           drum = plays == :noise
-          events = Events.of(self, frames, total, who)
-          voice = Music.resolve_plays(plays)
-          if (voice[:wave] || voice[:instrument]) && (fade || events.any? { |event| event[5] })
-            NoteFade.refuse_without_counting!(who, wave: voice[:wave])
-          end
-          slide = PitchSlide.said(up: slide_up, down: slide_down, where: who)
-          if !Music.plays_square?(voice) && Music.slides_said?(slide, events)
-            PitchSlide.refuse_off_square!(who, wave: voice[:wave], noise: voice[:noise])
-          end
-          Music::Part.playing(plays, events: events, duty: duty,
+          Music::Part.playing(plays, who: who, events: Events.of(self, frames, total, who), duty: duty,
                                      volume: volume, decay: (drum && decay) || :fast, metallic: metallic,
                                      envelope: Envelope.of(envelope, "a part"),
-                                     fade: NoteFade.for_part(fade, drum: drum),
-                                     slide: slide)
+                                     fade: NoteFade.for_part(NoteFade.said(decay: decay, swell: swell, where: who),
+                                                             drum: drum),
+                                     slide: PitchSlide.said(up: slide_up, down: slide_down, where: who),
+                                     vibrato: Vibrato.said(vibrato, where: who))
         end
       end
 
       # A note of a Score. +volume+ (0-15) is its loudness instead of its part's, +decay+ or
       # +swell+ how it fades out or swells in instead of how its part's notes do, and +slide_up+ or
-      # +slide_down+ how it slides its pitch.
+      # +slide_down+ how it slides its pitch, and +vibrato+ how it wobbles (see Part).
       Note = Data.define(:at, :key, :length, :instrument, :volume, :envelope, :hz, :decay, :swell, :slide_up,
-                         :slide_down)
+                         :slide_down, :vibrato)
 
       class Note
         # A NOTE ON THE NOISE VOICE CAN GIVE +hz+ IN PLACE OF A KEY: how many times a second its
@@ -159,7 +154,7 @@ module VBlank
         # still plays the rung of its ladder nearest the rate (Sound.noise_rung), as it does for a
         # key.
         def initialize(at:, key: nil, length: nil, instrument: nil, volume: nil, envelope: nil, hz: nil,
-                       decay: nil, swell: nil, slide_up: nil, slide_down: nil)
+                       decay: nil, swell: nil, slide_up: nil, slide_down: nil, vibrato: nil)
           super
         end
 
@@ -171,6 +166,9 @@ module VBlank
         def slide(part)
           PitchSlide.said(up: slide_up, down: slide_down, where: "The note at tick #{at} of #{part.downcase}")
         end
+
+        # How this note wobbles its pitch, when it says (an Audio::Vibrato), or nil.
+        def wobble(part) = Vibrato.said(vibrato, where: "The note at tick #{at} of #{part.downcase}")
 
         # How high the note is, in Hz — 0 for a rest. A note that gives +hz+ is that; a MIDI note
         # number is tuned the usual way, from A above middle C (number 69) at 440 Hz.
@@ -224,8 +222,9 @@ module VBlank
         def of(part, frames, total, who)
           notes = part.notes.sort_by(&:at)
           events = notes.each_with_index.flat_map do |note, n|
+            said = Music.without_trailing_nils([note.fade(who), note.slide(who), note.wobble(who)])
             on = [frames.at(note.at), note.frequency, note.instrument_name, note.volume,
-                  Envelope.of(note.envelope, "a note"), *Music.without_trailing_nils([note.fade(who), note.slide(who)])]
+                  Envelope.of(note.envelope, "a note"), *said]
             next [on] unless note.length
 
             ends = note.at + note.length

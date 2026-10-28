@@ -133,7 +133,8 @@ module VBlank
           lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends, tile_rooms: tile_rooms)
           # The runtime's places first, so they are in the half of work memory always in view.
           Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?,
-                                  bar_rows: lowering.bar_rows, slides: lowering.music.slides?)
+                                  bar_rows: lowering.bar_rows, slides: lowering.music.slides?,
+                                  wobbles: lowering.music.wobbles?)
           game = lowering.sections
           runs = lowering.run_uploads
           runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art, frame_begins: lowering.frame_begins,

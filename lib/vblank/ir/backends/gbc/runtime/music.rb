@@ -50,12 +50,30 @@ module VBlank
 
             module_function
 
-            def reserve(memory, effects: [], slides: false)
+            def reserve(memory, effects: [], slides: false, wobbles: false)
               reserve_song_player(memory)
               memory.reserve(WAVE_LOADED, 1) unless effects.empty?
               memory.reserve(NOTE_SLIDE, 1) if slides
+              memory.reserve(WOBBLES, WOBBLE_BYTES * WOBBLE_VOICES) if wobbles
               Effects.reserve(memory, effects)
             end
+
+            # A NOTE A VOICE WOBBLES, in a game where a note does, for each of the two square voices
+            # and the wave voice (IR::Tunes::Wobble steps it): its depth and speed (Audio::Vibrato#bits'
+            # low byte; no depth holds still), the frames still to wait, the frames the swing it is in
+            # has left, 1 while that swing is the one above, the steps it moves the pitch by (below
+            # nought for the swing below), and the note's own pitch, low byte first. Eight bytes a
+            # voice, so a voice's are found by a shift.
+            WOBBLES = "rt music wobbles"
+            WOBBLE_BYTES = 8
+            WOBBLE_VOICES = 3
+            WOBBLE_WAIT = 1
+            WOBBLE_LEFT = 2
+            WOBBLE_RISING = 3
+            WOBBLE_STEPS = 4
+            WOBBLE_PITCH = 5
+
+            def wobbles?(memory) = memory.reserved?(WOBBLES)
 
             def reserve_song_player(memory)
               memory.reserve(NAMED, 1)
@@ -77,43 +95,181 @@ module VBlank
             # +songs+ says whether the game has any songs at all; +effects+ are its sound effects
             # (GBC::Music#effects), and +by_rank+ the same in the order a frame plays them. +fades+
             # says whether any note says how it fades or swells (GBC::Music#fades?), and +slides+
-            # whether any slides its pitch (GBC::Music#slides?).
+            # whether any slides its pitch (GBC::Music#slides?). Whether any wobbles is whether its
+            # place was reserved (#wobbles?).
             def emit(asm, memory, level:, songs:, effects: [], by_rank: [], fades: false, slides: false)
               sharing = !effects.empty?
               emit_game_side(asm, memory, sharing)
               return emit_no_songs(asm) unless songs
 
+              bytes = GBC::Music.note_bytes(slides, wobbles?(memory))
               emit_tick(asm, memory, level, sharing)
-              emit_notes(asm, memory, level, sharing, fades, slides)
-              Effects.emit(asm, memory, effects, by_rank, slides: slides) if sharing
+              emit_notes(asm, memory, level, sharing, fades, slides, bytes)
+              emit_wobbles(asm, memory) if wobbles?(memory)
+              Effects.emit(asm, memory, effects, by_rank, slides: slides, bytes: bytes) if sharing
             end
 
-            # HL = HL × the bytes a note takes (GBC::Music.note_bytes), DE its number too: five a note,
-            # or six in a game where a note slides. Spends DE's number into HL.
-            def emit_times_note_bytes(asm, slides)
-              asm.add_hl(:hl)
-              if slides
-                asm.add_hl(:de)
+            # HL = HL × +bytes+, the bytes a note takes (GBC::Music.note_bytes), with DE its number too:
+            # a doubling for each of the number's bits after its first and an adding of DE for each
+            # that is set — five a note is twice, twice and add. Spends DE's number into HL.
+            def emit_times_note_bytes(asm, bytes)
+              bytes.to_s(2).chars.drop(1).each do |bit|
                 asm.add_hl(:hl)
-              else
-                asm.add_hl(:hl)
-                asm.add_hl(:de)
+                asm.add_hl(:de) if bit == "1"
               end
             end
 
             # The slide of the note whose volume is at HL, kept for rt_voice_write: the byte after the
-            # volume, in a game where a note slides. Keeps B and DE.
-            def emit_keep_slide(asm, memory, slides)
-              return unless slides
+            # volume, in a game where a note slides. And in one where a note wobbles, the voice set
+            # to wobble the note from the two after that (rt_wobble_start). Keeps B and DE.
+            def emit_store_slide_and_vibrato(asm, memory, slides)
+              if slides
+                asm.inc(:hl)
+                asm.load(:a, [:hl])
+                asm.load([memory[NOTE_SLIDE]], :a)
+              end
+              return unless wobbles?(memory)
 
               asm.inc(:hl)
-              asm.load(:a, [:hl])
-              asm.load([memory[NOTE_SLIDE]], :a)
+              asm.call("rt_wobble_start")
+            end
+
+            # THE WOBBLE, in a game where a note does (Audio::Vibrato says what it is, IR::Tunes::Wobble
+            # how it steps, and every backend steps it the same way).
+            #
+            # rt_wobble_start: the note just written to the part's voice ([PART]) is the one it
+            # wobbles — HL at the note's vibrato, DE its tuning — or, saying none, it holds still. The
+            # hiss has no pitch to wobble. Keeps BC and DE.
+            #
+            # rt_wobble_step: every wobbling voice moved on, the voices in order, at the end of the
+            # interrupt's frame. Once its wait is over a voice's pitch is written every frame, its
+            # note's own moved by its steps and never past the voice's ends, without starting the
+            # note again — so a held note the music level started again this frame, at its own
+            # pitch, is back where its wobble has it before the frame is heard. A run of the
+            # cartridge reads each turn to the other side at rt_wobble_turned_N, where A holds the
+            # steps it turns to (GBC::SoundLog).
+            def emit_wobbles(asm, memory)
+              h = Console::GBCHardware
+              asm.label("rt_wobble_start")
+              asm.load(:a, [memory[PART]])
+              asm.cp_a(WOBBLE_VOICES + 1)
+              asm.ret(:nc)
+              asm.push(:bc)
+              asm.load(:c, [:hl]) # its depth and speed
+              asm.inc(:hl)
+              asm.load(:b, [:hl]) # its wait
+              asm.dec(:a) # HL = this voice's wobble: WOBBLES + its place × WOBBLE_BYTES
+              3.times { asm.add_a(:a) }
+              asm.add_a(memory[WOBBLES] & 0xFF)
+              asm.load(:l, :a)
+              asm.load(:a, memory[WOBBLES] >> 8)
+              asm.adc_a(0)
+              asm.load(:h, :a)
+              asm.load(:a, :c)
+              asm.load([:hli], :a)
+              asm.load(:a, :b)
+              asm.load([:hli], :a)
+              asm.xor_a(:a)
+              3.times { asm.load([:hli], :a) } # nothing left of a swing, none of them yet, no steps
+              asm.load(:a, :e)
+              asm.load([:hli], :a)
+              asm.load(:a, :d)
+              asm.and_a(7) # the pitch, without the fade above it
+              asm.load([:hl], :a)
+              asm.pop(:bc)
+              asm.ret
+
+              asm.label("rt_wobble_step")
+              pitches = { 1 => [h::NR13, h::NR14], 2 => [h::NR23, h::NR24], 3 => [h::NR33, h::NR34] }
+              (1..WOBBLE_VOICES).each do |voice|
+                at = memory[WOBBLES] + ((voice - 1) * WOBBLE_BYTES)
+                still = "rt_wobble_still_#{voice}"
+                waited = "rt_wobble_waited_#{voice}"
+                holding = "rt_wobble_holding_#{voice}"
+                low, high = pitches.fetch(voice)
+                asm.load(:a, [at])
+                asm.load(:c, :a) # its depth and speed
+                asm.and_a(0x0F)
+                asm.jump_relative(:z, still)
+                asm.load(:hl, at + WOBBLE_WAIT)
+                asm.load(:a, [:hl])
+                asm.and_a(:a)
+                asm.jump_relative(:z, waited)
+                asm.dec([:hl])
+                asm.jump_relative(still)
+
+                asm.label(waited)
+                asm.inc(:hl) # its swing's frames left
+                asm.load(:a, [:hl])
+                asm.and_a(:a)
+                asm.jump_relative(:nz, holding)
+                # The swing ran out: to the other side, above first, for the vibrato's speed in frames.
+                asm.load(:a, :c)
+                asm.swap(:a)
+                asm.and_a(0x0F)
+                asm.inc(:a) # the speed is kept less one
+                asm.load([:hli], :a)
+                asm.load(:a, [:hl])
+                asm.xor_a(1)
+                asm.load([:hli], :a)
+                asm.load(:b, :a) # 1 for the swing above
+                asm.load(:a, :c)
+                asm.and_a(0x0F) # the depth
+                asm.bit(0, :b)
+                asm.jump_relative(:z, "rt_wobble_below_#{voice}")
+                asm.inc(:a) # above: half the depth, rounded up
+                asm.srl(:a)
+                asm.jump_relative("rt_wobble_turned_#{voice}")
+                asm.label("rt_wobble_below_#{voice}")
+                asm.srl(:a) # below: the other half, under nought
+                asm.cpl
+                asm.inc(:a)
+                asm.label("rt_wobble_turned_#{voice}")
+                asm.load([:hld], :a)
+                asm.dec(:hl) # back at its swing's frames left
+                asm.label(holding)
+                asm.dec([:hl])
+                # Its pitch: the note's own plus its steps, never under nought or over the top.
+                asm.inc(:hl)
+                asm.inc(:hl)
+                asm.load(:a, [:hli]) # the steps
+                asm.load(:c, :a)
+                asm.load(:b, 0)
+                asm.bit(7, :a)
+                asm.jump_relative(:z, "rt_wobble_up_#{voice}")
+                asm.dec(:b)
+                asm.label("rt_wobble_up_#{voice}")
+                asm.load(:a, [:hli])
+                asm.add_a(:c)
+                asm.load(:e, :a)
+                asm.load(:a, [:hl])
+                asm.adc_a(:b)
+                asm.load(:d, :a)
+                asm.bit(7, :d)
+                asm.jump_relative(:z, "rt_wobble_not_under_#{voice}")
+                asm.load(:de, 0)
+                asm.label("rt_wobble_not_under_#{voice}")
+                asm.load(:a, :d)
+                asm.cp_a(8)
+                asm.jump_relative(:c, "rt_wobble_within_#{voice}")
+                asm.load(:de, 0x07FF)
+                asm.label("rt_wobble_within_#{voice}")
+                asm.load(:a, :e)
+                asm.load_high(low, :a)
+                asm.load(:a, :d)
+                asm.load_high(high, :a) # no start bit: the note carries on
+                asm.label(still)
+              end
+              asm.ret
             end
 
             # Voice +voice+ quiet: its volume nothing, and a square or noise voice started again so
-            # that it takes it.
-            def emit_silence(asm, voice)
+            # that it takes it — and, in a game where a note wobbles, wobbling nothing.
+            def emit_silence(asm, memory, voice)
+              if wobbles?(memory) && voice <= WOBBLE_VOICES
+                asm.xor_a(:a)
+                asm.load([memory[WOBBLES] + ((voice - 1) * WOBBLE_BYTES)], :a)
+              end
               h = Console::GBCHardware
               volume, start = { 1 => [h::NR12, h::NR14], 2 => [h::NR22, h::NR24], 3 => [h::NR30, nil],
                                 4 => [h::NR42, h::NR44] }.fetch(voice)
@@ -160,7 +316,7 @@ module VBlank
                 asm.call("rt_music_tune_rank")
                 asm.call("rt_music_song_frame")
               else
-                asm.call("rt_music_tick")
+                asm.call(wobbles?(memory) ? "rt_music_tick_body" : "rt_music_tick") # no wobble moves here
               end
               asm.ei
               asm.ret
@@ -187,6 +343,13 @@ module VBlank
             def emit_tick(asm, memory, level, sharing)
               h = Console::GBCHardware
               asm.label("rt_music_tick")
+              # In a game where a note wobbles, every wobbling voice moves on once the frame's notes
+              # are all written (rt_wobble_step), which the steps below end in many places to reach.
+              if wobbles?(memory)
+                asm.call("rt_music_tick_body")
+                asm.jump("rt_wobble_step")
+                asm.label("rt_music_tick_body")
+              end
               if sharing
                 asm.call("rt_music_switch")
                 asm.call("rt_music_tune_rank")
@@ -374,6 +537,9 @@ module VBlank
               asm.xor_a(:a)
               [h::NR12, h::NR22, h::NR30, h::NR42].each { |register| asm.load_high(register, :a) }
               HELD_VOICES.times { |i| asm.load([memory[HELD] + i], :a) }
+              if wobbles?(memory)
+                WOBBLE_VOICES.times { |i| asm.load([memory[WOBBLES] + (i * WOBBLE_BYTES)], :a) }
+              end
               asm.load(:a, 0x80)
               [h::NR14, h::NR24, h::NR44].each { |register| asm.load_high(register, :a) }
               asm.ret
@@ -392,7 +558,7 @@ module VBlank
                 asm.jump_relative(:nz, "rt_music_quiet_kept_#{voice}")
                 asm.load([holder], :a)
                 asm.load([memory[HELD] + voice - 1], :a) if voice <= HELD_VOICES
-                emit_silence(asm, voice)
+                emit_silence(asm, memory, voice)
                 asm.label("rt_music_quiet_kept_#{voice}")
               end
               asm.ret
@@ -403,7 +569,7 @@ module VBlank
             # +fades+, a note's fade comes out of its tuning's top four bits (GBC::Music::FADE_SHIFT)
             # and goes under its volume. With +slides+, a note on the first square voice writes its
             # slide (the byte after its volume) to the voice's sweep register before it starts.
-            def emit_notes(asm, memory, level, sharing, fades, slides)
+            def emit_notes(asm, memory, level, sharing, fades, slides, bytes)
               h = Console::GBCHardware
               part = memory[PART]
               asm.label("rt_music_part")
@@ -448,7 +614,7 @@ module VBlank
               asm.push(:hl)
               asm.load(:h, :d) # HL = where the notes are + the number × a note's bytes
               asm.load(:l, :e)
-              emit_times_note_bytes(asm, slides)
+              emit_times_note_bytes(asm, bytes)
               asm.load(:a, [part + 4])
               asm.load(:e, :a)
               asm.load(:a, [part + 5])
@@ -491,7 +657,7 @@ module VBlank
               asm.load(:a, [:hli])
               asm.load(:d, :a)
               asm.load(:b, [:hl]) # its volume, times the music's level over 16
-              emit_keep_slide(asm, memory, slides)
+              emit_store_slide_and_vibrato(asm, memory, slides)
               asm.load(:a, :b)
               asm.load([memory[NOTE_VOLUME]], :a)
               if level

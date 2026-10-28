@@ -26,6 +26,8 @@ module VBlank
           # what the log names a voice by.
           WAVE_CHANNEL = 3
           NOISE_CHANNEL = 4
+          # ...and the square voice a game's own `beep` plays on, the song's second square part's.
+          BEEP_CHANNEL = 2
 
           # A sound effect sounding: how far into it, and each of its parts' next event. Both move
           # on every frame it plays.
@@ -53,6 +55,7 @@ module VBlank
             @stopping = []      # ...and the effects of a group those cut off, stopped on that frame
             @running = {}       # an effect sounding -> how far into it, and each part's next event
             @holders = Hash.new(0) # a console voice -> the rank of whoever holds it (IR::Tunes.song_rank)
+            @wobbles = {}       # a console voice -> how the note it holds wobbles (IR::Tunes::Wobble)
           end
 
           # A `song`, `song_list` or `sound_effect_list` declaration was reached. Gathered up
@@ -122,6 +125,10 @@ module VBlank
             play_song_frame(level) if switch_to_wanted_song && @playing
           end
 
+          # THE GAME'S OWN SOUND took +channel+ — a `beep`, the game's `wave` or `stop_wave` — so it
+          # wobbles no note of a song's: the next note written there says again.
+          def game_sound_on(channel) = @wobbles.delete(channel)
+
           # No tune. Counted as well as said, so a stop and a play in the same frame still reach
           # the player as a stop — which is how a tune starts over.
           def stop
@@ -163,6 +170,7 @@ module VBlank
             above.each { |name, rank| play_effect_frame(name, rank, asked) }
             play_song_frame(level) if @playing
             below.each { |name, rank| play_effect_frame(name, rank, asked) }
+            step_wobbles
             @mixer.record_peak_voices
           end
 
@@ -204,7 +212,7 @@ module VBlank
               end
 
               @log << [:note, @playing, frequency]
-              @log << voice_log_entry(channel, @playing, part, event) if shared
+              set_voice(channel, @playing, part, event) if shared
               if channel && level
                 written = frequency.zero? ? 0 : volume || part.volume
                 if kind == :noise || IR::Tunes.changes_by_itself?(part, event)
@@ -224,10 +232,29 @@ module VBlank
             advance_song_frame(song)
           end
 
-          # A NOTE SETTING ITS VOICE, as the log says it (IR::Tunes.voice_entry).
-          def voice_log_entry(channel, who, part, event)
-            IR::Tunes.voice_entry(channel, who, event[1], event[3] || part.volume,
-                                  fade: IR::Tunes.said_fade(part, event), slide: IR::Tunes.said_slide(part, event))
+          # A NOTE SETTING ITS VOICE, said in the log (IR::Tunes.voice_entry), and the voice wobbling it
+          # from here when it says so — a note that does not, and a rest, leave the voice still.
+          def set_voice(channel, who, part, event)
+            frequency = event[1]
+            vibrato = IR::Tunes.said_vibrato(part, event) if frequency.positive?
+            @log << IR::Tunes.voice_entry(channel, who, frequency, event[3] || part.volume,
+                                          fade: IR::Tunes.said_fade(part, event),
+                                          slide: IR::Tunes.said_slide(part, event), vibrato: vibrato)
+            if Audio::Vibrato.moves?(vibrato)
+              @wobbles[channel] = IR::Tunes::Wobble.starting(vibrato)
+            else
+              @wobbles.delete(channel)
+            end
+          end
+
+          # EVERY WOBBLING VOICE MOVED ON A FRAME, the voices in order, once everything due on the
+          # frame has played: [:wobble, channel, steps] when it moves the voice's pitch.
+          def step_wobbles
+            @wobbles.keys.sort.each do |channel|
+              was = @wobbles[channel]
+              now = @wobbles[channel] = was.stepped
+              @log << [:wobble, channel, now.steps] unless now.steps == was.steps
+            end
           end
 
           # Every sound effect with its rank, highest first.
@@ -295,7 +322,7 @@ module VBlank
 
               @sounding.delete(channel) # the song's note there, if it had one, is gone
               @log << [:note, name, frequency]
-              @log << voice_log_entry(channel, name, part, event)
+              set_voice(channel, name, part, event)
               log_wave_or_noise(kind, part, frequency) unless kind == :square
             end
             run.frame += 1
@@ -316,6 +343,7 @@ module VBlank
             @running.delete(name)
             @holders.select { |_, holder| holder == rank }.each_key do |channel|
               @holders[channel] = 0
+              @wobbles.delete(channel)
               @log << [:note, name, 0]
               @log << [:voice, channel, name, 0, 0]
               @log << [:noise, nil] if channel == NOISE_CHANNEL
@@ -376,6 +404,7 @@ module VBlank
           # Every voice the tune holds goes quiet and is free. Harmless when it holds none.
           def silence_song
             @log << [:stop_music]
+            @wobbles.delete_if { |channel, _| (@holders[channel] & IR::Tunes::ORDER_MASK).zero? }
             @holders.each_key { |channel| @holders[channel] = 0 if (@holders[channel] & IR::Tunes::ORDER_MASK).zero? }
             @sounding.clear
             @mixer.release_all_music

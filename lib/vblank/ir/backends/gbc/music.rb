@@ -35,16 +35,21 @@ module VBlank
           # five spare between them, and music converted from another game says a few dozen
           # different slides — so the byte is paid for by every note of such a game, and by no
           # other game's.
-          def self.note_bytes(slides) = slides ? NOTE_BYTES + 1 : NOTE_BYTES
+          #
+          # In a game where a note wobbles, two more after those: the note's vibrato
+          # (Audio::Vibrato#bits, nought for a note that holds still), its depth and speed in the
+          # first and its wait in the second, which the player keeps for the frames after.
+          def self.note_bytes(slides, wobbles) = NOTE_BYTES + (slides ? 1 : 0) + (wobbles ? 2 : 0)
 
-          # Whether any note of these lists (#notes) slides its pitch.
+          # Whether any note of these lists (#notes) slides its pitch, and whether any wobbles.
           def self.slides_in?(notes) = notes.each_value.any? { |list| list.any? { |note| VBlank::Audio::PitchSlide.moves?(note.slide) } }
+          def self.wobbles_in?(notes) = notes.each_value.any? { |list| list.any? { |note| VBlank::Audio::Vibrato.moves?(note.vibrato) } }
 
           # One note of a part as the music table holds it, with what it is to the interpreter: the
           # song's name, the part, the voice it plays on, its pitch (0 for a rest), its volume, and
-          # how it fades or swells and how it slides its pitch when the note or its part said so
-          # (IR::Tunes.said_fade, IR::Tunes.said_slide).
-          Note = Data.define(:song, :part, :voice, :pitch, :volume, :fade, :slide)
+          # how it fades or swells, how it slides its pitch and how it wobbles when the note or its
+          # part said so (IR::Tunes.said_fade, IR::Tunes.said_slide, IR::Tunes.said_vibrato).
+          Note = Data.define(:song, :part, :voice, :pitch, :volume, :fade, :slide, :vibrato)
 
           # A NOTE'S FADE RIDES IN ITS TUNING'S TOP FOUR BITS, which a square or noise note never
           # uses: a square voice's period is eleven bits and the hiss's clock eight. The player
@@ -152,22 +157,38 @@ module VBlank
             @slides
           end
 
+          # ...and one that wobbles: only then does a note carry two bytes for it, and the player
+          # move a voice's pitch a frame at a time.
+          def wobbles?
+            @wobbles = Music.wobbles_in?(notes) unless defined?(@wobbles)
+            @wobbles
+          end
+
+          # How many bytes a note of this game's takes (.note_bytes).
+          def note_bytes = Music.note_bytes(slides?, wobbles?)
+
           private
 
           def note_of(song, part, voice, event)
             _, pitch, _, volume = event
             Note.new(song: song.name, part: part, voice: voice, pitch: pitch, volume: volume || part.volume,
                      fade: (Tunes.said_fade(part, event) unless pitch.zero?),
-                     slide: (Tunes.said_slide(part, event) unless pitch.zero?))
+                     slide: (Tunes.said_slide(part, event) unless pitch.zero?),
+                     vibrato: (Tunes.said_vibrato(part, event) unless pitch.zero?))
           end
 
           # A note as the table holds it: when it starts, its tuning with its fade in the top bits
-          # (FADE_SHIFT), and its volume — and in a game where a note slides, its slide (.note_bytes).
+          # (FADE_SHIFT), and its volume — and in a game where a note slides, its slide, and where
+          # one wobbles, its vibrato (.note_bytes).
           def emit_note(asm, voice, part, event)
             at, pitch, _, volume = event
             asm.data_words(at, note_tuning(voice, part, event))
             asm.data_bytes(volume || part.volume)
             asm.data_bytes(pitch.zero? ? 0 : Tunes.said_slide(part, event)&.bits || 0) if slides?
+            return unless wobbles?
+
+            wobble = Tunes.said_vibrato(part, event) unless pitch.zero?
+            asm.data_words(VBlank::Audio::Vibrato.moves?(wobble) ? wobble.bits : 0)
           end
 
           def note_tuning(voice, part, event)
