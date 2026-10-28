@@ -17,6 +17,7 @@ class TestSNESSongs < Minitest::Test
   NOISE = 3 << 4 # ...and its fourth
   ENVX = 0x8
   KEY_OFF = 0x5C
+  KEY_ON = 0x4C
   NOISE_ON = 0x3D
   FLAGS = 0x6C
 
@@ -241,6 +242,105 @@ class TestSNESSongs < Minitest::Test
     dsp = volume_played(frames: 24)
 
     assert_equal [0, 0], [dsp.getbyte(FIRST), dsp.getbyte(FIRST + 1)]
+  end
+
+  # When the level moves, the notes held take it in the order their parts first sounded, as the
+  # interpreter keeps them — which is the order of the parts, since every part's first time round
+  # starts with an event at frame 0, a rest if nothing else (IR::Tunes.loop_passes): here the
+  # second part's note sounds first, and the first part's rest at frame 0 still comes before it.
+  def test_a_new_level_reaches_held_notes_in_the_order_of_the_parts
+    build = VBlank::IR::Build
+    part = VBlank::Audio::Music::Part
+    n = build.var_ref(:n)
+    program = build.program(
+      build.enable_sound,
+      build.set(VBlank::IR::Tunes::LEVEL, VBlank::IR::Tunes::FULL_LEVEL),
+      build.song(:late, total_frames: 30, voices: [part.new(events: [[3, 440]]), part.new(events: [[0, 220]])]),
+      build.play_song(:late),
+      build.loop_(build.add(:n, 1), build.if_(build.binop(:==, n, build.int(8)), build.set(VBlank::IR::Tunes::LEVEL, 8)),
+                  build.wait_vblank)
+    )
+    run = SNES::CheckedRun.new.run(program, frames: 11)
+
+    assert_equal [[:loudness, 1, 6], [:loudness, 2, 6]], run.audio.last(2)
+  end
+
+  # Under a level, a new wave note starts at the recording the level picks, written before its
+  # key-on: the source a voice reads from changes only at its loop point (fullsnes, "SRCN").
+  # Measured in the sound unit's memory: the recording the voice reads holds a triangle at :half,
+  # its steps 0..15 kept to 0..7, a swing of 7 where the note's own (15, :full) swings 15.
+  def test_a_wave_note_starts_at_the_levels_recording
+    game = VBlank.game("WAVELEVEL", consoles: %i[gba snes]) do
+      enable_sound
+      song(:tune) { voice(:hum, plays: :triangle) { volume 15; note :A3, :quarter; note :A3, :quarter } }
+      music_volume 50
+      game_loop { play_song :tune }
+    end
+    run = SNES::CheckedRun.new.run(game.program(console: :snes), frames: 3)
+
+    assert_equal 7, swing_of(run, run.dsp_registers.getbyte(WAVE + 4))
+  end
+
+  # The music volume's awkward moments, each held to the interpreter's log and DSP writes by the
+  # checked run: a level set while no tune plays, a noise part (logged, never held), a tune stopped
+  # and started again (its held notes forgotten), one started `this_frame:` under a level, a fade out
+  # and a fade in. At the end the fade in has the level back at full: the square part's 12 is 96 ($60).
+  def test_the_music_volume_through_stops_starts_and_fades
+    game = VBlank.game("LEVELS", consoles: %i[gba snes]) do
+      enable_sound
+      song :band do
+        voice(:lead) { note :A4, :quarter; note :C5, :quarter }
+        voice(:hum, plays: :sine) { note :A3, :half }
+        voice(:drum, plays: :noise) { note :C6, :eighth; rest :eighth; note :C6, :eighth; rest :eighth }
+      end
+      n = var :n, 0
+      game_loop do
+        n.add! 1
+        (n == 2).then { music_volume 25 }
+        (n == 4).then { play_song :band }
+        (n == 12).then { stop_music }
+        (n == 14).then { music_volume 75 }
+        (n == 15).then { play_song :band, this_frame: true }
+        (n == 20).then { fade_music_out frames: 4 }
+        (n == 28).then { fade_music_in frames: 4 }
+      end
+    end
+    dsp = SNES::CheckedRun.new.run(game.program(console: :snes), frames: 36).dsp_registers
+
+    assert_equal 0x60, dsp.getbyte(FIRST)
+  end
+
+  # Under a level, the writes of a new wave note put the level's recording in the voice before its
+  # key-on, and never the note's own: the voice reads a new source only from its loop point, so one
+  # written after the key-on would play the note's own recording once round first (fullsnes, "SRCN").
+  def test_a_wave_notes_recording_is_written_before_its_key_on
+    dsp = SNES::DSPWrites
+    part = VBlank::Audio::Music::Part.new(events: [[0, 220]], wave: :triangle, volume: 15)
+    waves = [15, :half].map { |volume| dsp.wave_steps({ shape: :triangle, volume: volume }) }
+    voicing = dsp::Voicing.new(waves: waves, parts: { [:tune, 3] => part })
+    writes = dsp.writes([[:note, :tune, 220], [:voice, 3, :tune, 220, 15], [:loudness, 3, 7],
+                         [:wave, { shape: :triangle, frequency: 220, volume: 15 }]], voicing)
+    sources = writes.each_index.select { |i| writes[i].first == WAVE + 4 }
+
+    assert_equal [[WAVE + 4, SNES::Samples::FIRST_WAVE + 1]], sources.map { |i| writes[i] }, "the :half recording, once"
+    assert_operator sources.first, :<, writes.index([KEY_ON, 1 << 2]), "before the key-on"
+  end
+
+  # The swing of the first two blocks of recording +source+ in the sound unit's memory: the sample
+  # table is at Runtime::Sound::TABLE_AT, four bytes a source (fullsnes, "DIR").
+  private def swing_of(run, source)
+    ram = run.apu_ram
+    start = ram.getbyte(SNES::Runtime::Sound::TABLE_AT + (source * 4)) |
+            (ram.getbyte(SNES::Runtime::Sound::TABLE_AT + (source * 4) + 1) << 8)
+    samples = nibbles(ram.byteslice(start, 18).bytes)
+    samples.max - samples.min
+  end
+
+  # Each sample of a BRR recording as a signed nibble, after a header byte every nine (fullsnes).
+  private def nibbles(bytes)
+    bytes.each_slice(9).flat_map do |block|
+      block.drop(1).flat_map { |byte| [byte >> 4, byte & 0xF] }.map { |nibble| nibble >= 8 ? nibble - 16 : nibble }
+    end
   end
 
   private def volume_played(frames:)

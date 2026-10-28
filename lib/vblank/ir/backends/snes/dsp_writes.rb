@@ -348,9 +348,10 @@ module VBlank
           # - a song's note on the wave or noise voice plays at the note's own volume, which its
           #   [:voice ...] entry carries, where the [:wave ...] or [:noise ...] entry after it carries
           #   the part's (Reference::Player#log_wave_or_noise), as the Color's player plays it;
-          # - that note's [:loudness ...], logged before the voice's own entry, is written after it,
-          #   since the voice's entry starts the note at its own volume and the loudness then takes
-          #   it to the music volume.
+          # - that note's [:loudness ...], logged before the voice's own entry, is written there, and
+          #   the voice's entry leaves out what it wrote, so the note starts at the music volume: the
+          #   wave voice reads a new recording only from its loop point (fullsnes, "SRCN"), so one
+          #   written after the key-on would play the note's own once round first.
           def writes(entries, voicing = NO_VOICING, song: nil)
             each_entry_writes(entries, voicing, song: song).flat_map { |_, writes| writes }
           end
@@ -360,18 +361,18 @@ module VBlank
             return enum_for(:each_entry_writes, entries, voicing, song: song) unless block_given?
 
             note_volume = nil
-            held = [] # a new note's loudness on the wave or noise voice, written after the note
-            entries.each_with_index do |entry, i|
+            loudness = [] # the registers a new note's loudness has just written
+            previous = nil
+            entries.each do |entry|
               song = entry[1] if entry.first == :note
               played = note_volume && wave_or_noise_note?(entry) ? [entry.first, entry.last.merge(volume: note_volume)] : entry
               note_volume = entry[4] if entry.first == :voice && !SQUARE_VOICES.key?(entry[1])
               note_volume = nil unless %i[voice loudness].include?(entry.first)
-              writes = for_entry(played, voicing, song: song) + held
-              held = []
-              if entry.first == :loudness && voice_own_entry?(entries[i + 1])
-                held = writes
-                writes = []
-              end
+              writes = for_entry(played, voicing, song: song)
+              writes = writes.reject { |register, *| loudness.include?(register) } if voice_own_entry?(entry)
+              # A note's loudness follows its [:voice ...]; one that does not is a held note's, at a new level.
+              loudness = entry.first == :loudness && previous == :voice ? writes.map(&:first) : []
+              previous = entry.first
               yield entry, writes
             end
           end

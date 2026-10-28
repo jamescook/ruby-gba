@@ -86,6 +86,7 @@ module VBlank
             @audio = []
             @audio_handed = 0
             @dsp_reads = []
+            @apu_ram = nil
             play(frames || Reference::DEFAULT_FRAMES)
             self
           end
@@ -126,6 +127,10 @@ module VBlank
 
           # The registers as the run ended.
           def dsp_registers = @dsp_reads.last&.last
+
+          # The sound unit's 64K of memory as the run ended — its program, the sample table and the
+          # recordings — for a test to read a recording the DSP plays. Nil for a game with no sound.
+          attr_reader :apu_ram
 
           # The rest of what the interpreter answers, each refused by name.
           %i[mixed_sound active_samples peak_voices sound_drops sound_owners frame log screen_mode
@@ -239,6 +244,7 @@ module VBlank
             @screen = picture
             @sounds = frame == :end || !sound? ? sounds : logged_by_pass(frame)
             read_sound_entries(@sounds) if sound?
+            @apu_ram = @core.apu_ram if frame == :end && sound?
             @moments << Moment.new(frame: frame, variables: variables, picture: RunComparison.picture_check(picture.shown),
                                    sounds: @sounds, sprites: @sprites, collections: game_state.except(:vars), sounding: [])
             @on_vblank&.call(frame) unless frame == :end
