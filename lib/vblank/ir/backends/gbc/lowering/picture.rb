@@ -1693,10 +1693,7 @@ module VBlank
                 out_of_range = said ? nil : fresh("pose_out_of_range")
                 if out_of_range
                   value(pose)
-                  @asm.load(:hl, constant_label(obj.poses.length))
-                  @asm.call("rt_cmpu32")
-                  @asm.cp_a(1)
-                  @asm.jump(:nz, out_of_range)
+                  emit_jump_unless_below(obj.poses.length, out_of_range)
                 end
                 if said.nil? || said.between?(0, obj.poses.length - 1)
                   picture, attributes, lent = picture_and_attributes_drawn(obj, pose, level)
@@ -1705,6 +1702,26 @@ module VBlank
                 @asm.label(out_of_range) if out_of_range
               end
               @asm.label(hidden)
+            end
+
+            # To +label+ unless BCDE, taken as a whole number of 32 bits, is below +count+: a number
+            # below nought is far past it. A count of a byte, as a sprite's poses are, is asked of the
+            # bytes where they are; a bigger one of rt_cmpu32.
+            def emit_jump_unless_below(count, label)
+              if count <= 0xFF
+                @asm.load(:a, :b)
+                @asm.or_a(:c)
+                @asm.or_a(:d)
+                @asm.jump(:nz, label)
+                @asm.load(:a, :e)
+                @asm.cp_a(count)
+                @asm.jump(:nc, label)
+              else
+                @asm.load(:hl, constant_label(count))
+                @asm.call("rt_cmpu32")
+                @asm.cp_a(1)
+                @asm.jump(:nz, label)
+              end
             end
 
             # A sprite's field as a value: a node, or a variable named by a Symbol.

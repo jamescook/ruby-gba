@@ -266,6 +266,10 @@ module VBlank
               @program.walk.any? { |node| node.kind == :wait_vblank } && !clips.any?
           end
 
+          # Does the game multiply by a byte written in the program (#emit_product_by_byte)? Asked
+          # once its sections are made.
+          def multiplies_by_byte? = @multiplies_by_byte || false
+
           private
 
           # --- refusals ---
@@ -481,7 +485,7 @@ module VBlank
             @asm.ret
             @constants.each do |value, at|
               @asm.label(at)
-              @asm.data_bytes(little_endian(value, 4))
+              Array(value).each { |number| @asm.data_bytes(little_endian(number, 4)) }
             end
             @asm.section
           end
@@ -576,7 +580,7 @@ module VBlank
             @labels = 0
             @constants = {}
             list.each { |node| statement(node) }
-            @asm.here + (@constants.size * 4)
+            @asm.here + @constants.keys.sum { |value| Array(value).length * 4 }
           ensure
             @measuring = false
             @asm, @routine, @labels, @constants, @locals, tables = saved
@@ -1289,13 +1293,54 @@ module VBlank
           # rt_cmp32 on the two sides of a comparison, and A compared with what the comparison holds
           # on, so the zero flag says.
           def compare(node)
-            with_hl_at(node.rhs) do |where|
-              value(node.lhs)
-              point_hl(where)
-              @asm.call("rt_cmp32")
+            byte = folded(node.rhs)
+            if byte&.between?(0, 0xFF)
+              emit_compare_with_byte(node.lhs, byte)
+            else
+              with_hl_at(node.rhs) do |where|
+                value(node.lhs)
+                point_hl(where)
+                @asm.call("rt_cmp32")
+              end
             end
             k, = COMPARISONS.fetch(node.op)
             k.zero? ? @asm.and_a(:a) : @asm.cp_a(k)
+          end
+
+          # A as rt_cmp32 leaves it, for +left+ against +byte+, a number from 0 to 255 written in the
+          # program: a number below nought is less, one past a byte greater, and one of a byte is
+          # compared with it where it is — a handful of instructions rather than a call.
+          def emit_compare_with_byte(left, byte)
+            less = fresh("less")
+            greater = fresh("greater")
+            equal = fresh("equal")
+            done = fresh("compared")
+            value(left)
+            @asm.bit(7, :b)
+            @asm.jump_relative(:nz, less)
+            emit_upper_bytes_or
+            @asm.jump_relative(:nz, greater)
+            @asm.load(:a, :e)
+            @asm.cp_a(byte)
+            @asm.jump_relative(:c, less)
+            @asm.jump_relative(:z, equal)
+            @asm.label(greater)
+            @asm.load(:a, 2)
+            @asm.jump_relative(done)
+            @asm.label(less)
+            @asm.load(:a, 1)
+            @asm.jump_relative(done)
+            @asm.label(equal)
+            @asm.xor_a(:a)
+            @asm.label(done)
+          end
+
+          # A = B | C | D, the three upper bytes of the number in BCDE, so the zero flag says
+          # whether the number is one byte, from 0 to 255.
+          def emit_upper_bytes_or
+            @asm.load(:a, :b)
+            @asm.or_a(:c)
+            @asm.or_a(:d)
           end
 
           # --- values: each leaves its number in BCDE ---
@@ -1354,7 +1399,7 @@ module VBlank
               _, holds_when = COMPARISONS.fetch(node.op)
               return @asm.call(holds_when == :z ? "rt_bool_of_z" : "rt_bool_of_nz")
             end
-            return if node.op == :* && multiplied_by_power_of_two?(node)
+            return if node.op == :* && (emit_product_by_power_of_two(node) || emit_product_by_byte(node))
 
             sum_of_two(node.lhs, node.rhs, SUMS.fetch(node.op))
           end
@@ -1362,7 +1407,39 @@ module VBlank
           def value_of_neg(node) = sum_of_one(node.operand, "rt_neg32")
           def value_of_bit_not(node) = sum_of_one(node.operand, "rt_not32")
           def value_of_absolute(node) = sum_of_one(node.operand, "rt_abs32")
-          def value_of_clamped(node) = sum_of_three(node.operand, node.min, node.max, "rt_clamp32")
+          # A number held between two ends written in the program, which a table read by a number the
+          # game works out always is (IR::Build#table_read): almost always it is a byte already
+          # between them, so that is asked first, of the bytes where it is — a handful of
+          # instructions — and only a number outside them is held by rt_clamp32, with the ends kept
+          # beside each other as the routine reads them.
+          def value_of_clamped(node)
+            low, high = folded(node.min), folded(node.max)
+            return sum_of_three(node.operand, node.min, node.max, "rt_clamp32") unless byte_range?(low, high)
+
+            held = fresh("held")
+            within = fresh("within")
+            value(node.operand)
+            emit_upper_bytes_or
+            @asm.jump_relative(:nz, held)
+            @asm.load(:a, :e)
+            unless low.zero?
+              @asm.cp_a(low)
+              @asm.jump_relative(:c, held)
+            end
+            if high == 0xFF
+              @asm.jump_relative(within)
+            else
+              @asm.cp_a(high + 1)
+              @asm.jump_relative(:c, within)
+            end
+            @asm.label(held)
+            @asm.load(:hl, constant_label([low, high]))
+            @asm.call("rt_clamp32")
+            @asm.label(within)
+          end
+
+          # Two ends written in the program, a byte each, the floor at or below the ceiling.
+          def byte_range?(low, high) = low && high && low.between?(0, 0xFF) && high.between?(low, 0xFF)
           def value_of_mul_fix(node) = sum_of_three(node.lhs, node.rhs, fraction_bits(node), "rt_mul_fix")
           def value_of_div_fix(node) = sum_of_three(node.lhs, node.rhs, fraction_bits(node), "rt_div_fix")
           def value_of_shift_right(node) = sum_of_two(node.operand, Build.int(node.bits), "rt_shr32")
@@ -1415,8 +1492,12 @@ module VBlank
             @asm.load(:de, number & 0xFFFF)
           end
 
-          # A number the routine names, kept once beside it, and the label of where.
-          def constant_label(number) = @constants[number & 0xFFFF_FFFF] ||= fresh("number")
+          # A place in the routine's data holding +number+, or a pair of them side by side, kept once
+          # beside it, and the label of where.
+          def constant_label(number)
+            key = number.is_a?(Array) ? number.map { |part| part & 0xFFFF_FFFF } : number & 0xFFFF_FFFF
+            @constants[key] ||= fresh("number")
+          end
 
           # The number +node+ comes to when everything in it is written in the program, or nil.
           def folded(node)
@@ -1450,7 +1531,7 @@ module VBlank
           # A product by a power of two up to 16 written in the program, as shifts of the four bytes
           # a place at a time rather than the runtime's multiply — none at all for a product by one.
           # True when it was done so.
-          def multiplied_by_power_of_two?(node)
+          def emit_product_by_power_of_two(node)
             [[node.rhs, node.lhs], [node.lhs, node.rhs]].each do |by, other|
               number = folded(by)
               next unless number&.positive? && (number & (number - 1)).zero? && number <= 16
@@ -1462,6 +1543,23 @@ module VBlank
                 @asm.rl(:c)
                 @asm.rl(:b)
               end
+              return true
+            end
+            false
+          end
+
+          # A number times a byte written in the program — a row of a sprite's poses times how many
+          # poses it has — by rt_mul32_byte, which walks the byte's bits in A rather than the 32 of
+          # a number at HL (Runtime::Int32). True when it was done so.
+          def emit_product_by_byte(node)
+            [[node.rhs, node.lhs], [node.lhs, node.rhs]].each do |by, other|
+              number = folded(by)
+              next unless number&.between?(1, 0xFF)
+
+              value(other)
+              @asm.load(:a, number)
+              @asm.call("rt_mul32_byte")
+              @multiplies_by_byte = true
               return true
             end
             false

@@ -161,7 +161,8 @@ module VBlank
                                              big_maps: lowering.big_map_places, together: lowering.groups_up_together?,
                                              bar_rows: lowering.bar_rows, clips: clips,
                                              count_at: (lowering.variables[Frames::COUNT] if lowering.counts_dark_frames?),
-                                             banked_colors: bank_background_colors && !lowering.drawn_palettes.nil?)
+                                             banked_colors: bank_background_colors && !lowering.drawn_palettes.nil?,
+                                             multiplies_by_byte: lowering.multiplies_by_byte?)
           data = [*lowering.art.sections, *(lowering.music.any? ? lowering.music.sections : []), *clips&.sections]
           begin
             linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END,

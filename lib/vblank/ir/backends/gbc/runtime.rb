@@ -68,10 +68,11 @@ module VBlank
           # +clips+ is the game's recordings (GBC::Clips), or nil for a game that plays none.
           # +count_at+ is where a game that counts the frames its screen is off for keeps
           # IR::Frames::COUNT (Frame#emit_add_dark_frames). +banked_colors+ says its backgrounds' colour
-          # tables are kept in banks (Runtime::Picture#emit_background_colors_far).
+          # tables are kept in banks (Runtime::Picture#emit_background_colors_far), and
+          # +multiplies_by_byte+ that it multiplies by a byte written in the program (Int32#emit).
           def sections(memory, main:, art:, music_level: nil, songs: false, music: nil, frame_begins: nil, runs: [],
                        drawn_palettes: nil, big_maps: nil, together: false, bar_rows: nil, clips: nil, count_at: nil,
-                       banked_colors: false)
+                       banked_colors: false, multiplies_by_byte: false)
             # A game whose songs are kept in banks notes every bank the runtime puts in view, for the
             # music player to put back (SM83#select_rom_bank, Music::BANK_NOTED); one that plays a
             # recording writes down every bank put in view, for the timer to put back (Runtime::Clips).
@@ -81,7 +82,7 @@ module VBlank
             Boot.emit(asm, main: "rt_main", clips: !shown.nil?, backdrop: art.backdrop_at_power_on, memory: memory)
             Boot.emit_display_off(asm)
             Boot.emit_clear(asm)
-            Int32.emit(asm, memory)
+            Int32.emit(asm, memory, by_byte: multiplies_by_byte)
             Calls.emit(asm, memory)
             Frame.emit(asm, memory, together: together, count_at: count_at)
             Lists.emit(asm, memory)

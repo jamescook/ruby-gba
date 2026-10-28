@@ -23,12 +23,15 @@ module VBlank
             module_function
 
             # Every routine, written into +asm+, and the quick memory they use (from +memory+).
-            def emit(asm, memory)
+            # +by_byte+ says the game multiplies by a byte written in the program
+            # (Lowering#emit_product_by_byte), which has a routine of its own.
+            def emit(asm, memory, by_byte: false)
               s = memory.scratch
               emit_sums(asm)
               emit_compare(asm, s)
               emit_bits(asm)
               emit_multiply(asm, s)
+              emit_multiply_by_byte(asm, s) if by_byte
               emit_divide(asm, s)
               emit_shifts(asm)
               emit_fractions(asm, s)
@@ -230,6 +233,39 @@ module VBlank
                 asm.load(:d, 0)
                 asm.ret
               end
+            end
+
+            # BCDE = BCDE × A, A a byte from 1 to 255: the same long multiplication as rt_mul32, with
+            # the byte walked in a register rather than four bytes of memory, so a number times a
+            # small count — a row of poses times how many poses — is a few turns of a short loop.
+            def emit_multiply_by_byte(asm, s)
+              asm.label("rt_mul32_byte")
+              asm.load(:l, :a)
+              asm.xor_a(:a)
+              4.times { |i| asm.load_high(s.product + i, :a) }
+              asm.label("rt_mul32_byte_loop")
+              asm.srl(:l)
+              asm.jump_relative(:nc, "rt_mul32_byte_shift")
+              %i[e d c b].each_with_index do |reg, i|
+                asm.load_high(:a, s.product + i)
+                i.zero? ? asm.add_a(reg) : asm.adc_a(reg)
+                asm.load_high(s.product + i, :a)
+              end
+              asm.label("rt_mul32_byte_shift")
+              asm.load(:a, :l)
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_mul32_byte_done")
+              asm.sla(:e)
+              asm.rl(:d)
+              asm.rl(:c)
+              asm.rl(:b)
+              asm.jump_relative("rt_mul32_byte_loop")
+              asm.label("rt_mul32_byte_done")
+              %i[e d c b].each_with_index do |reg, i|
+                asm.load_high(:a, s.product + i)
+                asm.load(reg, :a)
+              end
+              asm.ret
             end
 
             # BCDE = BCDE × (HL), the low 32 bits of the product, which is what a signed product
