@@ -14,6 +14,7 @@ class TestSNESSoundEffects < Minitest::Test
   Part = Score::Part
   Note = Score::Note
   FIRST = 0 << 4 # the first square voice's registers
+  SECOND = 1 << 4
   ENVX = 0x8
 
   # A tune holding C4 on the first square voice from its first frame, and an effect of one E5 note
@@ -53,6 +54,60 @@ class TestSNESSoundEffects < Minitest::Test
 
     assert_equal 0, run.dsp_registers.getbyte(FIRST + ENVX)
     assert_includes run.audio, [:voice, 1, :"sfx.hit", 0, 0]
+  end
+
+  # A two-part tune (C4 and E4 on the two square voices) and +effects+, asked for on pass 3, and the
+  # tune stopped on pass +stop_on+ and not named again; the block runs each pass with the pass
+  # number. The checked run holds every entry to the interpreter.
+  private def band(frames:, effects:, stop_on: 99, &body)
+    tune = Score.new(tempo: 150, parts: [Part.new(notes: [Note.new(at: 0, key: :C4, length: 4), Note.new(at: 8, key: :D4, length: 40)]),
+                                         Part.new(notes: [Note.new(at: 0, key: :E4, length: 48)])])
+    game = VBlank.game("BAND", consoles: %i[gba snes]) do
+      enable_sound
+      music = songs :music, [tune]
+      sfx = sound_effects :sfx, effects
+      pass = var :pass, 0
+      game_loop do
+        pass.add! 1
+        (pass < stop_on).then { music.play 0 }
+        (pass == stop_on).then { stop_music }
+        (pass == 3).then { sfx.play 0 }
+        instance_exec(pass, &body) if body
+      end
+    end
+    SNES::CheckedRun.new.run(game.program(console: :snes), frames: frames)
+  end
+
+  # An effect takes the first part's voice, so that part is no longer held for a new level; its next
+  # note, after the effect, holds it again, after the second part (Reference::Player's @sounding
+  # keeps the order keys came in). A new level then reaches the second part first.
+  def test_a_new_level_reaches_held_notes_in_the_order_they_took_their_voices_again
+    hit = Score.new(tempo: 150, priority: 10, parts: [Part.new(notes: [Note.new(at: 0, key: :E5, length: 3)])])
+    run = band(frames: 16, effects: [hit]) { |pass| (pass == 14).then { music_volume 50 } }
+
+    assert_equal [[:loudness, 2, 6], [:loudness, 1, 6]], run.audio.select { |entry| entry.first == :loudness }.last(2)
+  end
+
+  # An effect of a wave part then a square part ends, letting go of its voices in the order each was
+  # first held — the first square voice, which the tune held from its start, before the wave voice
+  # it took itself — not the order of its parts.
+  def test_an_effects_end_lets_go_in_the_order_the_voices_were_first_held
+    hit = Score.new(tempo: 150, priority: 10, parts: [Part.new(plays: :sine, notes: [Note.new(at: 0, key: :A3, length: 3)]),
+                                                     Part.new(notes: [Note.new(at: 0, key: :E5, length: 3)])])
+    run = band(frames: 10, effects: [hit])
+    released = run.audio.select { |entry| entry.first == :voice && entry[2] == :"sfx.0" && entry[3].zero? }
+
+    assert_equal [1, 3], released.map { |entry| entry[1] }
+  end
+
+  # Stopping a two-part tune whose first voice an effect holds lets go of the second only: the effect
+  # sounds on (ENVX at the gain), the tune's other voice falls silent.
+  def test_stopping_the_tune_lets_go_of_its_voices_but_the_effects
+    hit = Score.new(tempo: 150, priority: 10, parts: [Part.new(notes: [Note.new(at: 0, key: :E5, length: 20)])])
+    dsp = band(frames: 8, effects: [hit], stop_on: 5).dsp_registers
+
+    assert_equal 0x7F, dsp.getbyte(FIRST + ENVX), "the effect's voice"
+    assert_equal 0, dsp.getbyte(SECOND + ENVX), "the tune's other voice"
   end
 
   # stop_music lets go of the tune's voices but not one an effect holds: the effect sounds on.

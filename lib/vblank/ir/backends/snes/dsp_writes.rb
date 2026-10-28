@@ -356,7 +356,10 @@ module VBlank
           # THE WRITES A RUN OF THE LOG MEANS, in order, with what one entry says of the next:
           #
           # - the tune a [:stop_music] stops is the one whose note was logged last (or +song+ before
-          #   any), since a tune plays its first frame's notes, rests included, as it starts;
+          #   any), since a tune plays its first frame's notes, rests included, as it starts — and a
+          #   sound effect's notes are not a tune's. A tune all of whose voices sound effects hold
+          #   from its first frame logs no note, and is taken for the tune before it: the log does not
+          #   say which tune stops;
           # - a song's note on the wave or noise voice plays at the note's own volume, which its
           #   [:voice ...] entry carries, where the [:wave ...] or [:noise ...] entry after it carries
           #   the part's (Reference::Player#log_wave_or_noise), as the Color's player plays it;

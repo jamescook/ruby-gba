@@ -59,6 +59,7 @@ module VBlank
             HELD_ORDER = "rt music held order"
             HELD_END = "rt music held end"
             HELD_IN = "rt music held in"
+            HELD_WALK = "rt music held walk"
             CHANNEL_FOUND = "rt music channel found"
 
             module_function
@@ -72,8 +73,11 @@ module VBlank
               Effects.reserve(memory, effects) if effects.positive?
               return unless follows_level
 
-              [LEVEL_SET, LOUDNESS, LEVEL_NOW, LOUDNESS_TABLE, HELD_END, CHANNEL_FOUND].each { |name| memory.reserve(name, 2) }
-              [HELD, HELD_ORDER, HELD_IN].each { |name| memory.reserve(name, SNES::Music::PARTS * 2) }
+              [LEVEL_SET, LOUDNESS, LEVEL_NOW, LOUDNESS_TABLE, HELD_END, HELD_WALK, CHANNEL_FOUND].each { |name| memory.reserve(name, 2) }
+              [HELD, HELD_IN].each { |name| memory.reserve(name, SNES::Music::PARTS * 2) }
+              # ...and a word past the last part, which taking a part out of a full list reads as it
+              # moves the rest down (rt_music_unhold).
+              memory.reserve(HELD_ORDER, (SNES::Music::PARTS + 1) * 2)
             end
 
             # +level_at+ is where a game that sets its music volume keeps it (IR::Tunes::LEVEL), or nil;
@@ -304,7 +308,7 @@ module VBlank
                 # silent here (Reference::Player#play_song_frame).
                 asm.ldx(at.call(SONG))
                 asm.lda(asm.long_x("music_data", m::RANK))
-                Effects.emit_claim(asm, memory)
+                Effects.emit_claim_call(asm, memory)
                 asm.branch_long(:beq, "rt_music_part_passed")
               end
               asm.ldx(at.call(NOTE))
@@ -412,9 +416,9 @@ module VBlank
               asm.rts
               asm.label("rt_music_relevel_moved")
               asm.sta(at.call(LEVEL_SET))
-              asm.stz(at.call(LIST)) # where in HELD_ORDER, two bytes a part
+              asm.stz(at.call(HELD_WALK)) # where in HELD_ORDER, two bytes a part
               asm.label("rt_music_relevel_part")
-              asm.lda(at.call(LIST))
+              asm.lda(at.call(HELD_WALK))
               asm.cmp(at.call(HELD_END))
               asm.bcs("rt_music_relevel_done")
               asm.tax
@@ -429,8 +433,8 @@ module VBlank
               asm.pla
               asm.jsr(asm.abs("rt_music_loudness"))
               asm.label("rt_music_relevel_next")
-              asm.inc(at.call(LIST))
-              asm.inc(at.call(LIST))
+              asm.inc(at.call(HELD_WALK))
+              asm.inc(at.call(HELD_WALK))
               asm.bra("rt_music_relevel_part")
               asm.label("rt_music_relevel_done")
               asm.rts

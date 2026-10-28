@@ -47,11 +47,17 @@ module VBlank
             # apart, since an effect is ended in the middle of a walk through the rank order.
             WALK = "rt sfx walk"
             RELEASE_WALK = "rt sfx release walk"
+            # An effect's end: its rank's place, and the voice it is letting go.
+            RELEASE_RANK = "rt sfx release rank"
+            RELEASE_CHANNEL = "rt sfx release channel"
             # An effect asked for: its number, group and priority; and another of its group.
             ASKED_EFFECT = "rt sfx asked effect"
             ASKED_GROUP = "rt sfx asked group"
             ASKED_PRIORITY = "rt sfx asked priority"
             OTHER = "rt sfx other"
+            # Where a table being read is in the song table (an effect list, the rank order, the
+            # ranks' kinds).
+            TABLE_AT = "rt sfx table at"
             # Each effect's state, STATE_BYTES apart: asked for since the last frame; asked for, as a
             # frame plays it; to be cut off; sounding; how far into it; each part's next note.
             STATES = "rt sfx states"
@@ -69,7 +75,8 @@ module VBlank
 
             def reserve(memory, effects)
               [HOLDER_END, CLAIM_CHANNEL, CLAIM_RANK, CLAIM_SOUNDS, TUNE_RANK, EFFECT, RECORD, STATE, PART, PARTS,
-               ENTRY, NOTE, WALK, RELEASE_WALK, ASKED_EFFECT, ASKED_GROUP, ASKED_PRIORITY, OTHER].each { |name| memory.reserve(name, 2) }
+               ENTRY, NOTE, WALK, RELEASE_WALK, RELEASE_RANK, RELEASE_CHANNEL, ASKED_EFFECT, ASKED_GROUP, ASKED_PRIORITY,
+               OTHER, TABLE_AT].each { |name| memory.reserve(name, 2) }
               [HOLDERS, HOLDER_ORDER, HOLDER_SEEN].each { |name| memory.reserve(name, CHANNELS.size * 2) }
               memory.reserve(STATES, effects * STATE_BYTES)
             end
@@ -87,10 +94,10 @@ module VBlank
               emit_select(asm, at, memory)
             end
 
-            # A claim, inline, by the rank's place in A, for the part whose entry is at +entry+ and its
-            # note at +note+ (places in work RAM holding where each is in the table). A = 1 when the
-            # note takes the voice, nought when a holder of a higher rank keeps it.
-            def emit_claim(asm, memory, entry: Music::ENTRY, note: Music::NOTE)
+            # A call of rt_sfx_claim, inline, by the rank's place in A, for the part whose entry is at
+            # +entry+ and its note at +note+ (places in work RAM holding where each is in the table).
+            # A = 1 when the note takes the voice, nought when a holder of a higher rank keeps it.
+            def emit_claim_call(asm, memory, entry: Music::ENTRY, note: Music::NOTE)
               m = SNES::Music
               asm.sta(asm.abs(memory[CLAIM_RANK]))
               asm.ldx(asm.abs(memory[entry]))
@@ -107,7 +114,7 @@ module VBlank
             # (Reference::Player#silence_song).
             def emit_release_tune_voices(asm, memory)
               asm.lda(asm.long("music_data", SNES::Music::RANK_KINDS_AT))
-              asm.sta(asm.abs(memory[OTHER])) # where the ranks' kinds are
+              asm.sta(asm.abs(memory[TABLE_AT])) # where the ranks' kinds are
               CHANNELS.each do |channel|
                 kept = "rt_music_quiet_kept_#{channel}"
                 done = "rt_music_quiet_done_#{channel}"
@@ -115,7 +122,7 @@ module VBlank
                 asm.lda(holder)
                 asm.asl
                 asm.clc
-                asm.adc(asm.abs(memory[OTHER]))
+                asm.adc(asm.abs(memory[TABLE_AT]))
                 asm.tax
                 asm.lda(asm.long_x("music_data"))
                 asm.bne(kept)
@@ -151,7 +158,7 @@ module VBlank
               # be cut off is cut off here.
               asm.stz(at.call(WALK))
               asm.label("rt_sfx_play_now_next")
-              asm.jsr(asm.abs("rt_sfx_walked"))
+              asm.jsr(asm.abs("rt_sfx_select_ranked"))
               asm.cmp(at.call(ASKED_EFFECT))
               asm.bne("rt_sfx_play_now_other")
               asm.lda(1)
@@ -186,14 +193,14 @@ module VBlank
               asm.adc(asm.long("music_data", m::EFFECT_LISTS_AT))
               asm.tax
               asm.lda(asm.long_x("music_data"))
-              asm.sta(at.call(OTHER))
+              asm.sta(at.call(TABLE_AT))
               asm.tax
               asm.lda(asm.direct(Sound::R0))
               asm.cmp(asm.long_x("music_data")) # how many effects the list holds
               asm.branch_long(:bcs, "rt_sfx_request_none")
               asm.asl
               asm.clc
-              asm.adc(at.call(OTHER))
+              asm.adc(at.call(TABLE_AT))
               asm.tax
               asm.lda(asm.long_x("music_data", 2))
               asm.sta(at.call(ASKED_EFFECT))
@@ -245,7 +252,7 @@ module VBlank
 
             # rt_sfx_above and rt_sfx_below: a frame's effects that outrank the tune, played before its
             # parts, and the rest, after (Reference::Player#advance). rt_sfx_above takes up first what
-            # was asked for since the last frame. rt_sfx_walked: the effect at place WALK of the rank
+            # was asked for since the last frame. rt_sfx_select_ranked: the effect at place WALK of the rank
             # order, selected, its number in A.
             def emit_passes(asm, at, memory, count)
               m = SNES::Music
@@ -268,15 +275,15 @@ module VBlank
               asm.label("rt_sfx_below")
               emit_pass(asm, at, count, "rt_sfx_below", above: false)
 
-              asm.label("rt_sfx_walked")
+              asm.label("rt_sfx_select_ranked")
               asm.lda(asm.long("music_data", m::BY_RANK_AT))
               asm.inc
               asm.inc # past how many there are
-              asm.sta(at.call(OTHER))
+              asm.sta(at.call(TABLE_AT))
               asm.lda(at.call(WALK))
               asm.asl
               asm.clc
-              asm.adc(at.call(OTHER))
+              asm.adc(at.call(TABLE_AT))
               asm.tax
               asm.lda(asm.long_x("music_data"))
               asm.pha
@@ -290,10 +297,10 @@ module VBlank
             def emit_pass(asm, at, count, name, above:)
               asm.stz(at.call(WALK))
               asm.label("#{name}_next")
-              asm.jsr(asm.abs("rt_sfx_walked"))
+              asm.jsr(asm.abs("rt_sfx_select_ranked"))
               asm.lda(asm.long_x("music_data", SNES::Music::EFFECT_RANK))
               asm.cmp(at.call(TUNE_RANK))
-              asm.send(above ? :bcc : :bcs, "#{name}_walk")
+              asm.branch_long(above ? :bcc : :bcs, "#{name}_walk") # past an effect on the other side of the tune
               asm.jsr(asm.abs("rt_sfx_frame"))
               asm.label("#{name}_walk")
               asm.inc(at.call(WALK))
@@ -378,7 +385,7 @@ module VBlank
               asm.inc(asm.abs_x(memory[STATES], CURSORS))
               asm.ldx(at.call(RECORD))
               asm.lda(asm.long_x("music_data", m::EFFECT_RANK))
-              emit_claim(asm, memory, entry: ENTRY, note: NOTE)
+              emit_claim_call(asm, memory, entry: ENTRY, note: NOTE)
               asm.branch_long(:beq, "rt_sfx_frame_next")
               if level_at # the tune's note there is no longer held for a new level to reach
                 asm.lda(at.call(CLAIM_CHANNEL))
@@ -426,7 +433,7 @@ module VBlank
               asm.sta(asm.abs_y(memory[STATES], RUNNING))
               asm.ldx(at.call(RECORD))
               asm.lda(asm.long_x("music_data", m::EFFECT_RANK))
-              asm.sta(at.call(CLAIM_RANK))
+              asm.sta(at.call(RELEASE_RANK))
               asm.stz(at.call(RELEASE_WALK))
               asm.label("rt_sfx_finish_next")
               asm.lda(at.call(RELEASE_WALK))
@@ -434,12 +441,12 @@ module VBlank
               asm.bcs("rt_sfx_finish_done")
               asm.tax
               asm.lda(asm.abs_x(memory[HOLDER_ORDER]))
-              asm.sta(at.call(CLAIM_CHANNEL))
+              asm.sta(at.call(RELEASE_CHANNEL))
               asm.dec
               asm.asl
               asm.tay
               asm.lda(asm.abs_y(memory[HOLDERS]))
-              asm.cmp(at.call(CLAIM_RANK))
+              asm.cmp(at.call(RELEASE_RANK))
               asm.bne("rt_sfx_finish_walk")
               asm.lda(0)
               asm.sta(asm.abs_y(memory[HOLDERS]))
@@ -454,7 +461,7 @@ module VBlank
               asm.bcs("rt_sfx_finish_walk")
               asm.jsr(asm.abs("rt_sfx_entry"))
               asm.lda(asm.long_x("music_data", m::CHANNEL))
-              asm.cmp(at.call(CLAIM_CHANNEL))
+              asm.cmp(at.call(RELEASE_CHANNEL))
               asm.beq("rt_sfx_finish_found")
               asm.inc(at.call(PART))
               asm.bra("rt_sfx_finish_find")
