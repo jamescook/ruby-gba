@@ -28,7 +28,8 @@ module VBlank
           # frame and switches the screen on in the next blank, before the pass is said to be shown
           # (Runtime::Frame's SHOWN). The frame drawn while it was off is black: the checked run never
           # reads it, but a player sees it, as a flash each time a big map is put up. Cutting a long
-          # copy over several blanks, with the old picture still up, would take the flash away.
+          # copy over several blanks, with the old picture still up, would take the flash away, as a
+          # painted screen's copy already does (Runtime::Paint): it never switches the screen off.
           #
           #   rt_picture_start     at power-on: the registers, the tiles and the colours
           #   rt_picture_prepare   at the end of every pass, before the wait (nothing yet)
@@ -83,11 +84,11 @@ module VBlank
             end
 
             # +work+ is four words of the direct page the routines use.
-            def emit(asm, memory, work:, painted: false, chip: false)
+            def emit(asm, memory, work:, painted: false)
               emit_start(asm, memory, painted)
               emit_sprites(asm, memory, work)
               emit_backgrounds(asm, memory, work)
-              emit_upload(asm, memory, painted, chip)
+              emit_upload(asm, memory, painted)
               asm.label("rt_picture_prepare")
               asm.rtl
             end
@@ -478,7 +479,7 @@ module VBlank
 
             # THE COPY IN THE BLANK. The screen is switched off first, so nothing below needs to fit
             # in the blank; then on again — straight away while the blank lasts, or in the next one.
-            def emit_upload(asm, memory, painted, chip)
+            def emit_upload(asm, memory, painted)
               h = Console::SNESHardware
               layers = memory[LAYERS]
               # The first pass's: the screen is off already, and Frame switches it on.
@@ -487,9 +488,9 @@ module VBlank
               asm.rtl
 
               asm.label("rt_upload")
-              if painted && chip
-                # A Super FX cartridge's painted screen is copied with the screen on, a blank at a
-                # time (ChipPaint), so nothing is switched off.
+              if painted
+                # A painted screen is copied with the screen on, a blank at a time (Paint's
+                # rt_paint_upload), so nothing is switched off.
                 asm.jsr(asm.abs("rt_upload_copy"))
                 asm.rtl
               end

@@ -17,43 +17,12 @@ module VBlank
           #                   from a loop it keeps in its own cache (rt_chip_clear), while the console
           #                   waits (Runtime::Chip)
           #
-          # THE COPY TO VIDEO RAM IS SPREAD OVER BLANKS, WITH THE SCREEN ON. A plain cartridge
-          # switches the screen off to copy (Picture's rt_upload), so a pass that changed the whole
-          # screen shows a black frame. Here the copy goes a row of tiles at a time, each row only
-          # when the line the picture is on says the whole row can be sent before the blank ends,
-          # and only while the blank has room for it (BLANK_BYTES), so the screen never goes black:
-          # a big change arrives over a few frames, top to bottom.
-          # Video RAM can only be written in the blank or with the screen off; written while the
-          # picture is being drawn, the writes are lost (fullsnes, "SNES PPU Video Memory").
-          #
-          # A blank is 37 of the console's lines, each 1364 of its master clock's cycles, and the
-          # copying engine takes 8 of those cycles a byte (fullsnes, "SNES Timing" and "SNES DMA");
-          # BLANK_BYTES leaves a third of the blank for the interrupt and the setting up.
+          # The copy to video RAM goes from the chip's RAM as Paint's rt_upload goes from work RAM,
+          # a blank at a time with the screen on.
           module ChipPaint
             COPY = Console::SNESHardware::GSU_RAM_BANK << 16
-            BLANK_BYTES = 4096
-            # The lines of a North American frame, 0 to 261; the blank is 225 to 261.
-            LINES = 262
-            FIRST_BLANK_LINE = 225
 
             module_function
-
-            # A = the line the picture is on now (OPVCT, nine bits), latched by reading SLHV, which
-            # latches only while WRIO's top bit is set (Runtime::Chip sets it). STAT78 is read first
-            # so OPVCT gives its low byte, then its ninth bit. (fullsnes, "SNES PPU Timers and
-            # Status".) Leaves A 16 bits wide.
-            def emit_line_now(asm)
-              h = Console::SNESHardware
-              asm.sep(0x20)
-              asm.lda(asm.abs(h::STAT78))
-              asm.lda(asm.abs(h::SLHV))
-              asm.lda(asm.abs(h::OPVCT))
-              asm.xba
-              asm.lda(asm.abs(h::OPVCT))
-              asm.and_a(0x01)
-              asm.xba
-              asm.rep(0x20)
-            end
 
             # The colour at +place+ (R0) as the four words a tile's row keeps it in, a pair of planes
             # each, into the chip's R3 to R6; then the chip paints every tile with them.
@@ -107,85 +76,6 @@ module VBlank
               gsu.nop
               gsu.stop
               gsu.section
-            end
-
-            # rt_paint_upload (JSR, in the blank, the screen on): each row of tiles changed, the
-            # stretch from its leftmost changed tile to its rightmost, copied to video RAM — a row
-            # only while the blank lasts and has room for it, waiting for the next blank when not.
-            def emit_upload(asm, memory, s)
-              h = Console::SNESHardware
-              dirty = memory[Paint::DIRTY]
-              asm.label("rt_paint_upload")
-              asm.ldx(0)
-              asm.stz(asm.direct(s.row)) # the row's first tile
-              asm.stz(asm.direct(s.count)) # the bytes copied in this blank
-              asm.label("rt_paint_upload_row")
-              asm.lda(asm.abs_x(dirty + 2))
-              asm.cmp(asm.abs_x(dirty))
-              asm.branch_long(:bcc, "rt_paint_upload_next")
-              asm.sec
-              asm.sbc(asm.abs_x(dirty))
-              asm.inc
-              6.times { asm.asl }
-              asm.sta(asm.direct(s.chunk))
-              # Room in this blank, and time for the whole row before it ends? If not, the next blank.
-              asm.clc
-              asm.adc(asm.direct(s.count))
-              asm.cmp(BLANK_BYTES + 1)
-              asm.bcs("rt_paint_upload_wait")
-              emit_line_now(asm)
-              asm.cmp(FIRST_BLANK_LINE)
-              asm.bcc("rt_paint_upload_wait")
-              asm.sta(asm.direct(s.temp))
-              asm.lda(asm.direct(s.chunk))
-              7.times { asm.lsr } # the row's lines: a line copies 170 bytes, so this is more than enough
-              asm.sec # and one line more
-              asm.adc(asm.direct(s.temp))
-              asm.cmp(LINES - 1)
-              asm.bcc("rt_paint_upload_room")
-              asm.label("rt_paint_upload_wait")
-              asm.phx
-              asm.jsr(asm.abs("rt_sleep_until_vblank"))
-              asm.plx
-              asm.stz(asm.direct(s.count))
-              asm.label("rt_paint_upload_room")
-              asm.lda(asm.direct(s.chunk))
-              asm.sta(asm.abs(h::DMA_BASE + h::DASL))
-              asm.clc
-              asm.adc(asm.direct(s.count))
-              asm.sta(asm.direct(s.count))
-              asm.lda(asm.abs_x(dirty))
-              asm.clc
-              asm.adc(asm.direct(s.row))
-              5.times { asm.asl } # the first tile's word in video RAM
-              asm.sta(asm.abs(h::VMADDL))
-              asm.asl # ...and its byte in the copy
-              asm.sta(asm.abs(h::DMA_BASE + h::A1TL))
-              asm.sep(0x20)
-              asm.lda(COPY >> 16)
-              asm.sta(asm.abs(h::DMA_BASE + h::A1B))
-              asm.lda(h::DMA_TO_TWO_PORTS)
-              asm.sta(asm.abs(h::DMA_BASE + h::DMAP))
-              asm.lda(h::VMDATAL & 0xFF)
-              asm.sta(asm.abs(h::DMA_BASE + h::BBAD))
-              asm.lda(1)
-              asm.sta(asm.abs(h::MDMAEN))
-              asm.rep(0x20)
-              asm.lda(Paint::NONE_LEFT)
-              asm.sta(asm.abs_x(dirty))
-              asm.stz(asm.abs_x(dirty + 2))
-              asm.label("rt_paint_upload_next")
-              asm.lda(asm.direct(s.row))
-              asm.clc
-              asm.adc(Paint::COLUMNS)
-              asm.sta(asm.direct(s.row))
-              asm.inx
-              asm.inx
-              asm.inx
-              asm.inx
-              asm.cpx(Paint::ROWS * 4)
-              asm.branch_long(:bne, "rt_paint_upload_row")
-              asm.rts
             end
           end
         end

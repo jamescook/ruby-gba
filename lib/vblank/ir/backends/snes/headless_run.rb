@@ -37,8 +37,12 @@ module VBlank
 
           attr_reader :vars, :moments, :rom
 
-          def initialize(save: SaveImage.new)
+          # +watch_picture+ reads the picture after every frame the console draws, not only at the end
+          # of each pass, to say which were all black (#black_frames). It is a whole screen read each
+          # frame, so only a test that asks for it pays for it.
+          def initialize(save: SaveImage.new, watch_picture: false)
             @save = save
+            @watch_picture = watch_picture
             @held = []
             @vars = {}
             @lists = {}
@@ -89,6 +93,7 @@ module VBlank
             @apu_ram = nil
             @active_samples = nil
             @loudest_each_frame = []
+            @black_each_frame = []
             play(frames || Reference::DEFAULT_FRAMES)
             self
           end
@@ -152,6 +157,15 @@ module VBlank
           # Taking it every frame also keeps the emulator from holding every sample of the run.
           # A frame is the finest it sees: what happens inside one is not in it.
           attr_reader :loudest_each_frame
+
+          # For a run made with +watch_picture+: the frames the console drew all black after the
+          # first it drew anything, counted from nought. The interpreter has no frame between two
+          # passes to compare with, so a black frame there — the screen switched off to copy a big
+          # change to video RAM — is what the checked run never sees and a player does.
+          def black_frames
+            first_lit = @black_each_frame.index(false) || @black_each_frame.size
+            (first_lit...@black_each_frame.size).select { |frame| @black_each_frame[frame] }
+          end
 
           # The rest of what the interpreter answers, each refused by name.
           %i[peak_voices sound_drops sound_owners frame log screen_mode buffered].each do |name|
@@ -338,8 +352,8 @@ module VBlank
 
           def in_interpreter_words(entries) = entries.map { |entry| Music.interpreter_entry(entry) }
 
-          # The game halted: its picture shown once more (copied over several blanks on a Super FX
-          # cartridge, ChipPaint); the moment is the end of the run.
+          # The game halted: its picture shown once more (a painted screen's copied over several
+          # blanks, Runtime::Paint); the moment is the end of the run.
           def finish_after_halt
             (1..passes).last(Runtime::Frame::STEPS_KEPT).each { |pass| note_frames_took(pass) unless @frames_took.key?(pass) }
             frames = 0
@@ -356,6 +370,7 @@ module VBlank
             decide_buttons
             @core.run_frame
             @loudest_each_frame << (@core.take_audio.map(&:abs).max || 0)
+            @black_each_frame << @core.colors.none?(&:positive?) if @watch_picture
           end
 
           # The emulator's picture, each pixel the 15-bit colour the console holds.

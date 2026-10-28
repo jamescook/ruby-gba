@@ -63,8 +63,9 @@ module VBlank
               asm.lda(h::GSU_IRQ_OFF)
               asm.sta(asm.abs(h::GSU_CFGR))
               asm.stz(asm.abs(h::GSU_SCMR))
-              # WRIO's top bit lets a read of SLHV latch the line the picture is on, which ChipPaint
-              # reads to know how much of the blank is left. It is the bit's power-on value.
+              # WRIO's top bit lets a read of SLHV latch the line the picture is on, which Paint's
+              # rt_paint_upload reads to know how much of the blank is left. It is the bit's
+              # power-on value.
               asm.lda(0x80)
               asm.sta(asm.abs(h::WRIO))
               asm.ldx(0)

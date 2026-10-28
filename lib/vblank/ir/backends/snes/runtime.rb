@@ -77,7 +77,7 @@ module VBlank
             Int32.emit(asm, Int32.scratch(memory))
             Frame.emit(asm, memory, pad: memory.scratch(4), sound: sound)
             Lists.emit(asm, memory, Lists.scratch(memory))
-            Picture.emit(asm, memory, work: memory.scratch(8), painted: painted, chip: chip)
+            Picture.emit(asm, memory, work: memory.scratch(8), painted: painted)
             Paint.emit(asm, memory, Paint.scratch(memory), chip: chip) if painted
             Tint.emit(asm, memory, Tint.scratch(memory))
             Collide.emit(asm, memory, Collide.scratch(memory))

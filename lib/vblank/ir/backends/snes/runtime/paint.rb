@@ -23,11 +23,21 @@ module VBlank
           # out the same way — and the tiles it changed go to video RAM in the blank after the pass
           # (rt_paint_upload). For each row of tiles the copy keeps the leftmost and rightmost tile
           # painted since the last blank (DIRTY), and the tiles between are one stretch of video RAM,
-          # so each row is one copy. The screen is switched off for the copy (Runtime::Picture's
-          # rt_upload), so a pass that changed the whole screen is copied whole, over the blank and on
-          # into the frame after; that frame is black, and the pass counts as shown once it is done.
-          # On a cartridge with a Super FX the copy is the chip's RAM instead, and it is sent with the
-          # screen on, a blank at a time (ChipPaint).
+          # so each row is one copy. On a cartridge with a Super FX the copy is the chip's RAM
+          # instead (ChipPaint).
+          #
+          # THE COPY TO VIDEO RAM IS SPREAD OVER BLANKS, WITH THE SCREEN ON. Video RAM can only be
+          # written in the blank or with the screen switched off; written while the picture is being
+          # drawn, the writes are lost (fullsnes, "SNES PPU Video Memory"). Switching the screen off
+          # for a big change shows a black frame, every other frame for a game that clears the
+          # screen each pass. So the copy goes a row of tiles at a time, each row only when the line
+          # the picture is on says the whole row can be sent before the blank ends, and only while
+          # the blank has room for it (BLANK_BYTES): a big change arrives over a few frames, top to
+          # bottom, and the pass counts as shown once it is all there.
+          #
+          # A blank is 37 of the console's lines, each 1364 of its master clock's cycles, and the
+          # copying engine takes 8 of those cycles a byte (fullsnes, "SNES Timing" and "SNES DMA");
+          # BLANK_BYTES leaves a third of the blank for the interrupt and the setting up.
           #
           # A TILE KEEPS ITS PIXELS IN PLANES. A pixel's colour is a place in the colour memory, eight
           # bits; a tile keeps the first bit of each of its 64 pixels together, a row of eight pixels
@@ -65,6 +75,11 @@ module VBlank
             # word each. A row with none has its leftmost past its rightmost (NONE_LEFT, 0).
             DIRTY = "rt paint dirty"
             NONE_LEFT = COLUMNS
+
+            BLANK_BYTES = 4096
+            # The lines of a North American frame, 0 to 261; the blank is 225 to 261.
+            LINES = 262
+            FIRST_BLANK_LINE = 225
 
             # The direct page the routines work on.
             Scratch = Data.define(:left, :right, :top, :bottom, :area, :y, :row, :count, :chunk, :last,
@@ -108,7 +123,7 @@ module VBlank
               emit_fill(asm, memory, s, bank)
               emit_blit(asm, memory, s, bank)
               emit_patches(asm, memory, s, bank)
-              chip ? ChipPaint.emit_upload(asm, memory, s) : emit_upload(asm, memory, s)
+              emit_upload(asm, memory, s, bank)
               emit_tables(asm)
             end
 
@@ -125,6 +140,11 @@ module VBlank
               asm.sta(asm.abs(h::BG1SC))
               asm.lda(0x01) # the first layer alone on the main screen
               asm.sta(asm.abs(h::TM))
+              # WRIO's top bit lets a read of SLHV latch the line the picture is on, which
+              # rt_paint_upload reads to know how much of the blank is left. It is the bit's
+              # power-on value, which Boot clears.
+              asm.lda(0x80)
+              asm.sta(asm.abs(h::WRIO))
               # The screen's first row is the console's line 1 (see Runtime::Picture's scroll), so the
               # layer is scrolled up one: -1 is $3FF in the register's ten bits.
               asm.lda(0xFF)
@@ -1033,23 +1053,52 @@ module VBlank
 
             # --- the blank ---
 
-            # rt_paint_upload (JSR, in the blank with the screen off): each row of tiles changed, the
-            # stretch from its leftmost changed tile to its rightmost, copied to video RAM.
-            def emit_upload(asm, memory, s)
+            # rt_paint_upload (JSR, in the blank, the screen on): each row of tiles changed, the
+            # stretch from its leftmost changed tile to its rightmost, copied to video RAM from the
+            # copy in +bank+ — a row only while the blank lasts and has room for it, waiting for the
+            # next blank when not.
+            def emit_upload(asm, memory, s, bank)
               h = Console::SNESHardware
               dirty = memory[DIRTY]
               asm.label("rt_paint_upload")
               asm.ldx(0)
               asm.stz(asm.direct(s.row)) # the row's first tile
+              asm.stz(asm.direct(s.count)) # the bytes copied in this blank
               asm.label("rt_paint_upload_row")
               asm.lda(asm.abs_x(dirty + 2))
               asm.cmp(asm.abs_x(dirty))
-              asm.bcc("rt_paint_upload_next")
+              asm.branch_long(:bcc, "rt_paint_upload_next")
               asm.sec
               asm.sbc(asm.abs_x(dirty))
               asm.inc
               6.times { asm.asl }
+              asm.sta(asm.direct(s.chunk))
+              # Room in this blank, and time for the whole row before it ends? If not, the next blank.
+              asm.clc
+              asm.adc(asm.direct(s.count))
+              asm.cmp(BLANK_BYTES + 1)
+              asm.bcs("rt_paint_upload_wait")
+              emit_line_now(asm)
+              asm.cmp(FIRST_BLANK_LINE)
+              asm.bcc("rt_paint_upload_wait")
+              asm.sta(asm.direct(s.temp))
+              asm.lda(asm.direct(s.chunk))
+              7.times { asm.lsr } # the row's lines: a line copies 170 bytes, so this is more than enough
+              asm.sec # and one line more
+              asm.adc(asm.direct(s.temp))
+              asm.cmp(LINES - 1)
+              asm.bcc("rt_paint_upload_room")
+              asm.label("rt_paint_upload_wait")
+              asm.phx
+              asm.jsr(asm.abs("rt_sleep_until_vblank"))
+              asm.plx
+              asm.stz(asm.direct(s.count))
+              asm.label("rt_paint_upload_room")
+              asm.lda(asm.direct(s.chunk))
               asm.sta(asm.abs(h::DMA_BASE + h::DASL))
+              asm.clc
+              asm.adc(asm.direct(s.count))
+              asm.sta(asm.direct(s.count))
               asm.lda(asm.abs_x(dirty))
               asm.clc
               asm.adc(asm.direct(s.row))
@@ -1058,7 +1107,7 @@ module VBlank
               asm.asl # ...and its byte in the copy
               asm.sta(asm.abs(h::DMA_BASE + h::A1TL))
               asm.sep(0x20)
-              asm.lda(COPY >> 16)
+              asm.lda(bank)
               asm.sta(asm.abs(h::DMA_BASE + h::A1B))
               asm.lda(h::DMA_TO_TWO_PORTS)
               asm.sta(asm.abs(h::DMA_BASE + h::DMAP))
@@ -1080,8 +1129,25 @@ module VBlank
               asm.inx
               asm.inx
               asm.cpx(ROWS * 4)
-              asm.bne("rt_paint_upload_row")
+              asm.branch_long(:bne, "rt_paint_upload_row")
               asm.rts
+            end
+
+            # A = the line the picture is on now (OPVCT, nine bits), latched by reading SLHV, which
+            # latches only while WRIO's top bit is set (rt_paint_start sets it). STAT78 is read first
+            # so OPVCT gives its low byte, then its ninth bit. (fullsnes, "SNES PPU Timers and
+            # Status".) Leaves A 16 bits wide.
+            def emit_line_now(asm)
+              h = Console::SNESHardware
+              asm.sep(0x20)
+              asm.lda(asm.abs(h::STAT78))
+              asm.lda(asm.abs(h::SLHV))
+              asm.lda(asm.abs(h::OPVCT))
+              asm.xba
+              asm.lda(asm.abs(h::OPVCT))
+              asm.and_a(0x01)
+              asm.xba
+              asm.rep(0x20)
             end
 
             # The masks of a tile's row from a pixel to its right end (rt_paint_from_left, nine: from
