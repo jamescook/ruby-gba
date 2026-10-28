@@ -33,7 +33,7 @@ module VBlank
         #   5, -1, imm(5)                    a number: #5
         #   imm("table")                     the low 16 bits of where "table" is: #<table
         #   bank_of("table")                 the bank "table" is in: #^table
-        #   dp(0x10)  dp_x(0x10)             $10, $10,X  on the direct page
+        #   direct(0x10)  direct_x(0x10)     $10, $10,X  on the direct page
         #   abs(0x0100)  abs_x  abs_y        $0100, $0100,X  in the data bank
         #   long("table")  long_x("table")   the 24-bit address of "table", and that plus X
         #   ind(0x10)  ind_y  ind_x          ($10), ($10),Y, ($10,X)
@@ -144,9 +144,9 @@ module VBlank
 
           def imm(value, plus = 0) = Operand.new(:imm, value, plus)
           def bank_of(label) = Operand.new(:imm_bank, label, 0)
-          def dp(value) = Operand.new(:dp, value, 0)
-          def dp_x(value) = Operand.new(:dp_x, value, 0)
-          def dp_y(value) = Operand.new(:dp_y, value, 0)
+          def direct(value) = Operand.new(:dp, value, 0)
+          def direct_x(value) = Operand.new(:dp_x, value, 0)
+          def direct_y(value) = Operand.new(:dp_y, value, 0)
           def abs(value, plus = 0) = Operand.new(:abs, value, plus)
           def abs_x(value, plus = 0) = Operand.new(:abs_x, value, plus)
           def abs_y(value, plus = 0) = Operand.new(:abs_y, value, plus)

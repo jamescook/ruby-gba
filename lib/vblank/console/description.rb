@@ -173,6 +173,41 @@ module VBlank
                             # A cartridge with a motor, for a game that rumbles (Runtime::Rumble).
                             rumbles: true, extension: ".gbc")
 
+    # The Super Nintendo: a wider and taller screen than the Advance's, twelve buttons (a game reads
+    # the ten the Advance has), 128 sprites and 34 pieces of them on a row, backgrounds of tiles,
+    # nothing that turns but one layer the build does not use, lists of sixteen colours. What each
+    # verb does on it is Console::SNESAnswers's to say.
+    SUPER_NINTENDO = Description.new(name: :snes, title: "Super Nintendo", screen_width: 256, screen_height: 224,
+                                     buttons: %i[a b select start right left up down r l].freeze, sprites: 128,
+                                     sprite_places: 128,
+                                     # A row of the screen shows at most 32 sprites and 34 of their
+                                     # 8-pixel pieces; a piece is what this counts.
+                                     sprites_a_row: 34, turning_sprites: false,
+                                     # The build shows a game's backgrounds on the arrangement of
+                                     # layers called mode 1: two of sixteen colours and one of four.
+                                     # Mode 7 turns one layer, alone; the build does not use it.
+                                     backgrounds: 2, turning_backgrounds: 0, backgrounds_beside_turning: 0,
+                                     bar_is_a_background: true,
+                                     # Its colour maths adds, subtracts or halves, never the
+                                     # Advance's sixteen steps, so a fade is walked colour by colour.
+                                     blends: false, list_colors: 16,
+                                     # A painted screen is copied whole to the console before it
+                                     # is shown, as the Color's is.
+                                     painted_pages: 1, clock_keeps_date: false,
+                                     # 262 lines of 1364 cycles of the console's master clock, less
+                                     # four cycles every other frame: sixty frames a second and a little.
+                                     cycles_a_second: 21_477_270, cycles_a_frame: 357_366, samples_a_copy: nil,
+                                     # The sound chip's voices are mixed 32000 times a second.
+                                     voice_output_hz: 32_000,
+                                     # Lists and pools go in the 120K of work RAM past the first 8K,
+                                     # 64K of it to one.
+                                     largest_memory_bytes: 64 * 1024,
+                                     # The first 8K of work RAM is in view from the cartridge's code, so
+                                     # every variable is there; the stack and the runtime's own state
+                                     # take some of it first (see Backends::SNES::Memory).
+                                     work_memory_bytes: 8 * 1024, work_memory_kept_bytes: 2048,
+                                     roomier_memory_bytes: 120 * 1024, extension: ".sfc")
+
     # Each console's description is reached through its kit (Console::Kit, Console.described).
 
     # The consoles a game says it is for, as a frozen list of names: one name or a list of them.

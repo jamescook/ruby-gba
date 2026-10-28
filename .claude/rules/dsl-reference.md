@@ -148,6 +148,10 @@ Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`,
 
 - `consoles: %i[gba gbc]`, `vblank build --console gbc` — the game on a Color too; what every verb does there (works or refused).
 
+## The Super Nintendo — `.claude/dsl/super-nintendo.md`
+
+- `consoles: %i[gba snes]`, `vblank build --console snes` — the game on a Super Nintendo too; what every verb does there.
+
 ## Effects a game writes — `.claude/dsl/effects.md`
 
 - `uses MyPack` — a module of verbs written in the game's own verbs.

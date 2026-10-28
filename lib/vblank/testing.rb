@@ -111,6 +111,9 @@ module VBlank
     # The same, for the Game Boy Color lowering's run.
     def skip_on_gbc(why) = skip_on_lowering(:gbc, why)
 
+    # The same, for the Super Nintendo lowering's run.
+    def skip_on_snes(why) = skip_on_lowering(:snes, why)
+
     # The same, for the run of the lowering named +lowering+.
     # A name no lowering has is refused on every run, so a misspelt one cannot quietly never skip.
     def skip_on_lowering(lowering, why)

@@ -15,6 +15,7 @@ require_relative "diagnostics/verifier" # ...and reading real pixels and real so
 require_relative "diagnostics/sound_recording" # what a game sounds like on the cartridge, the desktop build or as Ruby
 require_relative "diagnostics/advance_reading" # ...what an Advance cartridge keeps its own way
 require_relative "diagnostics/color_reading" # ...and what a Game Boy Color cartridge does
+require_relative "diagnostics/snes_reading" # ...and what a Super Nintendo cartridge does
 require_relative "diagnostics/tearing"
 require_relative "diagnostics/flicker"
 require_relative "diagnostics/tick_rate"

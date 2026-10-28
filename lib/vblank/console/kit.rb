@@ -114,7 +114,20 @@ module VBlank
       def reading = Diagnostics::ColorReading
     end
 
-    KITS = Ractor.make_shareable({ gba: AdvanceKit.new(ADVANCE), gbc: ColorKit.new(COLOR) })
+    # The Super Nintendo's. Its cartridges play in bsnes rather than libmgba, through
+    # ruby-snes-emulator, which keeps battery-backed RAM in a file of its own kind.
+    class SNESKit < Kit
+      def answers = SNESAnswers
+      def answers_page = answers.reference(not_yet: IR::Backends::SNES::Lowering::NOT_LOWERED_YET)
+      def builder = Cartridge::SNESBuild
+      def cartridge = Cartridge::SNESROM
+      def reading = Diagnostics::SNESReading
+      def open_core(path, save_dir:) = Diagnostics::Emulator.open_snes(path, save_dir: save_dir)
+      def save_file_extension = ".srm"
+    end
+
+    KITS = Ractor.make_shareable({ gba: AdvanceKit.new(ADVANCE), gbc: ColorKit.new(COLOR),
+                                   snes: SNESKit.new(SUPER_NINTENDO) })
 
     # What a game can tell about each console, by name.
     DESCRIPTIONS = Ractor.make_shareable(KITS.transform_values(&:description))
@@ -124,7 +137,8 @@ module VBlank
     def self.for(name)
       KITS.fetch(name&.to_sym) do
         named = name.nil? ? "No console is named" : "There is no console named #{name.inspect}"
-        raise ArgumentError, "#{named}. The consoles are #{KITS.keys.map(&:inspect).join(' and ')}."
+        *most, last = KITS.keys.map(&:inspect)
+        raise ArgumentError, "#{named}. The consoles are #{most.join(', ')} and #{last}."
       end
     end
 

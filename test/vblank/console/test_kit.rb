@@ -104,10 +104,10 @@ class TestKit < Minitest::Test
   end
 
   def test_a_console_nobody_has_is_refused_with_the_names_there_are
-    [:snes, nil].each do |name|
+    [:n64, nil].each do |name|
       error = assert_raises(ArgumentError) { Console.for(name) }
 
-      assert_match(/:gba and :gbc/, error.message, name.inspect)
+      assert_match(/:gba, :gbc and :snes/, error.message, name.inspect)
     end
   end
 
@@ -115,7 +115,9 @@ class TestKit < Minitest::Test
   # part that needs to know asks the console's kit.
   OWN = %w[lib/vblank/ir/backends/gba lib/vblank/ir/backends/gba.rb lib/vblank/ir/backends/gbc
            lib/vblank/ir/backends/gbc.rb lib/vblank/cartridge/advance_build.rb lib/vblank/cartridge/color_build.rb
-           lib/vblank/cartridge/rom.rb lib/vblank/cartridge/gbc_rom.rb lib/vblank/console].freeze
+           lib/vblank/cartridge/rom.rb lib/vblank/cartridge/gbc_rom.rb lib/vblank/ir/backends/snes
+           lib/vblank/ir/backends/snes.rb lib/vblank/cartridge/snes_build.rb lib/vblank/cartridge/snes_rom.rb
+           lib/vblank/console].freeze
 
   # `rom.console == :gbc`, `console.name != :gba` and the like: a console told apart by its name.
   # (A lowering's run is named :gba or :gbc too, and that is not a console.)

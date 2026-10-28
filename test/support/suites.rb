@@ -15,6 +15,7 @@ module TestSuites
   JS_DIR = "test/vblank/ir/backends/js"
   RUBY_DIR = "test/vblank/ir/backends/ruby"
   GBC_DIR = "test/vblank/ir/backends/gbc"
+  SNES_DIR = "test/vblank/ir/backends/snes"
 
   # WHAT ONLY THE GAME BOY ADVANCE CAN DO: fading part of the screen, a recording in a song, a
   # save on flash, more colours or memory than a Game Boy Color holds, and every example whose
@@ -37,7 +38,7 @@ module TestSuites
                                                    "test/vblank/playthroughs", ADVANCE_DIR],
                                              native: [NATIVE_DIR, ADVANCE_DIR], js: [JS_DIR, ADVANCE_DIR],
                                              ruby: [RUBY_DIR, ADVANCE_DIR],
-                                             gbc: [GBC_DIR]
+                                             gbc: [GBC_DIR], snes: [SNES_DIR]
                                            })
 
   # The test of the program a player runs, with its window. It builds with SDL, whose first build

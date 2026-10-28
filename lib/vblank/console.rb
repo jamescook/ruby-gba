@@ -15,4 +15,5 @@ require_relative "console/snes_hardware" # the Super Nintendo's register address
 require_relative "console/answers" # what an answer to "what does this verb do here?" is
 require_relative "console/advance_answers" # ...the Game Boy Advance's: every verb works
 require_relative "console/color_answers" # ...and the Game Boy Color's: works or refused
+require_relative "console/snes_answers" # ...and the Super Nintendo's: works or refused
 require_relative "console/kit" # ...and which parts of the library serve each console

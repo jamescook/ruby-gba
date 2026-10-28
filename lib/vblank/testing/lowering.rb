@@ -65,7 +65,11 @@ module VBlank
                                      Run.new(name: :gbc, title: "Game Boy Color", console: :gbc, checked: true,
                                              does: "the game built as a Game Boy Color cartridge, played in the " \
                                                    "emulator and checked against the interpreter",
-                                             needs: nil, player: "Testing::GBCCheckedPlayer", yjit: false)
+                                             needs: nil, player: "Testing::GBCCheckedPlayer", yjit: false),
+                                     Run.new(name: :snes, title: "Super Nintendo", console: :snes, checked: true,
+                                             does: "the game built as a Super Nintendo cartridge, played in bsnes " \
+                                                   "and checked against the interpreter",
+                                             needs: nil, player: "Testing::SNESCheckedPlayer", yjit: true)
                                    ])
 
       # The setting a run's lowering is read from: each run but the GBA lowering's sets it to its

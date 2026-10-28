@@ -86,5 +86,39 @@ module VBlank
 
       def cannot_answer_reason(error) = "Game Boy Color cannot answer: #{error.message[/`(\w+\??)`/, 1] || error.message}"
     end
+
+    # The same, on the Super Nintendo lowering's run: the game built as a Super Nintendo cartridge and
+    # played in bsnes (SNES::CheckedRun), checked against the interpreter after every pass, each test's
+    # program played as a Super Nintendo program. What its build does not make yet fails, since it is
+    # still to be made; what the run cannot answer of it is a skip.
+    class SNESCheckedPlayer < IR::Backends::SNES::CheckedRun
+      include DisagreementFailsTest
+
+      # +program+ as this run plays it: one that names no console, as a Super Nintendo program.
+      def self.program_played(program)
+        return program unless program.kind == :program && program.console.nil?
+
+        program.copy.tap { |copy| copy.console = :snes }
+      end
+
+      def run(program, max_steps: nil, frames: nil)
+        program = self.class.program_played(program)
+        super
+      rescue IR::Backends::SNES::HeadlessRun::CannotAnswer => e
+        raise Minitest::Skip, cannot_answer_reason(e)
+      end
+
+      def method_missing(name, ...)
+        super
+      rescue IR::Backends::SNES::HeadlessRun::CannotAnswer => e
+        raise Minitest::Skip, cannot_answer_reason(e)
+      end
+
+      def respond_to_missing?(name, include_private = false) = super
+
+      private
+
+      def cannot_answer_reason(error) = "Super Nintendo cannot answer: #{error.message[/`(\w+\??)`/, 1] || error.message}"
+    end
   end
 end

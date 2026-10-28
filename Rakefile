@@ -39,6 +39,14 @@ end
 desc "Build the emulator's C extension if its sources changed (required for the tests)"
 task compile_emulator: EMULATOR_BINARY
 
+# THE SUPER NINTENDO'S EMULATOR: bsnes, built with ruby-snes-emulator's probe patch (that gem's
+# Rakefile says how). Its binding is plain Ruby, so the core is all there is to build, once; the
+# Super Nintendo run is the only one that plays its cartridges.
+desc "Build the bsnes core the Super Nintendo run plays its cartridges in, if it is not built"
+task :compile_snes_core do
+  Dir.chdir("ruby-snes-emulator") { sh "rake", "compile_core" }
+end
+
 # SimpleCov merges every result it finds in coverage/.resultset.json that is younger
 # than its merge timeout, and each run files its slice under a name of its
 # own — so without this a second run within a few minutes reports the UNION of both
@@ -98,8 +106,8 @@ VBlank::Testing::RakeTasks.new do |t|
   # SDL=1 also builds and runs the desktop program, with its window (TestSuites::DESKTOP_TEST).
   t.test_files = TestSuites.all_files(desktop: ENV["SDL"] == "1")
   t.lowering_folders = TestSuites::LOWERING_FOLDERS
-  # The library builds for the Game Boy Color too, so its suite plays the Color's run as well.
-  t.consoles = %i[gba gbc]
+  # The library builds for the Game Boy Color and the Super Nintendo too, so its suite plays their runs as well.
+  t.consoles = %i[gba gbc snes]
 end
 
 # What this repository's runs need besides: a whole run waits for any other on the machine, the
@@ -109,6 +117,7 @@ end
 task "test:all" => :suite_lock
 VBlank::Testing::Lowering::NAMES.each { |lowering| task "test:lowering:#{lowering}" => %i[suite_lock compile_emulator] }
 task "test:lowering:gba" => :clear_coverage
+task "test:lowering:snes" => :compile_snes_core
 
 namespace :test do
   # The emulator gem has its OWN test suite (its C extension + probe, tested in isolation) —

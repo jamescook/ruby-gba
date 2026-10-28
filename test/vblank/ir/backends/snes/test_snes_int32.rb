@@ -114,17 +114,17 @@ class TestSNESInt32 < Minitest::Test
       label "test_case"
       phx
       lda abs_x(CASES + 2)
-      sta dp(r.register(0))
+      sta direct(r.register(0))
       lda abs_x(CASES + 4)
-      sta dp(r.register(0) + 2)
+      sta direct(r.register(0) + 2)
       lda abs_x(CASES + 6)
-      sta dp(r.register(1))
+      sta direct(r.register(1))
       lda abs_x(CASES + 8)
-      sta dp(r.register(1) + 2)
+      sta direct(r.register(1) + 2)
       lda abs_x(CASES + 10)
-      sta dp(r.register(2))
+      sta direct(r.register(2))
       lda abs_x(CASES + 12)
-      sta dp(r.register(2) + 2)
+      sta direct(r.register(2) + 2)
       lda abs_x(CASES)
       OPS.values.each_with_index do |routine, number|
         cmp number
@@ -135,9 +135,9 @@ class TestSNESInt32 < Minitest::Test
       end
       label "test_done"
       plx
-      lda dp(r.register(0))
+      lda direct(r.register(0))
       sta abs_x(CASES + 14)
-      lda dp(r.register(0) + 2)
+      lda direct(r.register(0) + 2)
       sta abs_x(CASES + 16)
       txa
       clc
