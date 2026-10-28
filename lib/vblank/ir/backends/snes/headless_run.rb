@@ -251,6 +251,8 @@ module VBlank
               next unless pending.nil? && waiting? && passes > @moments.size
 
               pending = [passes, read_variables, read_lists, read_sprites, read_sounds, read_camera]
+              return end_before_first_picture(*pending.drop(1)) if frames.zero?
+
               note_frames_took(passes - 1) if passes > 1
               mark_last_pass_taken if passes == frames
               hold_after_this_pass if passes > frames
@@ -258,6 +260,18 @@ module VBlank
               @deciding = passes <= frames
               decide_first_frame_late if passes == 1
             end
+          end
+
+          # A RUN OF NO FRAMES ends as the first pass does, before anything is shown: the screen is
+          # still switched off (Runtime::Frame turns it on as the first pass is shown). The interpreter
+          # says a display switched off as a plain white picture (Reference::Framebuffer::HELD_OFF),
+          # so that is the picture the run ends on, and the game goes no further.
+          def end_before_first_picture(variables, lists, sprites, sounds, camera)
+            hold_after_this_pass
+            @sprites = sprites
+            off = Array.new(@core.width * @core.height, Reference::Framebuffer::HELD_OFF)
+            record_moment(:end, variables, lists, Picture.new(shown: off, width: @core.width, height: @core.height,
+                                                              camera_x: camera[0], camera_y: camera[1]), sounds)
           end
 
           # FRAME 1 CAN BE READ BEFORE IT IS DECIDED. An emulated frame ends as the console starts its

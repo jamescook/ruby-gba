@@ -192,6 +192,23 @@ class TestSNESCheckedRun < Minitest::Test
     assert_operator run[:a], :<, 0
   end
 
+  # A run of no frames ends before the first pass is shown: the screen is still switched off, which
+  # the interpreter says as its plain white picture of a display switched off, and the game's numbers
+  # are the first pass's.
+  def test_a_run_of_no_frames_ends_with_the_screen_still_off
+    run = checked(frames: 0) do
+      screen :tiled
+      image(:wall, "#" => :gray) { "########\n" * 8 }
+      tiles :set, "#" => :wall
+      background :room, tiles: :set, map: ["##", "##"]
+      n = var :n, 0
+      game_loop { n.add! 1 }
+    end
+
+    assert_equal Color.resolve(:white), run.screen.pixel(3, 3)
+    assert_equal 0, run[:n]
+  end
+
   def test_scenes_picked_by_a_variable_agree_with_the_interpreter
     run = checked(frames: 20) do
       state = var :state, 0
