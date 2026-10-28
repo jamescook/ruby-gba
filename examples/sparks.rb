@@ -20,7 +20,7 @@ module Sparks
 
   # The game as a block the builder runs, so a test can drive the exact program that
   # ships — the headless interpreter runs THIS, the console runs the ROM.
-  GAME = VBlank.game("SPARKS", consoles: %i[gba]) do
+  GAME = VBlank.game("SPARKS", consoles: %i[gba snes]) do
     screen :bitmap
     seed 0x5EED # a fixed stream, so every run is the same run
 
@@ -30,11 +30,11 @@ module Sparks
     game_loop do
       clear_screen :black
       # One new spark a frame, at a random column, falling at one of three speeds.
-      sparks.spawn(x: rand(0..238), y: 0, vy: rand(1..3))
+      sparks.spawn(x: rand(0..(screen_width - 2)), y: 0, vy: rand(1..3))
       sparks.each do |s|
         s.y.add! s.vy
         draw_rect_at s.x, s.y, 2, 2, :yellow
-        (s.y >= 160).then { s.remove } # off the bottom: give the slot back
+        (s.y >= screen_height).then { s.remove } # off the bottom: give the slot back
       end
     end
   end
