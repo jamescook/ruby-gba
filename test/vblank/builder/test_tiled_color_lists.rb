@@ -48,6 +48,28 @@ class TestTiledColorLists < Minitest::Test
     b.program
   end
 
+  # A tiled screen of one tile from each of +lists+ (by name => colours) drawn by +places+, side by
+  # side, every frame drawn with +drawn_with+ (by name => a list of colours for each).
+  private def recolored_game(lists, places, drawn_with)
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      lists.each do |name, list|
+        colors name, list
+        image :"#{name}_tile", width: 8, height: 8, colors: name, places: places
+      end
+      drawn_with.each { |name, list| colors :"#{name}_dusk", list }
+      tiles :set, lists.keys.each_with_index.to_h { |name, n| [n.to_s, :"#{name}_tile"] }
+      board = background :board, tiles: :set, map: Array.new(4) { (0...lists.size).map(&:to_s).join }
+      game_loop do
+        board.draw_with(drawn_with.keys.to_h { |name| [name, :"#{name}_dusk"] })
+        wait_vblank
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
   def test_a_tile_keeps_all_four_colours_of_its_list
     assert_backends_agree(lists_game(1), frames: 3, name: "FOUR")
   end
@@ -83,5 +105,55 @@ class TestTiledColorLists < Minitest::Test
     assert_backends_agree(game, frames: 3, name: "SWAPPED")
     assert_equal rgb_of(31, 31, 31), seen.pixel(4, 4), "the place that was black"
     assert_equal 0, seen.pixel(100, 100), "an empty cell"
+  end
+
+  # TWO LISTS OF THE SAME COLOURS IN ANOTHER ORDER, each drawing a tile: the Color draws both from
+  # the same four colours, black first, but drawn with other lists, each place of each shows its
+  # own list's colour.
+  def test_two_lists_alike_in_colour_each_swap_their_own_places
+    red = rgb_of(31, 0, 0)
+    green = rgb_of(0, 31, 0)
+    blue = rgb_of(0, 0, 31)
+    lists = { first: [:transparent, 0, red, green, blue], second: [:transparent, red, 0, green, blue] }
+    dusk = { first: [:transparent, rgb_of(31, 31, 31), rgb_of(9, 9, 9), rgb_of(18, 4, 4), rgb_of(4, 18, 4)],
+             second: [:transparent, rgb_of(4, 4, 18), rgb_of(25, 25, 0), rgb_of(0, 25, 25), rgb_of(25, 0, 25)] }
+    game = recolored_game(lists, QUARTERS, dusk)
+    seen = game_player.run(game, frames: 3).screen
+
+    assert_equal rgb_of(31, 31, 31), seen.pixel(0, 0), "the first tile's place 1"
+    assert_equal rgb_of(4, 4, 18), seen.pixel(8, 0), "the second tile's place 1"
+    assert_backends_agree(game, frames: 3, name: "ALIKE")
+  end
+
+  # A TILE WITH SEE-THROUGH PIXELS whose list holds one colour at two places: drawn with another
+  # list, the two places show two colours, and the see-through pixels the black nothing is on.
+  def test_a_see_through_tile_whose_list_holds_one_colour_twice_swaps_by_place
+    white = rgb_of(31, 31, 31)
+    see_through_quarters = QUARTERS.map { |place| place - 1 }
+    lists = { pale: [:transparent, white, white, rgb_of(10, 10, 10)] }
+    dusk = { pale: [:transparent, rgb_of(31, 0, 0), rgb_of(0, 31, 0), rgb_of(0, 0, 31)] }
+    game = recolored_game(lists, see_through_quarters, dusk)
+    seen = game_player.run(game, frames: 3).screen
+
+    assert_equal 0, seen.pixel(0, 0), "a see-through pixel"
+    assert_equal rgb_of(31, 0, 0), seen.pixel(4, 0), "place 1"
+    assert_equal rgb_of(0, 31, 0), seen.pixel(0, 4), "place 2"
+    assert_backends_agree(game, frames: 3, name: "TWICE")
+  end
+
+  # A TILE WITH NO SEE-THROUGH PIXEL FROM A LIST OF FIVE, drawing four of its places, two of them
+  # one colour: all four of the Color's palette are its own, and drawn with another list each place
+  # shows that list's colour.
+  def test_a_tile_of_four_places_from_a_list_of_five_swaps_by_place
+    white = rgb_of(31, 31, 31)
+    lists = { long: [:transparent, white, white, rgb_of(10, 10, 10), 0, rgb_of(5, 20, 5)] }
+    dusk = { long: [:transparent, rgb_of(31, 0, 0), rgb_of(0, 31, 0), rgb_of(0, 0, 31), rgb_of(31, 31, 0), 0] }
+    game = recolored_game(lists, QUARTERS, dusk)
+    seen = game_player.run(game, frames: 3).screen
+
+    assert_equal rgb_of(31, 0, 0), seen.pixel(0, 0), "place 1"
+    assert_equal rgb_of(0, 31, 0), seen.pixel(4, 0), "place 2"
+    assert_equal rgb_of(31, 31, 0), seen.pixel(4, 4), "place 4"
+    assert_backends_agree(game, frames: 3, name: "FIVE")
   end
 end

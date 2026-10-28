@@ -1,11 +1,13 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "many_tiles"
 
 # What a Game Boy Color cannot do at all is refused when a cartridge is made for it, in the words
 # the Color's answers have (Console::ColorAnswers, through Guardrails::Checks::ConsoleAnswers) — by
 # the lowering itself, so a program handed straight to it, as every test's is, hears the same
-# refusal a game's build does rather than playing on without what it asked for.
+# refusal a game's build does rather than playing on without what it asked for. So is what it
+# cannot hold: more lists of colours than it has, more colours than a tile holds.
 class TestGBCRefusals < Minitest::Test
   GBC = VBlank::IR::Backends::GBC
 
@@ -46,6 +48,49 @@ class TestGBCRefusals < Minitest::Test
     error = assert_raises(GBC::LoweringError) { GBC.new.build(program) }
 
     assert_match(/cannot turn or resize a sprite/, error.message)
+  end
+
+  # NINE LISTS OF THE SAME COLOURS IN NINE ORDERS, each drawing a tile and each drawn with a list
+  # of its own: the Color draws them from nine palettes, one more than it holds, and the refusal
+  # names that.
+  def test_nine_lists_drawn_with_other_colours_are_refused_naming_the_eight
+    orders = [0, 0x7C00, 0x03E0, 0x001F].permutation.first(9)
+    error = assert_raises(GBC::LoweringError) do
+      GBC.new.build(color_program do
+        screen :tiled
+        orders.each_with_index do |order, n|
+          colors :"list#{n}", [:transparent, *order]
+          colors :"dusk#{n}", [:transparent, n, n + 1, n + 2, n + 3]
+          image :"tile#{n}", width: 8, height: 8, colors: :"list#{n}", places: ManyTiles::QUARTERS
+        end
+        tiles :set, orders.each_index.to_h { |n| [n.to_s, :"tile#{n}"] }
+        board = background :board, tiles: :set, map: [orders.each_index.map(&:to_s).join]
+        game_loop { board.draw_with(orders.each_index.to_h { |n| [:"list#{n}", :"dusk#{n}"] }) }
+      end)
+    end
+
+    assert_match(/8 lists of colours/, error.message)
+  end
+
+  # A TILE WITH SEE-THROUGH PIXELS THAT DRAWS FOUR PLACES, two of them one colour: three colours
+  # and the backdrop fit a Color tile, but drawn with another list the four places are four
+  # colours, and the refusal names the three a tile holds.
+  def test_a_see_through_tile_of_four_places_drawn_with_other_colours_is_refused_naming_the_three
+    error = assert_raises(GBC::LoweringError) do
+      GBC.new.build(color_program do
+        screen :tiled
+        places = Array.new(64) { |i| (i % 8) / 2 + (i < 8 ? 0 : 1) }.map { |place| [place, 4].min }
+        colors :pale, [:transparent, 0x7FFF, 0x7FFF, 0x001F, 0x03E0]
+        colors :dusk, [:transparent, 0x7C00, 0x03E0, 0x001F, 0x7FFF]
+        image :tile, width: 8, height: 8, colors: :pale, places: places
+        tiles :set, "0" => :tile
+        board = background :board, tiles: :set, map: ["0"]
+        game_loop { board.draw_with :dusk }
+      end)
+    end
+
+    assert_match(/:tile/, error.message)
+    assert_match(/holds 3 colours and the backdrop/, error.message)
   end
 
   private

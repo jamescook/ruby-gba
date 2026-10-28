@@ -1152,7 +1152,7 @@ module VBlank
             # draws with other colours: the number it was told last, by its name, from power-on the
             # one naming none — as the interpreter keeps it by name (Reference @bg_colors).
             def keep_background_colors_held
-              recolored = @art.room_colors? ? tiled_scenery.select { |bg| bg.scene && Array(bg.recolors).any? } : []
+              recolored = @art.room_colors? ? recolored_scenery.select(&:scene) : []
               @background_colors_held = recolored.map(&:name).uniq.to_h do |name|
                 [name, keep_local(:"colors_of_#{name}", start: Build::NO_RECOLOR)]
               end
@@ -1204,19 +1204,20 @@ module VBlank
             # The palettes a background's tiles are drawn in with its lists of colours number +step+
             # (nil for its own), as rt_background_colors reads them: how many, then each palette's
             # number and its four colours. Each tile's list swaps its colours by place
-            # (Assets::Recolor), and the Color keeps one palette for each set of colours, so two
-            # tiles that share one and are drawn differently are not made yet. Where each screen
-            # brings its own tiles in, the tiles counted are the ones the background shows, as its
-            # screen's tiles and colours were planned (#plan_tile_rooms).
+            # (Assets::Recolor), and two tiles are drawn from one palette only when they show the same
+            # colours with every list (#recolor_steps_of). Where each screen brings its own tiles in,
+            # the tiles counted are the ones the background shows, as its screen's tiles and colours
+            # were planned (#plan_tile_rooms).
             def background_colors_table(bg, step)
-              swaps = step && bg.palettes.zip(bg.recolors.fetch(step)).to_h
+              swaps = step && swaps_for(bg, step)
               palettes = {}
               (@tile_rooms ? tiles_shown(bg) : bg.tiles.compact.uniq).each do |name|
                 _, palette = background_tile_named(name, tile_room(bg))
                 colors = tile_colors_with(name, swaps)
                 if palettes.key?(palette) && palettes[palette] != colors
-                  raise LoweringError, "the background #{bg.name.inspect} draws two of its tiles from one list of colours " \
-                                       "of the Color's and with other colours apart, which #{build_name} cannot make yet."
+                  raise LoweringError, "#{build_name} drew two tiles of the background #{bg.name.inspect} from one list " \
+                                       "of colours, and the two show other colours. This is a fault in the build, not " \
+                                       "in the game."
                 end
 
                 palettes[palette] = colors
@@ -1226,8 +1227,9 @@ module VBlank
 
             # The four colours tile +name+'s palette holds when drawn with +swaps+ (the list each of
             # the layer's own lists is drawn with, or nil for its own): the backdrop, then the colour
-            # each of its own shows. A tile drawn by place from its list (GBC::Art#list_order) has a
-            # colour of the palette for each place instead, so it swaps place for place.
+            # each of its own shows. A tile drawn by place from its list (GBC::Art#list_order, and
+            # GBC::Art#drawn_places for one drawn with other lists) has a colour of the palette for
+            # each place instead, so it swaps place for place.
             def tile_colors_with(name, swaps)
               run = run_painting(name)
               if run
@@ -1245,6 +1247,9 @@ module VBlank
                 return shown.fill(Art::BACKDROP, shown.length...Art::PLACES)
               end
 
+              placed = @art.drawn_places(image)
+              return @art.placed_colors(image, placed) { |place| (swapped && swapped[place]) || image.colors[place] } if placed
+
               drawn = @art.tile_colors(image)
               return padded_colors(drawn) unless swapped
 
@@ -1252,21 +1257,46 @@ module VBlank
               shown = drawn.map do |color|
                 at = (0...64).select { |i| !image.tile_see_through_at?(i) && (image.color_at(i) & 0x7FFF) == color }
                 ways = at.map { |i| recolor.color_for(i, image.color_at(i)) & 0x7FFF }.uniq
-                unless ways.one?
-                  raise LoweringError, "the tile #{name.inspect} shows one colour in two others when drawn with another list " \
-                                       "of colours, which #{build_name} cannot make yet."
-                end
+                # Only a tile that draws more places than its palette holds gets here
+                # (GBC::Art#drawn_places): each of its places is a colour of its own then.
+                refuse_too_many_places!(name, image) unless ways.one?
 
                 ways.first
               end
               padded_colors(shown)
             end
 
+            def refuse_too_many_places!(name, image)
+              drawn = (0...64).reject { |i| image.tile_see_through_at?(i) }.map { |i| image.place_at(i) }.uniq.length
+              holds = @art.see_through_tile?(image) ? "#{Art::OWN_COLORS} colours and the backdrop" : "#{Art::PLACES} colours"
+              raise LoweringError, "the tile #{name.inspect} draws #{drawn} places of its list. With another list of " \
+                                   "colours, each place shows a colour of its own. A Game Boy Color tile holds #{holds}. " \
+                                   "To fix this, draw the tile from fewer places."
+            end
+
             # Whether a background that shows the tile +name+ is drawn with other lists of colours.
             def recolored_tile?(name)
-              @recolored_tiles ||= tiled_scenery.reject { |bg| Array(bg.recolors).empty? }.flat_map(&:tiles).to_set
+              @recolored_tiles ||= recolored_scenery.flat_map(&:tiles).to_set
               @recolored_tiles.include?(name)
             end
+
+            # The colours tile +name+'s palette shows with each list of colours every background that
+            # shows it is drawn with, in order: what its palette is written with as the game runs
+            # (GBC::Art#background_tile). Nil for a tile no background draws with other colours.
+            def recolor_steps_of(name)
+              return nil unless recolored_tile?(name)
+
+              @recolor_steps ||= {}
+              @recolor_steps[name] ||= recolored_scenery.select { |bg| bg.tiles.include?(name) }.flat_map do |bg|
+                bg.recolors.each_index.map { |step| tile_colors_with(name, swaps_for(bg, step)) }
+              end
+            end
+
+            # The backgrounds drawn with other lists of colours.
+            def recolored_scenery = @recolored_scenery ||= tiled_scenery.reject { |bg| Array(bg.recolors).empty? }
+
+            # Each of +bg+'s own lists to the list it is drawn with at its step +step+.
+            def swaps_for(bg, step) = bg.palettes.zip(bg.recolors.fetch(step)).to_h
 
             def padded_colors(colors) = [Art::BACKDROP, *colors.map { |color| color & 0x7FFF }].fill(Art::BACKDROP, colors.length + 1...Art::PLACES)
 
