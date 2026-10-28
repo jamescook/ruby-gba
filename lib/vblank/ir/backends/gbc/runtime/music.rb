@@ -72,14 +72,15 @@ module VBlank
 
             # +level+ is where the game keeps the music's level, or nil for a game that never sets it.
             # +songs+ says whether the game has any songs at all; +effects+ are its sound effects
-            # (GBC::Music#effects), and +by_rank+ the same in the order a frame plays them.
-            def emit(asm, memory, level:, songs:, effects: [], by_rank: [])
+            # (GBC::Music#effects), and +by_rank+ the same in the order a frame plays them. +fades+
+            # says whether any note says how it fades or swells (GBC::Music#fades?).
+            def emit(asm, memory, level:, songs:, effects: [], by_rank: [], fades: false)
               sharing = !effects.empty?
               emit_game_side(asm, memory, sharing)
               return emit_no_songs(asm) unless songs
 
               emit_tick(asm, memory, level, sharing)
-              emit_notes(asm, memory, level, sharing)
+              emit_notes(asm, memory, level, sharing, fades)
               Effects.emit(asm, memory, effects, by_rank) if sharing
             end
 
@@ -371,8 +372,10 @@ module VBlank
             end
 
             # One part (HL = its entry, C = its number): each of its notes whose frame has come. With
-            # sound effects, a note whose voice a higher rank holds is passed over, unplayed.
-            def emit_notes(asm, memory, level, sharing)
+            # sound effects, a note whose voice a higher rank holds is passed over, unplayed. With
+            # +fades+, a note's fade comes out of its tuning's top four bits (GBC::Music::FADE_SHIFT)
+            # and goes under its volume.
+            def emit_notes(asm, memory, level, sharing, fades)
               h = Console::GBCHardware
               part = memory[PART]
               asm.label("rt_music_part")
@@ -489,7 +492,7 @@ module VBlank
               asm.load(:a, [part + 1])
               asm.load_high([:c], :a)
               asm.inc(:c)
-              rest_or_volume(asm, "square")
+              rest_or_volume(asm, "square", fades)
               asm.load_high([:c], :a)
               asm.inc(:c)
               asm.load(:a, :e)
@@ -536,11 +539,25 @@ module VBlank
               asm.ret
 
               asm.label("rt_music_note_noise")
-              rest_or_volume(asm, "noise")
+              rest_or_volume(asm, "noise", fades)
               asm.load(:c, :a)
+              if fades
+                # A hit that says how it fades has it under its volume already; one that says
+                # nothing rings out as its part says. NOISE_SAID_FADE is bit 3 of the tuning's high byte.
+                # (A rest has every bit of its tuning set, so it takes this way too, at no volume:
+                # silent either way.)
+                asm.bit(3, :d)
+                asm.jump_relative(:nz, "rt_music_noise_said_fade")
+              end
               asm.load(:a, [part + 1])
               asm.and_a(7) # the fade
               asm.or_a(:c)
+              if fades
+                asm.jump_relative("rt_music_noise_fade_set")
+                asm.label("rt_music_noise_said_fade")
+                asm.load(:a, :c)
+                asm.label("rt_music_noise_fade_set")
+              end
               asm.load_high(h::NR42, :a)
               asm.load(:a, [part + 1])
               asm.and_a(0x80) # the metallic hiss
@@ -555,8 +572,8 @@ module VBlank
               asm.ret
 
               emit_wave_load(asm, memory) if sharing
-              emit_hold(asm, memory, part)
-              emit_relevel(asm, memory, level) if level
+              emit_hold(asm, memory, part, fades)
+              emit_relevel(asm, memory, level, fades) if level
 
               # The volume a voice is told, in its top four bits: none for a rest.
               asm.label("rt_music_wave_levels")
@@ -596,7 +613,11 @@ module VBlank
 
             # rt_music_hold: the note being played (DE its tuning, NOTE_VOLUME its volume) is what its
             # voice holds now, a rest holding nothing. Keeps B and DE.
-            def emit_hold(asm, memory, part)
+            #
+            # With +fades+, a note that fades or swells by itself holds nothing either: it is left to
+            # it, as a drum hit is (IR::Tunes.fades_by_itself?). The step its voice counts by is bits
+            # 4 to 6 of its tuning's high byte (GBC::Music::FADE_SHIFT).
+            def emit_hold(asm, memory, part, fades)
               asm.label("rt_music_hold")
               asm.load(:a, :d)
               asm.and_a(:e)
@@ -606,6 +627,13 @@ module VBlank
               asm.xor_a(:a)
               asm.label("rt_music_hold_volume")
               asm.load(:c, :a)
+              if fades
+                asm.load(:a, :d)
+                asm.and_a(0x70)
+                asm.jump_relative(:z, "rt_music_hold_counted")
+                asm.load(:c, 0)
+                asm.label("rt_music_hold_counted")
+              end
               asm.load(:a, [part])
               (1..HELD_VOICES).each do |voice|
                 asm.cp_a(voice)
@@ -636,7 +664,7 @@ module VBlank
             #
             # rt_music_level: C = the level the game keeps, below nought taken as nought and above 16
             # as 16. rt_music_scale: A = the volume B times the level C, over 16; keeps BC.
-            def emit_relevel(asm, memory, level)
+            def emit_relevel(asm, memory, level, fades)
               h = Console::GBCHardware
               asm.label("rt_music_level")
               asm.load(:a, [level + 3])
@@ -695,6 +723,8 @@ module VBlank
                   asm.load(:a, :b)
                   asm.swap(:a)
                   asm.and_a(0xF0)
+                  # The held note's fade, out of the top of its tuning as a new note's is.
+                  emit_fade_under_volume(asm, [memory[TUNINGS] + ((voice - 1) * 2) + 1]) if fades
                   asm.load_high(volume, :a)
                   asm.load(:a, [memory[TUNINGS] + ((voice - 1) * 2)])
                   asm.load_high(low, :a)
@@ -718,8 +748,20 @@ module VBlank
               asm.ret
             end
 
-            # A = the volume (B) in the top four bits, or nought for a rest (DE = REST).
-            def rest_or_volume(asm, voice)
+            # A = the volume in A's top four bits with a note's fade under it: the top four bits of
+            # its tuning's high byte (GBC::Music::FADE_SHIFT), read from +from+ — D, or where a held
+            # note's tuning is kept. B is spent.
+            def emit_fade_under_volume(asm, from)
+              asm.load(:b, :a)
+              asm.load(:a, from)
+              asm.swap(:a)
+              asm.and_a(0x0F)
+              asm.or_a(:b)
+            end
+
+            # A = the volume (B) in the top four bits, or nought for a rest (DE = REST). With
+            # +fades+, the note's fade under it, out of the top of its tuning (D); B is spent.
+            def rest_or_volume(asm, voice, fades)
               asm.load(:a, :d)
               asm.and_a(:e)
               asm.inc(:a)
@@ -727,6 +769,7 @@ module VBlank
               asm.load(:a, :b)
               asm.swap(:a)
               asm.and_a(0xF0)
+              emit_fade_under_volume(asm, :d) if fades
               asm.jump_relative("rt_music_#{voice}_said")
               asm.label("rt_music_#{voice}_rest")
               asm.xor_a(:a)

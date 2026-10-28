@@ -22,7 +22,10 @@ RG_WAVE_VOICE = 3
 RG_NOISE_VOICE = 4
 
 RG_PARTS_MOST = 20
-RG_NUMBERS_PER_NOTE = 4
+RG_NUMBERS_PER_NOTE = 5
+RG_FADE_STEP_BITS = 7 # a note's fade (Audio::NoteFade#bits): the 64ths of a second a step lasts
+RG_FADE_UP = 8        # ...set when it swells
+RG_SAID_FADE = 16     # ...and beside them in a note, set when the note or its part said one
 RG_NUMBERS_PER_NOTE_SOUND = 8
 RG_NUMBERS_PER_BEEP = 4
 RG_NUMBERS_PER_WAVE = 3
@@ -54,27 +57,33 @@ RG_EFFECTS_MOST = 512
 RG_STEP_SIZE = 1092
 RG_MIX_STEP = 128
 
-# A loudness that fades: 0 to 15 now, the samples it holds each step for (0 never fades), and the
-# samples left until the next step down.
+# A loudness that fades, or swells: 0 to 15 now, the samples it holds each step for (0 never
+# fades), the samples left until the next step, and whether it counts up. +fade+ is the voice's
+# four bits of it (rg_sound.c's volume_from says how).
 class RgFading
-  attr_accessor :volume, :hold_samples, :left
+  attr_accessor :volume, :hold_samples, :left, :up
 
-  def initialize(volume, fade_64ths)
+  def initialize(volume, fade)
     @volume = volume
-    @hold_samples = fade_64ths * RG_SOUND_RATE / 64
+    @hold_samples = (fade & RG_FADE_STEP_BITS) * RG_SOUND_RATE / 64
     @left = @hold_samples
+    @up = fade.anybits?(RG_FADE_UP)
   end
 
   # One sample has gone by.
   def fade_one_sample
-    return unless @hold_samples > 0 && @volume > 0
+    return if @hold_samples == 0
 
     @left -= 1
-    return unless @left == 0
+    return if @left > 0
 
-    @volume -= 1
     @left = @hold_samples
+    @volume += 1 if @up && @volume < RG_VOLUMES - 1
+    @volume -= 1 if !@up && @volume > 0
   end
+
+  # Silent for good: at no volume, and not swelling out of it.
+  def stays_silent? = @volume == 0 && !@up
 end
 
 # A square voice: ticks one wave lasts (0 has nothing to play), how many eighths of it are high,
@@ -91,10 +100,10 @@ class RgSquare
 
   # A note starts where the voice is in its wave, as the chip does (rg_sound.c's square_start says
   # why).
-  def start(wave_ticks, eighths_high, volume, fade_64ths)
+  def start(wave_ticks, eighths_high, volume, fade)
     @wave_ticks = wave_ticks
     @eighths_high = eighths_high
-    @loudness = RgFading.new(volume, fade_64ths)
+    @loudness = RgFading.new(volume, fade)
   end
 end
 
@@ -123,13 +132,13 @@ class RgHiss
 
   def initialize = start(0, 0, 0, 0)
 
-  def start(step_ticks, bits, volume, fade_64ths)
+  def start(step_ticks, bits, volume, fade)
     @step_ticks = step_ticks
     @bits = bits
     @row = (1 << bits) - 1
     @high = 0
     @heard_high = 0
-    @loudness = RgFading.new(volume, fade_64ths)
+    @loudness = RgFading.new(volume, fade)
     @row_progress = 0
     @hand_progress = 0
   end
@@ -142,8 +151,8 @@ RgPartWalk = Struct.new(:notes, :count, :next_note, :kind, :voice, :number, :ton
 
 # A note the player holds while the game keeps a music volume, so a change of volume sounds it
 # again: the voice (0 for a recorded part, then its lane), its written volume, and what a square
-# note needs to start again.
-RgHeldNote = Struct.new(:voice, :lane, :volume, :wave_ticks, :eighths_high)
+# note needs to start again, how it fades included.
+RgHeldNote = Struct.new(:voice, :lane, :volume, :wave_ticks, :eighths_high, :fade)
 
 def rg_sound_setup
   @rg_squares = Array.new(RG_SQUARE_VOICES) { RgSquare.new }
@@ -196,8 +205,8 @@ end
 
 # --- the square voices ---
 
-def rg_square_start(voice, wave_ticks, eighths_high, volume, fade_64ths)
-  @rg_squares[voice - 1].start(wave_ticks, eighths_high, volume, fade_64ths)
+def rg_square_start(voice, wave_ticks, eighths_high, volume, fade)
+  @rg_squares[voice - 1].start(wave_ticks, eighths_high, volume, fade)
 end
 
 # Which of the eight parts of a wave are high, for each tone, in the chip's own order.
@@ -212,7 +221,7 @@ end
 
 # One sample of a square voice, high and low set either side of nought by how long each lasts.
 def rg_square_sample(square)
-  return 0 if square.wave_ticks == 0 || square.loudness.volume == 0
+  return 0 if square.wave_ticks == 0 || square.loudness.stays_silent?
 
   high = rg_eighth_is_high(square.eighths_high, square.eighth)
   sample = rg_sound_quotient(RG_STEP_SIZE * square.loudness.volume * (high ? 8 - square.eighths_high : -square.eighths_high), 8)
@@ -278,7 +287,7 @@ end
 # --- the noise voice ---
 
 # A hit starts with every bit of the row set, which is where the emulator picks the pattern up.
-def rg_noise_start(step_ticks, bits, volume, fade_64ths) = @rg_hiss.start(step_ticks, bits, volume, fade_64ths)
+def rg_noise_start(step_ticks, bits, volume, fade) = @rg_hiss.start(step_ticks, bits, volume, fade)
 
 # One step of the hiss: the bit at the end falls off and says which way the voice stands, and when
 # it was set it is stirred back into the two places at the other end.
@@ -294,7 +303,7 @@ end
 # only so many times a second, and hears whichever way it stood then until the next time.
 def rg_noise_sample
   hiss = @rg_hiss
-  return 0 if hiss.step_ticks == 0 || hiss.loudness.volume == 0
+  return 0 if hiss.step_ticks == 0 || hiss.loudness.stays_silent?
 
   hiss.hand_progress += rg_output_hz
   while hiss.hand_progress >= RG_SOUND_RATE
@@ -466,7 +475,7 @@ def rg_follow_level(now)
     if note.voice == RG_WAVE_VOICE
       rg_wave_set_loudness(rg_wave_quarters_at(rg_scaled_volume(note.volume)))
     else
-      rg_square_start(note.voice, note.wave_ticks, note.eighths_high, rg_scaled_volume(note.volume), 0)
+      rg_square_start(note.voice, note.wave_ticks, note.eighths_high, rg_scaled_volume(note.volume), note.fade)
     end
   end
 end
@@ -562,7 +571,22 @@ def rg_play_recorded_note(part, note)
     return if heard == 0
   end
   rg_sound_log("note #{@rg_playing} #{pitch}")
-  rg_hold_note(RgHeldNote.new(0, part.tone, pitch == 0 ? 0 : loudness, 0, 0)) if @rg_level_variable
+  rg_hold_note(RgHeldNote.new(0, part.tone, pitch == 0 ? 0 : loudness, 0, 0, 0)) if @rg_level_variable
+end
+
+# How a note on a square or the noise voice fades or swells (rg_sound.c's note_fade says how).
+def rg_note_fade(part, note)
+  said = @rg_game_music[note + 4]
+  return said & (RG_FADE_UP | RG_FADE_STEP_BITS) if said.anybits?(RG_SAID_FADE)
+
+  part.kind == RG_PART_NOISE ? part.fade : 0
+end
+
+# The log's line for a note setting its voice, with the note's fade when it said one.
+def rg_log_voice_set(voice, who, pitch, volume, note)
+  said = @rg_game_music[note + 4]
+  fade = " #{said & (RG_FADE_UP | RG_FADE_STEP_BITS)}" if said.anybits?(RG_SAID_FADE)
+  rg_sound_log("voice #{voice} #{who} #{pitch} #{volume}#{fade}")
 end
 
 def rg_play_note(part, note)
@@ -576,11 +600,12 @@ def rg_play_note(part, note)
 
   written = pitch == 0 ? 0 : volume
   sounded = @rg_level_variable ? rg_scaled_volume(written) : written
+  fade = rg_note_fade(part, note)
   rg_sound_log("note #{@rg_playing} #{pitch}")
-  rg_sound_log("voice #{part.voice} #{@rg_playing} #{pitch} #{volume}")
+  rg_log_voice_set(part.voice, @rg_playing, pitch, volume, note)
   case part.kind
   when RG_PART_WAVE
-    rg_hold_note(RgHeldNote.new(part.voice, 0, written, 0, 0)) if @rg_level_variable
+    rg_hold_note(RgHeldNote.new(part.voice, 0, written, 0, 0, 0)) if @rg_level_variable
     if pitch == 0
       rg_sound_log("stop_wave")
       rg_rest_on(part)
@@ -596,11 +621,17 @@ def rg_play_note(part, note)
       rg_rest_on(part)
     else
       rg_sound_log("part_noise #{@rg_playing} #{part.number} #{pitch}")
-      rg_noise_start(ticks, part.tone, sounded, part.fade)
+      rg_noise_start(ticks, part.tone, sounded, fade)
     end
   else
-    rg_hold_note(RgHeldNote.new(part.voice, 0, written, ticks, part.tone)) if @rg_level_variable
-    rg_square_start(part.voice, ticks, part.tone, sounded, 0)
+    # A note that fades or swells by itself is left to it (rg_sound.c's play_note says why).
+    if @rg_level_variable && (fade & RG_FADE_STEP_BITS) != 0
+      rg_drop_held_note(part.voice)
+      rg_sound_log("loudness #{part.voice} #{sounded}")
+    elsif @rg_level_variable
+      rg_hold_note(RgHeldNote.new(part.voice, 0, written, ticks, part.tone, fade))
+    end
+    rg_square_start(part.voice, ticks, part.tone, sounded, fade)
   end
 end
 
@@ -685,9 +716,10 @@ def rg_play_effect_note(effect, part, note)
   return unless rg_claim_voice(part.voice, rank, sounds)
 
   ticks = music[note + 3]
+  fade = rg_note_fade(part, note)
   rg_drop_held_note(part.voice)
   rg_sound_log("note #{number} #{pitch}")
-  rg_sound_log("voice #{part.voice} #{number} #{pitch} #{volume}")
+  rg_log_voice_set(part.voice, number, pitch, volume, note)
   case part.kind
   when RG_PART_WAVE
     if pitch == 0
@@ -704,10 +736,10 @@ def rg_play_effect_note(effect, part, note)
       rg_silence_voice(part.voice)
     else
       rg_sound_log("part_noise #{number} #{part.number} #{pitch}")
-      rg_noise_start(ticks, part.tone, volume, part.fade)
+      rg_noise_start(ticks, part.tone, volume, fade)
     end
   else
-    rg_square_start(part.voice, ticks, part.tone, pitch == 0 ? 0 : volume, 0)
+    rg_square_start(part.voice, ticks, part.tone, pitch == 0 ? 0 : volume, fade)
   end
 end
 

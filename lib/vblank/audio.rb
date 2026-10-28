@@ -5,6 +5,7 @@
 # what keeps the console and the headless interpreter agreeing about what a game sounds like.
 
 require_relative "audio/sound" # what a beep, a note and a voice's limits are
+require_relative "audio/note_fade" # how a console voice's note fades or swells by itself
 require_relative "audio/music" # before the IR: the backends size their music player by it
 require_relative "audio/score" # music handed over as data, rather than written as a block
 require_relative "audio/envelope" # how a note starts and how it ends, so an edge is not a click

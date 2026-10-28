@@ -23,6 +23,10 @@ module VBlank
           # The kinds of part the runtime plays, by the number it knows each as.
           PART_KINDS = { square: 0, wave: 1, noise: 2, recorded: 3 }.freeze
 
+          # Set beside a note's four bits of fade (Audio::NoteFade#bits) when the note or its part
+          # said one, rather than leaving it to the voice (rg_sound.c's SAID_FADE).
+          SAID_FADE = 16
+
           private
 
           def prepare_sound
@@ -298,7 +302,7 @@ module VBlank
             case kind
             when :square then [sound::SQUARE_HIGH_EIGHTHS.fetch(part.duty), 0]
             when :wave then [waveform_number(part.wave), 0]
-            when :noise then [sound.noise_register_bits(part.metallic), sound::FADE_STEP_SIXTY_FOURTHS.fetch(part.decay)]
+            when :noise then [sound.noise_register_bits(part.metallic), sound.fade_step(part.decay)]
             when :recorded then [lane, 0]
             end
           end
@@ -308,7 +312,9 @@ module VBlank
           # clock it lasts — one wave of it on a square voice or the wave voice, one step of the
           # hiss on the noise voice — or, on a recorded part, the row of note_sounds_table it
           # sounds. A recorded note's volume is written as its loudness on the mixer, since it can
-          # hold a fraction.
+          # hold a fraction. Then how it fades or swells, when its part or the note said so
+          # (IR::Tunes.said_fade): the voice's four bits of it, and SAID_FADE beside them; 0 for a
+          # note that leaves it to the voice, and for a rest.
           def encoded_note(note, part, kind)
             at, pitch, _, volume = note
             volume ||= part.volume
@@ -317,7 +323,8 @@ module VBlank
                           else
                             [volume, pitch.zero? ? 0 : note_ticks(kind, pitch)]
                           end
-            [at, @sound_log.pitch_number(pitch), heard, last]
+            fade = Tunes.said_fade(part, note) unless pitch.zero?
+            [at, @sound_log.pitch_number(pitch), heard, last, fade ? SAID_FADE | fade.bits : 0]
           end
 
           # EVERYTHING A RECORDED NOTE IS BUT HOW LOUD, the interpreter's way

@@ -119,7 +119,7 @@ module VBlank
             note = @note
             @note = nil
             @music << [:note, note.song, note.pitch]
-            @music << [:voice, note.voice, note.song, note.pitch, note.volume]
+            @music << [:voice, note.voice, note.song, note.pitch, note.volume, *note.fade]
             @music << [:loudness, note.voice, note.pitch.zero? ? 0 : volume] if volume
             kind = Tunes.part_kind(note.part)
             @music << wave_or_noise(kind, note) if %i[wave noise].include?(kind)
@@ -129,7 +129,7 @@ module VBlank
           # volume, so nothing is said of a music level.
           def effect_note(note)
             @music << [:note, note.song, note.pitch]
-            @music << [:voice, note.voice, note.song, note.pitch, note.volume]
+            @music << [:voice, note.voice, note.song, note.pitch, note.volume, *note.fade]
             kind = Tunes.part_kind(note.part)
             @music << wave_or_noise(kind, note) unless kind == :square
           end

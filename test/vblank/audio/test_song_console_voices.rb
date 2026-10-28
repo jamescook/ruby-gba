@@ -203,15 +203,15 @@ class TestSongConsoleVoices < Minitest::Test
   # EVERY PART CARRIES THEM, and only a noise part is ever asked. They are fields with defaults
   # rather than keys that might not be there, so a square part answers what a drum would and
   # nothing reads it — which is worth pinning, because the risk a default introduces is that it
-  # LEAKS. A part that holds its note until the next one has no fade to apply, so saying one on
-  # a square part must change nothing it plays.
-  def test_a_fade_said_on_a_part_that_is_not_a_drum_changes_nothing_it_plays
-    assert_equal GBA.new.lower(square_song), GBA.new.lower(square_song(fade: true)),
-                 "a square part's notes are its pitch and its tone — a fade cannot reach them"
+  # LEAKS. A drum's default fade must not reach a square part, which holds its notes unless it
+  # says how they fade (test_song_note_fades.rb), and a rattle is the hiss's alone.
+  def test_a_drums_settings_change_nothing_a_square_part_plays
+    assert_equal GBA.new.lower(square_song), GBA.new.lower(square_song(rattles: true)),
+                 "a square part's notes are its pitch and its tone — a drum's settings cannot reach them"
   end
 
-  # The same tune twice: one square-wave part, optionally told how a drum hit would fade.
-  private def square_song(fade: false)
+  # The same tune twice: one square-wave part, optionally told that a drum hit would rattle.
+  private def square_song(rattles: false)
     b = Builder.new
     b.instance_eval do
       screen :bitmap
@@ -219,10 +219,7 @@ class TestSongConsoleVoices < Minitest::Test
       enable_sound
       song :tune do
         voice :lead do |v|
-          if fade
-            v.decay :slow
-            v.metallic true
-          end
+          v.metallic true if rattles
           v.note :C4, :quarter
         end
       end

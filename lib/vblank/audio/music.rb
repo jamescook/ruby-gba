@@ -173,8 +173,14 @@ module VBlank
       # written at each reader and a key that might not be there.
       # +envelope+ shapes how each of this part's notes starts and ends — read only by a part that
       # plays a recording, since the console's own voices shape their own notes.
+      # +fade+ is how they do that: how each note of a part on a square or the noise voice fades
+      # out or swells in by itself (a NoteFade), unless the note says its own. Nil leaves it to the
+      # voice — a drum rings out as +decay+ says, a square note holds (see IR::Tunes.said_fade).
+      #
+      # AN EVENT CAN SAY ITS OWN in a sixth place, after the envelope: [frame, frequency,
+      # instrument, volume, envelope, fade].
       Part = Data.define(:events, :duty, :volume, :instrument, :wave, :noise, :decay, :metallic,
-                         :name, :envelope)
+                         :name, :envelope, :fade)
 
       class Part
         # WHAT A PART CARRIES WHEN IT SAYS NOTHING — every optional field's answer, in one place,
@@ -182,9 +188,17 @@ module VBlank
         # writing a part back as the call that builds it) cannot drift apart. +events+ is not
         # here: a part with no notes in it is a part nobody wrote.
         DEFAULTS = { duty: :half, volume: 12, instrument: nil, wave: nil,
-                     noise: false, decay: :fast, metallic: false, name: nil, envelope: nil }.freeze
+                     noise: false, decay: :fast, metallic: false, name: nil, envelope: nil,
+                     fade: nil }.freeze
 
-        def initialize(events:, **said) = super(events: events, **DEFAULTS.merge(said))
+        # A part whose voice cannot fade a note, saying a fade, is refused (NoteFade.refuse_without_counting!).
+        # A Score names its part itself, before it gets here.
+        def initialize(events:, **said)
+          super(events: events, **DEFAULTS.merge(said))
+          return unless (wave || instrument) && (fade || events.any? { |event| event[5] })
+
+          NoteFade.refuse_without_counting!(name ? "The part #{name.inspect}" : "A part", wave: wave)
+        end
 
         # A part built from what its author said it PLAYS — an instrument's name, a wave shape,
         # :noise, or nothing for the square wave. One reader for that word (Music.resolve_plays),
@@ -212,6 +226,7 @@ module VBlank
           @volume = 12
           @decay = :fast     # a drum hit, for a part on the noise voice
           @metallic = false  # ...and whether it rattles (a snare, a hat) or thuds (a kick)
+          @fade = nil        # how every note fades or swells, when the part says (a NoteFade)
           @events = []       # [[frame_offset, freq_hz], ...]
           @current_frame = 0
         end
@@ -223,12 +238,21 @@ module VBlank
           @duty = d
         end
 
-        # HOW FAST A HIT FADES, for a part on the noise voice — :fast, :medium, :slow, or :none
-        # to hold. Every other kind of part holds its note until the next one, so this is read
-        # only there. The same words `noise` takes for a sound effect.
+        # HOW FAST EACH NOTE FADES OUT — :fast, :medium, :slow, or :none to hold, or the 64ths of
+        # a second each step of loudness lasts (0 to 7). The same words `noise` and `beep` take.
+        # A drum part fades :fast when it says nothing; a square part holds its notes until the
+        # next, like an organ, unless it says how they fade.
         def decay(d = nil)
           return @decay if d.nil?
+
+          @fade = NoteFade.said(decay: d, swell: nil, where: "The part #{part_label.inspect}")
           @decay = d
+        end
+
+        # ...or how fast each note SWELLS IN from its volume to full, the same speeds as #decay.
+        # A note written at volume 0 that swells is one that breathes in from nothing.
+        def swell(s)
+          @fade = NoteFade.said(decay: nil, swell: s, where: "The part #{part_label.inspect}")
         end
 
         # ...and whether the hiss is the tighter, more tonal rattle (a snare, a hat) or the full
@@ -241,7 +265,8 @@ module VBlank
         # Set this part's volume (0-15), or read it.
         def volume(v = nil)
           return @volume if v.nil?
-          raise ArgumentError, "volume must be 0-15 (got #{v})" unless v.is_a?(Integer) && v.between?(0, 15)
+
+          refuse_volume_out_of_range!(v)
           @volume = v
         end
 
@@ -251,13 +276,19 @@ module VBlank
         # @param duration [Symbol] :whole, :half, :quarter, :eighth, :sixteenth, etc.
         # An +envelope+ here shapes this one note instead of the part's — a note plucked where the
         # rest are bowed.
+        # A +volume+ here (0-15) is this note's loudness instead of the part's, and +decay+ or
+        # +swell+ how it fades out or swells in instead of how the part's notes do (see #decay).
         # An event is read by position and a note that says nothing leaves the later slots off
         # entirely — so the shape a note can have costs nothing to every note that has none, and
         # a song written before shapes existed builds the events it always did.
-        def note(pitch, duration, envelope: nil)
-          shape = Envelope.of(envelope, "a note of the part #{(@name || @plays[:instrument]).inspect}")
-          @events << (shape ? [@current_frame, resolve_pitch(pitch), nil, nil, shape]
-                            : [@current_frame, resolve_pitch(pitch)])
+        def note(pitch, duration, envelope: nil, volume: nil, decay: nil, swell: nil)
+          where = "a note of the part #{part_label.inspect}"
+          shape = Envelope.of(envelope, where)
+          fade = NoteFade.said(decay: decay, swell: swell, where: where.capitalize)
+          refuse_volume_out_of_range!(volume) if volume
+          said = [nil, volume, shape, fade]
+          said.pop while !said.empty? && said.last.nil?
+          @events << [@current_frame, resolve_pitch(pitch), *said]
           @current_frame += duration_frames(duration)
         end
 
@@ -280,12 +311,24 @@ module VBlank
 
         # The part as the resolved data the IR carries: its score, tone, and loudness — and the
         # voice it plays on, and its name, when it has one.
+        #
+        # A drum part's `decay` is its +decay+, as it always was; only a swell is a fade of its own
+        # there. Every other part's `decay` is its +fade+.
         def to_voice
-          Part.new(events: @events, duty: @duty, volume: @volume, decay: @decay,
-                   metallic: @metallic, name: @name, envelope: @envelope, **@plays)
+          Part.new(events: @events, duty: @duty, volume: @volume, decay: @decay, metallic: @metallic, name: @name,
+                   envelope: @envelope, fade: NoteFade.for_part(@fade, drum: @plays[:noise]), **@plays)
         end
 
         private
+
+        def part_label = @name || @plays[:instrument]
+
+        def refuse_volume_out_of_range!(v)
+          return if v.is_a?(Integer) && v.between?(0, 15)
+
+          raise ArgumentError, "The part #{part_label.inspect} says a volume of #{v.inspect}. A volume is a whole " \
+                               "number from 0 to 15. To fix this, give a volume in that range."
+        end
 
         def resolve_pitch(pitch)
           case pitch

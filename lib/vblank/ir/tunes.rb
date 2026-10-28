@@ -97,6 +97,22 @@ module VBlank
         :square
       end
 
+      # HOW A NOTE FADES OR SWELLS, as a part or the note itself SAID it (an Audio::NoteFade), or
+      # nil when neither did. A note's own comes first. What was said is what the log names, so
+      # a song that says nothing of fading logs what it always did.
+      #
+      # A note that said nothing is left to its voice: a drum hit rings out as its part's +decay+
+      # says, and a square note holds. Every backend that plays a note works that out itself, from
+      # this and the part.
+      def said_fade(part, event) = event[5] || part.fade
+
+      # DOES THE VOICE MOVE THIS NOTE'S LOUDNESS ITSELF — a square note that said a fade or a swell
+      # with a step to count? Such a note is not held for the music volume: the volume reaches a
+      # held note by striking it again, which would start its counting over, so a plucked note
+      # would never die away while the music fades. It is left to fade as a drum hit is, and a new
+      # music volume reaches the part's next note.
+      def fades_by_itself?(part, event) = said_fade(part, event)&.step&.positive? || false
+
       # How many of a song's parts play on each of the console's voices.
       def parts_on(song, kind)
         song.voices.count { |part| part_kind(part) == kind }

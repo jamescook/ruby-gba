@@ -85,7 +85,8 @@ module VBlank
         frames = Timing.new(self)
         ticks = length || last_tick
         total = [frames.at(ticks), 1].max
-        song = { voices: parts.map { |part| part.to_voice(frames, total) }, total_frames: total,
+        song = { voices: parts.each_with_index.map { |part, n| part.to_voice(frames, total, "Part #{n} of a Score") },
+                 total_frames: total,
                  priority: priority, group: group, low_notes_intended: low_notes_intended,
                  plays_once: plays_once }
         return song unless loop_from
@@ -98,32 +99,46 @@ module VBlank
         parts.flat_map(&:notes).map { |note| note.at + (note.length || ticks_per_beat) }.max || 0
       end
 
-      Part = Data.define(:notes, :plays, :volume, :duty, :decay, :metallic, :envelope)
+      Part = Data.define(:notes, :plays, :volume, :duty, :decay, :swell, :metallic, :envelope)
 
       class Part
-        # +decay+ and +metallic+ are read only by a part on the noise voice (`plays: :noise`) —
-        # how fast a hit fades, and whether it rattles or thuds. Every other kind of part holds
-        # its note until the next one, so there is nothing for them to say.
+        # +decay+ is how fast each note fades out, and +swell+ how fast it swells in, as a `song`
+        # block's part says them (Music::VoiceContext#decay): a speed, or the step itself, 0 to 7.
+        # A part on the noise voice (`plays: :noise`) that says nothing rings out :fast; a square
+        # part that says nothing holds each note until the next. +metallic+ is the noise voice's
+        # alone: whether a hit rattles or thuds.
         #
         # +envelope+ shapes how each of this part's notes starts and ends — read only by a part
         # that plays a recording, since the console's own voices shape their own. A part that says
         # nothing takes whatever the instrument it plays was declared with.
-        def initialize(notes:, plays: nil, volume: 12, duty: :half, decay: :fast, metallic: false,
+        def initialize(notes:, plays: nil, volume: 12, duty: :half, decay: nil, swell: nil, metallic: false,
                        envelope: nil)
           super
         end
 
         # This part as the resolved data the IR carries. Which of the console's voices it plays on
         # is worked out by the same reader a `song` block's parts use, so the two ways a song
-        # reaches the IR cannot disagree about it (see Music::Part.playing).
-        def to_voice(frames, total)
-          Music::Part.playing(plays, events: Events.of(self, frames, total), duty: duty,
-                                     volume: volume, decay: decay, metallic: metallic,
-                                     envelope: Envelope.of(envelope, "a part"))
+        # reaches the IR cannot disagree about it (see Music::Part.playing). A drum's `decay` is its
+        # +decay+, as it always was; only a swell is a fade of its own there. +who+ names the part
+        # in a friendly error, as the start of a sentence.
+        def to_voice(frames, total, who)
+          fade = NoteFade.said(decay: decay, swell: swell, where: who)
+          drum = plays == :noise
+          events = Events.of(self, frames, total, who)
+          voice = Music.resolve_plays(plays)
+          if (voice[:wave] || voice[:instrument]) && (fade || events.any? { |event| event[5] })
+            NoteFade.refuse_without_counting!(who, wave: voice[:wave])
+          end
+          Music::Part.playing(plays, events: events, duty: duty,
+                                     volume: volume, decay: (drum && decay) || :fast, metallic: metallic,
+                                     envelope: Envelope.of(envelope, "a part"),
+                                     fade: NoteFade.for_part(fade, drum: drum))
         end
       end
 
-      Note = Data.define(:at, :key, :length, :instrument, :volume, :envelope, :hz)
+      # A note of a Score. +volume+ (0-15) is its loudness instead of its part's, and +decay+ or
+      # +swell+ how it fades out or swells in instead of how its part's notes do.
+      Note = Data.define(:at, :key, :length, :instrument, :volume, :envelope, :hz, :decay, :swell)
 
       class Note
         # A NOTE ON THE NOISE VOICE CAN GIVE +hz+ IN PLACE OF A KEY: how many times a second its
@@ -132,9 +147,14 @@ module VBlank
         # most drums another game's sound engine plays, has no key to ask for it with. The voice
         # still plays the rung of its ladder nearest the rate (Sound.noise_rung), as it does for a
         # key.
-        def initialize(at:, key: nil, length: nil, instrument: nil, volume: nil, envelope: nil, hz: nil)
+        def initialize(at:, key: nil, length: nil, instrument: nil, volume: nil, envelope: nil, hz: nil,
+                       decay: nil, swell: nil)
           super
         end
+
+        # How this note fades or swells, when it says (an Audio::NoteFade), or nil. +part+ names its
+        # part, for a friendly error.
+        def fade(part) = NoteFade.said(decay: decay, swell: swell, where: "The note at tick #{at} of #{part.downcase}")
 
         # How high the note is, in Hz — 0 for a rest. A note that gives +hz+ is that; a MIDI note
         # number is tuned the usual way, from A above middle C (number 69) at 440 Hz.
@@ -185,11 +205,11 @@ module VBlank
       module Events
         module_function
 
-        def of(part, frames, total)
+        def of(part, frames, total, who)
           notes = part.notes.sort_by(&:at)
           events = notes.each_with_index.flat_map do |note, n|
             on = [frames.at(note.at), note.frequency, note.instrument_name, note.volume,
-                  Envelope.of(note.envelope, "a note")]
+                  Envelope.of(note.envelope, "a note"), *note.fade(who)]
             next [on] unless note.length
 
             ends = note.at + note.length

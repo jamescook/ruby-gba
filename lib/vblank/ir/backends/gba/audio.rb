@@ -344,6 +344,11 @@ module VBlank
             # A game that never moves the music volume plays every note exactly as it was written,
             # and none of the working-out for one is emitted.
             @scales = program.walk.any? { |node| node.kind == :set && node.var == IR::Tunes::LEVEL }
+            # ...and one whose square notes never fade or swell by themselves holds every one of them
+            # for it (IR::Tunes.fades_by_itself?), with no test of each.
+            @fades = IR::Tunes.played_songs(program).any? do |song|
+              song.voices.any? { |part| part.events.any? { |event| IR::Tunes.fades_by_itself?(part, event) } }
+            end
             @loops = IR::Tunes.played_songs(program).any? { |song| IR::Tunes.loop_frame(song).positive? }
             # A game whose every tune comes round emits nothing for one that ends.
             @any_plays_once = IR::Tunes.played_songs(program).any? { |song| IR::Tunes.plays_once?(song) }
@@ -1578,6 +1583,20 @@ module VBlank
           # bits sit is the one thing that differs between the two voices.
           def sounding_mask(lane) = lane.kind == :wave ? 0xF << WAVE_VOLUME_SHIFT : 0xF000
 
+          # The note in NOTE_REG is what lane +number+ holds now — unless it is a square note that
+          # fades or swells by itself, which is left to it as a drum hit is (IR::Tunes.fades_by_itself?):
+          # the step the voice counts by is in bits 8 to 10, and a held note of nothing is no note.
+          def emit_hold_note(lane, number)
+            unless @fades && lane.kind == :square
+              return @primitives.store_var(NOTE_REG, self.class.music_note(number))
+            end
+
+            @emitter.emit(ASM.mov_reg(ACC, NOTE_REG))
+            @emitter.emit(ASM.tst_imm(ACC, 0x0700))
+            @emitter.emit(ASM.mov_imm_cond(:ne, ACC, 0))
+            @primitives.store_var(ACC, self.class.music_note(number))
+          end
+
           def emit_clear_held_note(number)
             @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, self.class.music_note(number))
@@ -1730,7 +1749,7 @@ module VBlank
               @emitter.emit(ASM.add_imm(cursor, cursor, RECORDED_ROW))
             elsif @scales
               @emitter.emit(ASM.ldr_offset(NOTE_REG, at, 4))           # both register values
-              @primitives.store_var(NOTE_REG, self.class.music_note(number)) if holds_notes?(lane)
+              emit_hold_note(lane, number) if holds_notes?(lane)
               emit_scaled_note(lane)
               @emitter.emit(ASM.add_imm(cursor, cursor, SQUARE_ROW))
             else
@@ -2034,8 +2053,9 @@ module VBlank
               rows.join + [NEVER, 0, 0, 0].pack("VVvv")
             else
               regs = music_voice_regs(lane)
-              rows = events.map do |frame, frequency, _instrument, volume|
-                writes = console_note(lane, part, frequency, volume || part.volume)
+              rows = events.map do |event|
+                frame, frequency, _instrument, volume = event
+                writes = console_note(lane, part, frequency, volume || part.volume, fade: IR::Tunes.said_fade(part, event))
                 control = note_reg_value(writes, regs[:reg_a])
                 control |= (volume || part.volume) << WAVE_VOLUME_SHIFT if keeps_wave_volume?(lane, frequency)
                 [frame, control, note_reg_value(writes, regs[:reg_b])].pack("Vvv")
@@ -2052,16 +2072,19 @@ module VBlank
           # ONE NOTE ON A VOICE THE CONSOLE PLAYS ITSELF, as its two register values. Each kind
           # answers the pair its own way — a square voice by pitch and tone, the wave voice by a
           # sample rate, the noise voice by which rung of its clock ladder sits nearest the note
-          # — and the player copies whichever pair it finds, knowing none of that.
-          def console_note(lane, part, frequency, volume)
+          # — and the player copies whichever pair it finds, knowing none of that. A square or noise
+          # note's +fade+ (IR::Tunes.said_fade) is in its control value, which the voice counts by
+          # itself.
+          def console_note(lane, part, frequency, volume, fade: nil)
             case lane.kind
             when :square
-              VBlank::Audio::Sound::Registers.channel_note(lane.index, frequency: frequency, duty: part.duty, volume: volume)
+              VBlank::Audio::Sound::Registers.channel_note(lane.index, frequency: frequency, duty: part.duty, volume: volume,
+                                                                       fade: fade || VBlank::Audio::NoteFade::HOLD)
             when :wave
               VBlank::Audio::Sound::Registers.wave_note(frequency: frequency, volume: volume)
             else
               VBlank::Audio::Sound::Registers.noise_note(frequency: frequency, volume: volume,
-                                          decay: part.decay, metallic: part.metallic)
+                                          decay: part.decay, metallic: part.metallic, fade: fade)
             end
           end
 

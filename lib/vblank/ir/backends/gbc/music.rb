@@ -30,8 +30,18 @@ module VBlank
           NOTE_BYTES = 5
 
           # One note of a part as the music table holds it, with what it is to the interpreter: the
-          # song's name, the part, the voice it plays on, its pitch (0 for a rest) and its volume.
-          Note = Data.define(:song, :part, :voice, :pitch, :volume)
+          # song's name, the part, the voice it plays on, its pitch (0 for a rest), its volume, and
+          # how it fades or swells when the note or its part said so (IR::Tunes.said_fade).
+          Note = Data.define(:song, :part, :voice, :pitch, :volume, :fade)
+
+          # A NOTE'S FADE RIDES IN ITS TUNING'S TOP FOUR BITS, which a square or noise note never
+          # uses: a square voice's period is eleven bits and the hiss's clock eight. The player
+          # takes them out and puts them under the note's volume, where the voice's register keeps
+          # them. A noise note that says a fade also sets NOISE_SAID_FADE, since a drum that says nothing
+          # rings out as its part says and a fade of nothing — a hit that holds — would read the
+          # same. A song that says nothing of fading has nothing there, and is the bytes it was.
+          FADE_SHIFT = 12
+          NOISE_SAID_FADE = 0x0800
 
           # A SOUND EFFECT as the Color's player reads it (Runtime::Effects): its name, its number
           # among the game's effects in the order declared, its rank as a number of a byte (#rank),
@@ -104,24 +114,48 @@ module VBlank
               voices_of(song).each_with_index do |(part, voice), p|
                 pass = passes.fetch(song.voices.index(part))
                 { "first" => pass.first, "again" => pass.again }.each do |which, held|
-                  held_lists["music_notes_#{i}_#{p}_#{which}"] = held.map do |_, pitch, _, volume|
-                    Note.new(song: song.name, part: part, voice: voice, pitch: pitch, volume: volume || part.volume)
-                  end
+                  held_lists["music_notes_#{i}_#{p}_#{which}"] = held.map { |event| note_of(song, part, voice, event) }
                 end
               end
             end
             effects.each do |effect|
               song = song_named(effect.name)
               voices_of(song).zip(effect.parts) do |(part, voice), played|
-                lists[played.label] = part.events.map do |_, pitch, _, volume|
-                  Note.new(song: effect.name, part: part, voice: voice, pitch: pitch, volume: volume || part.volume)
-                end
+                lists[played.label] = part.events.map { |event| note_of(song, part, voice, event) }
               end
             end
             lists
           end
 
+          # Whether any song or sound effect says how a note fades or swells: the player takes a
+          # note's fade out of its tuning only in a game that has one to take.
+          def fades?
+            @songs.any? { |song| song.voices.any? { |part| part.events.any? { |event| Tunes.said_fade(part, event) } } }
+          end
+
           private
+
+          def note_of(song, part, voice, event)
+            _, pitch, _, volume = event
+            Note.new(song: song.name, part: part, voice: voice, pitch: pitch, volume: volume || part.volume,
+                     fade: (Tunes.said_fade(part, event) unless pitch.zero?))
+          end
+
+          # A note as the table holds it: when it starts, its tuning with its fade in the top bits
+          # (FADE_SHIFT), and its volume.
+          def emit_note(asm, voice, part, event)
+            at, _, _, volume = event
+            asm.data_words(at, note_tuning(voice, part, event))
+            asm.data_bytes(volume || part.volume)
+          end
+
+          def note_tuning(voice, part, event)
+            pitch = event[1]
+            fade = Tunes.said_fade(part, event) unless pitch.zero?
+            return tuning(voice, pitch) unless fade
+
+            tuning(voice, pitch) | (fade.bits << FADE_SHIFT) | (voice == NOISE_VOICE ? NOISE_SAID_FADE : 0)
+          end
 
           # Every rank the game's songs and sound effects can have, and nobody's, lowest first.
           def ranks
@@ -146,10 +180,7 @@ module VBlank
               song = song_named(effect.name)
               voices_of(song).zip(effect.parts) do |(part, voice), played|
                 asm.label(played.label)
-                part.events.each do |at, pitch, _, volume|
-                  asm.data_words(at, tuning(voice, pitch))
-                  asm.data_bytes(volume || part.volume)
-                end
+                part.events.each { |event| emit_note(asm, voice, part, event) }
               end
             end
           end
@@ -169,10 +200,7 @@ module VBlank
               pass = passes.fetch(song.voices.index(part))
               { "first" => pass.first, "again" => pass.again }.each do |which, notes|
                 asm.label("music_notes_#{i}_#{p}_#{which}")
-                notes.each do |at, pitch, _, volume|
-                  asm.data_words(at, tuning(voice, pitch))
-                  asm.data_bytes(volume || part.volume)
-                end
+                notes.each { |event| emit_note(asm, voice, part, event) }
               end
             end
           end
@@ -206,7 +234,7 @@ module VBlank
             sound = VBlank::Audio::Sound
             case voice
             when WAVE_VOICE then waveforms.index(part.wave)
-            when NOISE_VOICE then sound::FADE_STEP_SIXTY_FOURTHS.fetch(part.decay) | (part.metallic ? 0x80 : 0)
+            when NOISE_VOICE then sound.fade_step(part.decay) | (part.metallic ? 0x80 : 0)
             else sound::Registers.duty_bits(part.duty) << 6
             end
           end

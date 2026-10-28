@@ -178,7 +178,8 @@ module VBlank
               kind = IR::Tunes.part_kind(part)
               lane = kind == :recorded ? (recorded += 1) - 1 : nil
               channel = console_channel(kind) { squares += 1 }
-              offset, frequency, instrument, volume, envelope = @events[number][@cursors[number]]
+              event = @events[number][@cursors[number]]
+              offset, frequency, instrument, volume, envelope = event
               next unless offset == @frame
 
               # A voice a sound effect holds with a higher rank, or a mixer with no voice this note
@@ -203,10 +204,15 @@ module VBlank
               end
 
               @log << [:note, @playing, frequency]
-              @log << [:voice, channel, @playing, frequency, volume || part.volume] if shared
+              @log << voice_log_entry(channel, @playing, part, event) if shared
               if channel && level
                 written = frequency.zero? ? 0 : volume || part.volume
-                kind == :noise ? log_loudness(channel, written) : record_note_volume(channel, written)
+                if kind == :noise || IR::Tunes.fades_by_itself?(part, event)
+                  @sounding.delete(channel) # rings and fades by itself (IR::Tunes.fades_by_itself?)
+                  log_loudness(channel, written)
+                else
+                  record_note_volume(channel, written)
+                end
               elsif lane && level
                 record_note_volume([:mixer, lane], frequency.zero? ? 0 : IR::Tunes.mix_loudness(volume || part.volume))
               end
@@ -216,6 +222,15 @@ module VBlank
               @cursors[number] += 1
             end
             advance_song_frame(song)
+          end
+
+          # A NOTE SETTING ITS VOICE, as the log says it: [:voice, channel, who, frequency, volume],
+          # and then how the note fades or swells when its part or the note said so
+          # (IR::Tunes.said_fade). A rest says no fade: there is nothing sounding to fade.
+          def voice_log_entry(channel, who, part, event)
+            frequency, volume = event[1], event[3] || part.volume
+            fade = IR::Tunes.said_fade(part, event) if frequency.positive?
+            [:voice, channel, who, frequency, volume, *fade]
           end
 
           # Every sound effect with its rank, highest first.
@@ -266,7 +281,8 @@ module VBlank
               kind = IR::Tunes.part_kind(part)
               channel = console_channel(kind) { squares += 1 }
               lane = kind == :recorded ? (recorded += 1) - 1 : nil
-              offset, frequency, instrument, volume, envelope = part.events[run.cursors[number]]
+              event = part.events[run.cursors[number]]
+              offset, frequency, instrument, volume, envelope = event
               next unless offset == run.frame
 
               run.cursors[number] += 1
@@ -282,7 +298,7 @@ module VBlank
 
               @sounding.delete(channel) # the song's note there, if it had one, is gone
               @log << [:note, name, frequency]
-              @log << [:voice, channel, name, frequency, volume || part.volume]
+              @log << voice_log_entry(channel, name, part, event)
               log_wave_or_noise(kind, part, frequency) unless kind == :square
             end
             run.frame += 1

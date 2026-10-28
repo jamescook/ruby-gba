@@ -82,11 +82,13 @@
  *       64ths of a second it holds each step of volume, a recorded part's lane (which of the
  *       song's recorded parts it is) and 0 — notes the first time through, notes every time
  *       after,
- *       then those notes, four numbers each: the frame it starts on, which of the songs' pitches
+ *       then those notes, five numbers each: the frame it starts on, which of the songs' pitches
  *       it is (0 is a rest; a pitch need not be a whole number of Hz, so the log is given the
  *       number and reads the pitch back from it), its volume, and the ticks it lasts on its
  *       voice's clock (one wave, or one step of the hiss) — or, on a recorded part, which row of
- *       rg_game_note_sounds it sounds (-1 for a rest)
+ *       rg_game_note_sounds it sounds (-1 for a rest) — and how it fades or swells when the note
+ *       or its part said so: the voice's four bits of it (Audio::NoteFade#bits) with SAID_FADE
+ *       set, or 0 to leave it to the voice (see note_fade)
  *
  * rg_game_note_sounds: how many rows, then eight numbers each — the recording a note plays, how
  * far through it the mixer reads for each of its own samples (the note's pitch), how far back it
@@ -120,7 +122,10 @@
 /* A song has at most a part for each of the console's own voices and one for each of the mixer's:
  * a game is checked the way a cartridge build checks it, and that refuses a song with more. */
 #define PARTS_MOST 20
-#define NUMBERS_PER_NOTE 4
+#define NUMBERS_PER_NOTE 5
+#define FADE_STEP_BITS 7 /* a note's fade (Audio::NoteFade#bits): the 64ths of a second a step lasts */
+#define FADE_UP 8        /* ...set when it swells */
+#define SAID_FADE 16     /* ...and beside them in a note, set when the note or its part said one */
 #define NUMBERS_PER_NOTE_SOUND 8
 #define NUMBERS_PER_BEEP 4
 #define NUMBERS_PER_WAVE 3
@@ -180,25 +185,33 @@
 
 /* --- a loudness that fades --- */
 
-/* The loudness of a square voice or the noise voice: 0 to 15 now, and how it fades. */
+/* The loudness of a square voice or the noise voice: 0 to 15 now, and how it fades — or swells,
+ * which is the same counting the other way, one step up each time until it is at full. */
 typedef struct {
   int32_t volume;       /* 0 to 15, now */
   int32_t hold_samples; /* samples it holds each step of volume for; 0 never fades */
-  int32_t left;         /* samples until the next step down */
+  int32_t left;         /* samples until the next step */
+  int32_t up;           /* 1 when it swells */
 } fading_volume;
 
-static fading_volume volume_from(int32_t volume, int32_t fade_64ths) {
-  int32_t hold = fade_64ths * RG_SOUND_RATE / 64;
-  return (fading_volume){volume, hold, hold};
+/* +fade+ is the voice's four bits of it (Audio::NoteFade#bits): the 64ths of a second each step
+ * lasts, and 8 when it counts up. A fade that only ever counts down is its step alone. */
+static fading_volume volume_from(int32_t volume, int32_t fade) {
+  int32_t hold = (fade & FADE_STEP_BITS) * RG_SOUND_RATE / 64;
+  return (fading_volume){volume, hold, hold, (fade & FADE_UP) != 0};
 }
 
 /* One sample has gone by. */
 static void fade_one_sample(fading_volume *fading) {
-  if (fading->hold_samples > 0 && fading->volume > 0 && --fading->left == 0) {
-    fading->volume--;
-    fading->left = fading->hold_samples;
-  }
+  if (fading->hold_samples == 0 || --fading->left > 0) return;
+
+  fading->left = fading->hold_samples;
+  if (fading->up && fading->volume < VOLUMES - 1) fading->volume++;
+  if (!fading->up && fading->volume > 0) fading->volume--;
 }
+
+/* Is the voice silent for good: at no volume, and not swelling out of it? */
+static int32_t stays_silent(const fading_volume *fading) { return fading->volume == 0 && !fading->up; }
 
 /* --- the square voices --- */
 
@@ -219,11 +232,11 @@ static uint64_t sample_carry; /* the fraction of a sample left over from the las
  * starts every held note again each frame, and a voice that went back to the top of its wave each
  * time would break a wave every frame, heard as a rumble under the note. No ticks, or no volume, is
  * silence. */
-static void square_start(int32_t voice, int32_t wave_ticks, int32_t eighths_high, int32_t volume, int32_t fade_64ths) {
+static void square_start(int32_t voice, int32_t wave_ticks, int32_t eighths_high, int32_t volume, int32_t fade) {
   square_voice *square = &squares[voice - 1];
   square->wave_ticks = wave_ticks;
   square->eighths_high = eighths_high;
-  square->loudness = volume_from(volume, fade_64ths);
+  square->loudness = volume_from(volume, fade);
 }
 
 /* The console's own order of high and low through a wave, for each tone: which of the eight
@@ -241,7 +254,7 @@ static int32_t eighth_is_high(int32_t eighths_high, int32_t eighth) {
  * a wave averages nought whatever its tone and starting or stopping one does not jolt the
  * speaker to one side. */
 static int32_t square_sample(square_voice *square) {
-  if (square->wave_ticks == 0 || square->loudness.volume == 0) return 0;
+  if (square->wave_ticks == 0 || stays_silent(&square->loudness)) return 0;
 
   int32_t high = eighth_is_high(square->eighths_high, square->eighth);
   int32_t sample = STEP_SIZE * square->loudness.volume * (high ? 8 - square->eighths_high : -square->eighths_high) / 8;
@@ -350,13 +363,13 @@ static noise_voice hiss;
  * Where a hit starts in its pattern is the emulator's answer. The pattern is one long loop and
  * the same loop wherever it is picked up, so the start is all there is to choose, and every bit
  * set is where the emulator this sound is checked against picks it up. */
-static void noise_start(int32_t step_ticks, int32_t bits, int32_t volume, int32_t fade_64ths) {
+static void noise_start(int32_t step_ticks, int32_t bits, int32_t volume, int32_t fade) {
   hiss.step_ticks = step_ticks;
   hiss.bits = bits;
   hiss.row = ((uint32_t)1 << bits) - 1;
   hiss.high = 0;
   hiss.heard_high = 0;
-  hiss.loudness = volume_from(volume, fade_64ths);
+  hiss.loudness = volume_from(volume, fade);
   hiss.row_progress = 0;
   hiss.hand_progress = 0;
 }
@@ -378,7 +391,7 @@ static void noise_step(void) {
  * than that is heard as those moments and nothing between them — which is the sound the console
  * makes of it, and so the one made here. */
 static int32_t noise_sample(void) {
-  if (hiss.step_ticks == 0 || hiss.loudness.volume == 0) return 0;
+  if (hiss.step_ticks == 0 || stays_silent(&hiss.loudness)) return 0;
 
   hiss.hand_progress += OUTPUT_HZ;
   while (hiss.hand_progress >= RG_SOUND_RATE) {
@@ -500,6 +513,7 @@ typedef struct {
   int32_t volume;
   int32_t wave_ticks;
   int32_t eighths_high;
+  int32_t fade;  /* how a square note fades or swells, as note_fade has it */
 } held_note;
 
 static int32_t wanted = -1;  /* the tune the game last named, or -1 for none */
@@ -597,6 +611,16 @@ static void hold_note(held_note note) {
   log_held_loudness(&note);
 }
 
+/* The song's note held on +voice+, if it has one, is gone: a sound effect has written the voice,
+ * or the part's new note fades by itself, so a change of music volume leaves it alone. */
+static void drop_held_note(int32_t voice) {
+  int32_t kept = 0;
+  for (int32_t i = 0; i < holding_count; i++) {
+    if (holding[i].voice != voice) holding[kept++] = holding[i];
+  }
+  holding_count = kept;
+}
+
 /* The music volume has moved: every voice holding a note takes it. A square voice takes a volume
  * only as a note starts, so the part's note is sounded again at the new one; the wave voice and a
  * mixer voice take one while they play, so their notes carry on — a recorded part's only while
@@ -614,7 +638,7 @@ static void follow_level(int32_t now) {
     if (note->voice == RG_WAVE_VOICE) {
       wave_set_loudness(wave_quarters_at(scaled_volume(note->volume)));
     } else {
-      square_start(note->voice, note->wave_ticks, note->eighths_high, scaled_volume(note->volume), 0);
+      square_start(note->voice, note->wave_ticks, note->eighths_high, scaled_volume(note->volume), note->fade);
     }
   }
 }
@@ -754,7 +778,26 @@ static void play_recorded_note(const part_walk *part, const int32_t *note) {
     }
   }
   rg_sound_log("note %d %d", (int)playing, (int)pitch);
-  if (level_variable) hold_note((held_note){0, part->tone, pitch == 0 ? 0 : loudness, 0, 0});
+  if (level_variable) hold_note((held_note){0, part->tone, pitch == 0 ? 0 : loudness, 0, 0, 0});
+}
+
+/* HOW A NOTE ON A SQUARE OR THE NOISE VOICE FADES OR SWELLS (IR::Tunes.said_fade), as the voice's
+ * four bits of it: what the note or its part said, or else the voice's own way — a drum hit rings
+ * out as its part says, and a square note holds. */
+static int32_t note_fade(const part_walk *part, const int32_t *note) {
+  if (note[4] & SAID_FADE) return note[4] & (FADE_UP | FADE_STEP_BITS);
+  return part->kind == PART_NOISE ? part->fade : 0;
+}
+
+/* The log's line for a note setting its voice (Reference::Player#voice_log_entry): with the note's fade
+ * at the end when it said one. */
+static void log_voice_set(int32_t voice, int32_t who, int32_t pitch, int32_t volume, const int32_t *note) {
+  if (note[4] & SAID_FADE) {
+    rg_sound_log("voice %d %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume,
+                 (int)(note[4] & (FADE_UP | FADE_STEP_BITS)));
+  } else {
+    rg_sound_log("voice %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume);
+  }
 }
 
 /* One note of a part, due on this frame: said in the log the way the interpreter's player says
@@ -772,11 +815,12 @@ static void play_note(part_walk *part, const int32_t *note) {
 
   int32_t written = pitch == 0 ? 0 : volume;
   int32_t sounded = level_variable ? scaled_volume(written) : written;
+  int32_t fade = note_fade(part, note);
   rg_sound_log("note %d %d", (int)playing, (int)pitch);
-  rg_sound_log("voice %d %d %d %d", (int)part->voice, (int)playing, (int)pitch, (int)volume);
+  log_voice_set(part->voice, playing, pitch, volume, note);
   switch (part->kind) {
   case PART_WAVE:
-    if (level_variable) hold_note((held_note){part->voice, 0, written, 0, 0});
+    if (level_variable) hold_note((held_note){part->voice, 0, written, 0, 0, 0});
     if (pitch == 0) {
       rg_sound_log("stop_wave");
       rest_on(part);
@@ -793,12 +837,19 @@ static void play_note(part_walk *part, const int32_t *note) {
       rest_on(part);
     } else {
       rg_sound_log("part_noise %d %d %d", (int)playing, (int)part->number, (int)pitch);
-      noise_start(ticks, part->tone, sounded, part->fade);
+      noise_start(ticks, part->tone, sounded, fade);
     }
     break;
   default:
-    if (level_variable) hold_note((held_note){part->voice, 0, written, ticks, part->tone});
-    square_start(part->voice, ticks, part->tone, sounded, 0);
+    /* A note that fades or swells by itself is left to it, as a drum hit is: striking it again at
+     * a new music volume would start its counting over (IR::Tunes.fades_by_itself?). */
+    if (level_variable && (fade & FADE_STEP_BITS) != 0) {
+      drop_held_note(part->voice);
+      rg_sound_log("loudness %d %d", (int)part->voice, (int)sounded);
+    } else if (level_variable) {
+      hold_note((held_note){part->voice, 0, written, ticks, part->tone, fade});
+    }
+    square_start(part->voice, ticks, part->tone, sounded, fade);
     break;
   }
 }
@@ -851,16 +902,6 @@ void rg_effect_request_one_of(const int32_t *effects, int32_t count, int32_t whi
   if (which >= 0 && which < count) request_effect(effects[which]);
 }
 
-/* The song's note held on +voice+, if it has one, is gone: a sound effect has written the voice,
- * so a change of music volume leaves it alone. */
-static void drop_held_note(int32_t voice) {
-  int32_t kept = 0;
-  for (int32_t i = 0; i < holding_count; i++) {
-    if (holding[i].voice != voice) holding[kept++] = holding[i];
-  }
-  holding_count = kept;
-}
-
 /* An effect over (Reference::Player#finish_effect): every console voice it still holds goes quiet
  * and is free, in the order each was first written, and its notes on the mixer end, a shaped one
  * falling away as it would at a rest. */
@@ -910,10 +951,10 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
   }
   if (!claim_voice(part->voice, rank, sounds)) return;
 
-  int32_t ticks = note[3];
+  int32_t ticks = note[3], fade = note_fade(part, note);
   drop_held_note(part->voice);
   rg_sound_log("note %d %d", (int)number, (int)pitch);
-  rg_sound_log("voice %d %d %d %d", (int)part->voice, (int)number, (int)pitch, (int)volume);
+  log_voice_set(part->voice, number, pitch, volume, note);
   switch (part->kind) {
   case PART_WAVE:
     if (pitch == 0) {
@@ -931,10 +972,10 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
       silence_voice(part->voice);
     } else {
       rg_sound_log("part_noise %d %d %d", (int)number, (int)part->number, (int)pitch);
-      noise_start(ticks, part->tone, volume, part->fade);
+      noise_start(ticks, part->tone, volume, fade);
     }
     break;
-  default: square_start(part->voice, ticks, part->tone, pitch == 0 ? 0 : volume, 0); break;
+  default: square_start(part->voice, ticks, part->tone, pitch == 0 ? 0 : volume, fade); break;
   }
 }
 

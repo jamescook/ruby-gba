@@ -77,7 +77,9 @@ module VBlank
             when "enabled" then [:enabled]
             when "beep" then [:beep, @effects.fetch(numbers[0])]
             when "note" then [:note, @songs.fetch(numbers[0]).name, @pitches.fetch(numbers[1])]
-            when "voice" then [:voice, numbers[0], @songs.fetch(numbers[1]).name, @pitches.fetch(numbers[2]), numbers[3]]
+            when "voice"
+              [:voice, numbers[0], @songs.fetch(numbers[1]).name, @pitches.fetch(numbers[2]), numbers[3],
+               *(Audio::NoteFade.from_bits(numbers[4]) if numbers[4])]
             when "loudness" then [:loudness, numbers[0], numbers[1]]
             when "mixer_loudness" then [:loudness, [:mixer, numbers[0]], numbers[1]]
             when "stop_music" then [:stop_music]

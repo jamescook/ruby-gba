@@ -72,7 +72,7 @@ module VBlank
             Paint.emit(asm, memory, painting: art.painting?, map_count: art.square_maps.length, bar: !bar_rows.nil?)
             Sound.emit(asm)
             Music.emit(asm, memory, level: music_level, songs: songs, effects: music&.effects || [],
-                                    by_rank: music&.effects_by_rank || [])
+                                    by_rank: music&.effects_by_rank || [], fades: music&.fades? || false)
             Saving.emit(asm, memory)
             emit_start(asm)
             emit_main(asm, main)

@@ -196,6 +196,14 @@ module VBlank
       # second; `:none` never fades.
       FADE_STEP_SIXTY_FOURTHS = { fast: 1, medium: 3, slow: 5, none: 0 }.freeze
 
+      # A fade or a swell said by its speed, or by the step itself (0 to 7, which a song converted
+      # from another game's music arrives holding), as the step.
+      def self.fade_step(speed)
+        return speed if speed.is_a?(Integer) && speed.between?(0, 7)
+
+        FADE_STEP_SIXTY_FOURTHS.fetch(speed) { raise ArgumentError, "unknown fade speed #{speed.inspect}" }
+      end
+
       # WHAT THE WAVE VOICE SOUNDS LIKE, for the same backend: the pitch it really plays, and how
       # tall each step of its waveform comes out at each of its loudnesses.
       #
@@ -343,10 +351,6 @@ module VBlank
           eighth: 0, quarter: 1, half: 2, square: 2, three_quarter: 3
         }.freeze
 
-        # Fade speed → the envelope step the hardware counts down by, which is the number of
-        # 64ths of a second it holds each volume step for.
-        DECAY_PRESETS = FADE_STEP_SIXTY_FOURTHS
-
         # Noise pitch → the noise generator's shift-clock exponent. The hiss's
         # frequency divides down as the exponent grows, so a bigger number is a
         # lower, rumblier noise and a smaller one a higher hiss.
@@ -362,9 +366,7 @@ module VBlank
           DUTY_CYCLES.fetch(duty) { raise ArgumentError, "unknown duty cycle #{duty.inspect}" }
         end
 
-        def decay_step(decay)
-          DECAY_PRESETS.fetch(decay) { raise ArgumentError, "unknown decay #{decay.inspect}" }
-        end
+        def decay_step(decay) = Sound.fade_step(decay)
 
         # Power on the sound hardware: master enable, all four PSG channels routed to
         # both speakers at full volume, PSG output at 100%. Routing every channel
@@ -396,24 +398,29 @@ module VBlank
         end
 
         # A single music note on one of the two square-wave voices (the music
-        # channels): channel 1 or channel 2. Music notes sustain (no fade) until the
-        # next note replaces them, so both voices of a layered tune hold their pitch
-        # between events. A song's parts map to these in order; +channel+ is chosen by
-        # the backend, not the score.
-        def channel_note(channel, frequency:, duty:, volume:)
+        # channels): channel 1 or channel 2. A note holds its pitch until the next note
+        # replaces it, so both voices of a layered tune hold between events; its loudness
+        # holds too, unless +fade+ (an Audio::NoteFade) says it fades out or swells in.
+        # A song's parts map to these in order; +channel+ is chosen by the backend, not
+        # the score.
+        def channel_note(channel, frequency:, duty:, volume:, fade: NoteFade::HOLD)
           case channel
-          when 1 then channel1_note(frequency: frequency, duty: duty, volume: volume)
-          when 2 then channel2_note(frequency: frequency, duty: duty, volume: volume)
+          when 1 then channel1_note(frequency: frequency, duty: duty, volume: volume, fade: fade)
+          when 2 then channel2_note(frequency: frequency, duty: duty, volume: volume, fade: fade)
           else raise ArgumentError, "no music voice on channel #{channel}"
           end
         end
 
+        # A square voice's control value: its tone, the way it fades (the voice's four bits of it,
+        # under the volume), and the volume it starts at.
+        def square_control(duty, volume, fade) = (duty_bits(duty) << 6) | (fade.bits << 8) | (volume << 12)
+
         # A single music note on channel 1 (the first music voice). A frequency of 0
-        # is a rest — silence the voice. Sustains until the next note replaces it.
-        def channel1_note(frequency:, duty:, volume:)
+        # is a rest — silence the voice.
+        def channel1_note(frequency:, duty:, volume:, fade: NoteFade::HOLD)
           return [[REG_SOUND1CNT_H, 0x0000], [REG_SOUND1CNT_X, 0x8000]] if frequency.zero?
 
-          control = (duty_bits(duty) << 6) | (volume << 12)
+          control = square_control(duty, volume, fade)
           trigger = 0x8000 | frequency_value(frequency)
           [
             [REG_SOUND1CNT_L, 0x0000], # no sweep
@@ -423,14 +430,14 @@ module VBlank
         end
 
         # A single music note on channel 2 (the second music voice), for a layered
-        # tune's harmony/bass part. Same sustaining behavior as channel 1, but this
-        # voice has no sweep register, so it's just control + trigger. A frequency of
-        # 0 is a rest. (Channel 2 doubles as the SFX voice; a two-part song and beeps
-        # can't both use it at once.)
-        def channel2_note(frequency:, duty:, volume:)
+        # tune's harmony/bass part. Same as channel 1, but this voice has no sweep
+        # register, so it's just control + trigger. A frequency of 0 is a rest.
+        # (Channel 2 doubles as the SFX voice; a two-part song and beeps can't both use
+        # it at once.)
+        def channel2_note(frequency:, duty:, volume:, fade: NoteFade::HOLD)
           return [[REG_SOUND2CNT_L, 0x0000], [REG_SOUND2CNT_H, 0x8000]] if frequency.zero?
 
-          control = (duty_bits(duty) << 6) | (volume << 12)
+          control = square_control(duty, volume, fade)
           trigger = 0x8000 | frequency_value(frequency)
           [[REG_SOUND2CNT_L, control], [REG_SOUND2CNT_H, trigger]]
         end
@@ -469,16 +476,16 @@ module VBlank
         # a melody has one. What it does have is a CLOCK, and a faster clock is a higher, thinner
         # hiss where a slower one is a low rumble. So a note's pitch picks the clock nearest to it
         # (#noise_clock), which is what a tracker's noise channel does and what makes a low note a
-        # kick and a high one a hat. The fade is the part's, not the note's: a drum hit rings out
-        # and is not held until the next one.
+        # kick and a high one a hat. A drum hit rings out as its part's +decay+ says, and is not
+        # held until the next one — unless +fade+ (an Audio::NoteFade) says how this one fades.
         #
         # A frequency of 0 is a rest: the voice restarts at no volume at all, which stops a hit
         # that was still ringing.
-        def noise_note(frequency:, decay:, volume:, metallic:)
+        def noise_note(frequency:, decay:, volume:, metallic:, fade: nil)
           return [[REG_SOUND4CNT_L, 0x0000], [REG_SOUND4CNT_H, 0x8000]] if frequency.zero?
 
           divisor, shift = noise_clock(frequency)
-          control = (volume << 12) | (decay_step(decay) << 8)
+          control = (volume << 12) | ((fade ? fade.bits : decay_step(decay)) << 8)
           [[REG_SOUND4CNT_L, control],
            [REG_SOUND4CNT_H, 0x8000 | (shift << 4) | (metallic ? 0x0008 : 0x0000) | divisor]]
         end

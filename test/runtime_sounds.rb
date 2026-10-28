@@ -59,6 +59,29 @@ module RuntimeSounds
     assert_sounds_like_the_native_runtime program, frames: 160
   end
 
+  # Notes that fade and swell by themselves on the square and noise voices, one note saying its
+  # own, with the music turned down while they sound: they are left to fade, and only the next
+  # note of each part takes the new volume.
+  def test_notes_that_fade_and_swell_sound_as_on_the_native_runtime
+    program = sound_program do
+      enable_sound
+      song :tune do
+        tempo 120
+        voice(:melody) { decay :slow; note :A4, :half; note :C5, :half, decay: :fast }
+        voice(:pad) { volume 0; swell :medium; note :E3, :whole }
+        voice(:drums, plays: :noise) { note :C3, :quarter; note :C3, :quarter, swell: 2; rest :half }
+      end
+      count = var :count, 0
+      play_song :tune
+      game_loop do
+        count.add! 1
+        (count == 30).then { music_volume 50 }
+      end
+    end
+
+    assert_sounds_like_the_native_runtime program, frames: 130
+  end
+
   # The wave voice told what to play at each loudness, then stopped; hits on the noise voice at
   # each of its pitches, plain and metallic. Each voice is heard on its own as well, the way a test
   # of one voice hears it.

@@ -21,6 +21,10 @@
       "code": 40900,
       "data": 0
     },
+    "chip_band": {
+      "code": 12032,
+      "data": 0
+    },
     "clock": {
       "code": 142552,
       "data": 0
