@@ -26,7 +26,9 @@ module VBlank
           # the copy runs. A copy that ends inside the blank switches the screen on again there and
           # nothing shows; one too long for the blank (a map of 64×64 cells is 8K) runs on into the
           # frame and switches the screen on in the next blank, before the pass is said to be shown
-          # (Runtime::Frame's SHOWN). The frame drawn while it was off is black, and nothing reads it.
+          # (Runtime::Frame's SHOWN). The frame drawn while it was off is black: the checked run never
+          # reads it, but a player sees it, as a flash each time a big map is put up. Cutting a long
+          # copy over several blanks, with the old picture still up, would take the flash away.
           #
           #   rt_picture_start     at power-on: the registers, the tiles and the colours
           #   rt_picture_prepare   at the end of every pass, before the wait (nothing yet)

@@ -166,8 +166,8 @@ module VBlank
           # room where none does, or starting another. +what+ names whose palettes they are.
           def palette_for(palettes, colors, what)
             if colors.length > OWN_COLORS
-              raise TooMuch, "A picture of the #{what} uses #{colors.length} colours, and a Super Nintendo tile shows " \
-                             "#{OWN_COLORS} and see-through. To fix this, draw it in #{OWN_COLORS} colours or fewer."
+              raise TooMuch, "A picture of the #{what} uses #{colors.length} colours, and on a tiled screen a " \
+                             "Super Nintendo tile shows #{OWN_COLORS} and see-through. To fix this, draw it in #{OWN_COLORS} colours or fewer."
             end
 
             found = palettes.index { |list| (colors - list).empty? }

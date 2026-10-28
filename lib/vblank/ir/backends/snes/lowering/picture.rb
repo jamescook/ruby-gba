@@ -93,7 +93,7 @@ module VBlank
                 data.data_words(picture.pieces.length)
                 picture.pieces.each do |piece|
                   data.data_words(piece.dx, piece.dy,
-                                  (piece.tile & 0xFF) | (piece.tile >> 8) << 8 | (piece.palette << 9) | SPRITE_IN_FRONT)
+                                  piece.tile | (piece.palette << 9) | SPRITE_IN_FRONT)
                 end
               end
               data.label("art grids")
