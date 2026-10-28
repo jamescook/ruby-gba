@@ -67,9 +67,11 @@ module VBlank
           # the list of cells for the blank (Runtime::BigMaps), or nil. +together+ is as for #reserve.
           # +clips+ is the game's recordings (GBC::Clips), or nil for a game that plays none.
           # +count_at+ is where a game that counts the frames its screen is off for keeps
-          # IR::Frames::COUNT (Frame#emit_add_dark_frames).
+          # IR::Frames::COUNT (Frame#emit_add_dark_frames). +banked_colors+ says its backgrounds' colour
+          # tables are kept in banks (Runtime::Picture#emit_background_colors_far).
           def sections(memory, main:, art:, music_level: nil, songs: false, music: nil, frame_begins: nil, runs: [],
-                       drawn_palettes: nil, big_maps: nil, together: false, bar_rows: nil, clips: nil, count_at: nil)
+                       drawn_palettes: nil, big_maps: nil, together: false, bar_rows: nil, clips: nil, count_at: nil,
+                       banked_colors: false)
             # A game whose songs are kept in banks notes every bank the runtime puts in view, for the
             # music player to put back (SM83#select_rom_bank, Music::BANK_NOTED); one that plays a
             # recording writes down every bank put in view, for the timer to put back (Runtime::Clips).
@@ -87,7 +89,7 @@ module VBlank
                                       runs: runs, drawn_palettes: drawn_palettes, lends: art.lends?,
                                       palettes_in_use: art.palettes_in_use, groups: art.groups?, bar_rows: bar_rows,
                                       rooms: art.rooms.any?, room_colors: art.room_colors?, lent_families: art.lent_families?,
-                                      backdrop: art.first_screen_backdrop)
+                                      backdrop: art.first_screen_backdrop, banked_colors: banked_colors)
             BigMaps.emit(asm, memory, buffer: big_maps&.first, staged: big_maps&.last)
             Paint.emit(asm, memory, painting: art.painting?, map_count: art.square_maps.length, bar: !bar_rows.nil?)
             Sound.emit(asm)

@@ -137,9 +137,10 @@ module VBlank
             # own colours with them, which needs +drawn_palettes+. +lent_families+ says its sprites'
             # lists that are lent come in families (Art#lent_family). +backdrop+ is the first screen's,
             # shown until the first frame, or nil where the first list holds it (Art#first_screen_backdrop).
+            # +banked_colors+ says its backgrounds' colour tables are kept in banks (#emit_background_colors_far).
             def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false,
                      palettes_in_use:, groups: false, bar_rows: nil, rooms: false, room_colors: false, lent_families: false,
-                     backdrop: nil)
+                     backdrop: nil, banked_colors: false)
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
                                       drawn_palettes: drawn_palettes, bar: !bar_rows.nil?, backdrop: backdrop)
               emit_rooms(asm, memory, colors: room_colors) if rooms
@@ -154,6 +155,7 @@ module VBlank
               emit_overlap(asm, memory)
               emit_tint(asm, memory, drawn_palettes, palettes_in_use)
               emit_background_colors(asm, drawn_palettes) if drawn_palettes
+              emit_background_colors_far(asm) if banked_colors
             end
 
             # The sprite's first piece going into the sprite table borrows its list (rt_lend_list)
@@ -357,6 +359,17 @@ module VBlank
               end
               asm.dec(:b)
               asm.jump_relative("rt_background_colors_next")
+            end
+
+            # rt_background_colors_far: the same, for a table kept in a bank of the cartridge (C), in a
+            # game too big for the part always in view (GBC#build_cartridge): the bank is put in view
+            # while it is read, and the game's put back after.
+            def emit_background_colors_far(asm)
+              asm.label("rt_background_colors_far")
+              asm.load(:a, :c)
+              asm.select_rom_bank
+              asm.call("rt_background_colors")
+              asm.jump("rt_bank_back")
             end
 
             # What a fade or a tint moves every colour toward: black, white, or a colour of the

@@ -1279,29 +1279,48 @@ module VBlank
               emit_background_colors_for_declaration(bg, Build.var_ref(held)) if held
             end
 
+            # In a game too big for the part of the cartridge always in view, the tables are kept in
+            # its banks (GBC#build_cartridge), each table's bank in C beside its place in HL, and
+            # rt_background_colors_far puts that bank in view to read it.
             def emit_background_colors_for_declaration(bg, which)
               refuse_walking_recolor!(bg)
               steps = Array(bg.recolors)
-              own = drawing_table("background_colors", 1, background_colors_table(bg, nil))
-              tables = steps.each_index.map { |step| drawing_table("background_colors", 1, background_colors_table(bg, step)) }
+              banked = @bank_background_colors
+              own = drawing_table("background_colors", 1, background_colors_table(bg, nil), banked: banked)
+              tables = steps.each_index.map do |step|
+                drawing_table("background_colors", 1, background_colors_table(bg, step), banked: banked)
+              end
               chosen = fresh("background_colors_chosen")
+              own_chosen = fresh("background_colors_own") if banked
               value(which)
-              @asm.load(:hl, own)
+              # The bank goes in C, which holds part of the number until it is tested, so a banked
+              # table's own is pointed at after the tests, and one in view before them.
+              emit_colors_address(own, false) unless banked
               @asm.load(:a, :b)
               @asm.or_a(:c)
               @asm.or_a(:d)
-              @asm.jump(:nz, chosen) # below nought, or far past the lists
+              @asm.jump(:nz, banked ? own_chosen : chosen) # below nought, or far past the lists
               @asm.load(:a, :e)
               tables.each_with_index do |table, step|
                 other = fresh("not_colors_#{step}")
                 @asm.cp_a(step)
                 @asm.jump(:nz, other)
-                @asm.load(:hl, table)
+                emit_colors_address(table, banked)
                 @asm.jump(chosen)
                 @asm.label(other)
               end
+              if banked
+                @asm.label(own_chosen)
+                emit_colors_address(own, banked)
+              end
               @asm.label(chosen)
-              @asm.call("rt_background_colors")
+              @asm.call(banked ? "rt_background_colors_far" : "rt_background_colors")
+            end
+
+            # HL at a table of colours, and C at its bank where it is +banked+. A and the flags are kept.
+            def emit_colors_address(table, banked)
+              @asm.load(:hl, table)
+              @asm.load_bank_of(:c, table) if banked
             end
 
             # The palettes a background's tiles are drawn in with its lists of colours number +step+

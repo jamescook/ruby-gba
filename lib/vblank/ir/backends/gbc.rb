@@ -140,10 +140,12 @@ module VBlank
           build_cartridge(program, title, lends: true, tile_rooms: tile_rooms, room_colors: room_colors)
         end
 
-        def build_cartridge(program, title, lends:, tile_rooms:, room_colors:, banked_songs: false, bank_pose_tables: false)
+        def build_cartridge(program, title, lends:, tile_rooms:, room_colors:, banked_songs: false, bank_pose_tables: false,
+                            bank_background_colors: false)
           memory = Memory.new
           lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends, tile_rooms: tile_rooms,
-                                           room_colors: room_colors, banked_songs: banked_songs, bank_pose_tables: bank_pose_tables)
+                                           room_colors: room_colors, banked_songs: banked_songs, bank_pose_tables: bank_pose_tables,
+                                           bank_background_colors: bank_background_colors)
           # The runtime's places first, so they are in the half of work memory always in view.
           Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?,
                                   bar_rows: lowering.bar_rows, slides: lowering.music.slides?,
@@ -158,17 +160,21 @@ module VBlank
                                              music: lowering.music, runs: runs, drawn_palettes: lowering.drawn_palettes,
                                              big_maps: lowering.big_map_places, together: lowering.groups_up_together?,
                                              bar_rows: lowering.bar_rows, clips: clips,
-                                             count_at: (lowering.variables[Frames::COUNT] if lowering.counts_dark_frames?))
+                                             count_at: (lowering.variables[Frames::COUNT] if lowering.counts_dark_frames?),
+                                             banked_colors: bank_background_colors && !lowering.drawn_palettes.nil?)
           data = [*lowering.art.sections, *(lowering.music.any? ? lowering.music.sections : []), *clips&.sections]
           begin
             linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END,
                                                        clock: lowering.clock?).link
           rescue Linker::TooBigForView
-            # Its songs' notes into the banks first, and then its sprites' pose tables too.
-            raise if bank_pose_tables
+            # Its songs' notes into the banks first, then its sprites' pose tables too, and then
+            # the tables of what its backgrounds' palettes show at each step of a fade.
+            raise if bank_background_colors
+
             songs = lowering.music.any? && !banked_songs
             return build_cartridge(program, title, lends: lends, tile_rooms: tile_rooms, room_colors: room_colors,
-                                                   banked_songs: banked_songs || songs, bank_pose_tables: !songs)
+                                                   banked_songs: banked_songs || songs, bank_pose_tables: bank_pose_tables || !songs,
+                                                   bank_background_colors: bank_pose_tables)
           end
           routines = lowering.section_routines.map do |label, routine|
             placed = linked.sections.fetch(label)

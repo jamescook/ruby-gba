@@ -166,14 +166,16 @@ module VBlank
           # bringing its own background tiles in (Art::TooManyBackgroundTiles, Picture#plan_tile_rooms),
           # and +room_colors+ with its own background colours too (Art::TooManyBackgroundLists).
           # +banked_songs+ keeps its songs' notes in the cartridge's banks (GBC::Music#sections), and
-          # +bank_pose_tables+ the tables of its sprites' poses in each list (Picture#picture_and_attributes_drawn).
+          # +bank_pose_tables+ the tables of its sprites' poses in each list (Picture#picture_and_attributes_drawn),
+          # and +bank_background_colors+ the tables of its backgrounds' colours (Picture#emit_background_colors_for_declaration).
           def initialize(program, memory:, lends_sprite_colors: false, tile_rooms: false, room_colors: false,
-                         banked_songs: false, bank_pose_tables: false)
+                         banked_songs: false, bank_pose_tables: false, bank_background_colors: false)
             @program = program
             @memory = memory
             @lends_sprite_colors = lends_sprite_colors
             @banked_songs = banked_songs
             @bank_pose_tables = bank_pose_tables
+            @bank_background_colors = bank_background_colors
             @plans_tile_rooms = tile_rooms # each screen brings its own tiles in (Picture#plan_tile_rooms)
             @plans_room_colors = room_colors
             @funcs = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
