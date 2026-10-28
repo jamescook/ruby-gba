@@ -181,6 +181,7 @@ module VBlank
             @starts = [] # [address, value] for a place that does not start at nought
             @routine_tables = {} # a list of routines a call picks from by number -> its table's label
             @section_routines = {}
+            @cut_children = {} # a statement whose statements were cut into parts -> what stands for them
             prepare_picture
             prepare_paint
             prepare_collision
@@ -206,14 +207,14 @@ module VBlank
             end
             @scene = keep_local(:scene, start: -1) unless @scenes.empty?
             keep_timer_numbers
-            routines = @called.map do |name|
+            routines = @called.flat_map do |name|
               @lowering_scene = @scenes.key?(name) ? name : nil
-              routine_section(self.class.routine_label(name), @funcs.fetch(name).children, routine: routine_said(name))
+              routines_fitting(self.class.routine_label(name), @funcs.fetch(name).children, routine: routine_said(name))
             end
             timers = timer_sections
             @lowering_scene = nil
-            main = routine_section(MAIN, @program.children, routine: "the game loop")
-            [data_section, *table_sections, *routines, *timers, main]
+            main = routines_fitting(MAIN, @program.children, routine: "the game loop")
+            [data_section, *table_sections, *routines, *timers, *main]
           end
 
           private
@@ -381,9 +382,120 @@ module VBlank
           # A routine of the game's, or the runtime's, called wherever it is.
           def call_routine(label) = @asm.jsl(@asm.long(label))
 
+          # --- a routine too big for a bank, cut into parts ---
+
+          # The most bytes one routine's code may come to before it is cut into parts, each a routine
+          # of its own. A routine goes whole into one 32K bank (Linker), and the processor cannot run
+          # on from the end of a bank into the next, so a routine is cut well before a bank is full:
+          # what is left after the cut also has calls of its parts in it.
+          MOST_ROUTINE_BYTES = 24_000
+
+          # The most bytes a part cut off a routine may come to.
+          MOST_PART_BYTES = 12_000
+
+          # A call of a part cut off a routine, standing where its statements stood.
+          PartCall = Data.define(:label)
+
+          # The routine +label+ of +body+'s statements, and the parts cut off it to fit a bank. A run
+          # of statements side by side becomes a routine of its own, called where they were (a long
+          # call, so the part can be in any bank); a statement too big to move whole has what is
+          # inside it cut the same way instead. The parts share the routine's own numbers, which are
+          # kept in work RAM, so nothing is handed between them.
+          def routines_fitting(label, body, routine:)
+            parts = []
+            body = cut_list(body, label, parts) if bytes_of(body) > MOST_ROUTINE_BYTES
+            [routine_section(label, body, routine: routine),
+             *parts.map { |part, statements| routine_section(part, statements, routine: routine) }]
+          end
+
+          def cut_list(list, base, parts)
+            kept = []
+            run = []
+            run_bytes = 0
+            flush = lambda do
+              next if run.empty?
+
+              part = "#{base}_part#{parts.length + 1}"
+              parts << [part, run]
+              kept << PartCall.new(part)
+              run = []
+              run_bytes = 0
+            end
+            list.each do |node|
+              size = bytes_of([node])
+              if size <= MOST_PART_BYTES
+                flush.call if run_bytes + size > MOST_PART_BYTES
+                run << node
+                run_bytes += size
+              else
+                flush.call
+                kept << cut_inside(node, base, parts)
+              end
+            end
+            flush.call
+            kept
+          end
+
+          # A statement too big to move whole, with the statements it holds cut. Only an `if`, a
+          # `loop` and a `repeat` hold statements that are made where they stand.
+          def cut_inside(node, base, parts)
+            return node unless %i[if loop repeat].include?(node.kind)
+
+            body, otherwise = children_of(node)
+            # Cut before naming the table they go in: measuring puts back a copy of it (#bytes_of).
+            cut = [cut_list(body, base, parts), cut_list(otherwise, base, parts)]
+            @cut_children[node.object_id] = cut
+            node
+          end
+
+          # The statements +node+ holds, and an `if`'s other side: as cut, when they were.
+          def children_of(node)
+            @cut_children.fetch(node.object_id) { [node.children, node.kind == :if ? node.else&.children || [] : []] }
+          end
+
+          # How many bytes +list+ comes to, made on its own and thrown away: everything the lowering
+          # keeps while it makes a statement — its labels, the numbers a routine keeps and the work
+          # RAM they take, the tables it names — is made on copies, and the lowering goes back to
+          # what it had. The copies, not what it had, are what is changed: the work RAM is shared
+          # with the build and the runtime, which would see a place reserved only to be measured.
+          def bytes_of(list)
+            saved = instance_variables.to_h { |name| [name, instance_variable_get(name)] }
+            saved.each { |name, value| instance_variable_set(name, kept_copy(value)) }
+            @asm = W65816.new("measuring", holds: ROUTINES)
+            @routine = "measuring"
+            @labels = 0
+            list.each { |node| statement(node) }
+            @asm.here
+          ensure
+            (instance_variables - saved.keys).each { |name| remove_instance_variable(name) }
+            saved.each { |name, value| instance_variable_set(name, value) }
+          end
+
+          # The objects the lowering adds to as it makes a statement, besides its own lists and tables:
+          # the work RAM it reserves and the pictures, tiles and colours it gathers.
+          GATHERING = [Memory, Art, PaintedArt].freeze
+
+          # A copy of +value+ that what the lowering does to it next leaves alone: a list or table
+          # copied all the way down, and one of the GATHERING objects with what it holds copied so.
+          def kept_copy(value)
+            case value
+            when Hash then value.dup.transform_values! { |held| kept_copy(held) }
+            when Array then value.map { |held| kept_copy(held) }
+            when *GATHERING
+              value.dup.tap do |copy|
+                copy.instance_variables.each { |name| copy.instance_variable_set(name, kept_copy(copy.instance_variable_get(name))) }
+              end
+            else value
+            end
+          end
+
           # --- statements ---
 
-          def statement(node) = send(STATEMENTS.fetch(node.kind), node)
+          def statement(node)
+            return call_routine(node.label) if node.is_a?(PartCall)
+
+            send(STATEMENTS.fetch(node.kind), node)
+          end
 
           def emit_nothing(_node) = nil
           def emit_children(node) = node.children.each { |child| statement(child) }
@@ -475,8 +587,7 @@ module VBlank
           end
 
           def emit_if(node)
-            body = node.children
-            otherwise = node.else&.children || []
+            body, otherwise = children_of(node)
             known = folded(node.cond)
             return (known.zero? ? otherwise : body).each { |child| statement(child) } if known
 
@@ -493,7 +604,7 @@ module VBlank
           def emit_loop(node)
             top = fresh("loop")
             @asm.label(top)
-            node.children.each { |child| statement(child) }
+            children_of(node).first.each { |child| statement(child) }
             @asm.brl(top)
           end
 
@@ -516,7 +627,7 @@ module VBlank
               store(node.index)
             end
             jump_if(node.stop_when, done)
-            node.children.each { |child| statement(child) }
+            children_of(node).first.each { |child| statement(child) }
             emit_sum(index, :+, Build.int(1))
             @asm.brl(top)
             @asm.label(done)
