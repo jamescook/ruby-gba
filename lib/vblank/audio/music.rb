@@ -199,12 +199,14 @@ module VBlank
       # PitchSlide), unless the note says its own; nil slides nothing. +vibrato+ is how each note
       # of a square or wave part wobbles its pitch (a Vibrato), unless the note says its own. +pan+
       # is the speaker each note plays from (a Pan), unless the note says its own; nil is both.
+      # +duties+ is a square part's shapes when it gave a list of them to step through (a Duty, whose
+      # first is +duty+), and nil when it gave one.
       #
       # AN EVENT CAN SAY ITS OWN in a sixth place, after the envelope, its own slide in a seventh,
-      # its own wobble in an eighth and its own side in a ninth: [frame, frequency, instrument,
-      # volume, envelope, fade, slide, vibrato, pan].
+      # its own wobble in an eighth, its own side in a ninth and its own shape in a tenth: [frame,
+      # frequency, instrument, volume, envelope, fade, slide, vibrato, pan, duty].
       Part = Data.define(:events, :duty, :volume, :instrument, :wave, :noise, :decay, :metallic,
-                         :name, :envelope, :fade, :slide, :vibrato, :pan)
+                         :name, :envelope, :fade, :slide, :vibrato, :pan, :duties)
 
       class Part
         # WHAT A PART CARRIES WHEN IT SAYS NOTHING — every optional field's answer, in one place,
@@ -213,13 +215,14 @@ module VBlank
         # here: a part with no notes in it is a part nobody wrote.
         DEFAULTS = { duty: :half, volume: 12, instrument: nil, wave: nil,
                      noise: false, decay: :fast, metallic: false, name: nil, envelope: nil,
-                     fade: nil, slide: nil, vibrato: nil, pan: nil }.freeze
+                     fade: nil, slide: nil, vibrato: nil, pan: nil, duties: nil }.freeze
 
         # WHAT A PART'S VOICE CANNOT DO IS REFUSED HERE, where both ways a song reaches the IR meet:
         # a fade on a voice that cannot count one (NoteFade.refuse_without_counting!), a slide off
         # the square voices (PitchSlide.refuse_off_square!), a wobble on a voice with no pitch to
-        # move (Vibrato.refuse_without_pitch!), a side on a recording (Pan.refuse_recorded!), and a
-        # note that both slides and wobbles. +who+ names
+        # move (Vibrato.refuse_without_pitch!), a side on a recording (Pan.refuse_recorded!), a shape
+        # off the square voices (Duty.refuse_off_square!), and a note that both slides and wobbles.
+        # +who+ names
         # the part, as the start of a sentence — a Score says its own, which is its place.
         def initialize(events:, who: nil, **said)
           super(events: events, **DEFAULTS.merge(said))
@@ -232,6 +235,7 @@ module VBlank
         SLIDE_SLOT = 6
         VIBRATO_SLOT = 7
         PAN_SLOT = 8
+        DUTY_SLOT = 9
 
         # Does this part, or a note of it, say a slide?
         def slides? = Music.slides_said?(slide, events)
@@ -247,6 +251,9 @@ module VBlank
           end
           Vibrato.refuse_without_pitch!(who, noise: noise) if (noise || instrument) && wobbles?
           Pan.refuse_recorded!(who) if instrument && (pan || events.any? { |event| event[PAN_SLOT] })
+          square = Music.plays_square?(wave: wave, instrument: instrument, noise: noise)
+          Duty.refuse_off_square!(who, by_part: true) if !square && duties
+          Duty.refuse_off_square!(who, by_part: false) if !square && events.any? { |event| event[DUTY_SLOT] }
           both = events.find do |event|
             PitchSlide.moves?(event[SLIDE_SLOT] || slide) && Vibrato.moves?(event[VIBRATO_SLOT] || vibrato)
           end
@@ -285,15 +292,18 @@ module VBlank
           @slide = nil       # how every note slides its pitch, when the part says (a PitchSlide)
           @vibrato = nil     # how every note wobbles its pitch, when the part says (a Vibrato)
           @pan = nil         # the speaker every note plays from, when the part says (a Pan)
+          @duties = nil      # the shapes every note steps through, when the part gives a list (a Duty)
           @events = []       # [[frame_offset, freq_hz], ...]
           @current_frame = 0
         end
 
         # Set this part's default duty cycle (wave shape), or read it.
-        # Valid: :eighth, :quarter, :half, :square, :three_quarter
+        # Valid: :eighth, :quarter, :half, :square, :three_quarter — or a list of two or four of
+        # them, which each note steps through a frame at a time (see Duty).
         def duty(d = nil)
           return @duty if d.nil?
-          @duty = d
+
+          @duty, @duties = Duty.of_part(d, where: "The part #{part_label.inspect}")
         end
 
         # HOW FAST EACH NOTE FADES OUT — :fast, :medium, :slow, or :none to hold, or the 64ths of
@@ -362,19 +372,21 @@ module VBlank
         # A +volume+ here (0-15) is this note's loudness instead of the part's, and +decay+ or
         # +swell+ how it fades out or swells in instead of how the part's notes do (see #decay),
         # +slide_up+ or +slide_down+ how it slides its pitch (see #slide_up), +vibrato+ how it
-        # wobbles (see #vibrato), and +pan+ the speaker it plays from (see #pan). A note that says
-        # nothing leaves the later slots off its event (Music.without_trailing_nils).
+        # wobbles (see #vibrato), +pan+ the speaker it plays from (see #pan), and +duty+ its shape,
+        # or the shapes it steps through (see #duty). A note that says nothing leaves the later slots
+        # off its event (Music.without_trailing_nils).
         def note(pitch, duration, envelope: nil, volume: nil, decay: nil, swell: nil, slide_up: nil, slide_down: nil,
-                 vibrato: nil, pan: nil)
+                 vibrato: nil, pan: nil, duty: nil)
           where = "a note of the part #{part_label.inspect}"
           shape = Envelope.of(envelope, where)
           fade = NoteFade.said(decay: decay, swell: swell, where: where.capitalize)
           slide = PitchSlide.said(up: slide_up, down: slide_down, where: where.capitalize)
           wobble = Vibrato.said(vibrato, where: where.capitalize, frames: ->(length) { duration_frames(length) })
           side = Pan.said(pan, where: where.capitalize)
+          duties = Duty.said(duty, where: where.capitalize)
           refuse_volume_out_of_range!(volume) if volume
           @events << [@current_frame, resolve_pitch(pitch),
-                      *Music.without_trailing_nils([nil, volume, shape, fade, slide, wobble, side])]
+                      *Music.without_trailing_nils([nil, volume, shape, fade, slide, wobble, side, duties])]
           @current_frame += duration_frames(duration)
         end
 
@@ -403,7 +415,7 @@ module VBlank
         def to_voice
           Part.new(events: @events, duty: @duty, volume: @volume, decay: @decay, metallic: @metallic, name: @name,
                    envelope: @envelope, fade: NoteFade.for_part(@fade, drum: @plays[:noise]), slide: @slide,
-                   vibrato: @vibrato, pan: @pan,
+                   vibrato: @vibrato, pan: @pan, duties: @duties,
                    **@plays)
         end
 

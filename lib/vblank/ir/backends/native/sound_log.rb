@@ -84,8 +84,10 @@ module VBlank
               slide = Audio::PitchSlide.from_bits(numbers[5]) if numbers[5] && numbers[5] >= 0
               vibrato = Audio::Vibrato.from_bits(numbers[6]) if numbers[6] && numbers[6] >= 0
               Tunes.voice_entry(numbers[0], @songs.fetch(numbers[1]).name, @pitches.fetch(numbers[2]), numbers[3],
-                                fade: fade, slide: slide, vibrato: vibrato, side: Audio::Pan.side_from_bits(numbers[7]))
+                                fade: fade, slide: slide, vibrato: vibrato, side: Audio::Pan.side_from_bits(numbers[7]),
+                                duty: (Audio::Duty.from_bits(numbers[8]) if numbers[8]))
             when "wobble" then [:wobble, numbers[0], numbers[1]]
+            when "duty" then [:duty, numbers[0], Audio::Duty::NAMES.fetch(numbers[1])]
             when "loudness" then [:loudness, numbers[0], numbers[1]]
             when "mixer_loudness" then [:loudness, [:mixer, numbers[0]], numbers[1]]
             when "stop_music" then [:stop_music]

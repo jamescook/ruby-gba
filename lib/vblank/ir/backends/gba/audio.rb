@@ -62,6 +62,7 @@ module VBlank
             effect = VBlank::Audio::Sound.resolve_effect(node.tone, duty: node.duty, decay: node.decay,
                                                        volume: node.volume, defined: @defined_sounds)
             emit_stop_wobble(Lane.new(:square, BEEP_CHANNEL))
+            emit_end_shapes(Lane.new(:square, BEEP_CHANNEL))
             emit_speakers_both(BEEP_CHANNEL)
             emit_register_writes(VBlank::Audio::Sound::Registers.beep_writes(**effect.to_h))
           end
@@ -165,9 +166,14 @@ module VBlank
           # still), which no register takes and the player keeps for the frames after
           # (#emit_start_wobble), and its speaker above (Audio::Pan.bits_of, nought for both; see
           # #emit_set_speakers).
+          #
+          # A square note that steps its shapes keeps them above that (Audio::Duty#bits), with
+          # SHAPES_STEP set beside them (see #emit_start_shapes).
           WOBBLE_AT = SQUARE_ROW
           PAN_SHIFT = 16
-          def note_word? = @wobbles || @pans
+          SHAPES_SHIFT = 18
+          SHAPES_STEP = 1 << 8
+          def note_word? = @wobbles || @pans || @shape_steps
           def console_row_bytes = note_word? ? SQUARE_ROW + 4 : SQUARE_ROW
 
           # Where a console row's pitch value is (after its frame and its control value), its
@@ -385,6 +391,10 @@ module VBlank
             # #emit_set_speakers).
             @pans = IR::Tunes.playable_songs(program).any? do |song|
               song.voices.any? { |part| part.events.any? { |event| IR::Tunes.note_side(part, event) } }
+            end
+            # ...and one where no square note steps its shapes steps none (see #emit_step_shapes).
+            @shape_steps = IR::Tunes.playable_songs(program).any? do |song|
+              song.voices.any? { |part| part.events.any? { |event| IR::Tunes.said_duty(part, event)&.steps? } }
             end
             @slides = IR::Tunes.playable_songs(program).any? do |song|
               song.voices.any? { |part| part.events.any? { |event| VBlank::Audio::PitchSlide.moves?(IR::Tunes.said_slide(part, event)) } }
@@ -917,6 +927,7 @@ module VBlank
             end
             @emitter.place_label(finished)
             emit_step_wobbles if in_interrupt && @wobbles
+            emit_step_shapes if in_interrupt && @shape_steps
           end
 
           # The registers a frame of the player works in: the score, an entry or a row in it, the
@@ -1190,6 +1201,7 @@ module VBlank
                 end
                 emit_console_note(lane, row)
                 emit_start_wobble(lane, row)
+                emit_start_shapes(lane, row)
                 song_lane = @lanes.index(lane)
                 emit_clear_held_note(song_lane) if song_lane && holds_notes?(lane)
                 emit_set_speakers(lane, row)
@@ -1316,6 +1328,7 @@ module VBlank
           def emit_free_voice(lane)
             emit_register_writes(console_note(lane, SILENCE, 0, 0))
             emit_stop_wobble(lane)
+            emit_end_shapes(lane)
             @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, self.class.voice_rank(lane.index))
           end
@@ -1579,6 +1592,7 @@ module VBlank
             elsif !shared_lane?(lane)
               emit_register_writes(console_note(lane, SILENCE, 0, 0))
               emit_stop_wobble(lane)
+              emit_end_shapes(lane)
               emit_clear_held_note(number) if holds_notes?(lane)
             else
               # A voice a sound effect holds is the effect's, and is left alone: its rank's bottom
@@ -1808,11 +1822,13 @@ module VBlank
               emit_hold_note(lane, number) if holds_notes?(lane)
               emit_scaled_note(lane)
               emit_start_wobble(lane, at)
+              emit_start_shapes(lane, at)
               emit_set_speakers(lane, at)
               @emitter.emit(ASM.add_imm(cursor, cursor, console_row_bytes))
             else
               emit_console_note(lane, at)
               emit_start_wobble(lane, at)
+              emit_start_shapes(lane, at)
               emit_set_speakers(lane, at)
               @emitter.emit(ASM.add_imm(cursor, cursor, console_row_bytes))
             end
@@ -1867,7 +1883,7 @@ module VBlank
 
             var = ->(what) { self.class.wobble_var(lane.index, what) }
             @emitter.emit(ASM.ldr_offset(ACC, row, WOBBLE_AT))
-            if @pans # the speaker above it is not the wobble's
+            if @pans || @shape_steps # the speaker and the shapes above it are not the wobble's
               @emitter.emit(ASM.lsl_imm(ACC, ACC, 32 - PAN_SHIFT))
               @emitter.emit(ASM.lsr_imm(ACC, ACC, 32 - PAN_SHIFT))
             end
@@ -1880,6 +1896,63 @@ module VBlank
             @primitives.store_var(TMP, var.call(:pitch))
             @emitter.emit(ASM.load_immediate(ACC, 0))
             %i[left rising steps].each { |what| @primitives.store_var(ACC, var.call(what)) }
+          end
+
+          # A SQUARE NOTE'S SHAPES, as the player keeps them between frames, by the voice it is on: its
+          # shapes with SHAPES_STEP beside them (nothing when the note has one shape), and the frame
+          # of the note it is on.
+          def self.shapes_var(channel, what) = :"__shapes_#{what}_#{channel}"
+
+          # Whether this lane's notes can step their shapes: a square voice, in a game where one does.
+          def shapes_on?(lane) = @shape_steps && lane.kind == :square
+
+          # The note in the row at +row+, just written to +lane+'s voice, steps its shapes from here —
+          # or, a rest or a note of one shape, steps nothing. Its first frame's shape is in the
+          # control value the note was written with.
+          def emit_start_shapes(lane, row)
+            return unless shapes_on?(lane)
+
+            @emitter.emit(ASM.ldr_offset(ACC, row, WOBBLE_AT))
+            @emitter.emit(ASM.lsr_imm(ACC, ACC, SHAPES_SHIFT))
+            @primitives.store_var(ACC, self.class.shapes_var(lane.index, :bits))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, self.class.shapes_var(lane.index, :frame))
+          end
+
+          # +lane+'s voice went quiet, or the game's own sound takes it: it steps no shapes.
+          def emit_end_shapes(lane)
+            return unless shapes_on?(lane)
+
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, self.class.shapes_var(lane.index, :bits))
+          end
+
+          # EVERY SQUARE NOTE THAT STEPS ITS SHAPES given the shape of the frame it is on, at the end
+          # of the interrupt's frame after the wobbles, the voices in order (Reference::Player#step_shapes).
+          # A voice's tone is the two duty bits of its control register's low byte, which is written
+          # alone, so neither the voice's loudness nor its note is touched, and the note is not started
+          # again. Written every frame, so a held note sounded again at a new music volume is back in
+          # its frame's shape before the frame is heard.
+          def emit_step_shapes
+            channels = (@lanes + (@effect_lanes || [])).select { |lane| shapes_on?(lane) }.uniq.sort_by(&:index)
+            channels.each do |lane|
+              var = ->(what) { self.class.shapes_var(lane.index, what) }
+              still = @emitter.gensym
+              @primitives.load_var(WORK_REG, var.call(:bits))
+              @emitter.emit(ASM.tst_imm(WORK_REG, SHAPES_STEP))
+              @emitter.emit_branch(:bcond, still, cond: :eq)
+              @primitives.load_var(ACC, var.call(:frame))
+              @emitter.emit(ASM.and_imm(TMP, ACC, VBlank::Audio::Duty::FRAMES - 1))
+              @emitter.emit(ASM.add_reg(TMP, TMP, TMP)) # two bits a frame
+              @emitter.emit(ASM.mov_reg_lsr_reg(WORK_REG, WORK_REG, TMP))
+              @emitter.emit(ASM.and_imm(WORK_REG, WORK_REG, 3))
+              @emitter.emit(ASM.lsl_imm(WORK_REG, WORK_REG, 6)) # where the duty sits in the register
+              @emitter.emit(ASM.load_immediate(TMP, music_voice_regs(lane)[:reg_a]))
+              @emitter.emit(ASM.strb(WORK_REG, TMP))
+              @emitter.emit(ASM.add_imm(ACC, ACC, 1))
+              @primitives.store_var(ACC, var.call(:frame))
+              @emitter.place_label(still)
+            end
           end
 
           # WHICH SPEAKERS A VOICE PLAYS FROM is a pair of switches for each voice in SOUNDCNT_L: the
@@ -1898,7 +1971,8 @@ module VBlank
 
             channel = lane.index
             @emitter.emit(ASM.ldr_offset(ACC, row, WOBBLE_AT))
-            @emitter.emit(ASM.lsr_imm(ACC, ACC, PAN_SHIFT)) # the speaker
+            @emitter.emit(ASM.lsr_imm(ACC, ACC, PAN_SHIFT))
+            @emitter.emit(ASM.and_imm(ACC, ACC, 3)) if @shape_steps # the speaker, without the shapes above it
             @emitter.emit(ASM.load_immediate(TMP, REG_SOUNDCNT_L))
             @emitter.emit(ASM.load_halfword(row, TMP))
             @emitter.emit(ASM.bic_imm(row, row, speaker_bits(channel)))
@@ -2286,7 +2360,9 @@ module VBlank
               regs = music_voice_regs(lane)
               rows = events.map do |event|
                 frame, frequency, _instrument, volume = event
-                writes = console_note(lane, part, frequency, volume || part.volume, fade: IR::Tunes.said_fade(part, event))
+                shapes = IR::Tunes.said_duty(part, event) if frequency.positive? && lane.kind == :square
+                writes = console_note(lane, part, frequency, volume || part.volume, fade: IR::Tunes.said_fade(part, event),
+                                                                                   duty: shapes&.at(0))
                 control = note_reg_value(writes, regs[:reg_a])
                 control |= (volume || part.volume) << WAVE_VOLUME_SHIFT if keeps_wave_volume?(lane, frequency)
                 pitch = note_reg_value(writes, regs[:reg_b])
@@ -2297,7 +2373,8 @@ module VBlank
 
                 wobble = IR::Tunes.said_vibrato(part, event) if frequency.positive?
                 side = frequency.positive? ? VBlank::Audio::Pan.bits_of(IR::Tunes.note_side(part, event)) : 0
-                row + [(VBlank::Audio::Vibrato.moves?(wobble) ? wobble.bits : 0) | (side << PAN_SHIFT)].pack("V")
+                stepping = shapes&.steps? ? (shapes.bits | SHAPES_STEP) << SHAPES_SHIFT : 0
+                row + [(VBlank::Audio::Vibrato.moves?(wobble) ? wobble.bits : 0) | (side << PAN_SHIFT) | stepping].pack("V")
               end
               rows.join + [NEVER, 0, 0].pack("Vvv") + (note_word? ? [0].pack("V") : "")
             end
@@ -2329,12 +2406,12 @@ module VBlank
           # sample rate, the noise voice by which rung of its clock ladder sits nearest the note
           # — and the player copies whichever pair it finds, knowing none of that. A square or noise
           # note's +fade+ (IR::Tunes.said_fade) is in its control value, which the voice counts by
-          # itself.
-          def console_note(lane, part, frequency, volume, fade: nil)
+          # itself, and so is a square note's +duty+ — its own first shape, or its part's.
+          def console_note(lane, part, frequency, volume, fade: nil, duty: nil)
             case lane.kind
             when :square
-              VBlank::Audio::Sound::Registers.channel_note(lane.index, frequency: frequency, duty: part.duty, volume: volume,
-                                                                       fade: fade || VBlank::Audio::NoteFade::HOLD)
+              VBlank::Audio::Sound::Registers.channel_note(lane.index, frequency: frequency, duty: duty || part.duty,
+                                                                       volume: volume, fade: fade || VBlank::Audio::NoteFade::HOLD)
             when :wave
               VBlank::Audio::Sound::Registers.wave_note(frequency: frequency, volume: volume)
             else

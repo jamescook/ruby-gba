@@ -136,6 +136,28 @@ module RuntimeSounds
     assert_sounds_like_the_native_runtime program, frames: 130
   end
 
+  # Square notes in shapes of their own: one note's own, and a part stepping four a frame while
+  # the music is turned down under it, then a beep on its voice.
+  def test_notes_in_shapes_of_their_own_sound_as_on_the_native_runtime
+    program = sound_program do
+      enable_sound
+      song :tune do
+        tempo 120
+        voice(:melody) { note :A4, :half; note :C5, :half, duty: :eighth }
+        voice(:harmony) { duty %i[eighth quarter half three_quarter]; note :E4, :whole }
+      end
+      count = var :count, 0
+      play_song :tune
+      game_loop do
+        count.add! 1
+        (count == 40).then { music_volume 50 }
+        (count == 90).then { beep 880, duty: :half, decay: :none, volume: 12 }
+      end
+    end
+
+    assert_sounds_like_the_native_runtime program, frames: 130
+  end
+
   # Parts on one speaker each, a note moving to the other side, the drums on both, and a beep that
   # takes the right-hand part's voice back to both.
   def test_parts_on_their_own_speakers_sound_as_on_the_native_runtime

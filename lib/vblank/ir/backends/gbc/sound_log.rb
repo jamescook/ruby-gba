@@ -42,15 +42,19 @@ module VBlank
           # by voice: A holds the steps it turns to there, below nought for the swing below.
           WOBBLE_TURNS = (1..Runtime::Music::WOBBLE_VOICES).to_h { |voice| ["rt_wobble_turned_#{voice}", voice] }.freeze
 
+          # A square voice stepping to a shape other than last frame's (Runtime::Music#emit_shapes), by
+          # voice: A holds the shape's two bits there.
+          SHAPE_CHANGES = (1..Runtime::Music::SHAPE_VOICES).to_h { |voice| ["rt_shape_changed_#{voice}", voice] }.freeze
+
           ROUTINES = (%w[rt_sound_writes rt_music_note rt_music_note_voice rt_music_quiet rt_music_from_the_top
-                         rt_wait_vblank_buttons rt_sfx_note] + RELEVELS.keys + WOBBLE_TURNS.keys).freeze
+                         rt_wait_vblank_buttons rt_sfx_note] + RELEVELS.keys + WOBBLE_TURNS.keys + SHAPE_CHANGES.keys).freeze
 
           # +places+ is the build record (GBC::Places).
           def initialize(places)
             code = places.code
             @tables = places.sound_tables.to_h { |label, entry| [code.fetch(label).address, entry] }
             bytes = Music.note_bytes(Music.slides_in?(places.notes), Music.pans_in?(places.notes),
-                                     Music.wobbles_in?(places.notes))
+                                     Music.shapes_in?(places.notes), Music.wobbles_in?(places.notes))
             @notes = places.notes.each_with_object({}) do |(label, notes), at|
               start = code.fetch(label).address
               notes.each_with_index { |note, k| at[start + (k * bytes)] = note }
@@ -108,6 +112,8 @@ module VBlank
               when *WOBBLE_TURNS.keys
                 steps = af >> 8
                 @music << [:wobble, WOBBLE_TURNS.fetch(@routines[pc]), steps >= 0x80 ? steps - 0x100 : steps]
+              when *SHAPE_CHANGES.keys
+                @music << [:duty, SHAPE_CHANGES.fetch(@routines[pc]), VBlank::Audio::Duty::NAMES.fetch((af >> 8) & 3)]
               when "rt_sfx_note" then effect_note(@notes.fetch(hl - 2)) # handed past the note's frame
               when :effect_starting then @music << [:sound_effect, @effects_starting.fetch(pc)]
               when :voice_let_go then voice_let_go(*@voices_let_go.fetch(pc))
@@ -145,7 +151,7 @@ module VBlank
 
           def voice_log_entry(note) = Tunes.voice_entry(note.voice, note.song, note.pitch, note.volume,
                                                         fade: note.fade, slide: note.slide, vibrato: note.vibrato,
-                                                        side: note.side)
+                                                        side: note.side, duty: note.duty)
 
           # An effect over, letting a voice it held go quiet (Reference::Player#finish_effect).
           def voice_let_go(name, voice)

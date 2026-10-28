@@ -42,6 +42,13 @@
 #   2. The drums play from both, and the hats between the kicks step from one side to the other
 #      (`pan: :left`, `pan: :right` on a note of their own).
 #
+# SHIMMERING NOTES is the tune with the square waves' shapes moving: how much of each wave is high,
+# which is what makes a square wave thin or hollow.
+#   1. The lead steps through four shapes, one a frame, round and round while each note holds
+#      (`duty %i[eighth quarter half quarter]`): a shimmer the ear hears as one bright tone.
+#   2. The chords play each bar in a shape of its own, thin, then hollow, then thin and thick
+#      (`duty:` on a note of their own).
+#
 # Run it to build examples/chip_band.gba and examples/chip_band.gbc:
 #   ruby examples/chip_band.rb
 
@@ -54,6 +61,7 @@ module ChipBand
     { name: :sliding, label: "SLIDING NOTES" },
     { name: :wobbling, label: "WOBBLING NOTES" },
     { name: :spread, label: "LEFT AND RIGHT" },
+    { name: :shimmering, label: "SHIMMERING NOTES" },
   ])
 
   # The tune, as four bars of notes every version plays: the lead's [note, length] and the
@@ -188,6 +196,25 @@ module ChipBand
             v.note pitch, length, **fade, **side
           end
         end
+      end
+    end
+
+    song :shimmering do
+      tempo 132
+      voice :lead do |v|
+        v.duty %i[eighth quarter half quarter]
+        LEAD.each { |pitch, length| v.note pitch, length }
+      end
+      # A shape of its own for each bar's chord.
+      voice :chords do |v|
+        v.volume 6
+        CHORDS.zip([:eighth, :half, :quarter, %i[eighth three_quarter]]).each do |pitch, shape|
+          v.note pitch, :whole, duty: shape
+        end
+      end
+      voice :drums, plays: :noise do |v|
+        v.volume 9
+        4.times { DRUMS.each { |pitch, length, fade| v.note pitch, length, **fade } }
       end
     end
 

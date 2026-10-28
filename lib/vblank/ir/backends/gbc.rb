@@ -134,7 +134,7 @@ module VBlank
           # The runtime's places first, so they are in the half of work memory always in view.
           Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?,
                                   bar_rows: lowering.bar_rows, slides: lowering.music.slides?,
-                                  wobbles: lowering.music.wobbles?)
+                                  wobbles: lowering.music.wobbles?, shapes: lowering.music.shapes?)
           game = lowering.sections
           runs = lowering.run_uploads
           runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art, frame_begins: lowering.frame_begins,

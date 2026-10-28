@@ -114,7 +114,8 @@ module VBlank
         # +vibrato+ is how each note wobbles its pitch, :none or { depth:, speed:, after: } with the
         # wait in frames (Audio::Vibrato.said), and the square parts and the wave part can. +pan+ is
         # the speaker each note plays from, :left, :right or :center (Audio::Pan.said), and every
-        # part but one that plays a recording can.
+        # part but one that plays a recording can. +duty+ is a square part's shape, or a list of two
+        # or four that each note steps through a frame at a time (Audio::Duty.said).
         #
         # +envelope+ shapes how each of this part's notes starts and ends — read only by a part
         # that plays a recording, since the console's own voices shape their own. A part that says
@@ -132,7 +133,8 @@ module VBlank
         # the part it makes (Music::Part#initialize).
         def to_voice(frames, total, who)
           drum = plays == :noise
-          Music::Part.playing(plays, who: who, events: Events.of(self, frames, total, who), duty: duty,
+          one, duties = Duty.of_part(duty, where: who)
+          Music::Part.playing(plays, who: who, events: Events.of(self, frames, total, who), duty: one, duties: duties,
                                      volume: volume, decay: (drum && decay) || :fast, metallic: metallic,
                                      envelope: Envelope.of(envelope, "a part"),
                                      fade: NoteFade.for_part(NoteFade.said(decay: decay, swell: swell, where: who),
@@ -144,10 +146,10 @@ module VBlank
 
       # A note of a Score. +volume+ (0-15) is its loudness instead of its part's, +decay+ or
       # +swell+ how it fades out or swells in instead of how its part's notes do, and +slide_up+ or
-      # +slide_down+ how it slides its pitch, +vibrato+ how it wobbles, and +pan+ the speaker it
-      # plays from (see Part).
+      # +slide_down+ how it slides its pitch, +vibrato+ how it wobbles, +pan+ the speaker it plays
+      # from, and +duty+ its shape or the shapes it steps through (see Part).
       Note = Data.define(:at, :key, :length, :instrument, :volume, :envelope, :hz, :decay, :swell, :slide_up,
-                         :slide_down, :vibrato, :pan)
+                         :slide_down, :vibrato, :pan, :duty)
 
       class Note
         # A NOTE ON THE NOISE VOICE CAN GIVE +hz+ IN PLACE OF A KEY: how many times a second its
@@ -157,7 +159,7 @@ module VBlank
         # still plays the rung of its ladder nearest the rate (Sound.noise_rung), as it does for a
         # key.
         def initialize(at:, key: nil, length: nil, instrument: nil, volume: nil, envelope: nil, hz: nil,
-                       decay: nil, swell: nil, slide_up: nil, slide_down: nil, vibrato: nil, pan: nil)
+                       decay: nil, swell: nil, slide_up: nil, slide_down: nil, vibrato: nil, pan: nil, duty: nil)
           super
         end
 
@@ -175,6 +177,9 @@ module VBlank
 
         # The speaker this note plays from, when it says (an Audio::Pan), or nil.
         def side(part) = Pan.said(pan, where: "The note at tick #{at} of #{part.downcase}")
+
+        # This note's shape, or the shapes it steps through, when it says (an Audio::Duty), or nil.
+        def shape(part) = Duty.said(duty, where: "The note at tick #{at} of #{part.downcase}")
 
         # How high the note is, in Hz — 0 for a rest. A note that gives +hz+ is that; a MIDI note
         # number is tuned the usual way, from A above middle C (number 69) at 440 Hz.
@@ -228,7 +233,8 @@ module VBlank
         def of(part, frames, total, who)
           notes = part.notes.sort_by(&:at)
           events = notes.each_with_index.flat_map do |note, n|
-            said = Music.without_trailing_nils([note.fade(who), note.slide(who), note.wobble(who), note.side(who)])
+            said = Music.without_trailing_nils([note.fade(who), note.slide(who), note.wobble(who), note.side(who),
+                                                note.shape(who)])
             on = [frames.at(note.at), note.frequency, note.instrument_name, note.volume,
                   Envelope.of(note.envelope, "a note"), *said]
             next [on] unless note.length

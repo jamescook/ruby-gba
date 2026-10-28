@@ -76,4 +76,15 @@ class TestChipBandExample < Minitest::Test
     assert_equal [:right], sides[2], "the chords on the right"
     assert_equal [nil, :left, :right].sort_by(&:to_s), sides[4].sort_by(&:to_s), "the kicks on both, the hats side to side"
   end
+
+  def test_the_sixth_tune_steps_its_leads_shapes_and_gives_each_chord_its_own
+    log = log_after(5)
+    shapes = log.select { |entry| entry.first == :voice && entry[2] == :shimmering && entry[3].positive? }
+                .group_by { |entry| entry[1] }.transform_values { |entries| entries.map { |entry| entry[9] }.uniq }
+    duty = VBlank::Audio::Duty
+
+    assert_equal [duty.said(%i[eighth quarter half quarter], where: "the lead")], shapes[1], "the lead's four shapes"
+    assert_equal duty.said(:eighth, where: "a chord"), shapes[2].first, "the first chord's own"
+    assert(log.any? { |entry| entry.first == :duty && entry[1] == 1 }, "and the lead steps them")
+  end
 end

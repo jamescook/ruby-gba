@@ -235,6 +235,30 @@ class TestNativeTones < Minitest::Test
     assert_native_sounds_like_the_console program, frames: 100, voices: [:square1]
   end
 
+  # A SONG'S NOTES IN SHAPES OF THEIR OWN: the melody's second note thin where its first is
+  # hollow, and the harmony stepping through four shapes, one a frame, while the music is turned
+  # down under it (which strikes its held note again, in its first shape). A beep then takes the
+  # harmony's voice, in the beep's own shape.
+  def test_a_songs_notes_shapes_sound_as_the_consoles_do
+    program = program_of do
+      enable_sound
+      song :tune do
+        tempo 120
+        voice(:melody) { duty :half; note :A4, :half; note :C5, :half, duty: :eighth }
+        voice(:harmony) { duty %i[eighth quarter half three_quarter]; note :E4, :whole }
+      end
+      play_song :tune
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 40).then { music_volume 60 }
+        (count == 100).then { beep 880, duty: :half, decay: :none, volume: 12 }
+      end
+    end
+
+    assert_native_sounds_like_the_console program, frames: 130
+  end
+
   # A SONG'S PARTS ON ONE SPEAKER EACH: the melody on the left moving to the right for its second
   # note, the bass on the right, the pad on the left and the drums on both. Each speaker sounds as
   # the console's does, and a voice is never heard from the speaker it is not on. A beep then takes

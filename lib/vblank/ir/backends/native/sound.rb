@@ -42,6 +42,11 @@ module VBlank
           # note on the right alone is a negative number.
           PAN_AT = 30
 
+          # A note's sixth number is its shapes when it or its part said them (Audio::Duty#bits), with
+          # SAID_DUTY beside them, and 0 for a note that plays its part's one shape (rg_sound.c's
+          # SAID_DUTY).
+          SAID_DUTY = 1 << 8
+
           private
 
           def prepare_sound
@@ -331,7 +336,8 @@ module VBlank
           # (IR::Tunes.said_fade): the voice's four bits of it, and SAID_FADE beside them; 0 for a
           # note that leaves it to the voice, and for a rest. With them, in the same number, how it
           # slides its pitch when it or its part said so (IR::Tunes.said_slide), how it wobbles
-          # (IR::Tunes.said_vibrato), and which speaker it plays from (IR::Tunes.note_side).
+          # (IR::Tunes.said_vibrato), and which speaker it plays from (IR::Tunes.note_side). And
+          # after that number, a square note's shapes (IR::Tunes.said_duty; see SAID_DUTY).
           def encoded_note(note, part, kind)
             at, pitch, _, volume = note
             volume ||= part.volume
@@ -346,7 +352,9 @@ module VBlank
             said = (fade ? SAID_FADE | fade.bits : 0) | (slide ? SAID_SLIDE | (slide.bits << SLIDE_AT) : 0) |
                    (wobble ? SAID_VIBRATO | (wobble.bits << VIBRATO_AT) : 0)
             side = pitch.zero? ? 0 : Audio::Pan.bits_of(Tunes.note_side(part, note))
-            [at, @sound_log.pitch_number(pitch), heard, last, Int32.wrap(said | (side << PAN_AT))]
+            shapes = Tunes.said_duty(part, note) unless pitch.zero?
+            [at, @sound_log.pitch_number(pitch), heard, last, Int32.wrap(said | (side << PAN_AT)),
+             shapes ? SAID_DUTY | shapes.bits : 0]
           end
 
           # EVERYTHING A RECORDED NOTE IS BUT HOW LOUD, the interpreter's way

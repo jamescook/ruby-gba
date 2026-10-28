@@ -40,23 +40,31 @@ module VBlank
           # (Audio::Pan.bits_of, nought for both). The volume's spare four bits could hold it, but
           # every reader of the volume would then have to take it out first.
           #
+          # In a game where a square note says its shapes, one more after that: a square note's shapes
+          # (Audio::Duty#bits) — its own, or its part's one — which the player writes the first of as
+          # the note starts and steps through after.
+          #
           # In a game where a note wobbles, two more after those: the note's vibrato
           # (Audio::Vibrato#bits, nought for a note that holds still), its depth and speed in the
           # first and its wait in the second, which the player keeps for the frames after.
-          def self.note_bytes(slides, pans, wobbles) = NOTE_BYTES + (slides ? 1 : 0) + (pans ? 1 : 0) + (wobbles ? 2 : 0)
+          def self.note_bytes(slides, pans, shapes, wobbles)
+            NOTE_BYTES + (slides ? 1 : 0) + (pans ? 1 : 0) + (shapes ? 1 : 0) + (wobbles ? 2 : 0)
+          end
 
           # Whether any note of these lists (#notes) slides its pitch, whether any plays from one
-          # speaker, and whether any wobbles.
+          # speaker, whether any says its shapes, and whether any wobbles.
           def self.slides_in?(notes) = notes.each_value.any? { |list| list.any? { |note| VBlank::Audio::PitchSlide.moves?(note.slide) } }
           def self.pans_in?(notes) = notes.each_value.any? { |list| list.any?(&:side) }
+          def self.shapes_in?(notes) = notes.each_value.any? { |list| list.any?(&:duty) }
           def self.wobbles_in?(notes) = notes.each_value.any? { |list| list.any? { |note| VBlank::Audio::Vibrato.moves?(note.vibrato) } }
 
           # One note of a part as the music table holds it, with what it is to the interpreter: the
           # song's name, the part, the voice it plays on, its pitch (0 for a rest), its volume, and
           # how it fades or swells, how it slides its pitch and how it wobbles when the note or its
           # part said so (IR::Tunes.said_fade, IR::Tunes.said_slide, IR::Tunes.said_vibrato), and
-          # the speaker it plays from when it is one (IR::Tunes.note_side).
-          Note = Data.define(:song, :part, :voice, :pitch, :volume, :fade, :slide, :vibrato, :side)
+          # the speaker it plays from when it is one (IR::Tunes.note_side), and the shapes a square
+          # note said (IR::Tunes.said_duty).
+          Note = Data.define(:song, :part, :voice, :pitch, :volume, :fade, :slide, :vibrato, :side, :duty)
 
           # A NOTE'S FADE RIDES IN ITS TUNING'S TOP FOUR BITS, which a square or noise note never
           # uses: a square voice's period is eleven bits and the hiss's clock eight. The player
@@ -178,8 +186,15 @@ module VBlank
             @pans
           end
 
+          # ...and one where a square note says its shapes: only then does a note carry a byte for
+          # them, and the player step a square voice's shape a frame at a time.
+          def shapes?
+            @shapes = Music.shapes_in?(notes) unless defined?(@shapes)
+            @shapes
+          end
+
           # How many bytes a note of this game's takes (.note_bytes).
-          def note_bytes = Music.note_bytes(slides?, pans?, wobbles?)
+          def note_bytes = Music.note_bytes(slides?, pans?, shapes?, wobbles?)
 
           private
 
@@ -189,7 +204,8 @@ module VBlank
                      fade: (Tunes.said_fade(part, event) unless pitch.zero?),
                      slide: (Tunes.said_slide(part, event) unless pitch.zero?),
                      vibrato: (Tunes.said_vibrato(part, event) unless pitch.zero?),
-                     side: (Tunes.note_side(part, event) unless pitch.zero?))
+                     side: (Tunes.note_side(part, event) unless pitch.zero?),
+                     duty: (Tunes.said_duty(part, event) unless pitch.zero?))
           end
 
           # A note as the table holds it: when it starts, its tuning with its fade in the top bits
@@ -201,10 +217,19 @@ module VBlank
             asm.data_bytes(volume || part.volume)
             asm.data_bytes(pitch.zero? ? 0 : Tunes.said_slide(part, event)&.bits || 0) if slides?
             asm.data_bytes(pitch.zero? ? 0 : VBlank::Audio::Pan.bits_of(Tunes.note_side(part, event))) if pans?
+            asm.data_bytes(note_shapes(part, event)) if shapes?
             return unless wobbles?
 
             wobble = Tunes.said_vibrato(part, event) unless pitch.zero?
             asm.data_words(VBlank::Audio::Vibrato.moves?(wobble) ? wobble.bits : 0)
+          end
+
+          # A note's shapes as its byte holds them: the ones it or its part said, or else its part's one.
+          # A rest's, and every other voice's, are never read, so they are nought.
+          def note_shapes(part, event)
+            return 0 if event[1].zero? || Tunes.part_kind(part) != :square
+
+            (Tunes.said_duty(part, event) || VBlank::Audio::Duty.one(part.duty)).bits
           end
 
           def note_tuning(voice, part, event)

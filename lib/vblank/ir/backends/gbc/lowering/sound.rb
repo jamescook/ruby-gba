@@ -111,6 +111,7 @@ module VBlank
               effect = VBlank::Audio::Sound.resolve_effect(node.tone, duty: node.duty, decay: node.decay,
                                                             volume: node.volume, defined: @defined_sounds)
               emit_stop_wobble(BEEP_VOICE)
+              Runtime::Music.emit_end_shapes(@asm, @memory, BEEP_VOICE)
               emit_speakers_both(BEEP_VOICE)
               sound_writes(VBlank::Audio::Sound::Registers.beep_writes(**effect.to_h), [:beep, effect])
             end

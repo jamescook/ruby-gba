@@ -35,13 +35,15 @@ module VBlank
           # effects (GBC::Music#effects). +together+ says it has picture groups with more than one
           # slot (Frame#emit_groups_together). +bar_rows+ is how many rows of the window's grid its status
           # bars fill, or nil for a game with none (Picture#emit_bar). +slides+ says a note of its music
-          # slides its pitch (GBC::Music#slides?), and +wobbles+ that one wobbles (GBC::Music#wobbles?).
-          def reserve(memory, art:, effects: [], together: false, bar_rows: nil, slides: false, wobbles: false)
+          # slides its pitch (GBC::Music#slides?), +wobbles+ that one wobbles (GBC::Music#wobbles?), and
+          # +shapes+ that a square note says its shapes (GBC::Music#shapes?).
+          def reserve(memory, art:, effects: [], together: false, bar_rows: nil, slides: false, wobbles: false,
+                      shapes: false)
             Frame.reserve(memory, together: together)
             Picture.reserve(memory, lends: art.lends?, groups: art.groups?, bar_rows: bar_rows, rooms: art.rooms.any?)
             BigMaps.reserve(memory)
             Paint.reserve(memory, painting: art.painting?)
-            Music.reserve(memory, effects: effects, slides: slides, wobbles: wobbles)
+            Music.reserve(memory, effects: effects, slides: slides, wobbles: wobbles, shapes: shapes)
           end
 
           # The runtime's sections: the processor's entry points, and everything else in one.

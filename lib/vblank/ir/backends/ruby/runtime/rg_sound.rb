@@ -22,7 +22,7 @@ RG_WAVE_VOICE = 3
 RG_NOISE_VOICE = 4
 
 RG_PARTS_MOST = 20
-RG_NUMBERS_PER_NOTE = 5
+RG_NUMBERS_PER_NOTE = 6
 RG_FADE_STEP_BITS = 7 # a note's fade (Audio::NoteFade#bits): the 64ths of a second a step lasts
 RG_FADE_UP = 8        # ...set when it swells
 RG_SAID_FADE = 16     # ...and beside them in a note, set when the note or its part said one
@@ -44,6 +44,8 @@ RG_PAN_AT = 30 # ...and at the top of a note, its speaker (Audio::Pan.bits_of):
 RG_PAN_BITS = 3
 RG_PAN_LEFT = 1 # the left alone,
 RG_PAN_RIGHT = 2 # ...the right alone, or nought for both
+RG_SAID_DUTY = 1 << 8 # a note's sixth number: set when it or its part said its shapes,
+RG_DUTY_BITS = 0xFF # ...whose eight bits (Audio::Duty#bits) are under it
 RG_SLIDE_TICK_SAMPLES = RG_SOUND_RATE / 128 # the slide clock ticks 128 times a second
 RG_NUMBERS_PER_NOTE_SOUND = 8
 RG_NUMBERS_PER_BEEP = 4
@@ -211,6 +213,7 @@ def rg_sound_setup
   @rg_sample_carry = 0 # the part of a sample left over from the last frame, in console cycles
   @rg_slide_clock = 0  # samples since the slide clock last ticked (rg_sound.c's slide_clock)
   @rg_wobbles = Array.new(RG_WAVE_VOICE + 1) { RgWobble.new(0, 0, 0, false, 0, 0) } # by voice (rg_sound.c's wobbles)
+  @rg_shapes = Array.new(RG_SQUARE_VOICES + 1) { RgShapeWalk.new(0, 0, false) } # by voice (rg_sound.c's shapes)
   @rg_loaded_waveform = -1
   # the player
   @rg_wanted = -1
@@ -437,6 +440,7 @@ def rg_sound_beep(which)
   beep = 1 + (which * RG_NUMBERS_PER_BEEP)
   rg_sound_log("beep #{which}")
   rg_wobble_stop(RG_BEEP_VOICE)
+  rg_shape_stop(RG_BEEP_VOICE)
   @rg_sides[RG_BEEP_VOICE] = 0
   rg_square_start(RG_BEEP_VOICE, @rg_game_beeps[beep], @rg_game_beeps[beep + 1], @rg_game_beeps[beep + 2],
                   @rg_game_beeps[beep + 3], 0)
@@ -604,8 +608,44 @@ def rg_step_wobbles
   end
 end
 
+# A SQUARE NOTE'S SHAPES, by its voice: rg_sound.c's shape_walk, and its other shape functions.
+RgShapeWalk = Struct.new(:bits, :frame, :steps)
+RG_EIGHTHS_OF_SHAPE = [1, 2, 4, 6].freeze
+
+def rg_shape_at(bits, frame) = (bits >> (2 * (frame % 4))) & 3
+
+def rg_note_eighths(part, note)
+  said = @rg_game_music[note + 5]
+  said.anybits?(RG_SAID_DUTY) ? RG_EIGHTHS_OF_SHAPE[rg_shape_at(said, 0)] : part.tone
+end
+
+def rg_shape_start(voice, note)
+  return if voice > RG_SQUARE_VOICES
+
+  said = @rg_game_music[note + 5]
+  bits = @rg_game_music[note + 1] != 0 && said.anybits?(RG_SAID_DUTY) ? said & RG_DUTY_BITS : 0
+  @rg_shapes[voice] = RgShapeWalk.new(bits, 0, (1..3).any? { |frame| rg_shape_at(bits, frame) != rg_shape_at(bits, 0) })
+end
+
+def rg_shape_stop(voice)
+  @rg_shapes[voice].steps = false if voice <= RG_SQUARE_VOICES
+end
+
+def rg_step_shapes
+  (1..RG_SQUARE_VOICES).each do |voice|
+    walk = @rg_shapes[voice]
+    next unless walk.steps
+
+    now = rg_shape_at(walk.bits, walk.frame)
+    rg_sound_log("duty #{voice} #{now}") if walk.frame > 0 && now != rg_shape_at(walk.bits, walk.frame - 1)
+    @rg_squares[voice - 1].eighths_high = RG_EIGHTHS_OF_SHAPE[now]
+    walk.frame += 1
+  end
+end
+
 def rg_silence_voice(voice)
   rg_wobble_stop(voice)
+  rg_shape_stop(voice)
   case voice
   when RG_WAVE_VOICE then rg_wave_set_loudness(0)
   when RG_NOISE_VOICE then rg_noise_start(0, @rg_hiss.bits, 0, 0)
@@ -714,14 +754,15 @@ def rg_note_slide(note) = (@rg_game_music[note + 4] >> RG_SLIDE_AT) & RG_SLIDE_B
 def rg_note_pan(note) = (@rg_game_music[note + 4] >> RG_PAN_AT) & RG_PAN_BITS
 
 # The log's line for a note setting its voice, with the note's fade when it said one, and its
-# slide, its wobble and its speaker after that when it said them — with -1, for none, before one
-# said after it.
+# slide, its wobble, its speaker and its shapes after that when it said them — with -1, for none,
+# before one said after it.
 def rg_log_voice_set(voice, who, pitch, volume, note)
   said = @rg_game_music[note + 4]
   told = [said.anybits?(RG_SAID_FADE) ? said & (RG_FADE_UP | RG_FADE_STEP_BITS) : -1,
           said.anybits?(RG_SAID_SLIDE) ? rg_note_slide(note) : -1,
           said.anybits?(RG_SAID_VIBRATO) ? rg_note_vibrato(note) : -1,
-          rg_note_pan(note).positive? ? rg_note_pan(note) : -1]
+          rg_note_pan(note).positive? ? rg_note_pan(note) : -1,
+          @rg_game_music[note + 5].anybits?(RG_SAID_DUTY) ? @rg_game_music[note + 5] & RG_DUTY_BITS : -1]
   told.pop while !told.empty? && told.last.negative?
   rg_sound_log(["voice #{voice} #{who} #{pitch} #{volume}", *told].join(" "))
 end
@@ -741,6 +782,7 @@ def rg_play_note(part, note)
   rg_sound_log("note #{@rg_playing} #{pitch}")
   rg_log_voice_set(part.voice, @rg_playing, pitch, volume, note)
   rg_wobble_start(part.voice, note)
+  rg_shape_start(part.voice, note)
   @rg_sides[part.voice] = rg_note_pan(note)
   case part.kind
   when RG_PART_WAVE
@@ -768,9 +810,9 @@ def rg_play_note(part, note)
       rg_drop_held_note(part.voice)
       rg_sound_log("loudness #{part.voice} #{sounded}")
     elsif @rg_level_variable
-      rg_hold_note(RgHeldNote.new(part.voice, 0, written, ticks, part.tone, fade))
+      rg_hold_note(RgHeldNote.new(part.voice, 0, written, ticks, rg_note_eighths(part, note), fade))
     end
-    rg_square_start(part.voice, ticks, part.tone, sounded, fade, rg_note_slide(note))
+    rg_square_start(part.voice, ticks, rg_note_eighths(part, note), sounded, fade, rg_note_slide(note))
   end
 end
 
@@ -860,6 +902,7 @@ def rg_play_effect_note(effect, part, note)
   rg_sound_log("note #{number} #{pitch}")
   rg_log_voice_set(part.voice, number, pitch, volume, note)
   rg_wobble_start(part.voice, note)
+  rg_shape_start(part.voice, note)
   @rg_sides[part.voice] = rg_note_pan(note)
   case part.kind
   when RG_PART_WAVE
@@ -880,7 +923,7 @@ def rg_play_effect_note(effect, part, note)
       rg_noise_start(ticks, part.tone, volume, fade)
     end
   else
-    rg_square_start(part.voice, ticks, part.tone, pitch == 0 ? 0 : volume, fade, rg_note_slide(note))
+    rg_square_start(part.voice, ticks, rg_note_eighths(part, note), pitch == 0 ? 0 : volume, fade, rg_note_slide(note))
   end
 end
 
@@ -946,6 +989,7 @@ def rg_music_frame
     at += 1
   end
   rg_step_wobbles
+  rg_step_shapes
 end
 
 def rg_music_start_here

@@ -50,13 +50,30 @@ module VBlank
 
             module_function
 
-            def reserve(memory, effects: [], slides: false, wobbles: false)
+            def reserve(memory, effects: [], slides: false, wobbles: false, shapes: false)
               reserve_song_player(memory)
               memory.reserve(WAVE_LOADED, 1) unless effects.empty?
               memory.reserve(NOTE_SLIDE, 1) if slides
               memory.reserve(WOBBLES, WOBBLE_BYTES * WOBBLE_VOICES) if wobbles
+              memory.reserve(SHAPE_WALKS, SHAPE_BYTES * SHAPE_VOICES) if shapes
               Effects.reserve(memory, effects)
             end
+
+            # A SQUARE NOTE'S SHAPES, in a game where a square note says them, for each of the two
+            # square voices (Audio::Duty says what they are, and Reference::Player#step_shapes how they
+            # step): the shapes' bits, the frame of the note it is on, 1 while a note (not a rest)
+            # holds there, and the shape it played last frame. Four bytes a voice.
+            SHAPE_WALKS = "rt music shapes"
+            SHAPE_BYTES = 4
+            SHAPE_VOICES = 2
+            SHAPE_FRAME = 1
+            SHAPE_ON = 2
+            SHAPE_LAST = 3
+
+            def shapes?(memory) = memory.reserved?(SHAPE_WALKS)
+
+            # Whether anything moves a voice at the end of each of the player's frames (#emit_tick).
+            def steps_each_frame?(memory) = wobbles?(memory) || shapes?(memory)
 
             # A NOTE A VOICE WOBBLES, in a game where a note does, for each of the two square voices
             # and the wave voice (IR::Tunes::Wobble steps it): its depth and speed (Audio::Vibrato#bits'
@@ -102,11 +119,12 @@ module VBlank
               emit_game_side(asm, memory, sharing)
               return emit_no_songs(asm) unless songs
 
-              bytes = GBC::Music.note_bytes(slides, pans, wobbles?(memory))
+              bytes = GBC::Music.note_bytes(slides, pans, shapes?(memory), wobbles?(memory))
               emit_tick(asm, memory, level, sharing)
               emit_notes(asm, memory, level, sharing, fades, slides, pans, bytes)
               emit_wobbles(asm, memory) if wobbles?(memory)
               emit_set_speakers(asm, memory) if pans
+              emit_shapes(asm, memory) if shapes?(memory)
               Effects.emit(asm, memory, effects, by_rank, slides: slides, pans: pans, bytes: bytes) if sharing
             end
 
@@ -122,9 +140,10 @@ module VBlank
 
             # The slide of the note whose volume is at HL, kept for rt_voice_write: the byte after the
             # volume, in a game where a note slides. In one where a note plays from one speaker, the
-            # voice's speakers set from the byte after that (rt_set_speakers). And in one where a
-            # note wobbles, the voice set to wobble the note from the two after those
-            # (rt_wobble_start). Keeps B and DE.
+            # voice's speakers set from the byte after that (rt_set_speakers). In one where a square
+            # note says its shapes, the note's first shape and its stepping from the byte after that
+            # (rt_shape_start). And in one where a note wobbles, the voice set to wobble the note from
+            # the two after those (rt_wobble_start). Keeps B and DE.
             def emit_store_slide_speaker_vibrato(asm, memory, slides, pans)
               if slides
                 asm.inc(:hl)
@@ -135,6 +154,11 @@ module VBlank
                 asm.inc(:hl)
                 asm.load(:a, [:hl])
                 asm.call("rt_set_speakers")
+              end
+              if shapes?(memory)
+                asm.inc(:hl)
+                asm.load(:a, [:hl])
+                asm.call("rt_shape_start")
               end
               return unless wobbles?(memory)
 
@@ -271,6 +295,110 @@ module VBlank
               asm.ret
             end
 
+            # Voice +voice+ steps no shapes: it went quiet, or the game's own sound took it. Nothing
+            # in a game where no square note says its shapes, nor on a voice that is not square.
+            def emit_end_shapes(asm, memory, voice)
+              return unless shapes?(memory) && voice <= SHAPE_VOICES
+
+              asm.xor_a(:a)
+              asm.load([memory[SHAPE_WALKS] + ((voice - 1) * SHAPE_BYTES) + SHAPE_ON], :a)
+            end
+
+            # A SQUARE NOTE'S SHAPES, in a game where a square note says them.
+            #
+            # rt_shape_start: A = the note's shapes (Audio::Duty#bits), DE its tuning. On a square
+            # voice ([PART]) the note is written in its first shape — the part's tone, which
+            # rt_voice_write writes, is that for this note — and steps its shapes from here, unless it
+            # is a rest. Keeps BC, DE and HL.
+            #
+            # rt_shape_step: every square voice holding a note given the shape of the frame it is on,
+            # at the end of the interrupt's frame after the wobbles (Reference::Player#step_shapes). A
+            # voice's tone is the top two bits of its NR11 or NR21, written alone, so the note is not
+            # started again; written every frame, so a held note the music level started again this
+            # frame, in its first shape, is back in its frame's before the frame is heard. A run of
+            # the cartridge reads each change of shape at rt_shape_changed_N, where A holds the
+            # shape's two bits (GBC::SoundLog).
+            def emit_shapes(asm, memory)
+              h = Console::GBCHardware
+              asm.label("rt_shape_start")
+              asm.push(:hl)
+              asm.push(:bc)
+              asm.load(:c, :a) # the shapes
+              asm.load(:a, [memory[PART]])
+              asm.cp_a(SHAPE_VOICES + 1)
+              asm.jump_relative(:nc, "rt_shape_start_done")
+              asm.load(:b, :a)
+              asm.load(:a, :c)
+              asm.and_a(3)
+              asm.rrca
+              asm.rrca # the first shape, where the register keeps it
+              asm.load([memory[PART] + 1], :a)
+              asm.load(:a, :b) # HL = this voice's shapes: SHAPE_WALKS + its place × SHAPE_BYTES
+              asm.dec(:a)
+              asm.add_a(:a)
+              asm.add_a(:a)
+              asm.add_a(memory[SHAPE_WALKS] & 0xFF)
+              asm.load(:l, :a)
+              asm.load(:a, memory[SHAPE_WALKS] >> 8)
+              asm.adc_a(0)
+              asm.load(:h, :a)
+              asm.load(:a, :c)
+              asm.load([:hli], :a)
+              asm.xor_a(:a)
+              asm.load([:hli], :a) # its first frame
+              asm.load(:a, :d) # a rest's tuning is every bit set
+              asm.and_a(:e)
+              asm.inc(:a)
+              asm.jump_relative(:z, "rt_shape_start_rest")
+              asm.load(:a, 1)
+              asm.label("rt_shape_start_rest")
+              asm.load([:hli], :a)
+              asm.load(:a, :c)
+              asm.and_a(3)
+              asm.load([:hl], :a) # the shape it plays first
+              asm.label("rt_shape_start_done")
+              asm.pop(:bc)
+              asm.pop(:hl)
+              asm.ret
+
+              asm.label("rt_shape_step")
+              { 1 => h::NR11, 2 => h::NR21 }.each do |voice, register|
+                at = memory[SHAPE_WALKS] + ((voice - 1) * SHAPE_BYTES)
+                still = "rt_shape_still_#{voice}"
+                asm.load(:a, [at + SHAPE_ON])
+                asm.and_a(:a)
+                asm.jump_relative(:z, still)
+                asm.load(:a, [at + SHAPE_FRAME])
+                asm.load(:c, :a)
+                asm.inc(:a) # it wraps at 256, which four goes into
+                asm.load([at + SHAPE_FRAME], :a)
+                asm.load(:a, [at])
+                asm.load(:b, :a)
+                asm.load(:a, :c)
+                asm.and_a(3) # the frame's place among the four
+                asm.jump_relative(:z, "rt_shape_shifted_#{voice}")
+                asm.label("rt_shape_shift_#{voice}")
+                asm.srl(:b)
+                asm.srl(:b)
+                asm.dec(:a)
+                asm.jump_relative(:nz, "rt_shape_shift_#{voice}")
+                asm.label("rt_shape_shifted_#{voice}")
+                asm.load(:a, :b)
+                asm.and_a(3) # the frame's shape
+                asm.load(:hl, at + SHAPE_LAST)
+                asm.cp_a([:hl])
+                asm.jump_relative(:z, "rt_shape_same_#{voice}")
+                asm.label("rt_shape_changed_#{voice}") # reached only when the shape changes
+                asm.load([:hl], :a)
+                asm.label("rt_shape_same_#{voice}")
+                asm.rrca
+                asm.rrca
+                asm.load_high(register, :a)
+                asm.label(still)
+              end
+              asm.ret
+            end
+
             # WHICH SPEAKERS A VOICE PLAYS FROM is a pair of switches for each voice in NR51: the four
             # voices' right switches in bits 0 to 3 and their left ones in bits 4 to 7, all on since
             # power-on (Runtime::Boot).
@@ -323,6 +451,7 @@ module VBlank
                 asm.xor_a(:a)
                 asm.load([memory[WOBBLES] + ((voice - 1) * WOBBLE_BYTES)], :a)
               end
+              emit_end_shapes(asm, memory, voice)
               h = Console::GBCHardware
               volume, start = { 1 => [h::NR12, h::NR14], 2 => [h::NR22, h::NR24], 3 => [h::NR30, nil],
                                 4 => [h::NR42, h::NR44] }.fetch(voice)
@@ -369,7 +498,7 @@ module VBlank
                 asm.call("rt_music_tune_rank")
                 asm.call("rt_music_song_frame")
               else
-                asm.call(wobbles?(memory) ? "rt_music_tick_body" : "rt_music_tick") # no wobble moves here
+                asm.call(steps_each_frame?(memory) ? "rt_music_tick_body" : "rt_music_tick") # no wobble or shape moves here
               end
               asm.ei
               asm.ret
@@ -397,10 +526,14 @@ module VBlank
               h = Console::GBCHardware
               asm.label("rt_music_tick")
               # In a game where a note wobbles, every wobbling voice moves on once the frame's notes
-              # are all written (rt_wobble_step), which the steps below end in many places to reach.
-              if wobbles?(memory)
+              # are all written (rt_wobble_step), and then, where a note steps its shapes, every
+              # square voice that does (rt_shape_step) — which the steps below end in many places to
+              # reach.
+              steps = [("rt_wobble_step" if wobbles?(memory)), ("rt_shape_step" if shapes?(memory))].compact
+              unless steps.empty?
                 asm.call("rt_music_tick_body")
-                asm.jump("rt_wobble_step")
+                steps[0...-1].each { |step| asm.call(step) }
+                asm.jump(steps.last)
                 asm.label("rt_music_tick_body")
               end
               if sharing
@@ -592,6 +725,9 @@ module VBlank
               HELD_VOICES.times { |i| asm.load([memory[HELD] + i], :a) }
               if wobbles?(memory)
                 WOBBLE_VOICES.times { |i| asm.load([memory[WOBBLES] + (i * WOBBLE_BYTES)], :a) }
+              end
+              if shapes?(memory)
+                SHAPE_VOICES.times { |i| asm.load([memory[SHAPE_WALKS] + (i * SHAPE_BYTES) + SHAPE_ON], :a) }
               end
               asm.load(:a, 0x80)
               [h::NR14, h::NR24, h::NR44].each { |register| asm.load_high(register, :a) }

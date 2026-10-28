@@ -118,12 +118,18 @@ module VBlank
       # both (Audio::Pan.side_of) — which a note that says :center plays from, in a part that pans.
       def note_side(part, event) = Audio::Pan.side_of(event[Audio::Music::Part::PAN_SLOT] || part.pan)
 
+      # A SQUARE NOTE'S SHAPE, or the shapes it steps through (an Audio::Duty), as the note or its
+      # part said a Duty, or nil when neither did — a part that names one shape plays it, as it
+      # always did, and says nothing here.
+      def said_duty(part, event) = event[Audio::Music::Part::DUTY_SLOT] || part.duties
+
       # A NOTE SETTING ITS VOICE, as every backend's log says it: [:voice, channel, who, frequency,
       # volume], then the note's fade, its slide and its wobble when it said them (#said_fade,
-      # #said_slide, #said_vibrato), and its side when it is one speaker (#note_side), with a nil
-      # before one said after it. A rest says none of them: nothing sounds to change.
-      def voice_entry(channel, who, frequency, volume, fade: nil, slide: nil, vibrato: nil, side: nil)
-        said = frequency.positive? ? Audio::Music.without_trailing_nils([fade, slide, vibrato, side]) : []
+      # #said_slide, #said_vibrato), its side when it is one speaker (#note_side), and its shape
+      # when it said one (#said_duty), with a nil before one said after it. A rest says none of
+      # them: nothing sounds to change.
+      def voice_entry(channel, who, frequency, volume, fade: nil, slide: nil, vibrato: nil, side: nil, duty: nil)
+        said = frequency.positive? ? Audio::Music.without_trailing_nils([fade, slide, vibrato, side, duty]) : []
         [:voice, channel, who, frequency, volume, *said]
       end
 

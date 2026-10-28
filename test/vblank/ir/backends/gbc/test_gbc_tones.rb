@@ -87,6 +87,36 @@ class TestGBCTones < Minitest::Test
     assert_includes pitches, 508, "...and seven below"
   end
 
+  # How much of frame +index+ of +heard+ is high: above the middle of its own lowest and highest.
+  private def high_share(heard, index)
+    part = heard.frames(index, index)
+    middle = (part.max + part.min) / 2.0
+    part.count { |sample| sample >= middle }.fdiv(part.length)
+  end
+
+  # SHAPES OF THEIR OWN: the melody's second note thin where its part is hollow, and the harmony
+  # taking turns at thin and thick a frame each, the Color's own register told every frame.
+  def test_notes_play_in_shapes_of_their_own
+    program = color_program do
+      enable_sound
+      song :tune do
+        tempo 120
+        voice(:melody) { |v| v.duty :half; v.note :A4, :half; v.note :C5, :half, duty: :eighth }
+        voice(:harmony) { |v| v.duty %i[eighth three_quarter]; v.note :E4, :whole }
+      end
+      play_song :tune
+      game_loop {}
+    end
+
+    melody = console_voice(program, :square1, frames: 100)
+    assert_in_delta 0.5, high_share(melody, 30), 0.1, "the part's hollow shape"
+    assert_in_delta 0.125, high_share(melody, 90), 0.1, "the second note's own thin one"
+    harmony = console_voice(program, :square2, frames: 30)
+    shares = (10..17).map { |index| high_share(harmony, index) }
+    thick = shares.map { |share| share > 0.35 } # the thin shape is an eighth high, the thick three quarters
+    assert(thick.each_cons(2).all? { |one, other| one != other }, "thin and thick by turns: #{shares}")
+  end
+
   # PARTS ON ONE SPEAKER EACH, the drums on both — and the game's own beep, hit and tone, which take
   # the voices of parts on one speaker, play from both again.
   def test_each_part_plays_from_its_own_speaker

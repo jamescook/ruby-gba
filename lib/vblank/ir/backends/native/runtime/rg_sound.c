@@ -82,7 +82,7 @@
  *       64ths of a second it holds each step of volume, a recorded part's lane (which of the
  *       song's recorded parts it is) and 0 — notes the first time through, notes every time
  *       after,
- *       then those notes, five numbers each: the frame it starts on, which of the songs' pitches
+ *       then those notes, six numbers each: the frame it starts on, which of the songs' pitches
  *       it is (0 is a rest; a pitch need not be a whole number of Hz, so the log is given the
  *       number and reads the pitch back from it), its volume, and the ticks it lasts on its
  *       voice's clock (one wave, or one step of the hiss) — or, on a recorded part, which row of
@@ -91,7 +91,9 @@
  *       set, or 0 to leave it to the voice (see note_fade) — and in the same number, how it
  *       slides its pitch when it or its part said so: SAID_SLIDE set, and the slide's seven bits
  *       (Audio::PitchSlide#bits) from SLIDE_AT up (see note_slide), how it wobbles (SAID_VIBRATO
- *       and VIBRATO_AT), and the speaker it plays from in the top two bits (see note_pan)
+ *       and VIBRATO_AT), and the speaker it plays from in the top two bits (see note_pan) — and
+ *       a square note's shapes when it or its part said them: SAID_DUTY set, and the shapes'
+ *       eight bits under it (Audio::Duty#bits; see shape_start), or 0 for its part's one shape
  *
  * rg_game_note_sounds: how many rows, then eight numbers each — the recording a note plays, how
  * far through it the mixer reads for each of its own samples (the note's pitch), how far back it
@@ -125,7 +127,7 @@
 /* A song has at most a part for each of the console's own voices and one for each of the mixer's:
  * a game is checked the way a cartridge build checks it, and that refuses a song with more. */
 #define PARTS_MOST 20
-#define NUMBERS_PER_NOTE 5
+#define NUMBERS_PER_NOTE 6
 #define FADE_STEP_BITS 7 /* a note's fade (Audio::NoteFade#bits): the 64ths of a second a step lasts */
 #define FADE_UP 8        /* ...set when it swells */
 #define SAID_FADE 16     /* ...and beside them in a note, set when the note or its part said one */
@@ -147,6 +149,8 @@
 #define PAN_BITS 3
 #define PAN_LEFT 1             /* the left alone, */
 #define PAN_RIGHT 2            /* ...the right alone, or nought for both */
+#define SAID_DUTY (1 << 8)     /* a note's sixth number: set when it or its part said its shapes, */
+#define DUTY_BITS 0xFF         /* ...whose eight bits (Audio::Duty#bits) are under it */
 #define NUMBERS_PER_NOTE_SOUND 8
 #define NUMBERS_PER_BEEP 4
 #define NUMBERS_PER_WAVE 3
@@ -557,14 +561,17 @@ void rg_sound_enabled(void) {
   for (int32_t voice = 1; voice <= RG_NOISE_VOICE; voice++) sides[voice] = 0; /* every voice from both */
 }
 
-/* The game's own sound takes a voice, which then wobbles no song's note (Reference::Player#game_sound_on). */
+/* The game's own sound takes a voice, which then wobbles no song's note, nor steps its shapes
+ * (Reference::Player#game_sound_on). */
 static void wobble_stop(int32_t voice);
+static void shape_stop(int32_t voice);
 
 void rg_sound_beep(int32_t which) {
   if (which < 0 || which >= rg_game_beeps[0]) rg_fault("there is no beep number %d", (int)which);
   const int32_t *beep = &rg_game_beeps[1 + (which * NUMBERS_PER_BEEP)];
   rg_sound_log("beep %d", (int)which);
   wobble_stop(BEEP_VOICE);
+  shape_stop(BEEP_VOICE);
   sides[BEEP_VOICE] = 0;
   square_start(BEEP_VOICE, beep[0], beep[1], beep[2], beep[3], 0);
 }
@@ -777,6 +784,57 @@ static void wobble_start(int32_t voice, const int32_t *note) {
   wobbles[voice] = (wobble){vibrato, vibrato >> VIBRATO_AFTER_AT, 0, 0, 0, note[3]};
 }
 
+/* A SQUARE NOTE'S SHAPES, by the voice it is on (Audio::Duty says what they are, and
+ * Reference::Player#step_shapes how they step): the shapes' bits, the frame of the note it is on,
+ * and whether they change at all — a note of one shape is never stepped. */
+typedef struct {
+  int32_t bits, frame, steps;
+} shape_walk;
+
+static shape_walk shapes[RG_SQUARE_VOICES + 1];
+
+/* How many eighths of the wave are high, by the register's two bits for a shape (Audio::Sound::
+ * SQUARE_HIGH_EIGHTHS). */
+static const int32_t eighths_of_shape[] = {1, 2, 4, 6};
+
+/* The register's two bits for the shape on frame +frame+ of a note. */
+static int32_t shape_at(int32_t bits, int32_t frame) { return (bits >> (2 * (frame % 4))) & 3; }
+
+/* How many eighths of a square note's wave are high as it starts: its first shape, when it or its
+ * part said its shapes, or else its part's one. */
+static int32_t note_eighths(const part_walk *part, const int32_t *note) {
+  return note[5] & SAID_DUTY ? eighths_of_shape[shape_at(note[5], 0)] : part->tone;
+}
+
+/* +voice+ has just been given +note+: a square voice steps its shapes from here, or — a rest, or a
+ * note of one shape — steps nothing. */
+static void shape_start(int32_t voice, const int32_t *note) {
+  if (voice > RG_SQUARE_VOICES) return;
+  int32_t bits = note[1] != 0 && (note[5] & SAID_DUTY) ? note[5] & DUTY_BITS : 0;
+  int32_t steps = 0;
+  for (int32_t frame = 1; frame < 4; frame++) steps |= shape_at(bits, frame) != shape_at(bits, 0);
+  shapes[voice] = (shape_walk){bits, 0, steps};
+}
+
+static void shape_stop(int32_t voice) {
+  if (voice <= RG_SQUARE_VOICES) shapes[voice].steps = 0;
+}
+
+/* EVERY SQUARE NOTE THAT STEPS ITS SHAPES given the shape of the frame it is on, at the end of the
+ * player's frame after the wobbles, the voices in order (Reference::Player#step_shapes), and logged
+ * as it changes. The shape is written every frame, so a held note sounded again at a new music
+ * volume is back in its frame's shape. */
+static void step_shapes(void) {
+  for (int32_t voice = 1; voice <= RG_SQUARE_VOICES; voice++) {
+    shape_walk *walk = &shapes[voice];
+    if (!walk->steps) continue;
+    int32_t now = shape_at(walk->bits, walk->frame);
+    if (walk->frame > 0 && now != shape_at(walk->bits, walk->frame - 1)) rg_sound_log("duty %d %d", (int)voice, (int)now);
+    squares[voice - 1].eighths_high = eighths_of_shape[now];
+    walk->frame++;
+  }
+}
+
 static void wobble_stop(int32_t voice) {
   if (voice <= RG_WAVE_VOICE) wobbles[voice].vibrato = 0;
 }
@@ -819,6 +877,7 @@ static void step_wobbles(void) {
  * nothing to play, the wave voice at no loudness. */
 static void silence_voice(int32_t voice) {
   wobble_stop(voice);
+  shape_stop(voice);
   switch (voice) {
   case RG_WAVE_VOICE: wave_set_loudness(0); break;
   case RG_NOISE_VOICE: noise_start(0, hiss.bits, 0, 0); break;
@@ -970,14 +1029,15 @@ static int32_t note_slide(const int32_t *note) { return (note[4] >> SLIDE_AT) & 
 static int32_t note_pan(const int32_t *note) { return (int32_t)(((uint32_t)note[4] >> PAN_AT) & PAN_BITS); }
 
 /* The log's line for a note setting its voice (IR::Tunes.voice_entry): with the note's fade after it
- * when it said one, its slide, its wobble and its speaker after that when it said them — with -1,
- * for none, before one said after it. */
+ * when it said one, its slide, its wobble, its speaker and its shapes after that when it said
+ * them — with -1, for none, before one said after it. */
 static void log_voice_set(int32_t voice, int32_t who, int32_t pitch, int32_t volume, const int32_t *note) {
   int32_t said[] = {note[4] & SAID_FADE ? note[4] & (FADE_UP | FADE_STEP_BITS) : -1,
                     note[4] & SAID_SLIDE ? note_slide(note) : -1,
                     note[4] & SAID_VIBRATO ? note_vibrato(note) : -1,
-                    note_pan(note) ? note_pan(note) : -1};
-  int32_t count = 4;
+                    note_pan(note) ? note_pan(note) : -1,
+                    note[5] & SAID_DUTY ? note[5] & DUTY_BITS : -1};
+  int32_t count = 5;
   while (count > 0 && said[count - 1] < 0) count--;
   char line[64];
   int at = snprintf(line, sizeof line, "voice %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume);
@@ -1006,6 +1066,7 @@ static void play_note(part_walk *part, const int32_t *note) {
   rg_sound_log("note %d %d", (int)playing, (int)pitch);
   log_voice_set(part->voice, playing, pitch, volume, note);
   wobble_start(part->voice, note);
+  shape_start(part->voice, note);
   sides[part->voice] = note_pan(note);
   switch (part->kind) {
   case PART_WAVE:
@@ -1036,9 +1097,9 @@ static void play_note(part_walk *part, const int32_t *note) {
       drop_held_note(part->voice);
       rg_sound_log("loudness %d %d", (int)part->voice, (int)sounded);
     } else if (level_variable) {
-      hold_note((held_note){part->voice, 0, written, ticks, part->tone, fade});
+      hold_note((held_note){part->voice, 0, written, ticks, note_eighths(part, note), fade});
     }
-    square_start(part->voice, ticks, part->tone, sounded, fade, note_slide(note));
+    square_start(part->voice, ticks, note_eighths(part, note), sounded, fade, note_slide(note));
     break;
   }
 }
@@ -1145,6 +1206,7 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
   rg_sound_log("note %d %d", (int)number, (int)pitch);
   log_voice_set(part->voice, number, pitch, volume, note);
   wobble_start(part->voice, note);
+  shape_start(part->voice, note);
   sides[part->voice] = note_pan(note);
   switch (part->kind) {
   case PART_WAVE:
@@ -1166,7 +1228,7 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
       noise_start(ticks, part->tone, volume, fade);
     }
     break;
-  default: square_start(part->voice, ticks, part->tone, pitch == 0 ? 0 : volume, fade, note_slide(note)); break;
+  default: square_start(part->voice, ticks, note_eighths(part, note), pitch == 0 ? 0 : volume, fade, note_slide(note)); break;
   }
 }
 
@@ -1229,6 +1291,7 @@ void rg_music_frame(void) {
   if (playing >= 0) play_song_frame();
   while (at < EFFECT_COUNT) play_effect_frame(by_rank[at++]);
   step_wobbles();
+  step_shapes();
 }
 
 /* A TUNE NAMED `this_frame: true`, started where the game names it rather than at the next frame
