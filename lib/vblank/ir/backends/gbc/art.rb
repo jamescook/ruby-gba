@@ -192,6 +192,11 @@ module VBlank
           # Do the screens bring their own background palettes in with their tiles?
           def room_colors? = @room_colors
 
+          # Does each room put its own palette first, every screen's first being black alone
+          # (#keep_art_asked_so_far)? Then every room, one of nothing included, puts it in as it
+          # comes up (Lowering::Picture#plan_rooms_for_bare_scenes).
+          def first_palette_per_room? = room_colors? && @first_free
+
           # Has the game pictures grouped by room, copied in as a room comes up (Runtime::PictureGroups)?
           def groups? = !@grouped.empty?
 
@@ -377,22 +382,32 @@ module VBlank
           # background draws with other lists of colours; for one that is, the colours its palette
           # shows with each of those lists (Lowering::Picture#recolor_steps_of), which write into its
           # palette — so two tiles that show the same colours but are drawn with other lists
-          # differently are given palettes of their own.
-          def background_tile(name, image, room: nil, recolor_steps: nil)
+          # differently are given palettes of their own. +empty_cells_shown+ says an empty cell can
+          # show while its palette is in (Lowering::Picture#empty_cells_shown_with?); where none can,
+          # the palette of a tile drawn with other lists can be the first, whatever its first colour
+          # (#background_palette_number). Others keep to black first, as they always have.
+          def background_tile(name, image, room: nil, recolor_steps: nil, empty_cells_shown: true)
             @background_tile_of[[room&.id, name]] ||= begin
               unless image.width == 8 && image.height == 8
                 raise LoweringError, "the tile #{name.inspect} is #{image.width}×#{image.height}; the Game Boy Color " \
                                      "build makes 8×8 tiles only so far."
               end
 
+              drawing = TileDrawing.new(room: room, recolor_steps: recolor_steps, any_first: !empty_cells_shown && !recolor_steps.nil?)
               order = list_order(image)
               placed = recolor_steps && !order && drawn_places(image)
-              if order then listed_tile(image, order, room, recolor_steps)
-              elsif placed then placed_tile(image, placed, room, recolor_steps)
-              else drawn_tile(name, image, room, recolor_steps)
+              if order then listed_tile(image, order, drawing)
+              elsif placed then placed_tile(image, placed, drawing)
+              else drawn_tile(name, image, drawing)
               end
             end
           end
+
+          # How a background tile is drawn, past its picture: the Room it is numbered in (nil for the
+          # tiles every screen keeps), the colours it shows with each list it is drawn with (nil for
+          # none), and whether its palette can be the first whatever its first colour, on screens
+          # where no empty cell shows (#background_tile).
+          TileDrawing = Data.define(:room, :recolor_steps, :any_first)
 
           # A BACKGROUND PALETTE: its four colours, and for one a background draws with other lists,
           # the four it shows with each of them (see #background_tile). Two palettes are the same
@@ -428,7 +443,7 @@ module VBlank
           # each pixel is its place's position in the palette (#placed_colors). Another list drawn
           # over one without see-through pixels writes its first colour too, so it cannot keep black
           # first.
-          def placed_tile(image, placed, room, recolor_steps)
+          def placed_tile(image, placed, drawing)
             see_through = see_through_tile?(image)
             colors = placed_colors(image, placed) { |place| image.colors[place] }
             places = Array.new(64) do |i|
@@ -436,8 +451,7 @@ module VBlank
 
               placed.index(image.place_at(i)) + (see_through ? 1 : 0)
             end
-            [tile_number_in(room, encode(places)),
-             background_palette_number(colors, keeps_black: see_through, room: room, swaps: recolor_steps)]
+            [tile_number_in(drawing.room, encode(places)), drawn_palette_number(colors, drawing, keeps_black: see_through)]
           end
 
           # A TILE DRAWN BY PLACE FROM A LIST OF FOUR, with no see-through pixel, the way a cartridge
@@ -462,12 +476,18 @@ module VBlank
 
           # The tile number and palette number of a tile drawn from its list (#list_order): each
           # pixel is its place's position in +order+, and the palette is the list's colours in it.
-          # Another list drawn over it writes its first colour too, so one with +recolor_steps+ cannot keep
-          # black first.
-          def listed_tile(image, order, room, recolor_steps)
+          # Another list drawn over it writes its first colour too, so one drawn with other lists
+          # cannot keep black first.
+          def listed_tile(image, order, drawing)
             colors = padded(order.map { |place| image.colors[place] & 0x7FFF })
-            [tile_number_in(room, encode(Array.new(64) { |i| order.index(image.place_at(i)) })),
-             background_palette_number(colors, keeps_black: !recolor_steps, room: room, swaps: recolor_steps)]
+            [tile_number_in(drawing.room, encode(Array.new(64) { |i| order.index(image.place_at(i)) })),
+             drawn_palette_number(colors, drawing, keeps_black: !drawing.recolor_steps)]
+          end
+
+          # The number of the palette of +colors+ a tile drawn as +drawing+ says is drawn from.
+          def drawn_palette_number(colors, drawing, keeps_black: true)
+            background_palette_number(colors, keeps_black: keeps_black, room: drawing.room, swaps: drawing.recolor_steps,
+                                              any_first: drawing.any_first)
           end
 
           # A background palette's number. The first of them has to start with black, the colour an
@@ -476,8 +496,10 @@ module VBlank
           # the first palette after it that can: that one takes its place rather than a ninth.
           # +room+ is the one whose tiles it draws, in a game whose screens bring their colours in.
           # +swaps+ is what the palette shows with each list a background draws it with, nil for none.
-          def background_palette_number(colors, keeps_black: true, room: nil, swaps: nil)
-            can_be_first = keeps_black && colors.first == BACKDROP
+          # +any_first+ says no empty cell shows while it is in, so whatever its first colour, it can
+          # be the first.
+          def background_palette_number(colors, keeps_black: true, room: nil, swaps: nil, any_first: false)
+            can_be_first = any_first || (keeps_black && colors.first == BACKDROP)
             palette = BackgroundPalette.new(colors: colors, swaps: swaps)
             return room_palette_number(room, palette, can_be_first) if room && room_colors?
             return settled_palette_number(palette, can_be_first) if @shared_palettes
@@ -556,7 +578,7 @@ module VBlank
           # A tile drawn any other way — from colours, or from a list with a see-through place or
           # more than four colours: three colours of its own after the backdrop, in the order it
           # first draws them, which its see-through pixels show.
-          def drawn_tile(name, image, room, recolor_steps)
+          def drawn_tile(name, image, drawing)
             drawn = tile_colors(image)
             if drawn.size > OWN_COLORS
               raise LoweringError, "the tile #{name.inspect} has #{drawn.size} colours, and a Game Boy Color tile holds " \
@@ -565,7 +587,7 @@ module VBlank
 
             colors = [BACKDROP, *drawn]
             places = Array.new(64) { |i| image.tile_see_through_at?(i) ? 0 : drawn.index(image.color_at(i) & 0x7FFF) + 1 }
-            [tile_number_in(room, encode(places)), background_palette_number(padded(colors), room: room, swaps: recolor_steps)]
+            [tile_number_in(drawing.room, encode(places)), drawn_palette_number(padded(colors), drawing)]
           end
 
           # The colours a background tile draws, in the order its palette holds them after the

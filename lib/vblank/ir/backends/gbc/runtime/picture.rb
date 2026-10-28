@@ -1231,6 +1231,11 @@ module VBlank
               asm.load(:l, :a)
               asm.xor_a(:a)
               asm.load([memory[ROOMS] + ROOM_PENDING], :a)
+              if colors # a room that brings colours alone in holds the display on: no chunk to copy
+                asm.load(:a, [:hl])
+                asm.and_a(:a)
+                asm.ret(:z)
+              end
               asm.load_high(:a, h::LCDC)
               asm.bit(7, :a)
               asm.jump_relative(:z, "rt_tiles_chunk") # off already

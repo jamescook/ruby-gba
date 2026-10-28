@@ -107,6 +107,122 @@ class TestTiledColorLists < Minitest::Test
     assert_equal 0, seen.pixel(100, 100), "an empty cell"
   end
 
+  # A SCREEN FADED IN FROM WHITE BY STEPPING EIGHT LISTS, the way a cartridge made for the Color
+  # fades: each tile's own list is four whites — each list's a little off the others', since two
+  # lists of the same colours are one list — and the game draws it with the next of four lists a
+  # frame, the last its real colours. The map fills the screen, so no empty cell shows.
+  # +scenes+, each with eight lists of its own, taking turns every +switch+ frames; none for one screen.
+  # +bare_at+ is a frame a scene with no background of its own takes over at, nil for never.
+  private def faded_in_eight(steps: 4, scenes: 0, switch: 6, bare_at: nil)
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      [*(0...[scenes, 1].max)].each do |k|
+        8.times do |n|
+          white = VBlank::Graphics::Color.rgb(31, 31 - k, 31 - n)
+          colors :"own#{k}_#{n}", [:transparent, white, white, white, white]
+          steps.times do |s|
+            colors :"step#{k}_#{n}_#{s}",
+                   [:transparent, *(0..3).map { |c| VBlank::Graphics::Color.rgb(31 - (s * 7), (n * 3) + c, (s * c * 2) + k) }]
+          end
+          image :"tile#{k}_#{n}", width: 8, height: 8, colors: :"own#{k}_#{n}", places: QUARTERS
+        end
+        tiles :"set#{k}", (0...8).to_h { |n| [n.to_s, :"tile#{k}_#{n}"] }
+      end
+      row = (0...8).map(&:to_s).join * ((screen_width / 64) + 1)
+      map = Array.new((screen_height / 8) + 1) { row }
+      step = var :step, 0
+      lists = ->(k) { (0...8).to_h { |n| [:"own#{k}_#{n}", (0...steps).map { |s| :"step#{k}_#{n}_#{s}" }] } }
+      if scenes.zero?
+        board = background :board, tiles: :set0, map: map
+        game_loop do
+          board.draw_with(lists.call(0), showing: step)
+          (step < steps - 1).then { step.add! 1 }
+        end
+      else
+        scenes.times do |k|
+          scene(:"screen#{k}") do
+            board = background :board, tiles: :"set#{k}", map: map
+            board.draw_with(lists.call(k), showing: step)
+          end
+        end
+        scene(:bare) { draw_text "HI", 8, 8, :white }
+        state = var :state, 0
+        tick = var :tick, 0
+        game_loop do
+          tick.add! 1
+          (step < steps - 1).then { step.add! 1 }
+          (tick == switch).then do
+            state.set! 1
+            step.set! 0
+          end
+          (tick == bare_at).then { state.set! scenes } if bare_at
+          case_var(:state) do
+            scenes.times { |k| when_val k, :"screen#{k}" }
+            when_val scenes, :bare
+          end
+        end
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_eight_lists_on_a_screen_with_no_empty_cell_can_all_be_drawn_with_others
+    game = faded_in_eight
+
+    assert_backends_agree(game, frames: [2, 6], name: "FADE8")
+    assert_equal VBlank::Graphics::Color.rgb(10, 0, 0), game_player.run(game, frames: 6).screen.pixel(0, 0)
+  end
+
+  # Two scenes of eight such lists each: each scene brings its own eight in as it comes up.
+  def test_two_scenes_of_eight_lists_drawn_with_others_each_fade_in
+    game = faded_in_eight(scenes: 2)
+
+    assert_backends_agree(game, frames: [4, 12], name: "FADE88")
+    assert_equal VBlank::Graphics::Color.rgb(10, 0, 1), game_player.run(game, frames: 14).screen.pixel(0, 0)
+  end
+
+  # A SCENE WITH NO BACKGROUND OF ITS OWN after them shows nothing but black, the colour of a cell
+  # nothing is drawn in, though the scene before it put a list drawn with others first.
+  def test_a_bare_scene_after_eight_lists_drawn_with_others_is_black
+    game = faded_in_eight(scenes: 2, bare_at: 14)
+
+    assert_equal 0, game_player.run(game, frames: 20).screen.pixel(100, 100)
+  end
+
+  # ONE SCENE OF SEVEN SUCH LISTS that takes over a few frames in: before it does, the screen shows
+  # cells nothing is drawn in, which are black.
+  def test_the_frames_before_a_scene_of_lists_drawn_with_others_are_black
+    white = rgb_of(31, 31, 31)
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      7.times do |n|
+        colors :"own#{n}", [:transparent, white, white, white, VBlank::Graphics::Color.rgb(31, 31, 31 - n)]
+        colors :"dusk#{n}", [:transparent, *[0x1F, 0x3E0, 0x7C00, 0x3FF].map { |c| c - n }]
+        image :"tile#{n}", width: 8, height: 8, colors: :"own#{n}", places: QUARTERS
+      end
+      tiles :set, (0...7).to_h { |n| [n.to_s, :"tile#{n}"] }
+      row = (0...7).map(&:to_s).join * ((screen_width / 56) + 1)
+      state = var :state, -1
+      tick = var :tick, 0
+      scene(:board) do
+        board = background :board, tiles: :set, map: Array.new((screen_height / 8) + 1) { row }
+        board.draw_with((0...7).to_h { |n| [:"own#{n}", :"dusk#{n}"] })
+      end
+      game_loop do
+        tick.add! 1
+        (tick == 5).then { state.set! 0 }
+        case_var(:state) { when_val 0, :board }
+      end
+    end
+    b.finalize_program
+
+    assert_equal 0, game_player.run(b.program, frames: 3).screen.pixel(100, 100)
+    assert_backends_agree(b.program, frames: [3, 10], name: "LATE7")
+  end
+
   # TWO LISTS OF THE SAME COLOURS IN ANOTHER ORDER, each drawing a tile: the Color draws both from
   # the same four colours, black first, but drawn with other lists, each place of each shows its
   # own list's colour.

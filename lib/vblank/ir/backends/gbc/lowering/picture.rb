@@ -128,7 +128,9 @@ module VBlank
               @art.keep_art_asked_so_far
               @tile_rooms = {} # [scene, area] -> the Room brought in for a screen of that scene, at that area
               @scene_rooms = {} # a scene -> the Room its own tiles are numbered in
+              @room_scenes = {} # a Room's id -> the scene it is brought in for, :every for every screen
               tiled_scenery.filter_map(&:scene).uniq.each { |scene| plan_scene_room(scene) }
+              plan_rooms_for_bare_scenes
               walking = every.find(&:several_sets?)
               return unless walking
 
@@ -142,6 +144,7 @@ module VBlank
               own = tiled_scenery.select { |bg| bg.scene == scene }
               walking = own.find(&:several_sets?)
               room = @art.add_room(scene_words(scene), brought_in: walking.nil?)
+              @room_scenes[room.id] = scene
               own.reject(&:several_sets?).each { |bg| tiles_shown(bg).each { |name| background_tile_named(name, room) } }
               @scene_rooms[scene] = room
               walking ? plan_area_rooms(walking, room) : @tile_rooms[[scene, nil]] = room
@@ -152,12 +155,108 @@ module VBlank
               bg.sets.each_with_index do |set, area|
                 whose = "the area #{set.inspect} of the background #{bg.name.inspect}"
                 room = @art.add_room(bg.scene ? "#{whose} in #{scene_words(bg.scene)}" : whose, parent: parent)
+                @room_scenes[room.id] = bg.scene || :every
                 tiles_shown(bg, area).each { |name| background_tile_named(name, room) }
                 @tile_rooms[[bg.scene, area]] = room
               end
             end
 
             def scene_words(scene) = "the scene :#{Modes.strip_scene_prefix(scene)}"
+
+            # --- empty cells ---
+
+            # WHETHER AN EMPTY CELL CAN SHOW while +room+'s colours are in (nil for the colours every
+            # screen keeps). An empty cell — one a map leaves empty, or past a map's edge — is drawn
+            # from the first palette and shows its first colour, black, as the interpreter shows the
+            # backdrop there. So the first palette has to keep black first wherever one can show; on
+            # screens that never show one, any palette can be first, one drawn with other lists
+            # included (GBC::Art#background_palette_number). A room's colours are in only while its
+            # scene is up, in a game whose screens bring their colours in — and every scene of such a
+            # game puts its own first palette in as it arrives (#plan_rooms_for_bare_scenes); any
+            # other colours, on every screen.
+            def empty_cells_shown_with?(room)
+              scene = @art.room_colors? && room ? @room_scenes.fetch(room.id) : :every
+              @empty_cells_shown ||= {}
+              return @empty_cells_shown[scene] if @empty_cells_shown.key?(scene)
+
+              @empty_cells_shown[scene] = scene == :every ? empty_cells_shown_anywhere? : screen_shows_empty_cell?(scene)
+            end
+
+            # The colours every screen keeps are in from power-on, and until a scene has taken over
+            # the console's grid is nothing but empty cells. So only a game with no scenes, whose
+            # backgrounds all go up before its first frame shows, can be one that never shows one.
+            def empty_cells_shown_anywhere?
+              !(@scenes.empty? && scenery_up_before_first_frame?) || screen_shows_empty_cell?(nil)
+            end
+
+            # Whether every background is a statement of the game's own, written before anything that
+            # can wait for a frame — a loop, a call, a wait, or a statement holding others.
+            def scenery_up_before_first_frame?
+              statements = @program.children
+              first_wait = statements.index { |node| WAITING_KINDS.include?(node.kind) || node.children.any? } || statements.length
+              tiled_scenery.all? { |bg| (at = statements.index { |node| node.equal?(bg) }) && at < first_wait }
+            end
+
+            WAITING_KINDS = %i[wait_vblank call loop halt].freeze
+
+            # IN A GAME WHOSE SCREENS BRING THEIR COLOURS IN, WHERE EACH PUTS ITS OWN FIRST: every scene on
+            # a screen of tiles has a room, one of nothing for a scene with no background of its own, so
+            # each arrival puts its first palette in — black alone, for a room with none — and a scene
+            # never shows its empty cells in the colours the scene before it put first.
+            def plan_rooms_for_bare_scenes
+              return unless @art.first_palette_per_room?
+
+              tiled_scenes.compact.reject { |scene| @scene_rooms.key?(scene) }.each do |scene|
+                room = @art.add_room(scene_words(scene))
+                @scene_rooms[scene] = room
+                @room_scenes[room.id] = scene
+                @tile_rooms[[scene, nil]] = room
+              end
+            end
+
+            # The scenes that show a screen drawn from tiles, or the one screen of a game with none.
+            def tiled_scenes
+              return [nil] if @scenes.empty?
+
+              @scenes.keys.reject { |scene| Modes::SCREEN_OF_MODE.fetch(Modes.resolve(@program).mode_of(scene)) == :bitmap }
+            end
+
+            # What +scene+ shows (nil for a game with no scenes) is put up as it arrives
+            # (#emit_scene_arrival): its own background, or else every screen's, and every status bar.
+            def screen_shows_empty_cell?(scene)
+              own = tiled_scenery.select { |bg| bg.scene == scene }
+              every = tiled_scenery.select { |bg| bg.scene.nil? }
+              ground = own.reject(&:bar?)
+              ground = every.reject(&:bar?) if ground.empty?
+              ground.empty? || (ground + (own + every).select(&:bar?)).uniq.any? { |bg| background_shows_empty_cell?(bg) }
+            end
+
+            # Whether +bg+ can show an empty cell: it moves, a map of it leaves a cell of the screen
+            # empty, or `set_tile` can empty one.
+            def background_shows_empty_cell?(bg)
+              return true if background_moves?(bg)
+
+              h = Console::GBCHardware
+              cols = (h::SCREEN_WIDTH + bg.tile_w - 1) / bg.tile_w
+              rows = ((bg.bar? ? h::SCREEN_HEIGHT - bg.bar_top : h::SCREEN_HEIGHT) + bg.tile_h - 1) / bg.tile_h
+              bg.every_map.any? do |map|
+                map.length < rows || map.first(rows).any? do |row|
+                  cells = Array(row)
+                  cells.length < cols || cells.first(cols).any? { |tile| tile.nil? || tile.negative? }
+                end
+              end || @reachable.any? { |node| node.kind == :set_tile && node.name == bg.name && !tile_index_known?(node.tile) }
+            end
+
+            # Whether a background's view moves, or a status bar's top: any of them past the screen's
+            # edge shows the cells beyond it.
+            def background_moves?(bg)
+              @reachable.any? do |node|
+                node.kind == :camera || (%i[scroll_background scroll_rows place_bar].include?(node.kind) && node.name == bg.name)
+              end
+            end
+
+            # Whether a tile `set_tile` puts in a cell is one the build knows is a tile, never an empty cell.
+            def tile_index_known?(tile) = tile.is_a?(Integer) && !tile.negative?
 
             # The tile pictures +bg+ shows: the ones its maps name — the maps of area number +area+ alone,
             # for a background that walks between areas — and the ones `set_tile` puts in its cells.
@@ -223,7 +322,9 @@ module VBlank
             # Bring +room+ in, from the blank after this pass (Runtime::Picture#emit_rooms): its tiles,
             # and its colours where the screens bring theirs in.
             def emit_tile_room(room)
-              runtime_call("rt_tiles_put_up", [Build.int(room.number)]) if room&.number && room.brings_in?
+              return unless room&.number && (room.brings_in? || @art.first_palette_per_room?)
+
+              runtime_call("rt_tiles_put_up", [Build.int(room.number)])
             end
 
             # Each colour list's own number, saying which of its sets it holds now (Reference
