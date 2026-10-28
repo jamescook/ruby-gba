@@ -81,7 +81,7 @@ module VBlank
               run = run_painting(name)
               return @art.run_tile(name, run.colors) if run
 
-              @art.background_tile(name, Assets::Image.of(@pictures.fetch(name)), room: room)
+              @art.background_tile(name, Assets::Image.of(@pictures.fetch(name)), room: room, recolored: recolored_tile?(name))
             end
 
             # Each run's flag and its repacked tiles' stretch of work memory, which the console's copy

@@ -59,7 +59,7 @@ and a test fails when the two differ. The Advance's answers are in
 - `iris_shut?` — **refused**: see `iris_in`.
 - `pulse` — **refused**: a Game Boy Color cannot resize a sprite. Draw the sprite's sizes as poses and `face` them in turn.
 - `camera_follows` — works: the same as on the Advance.
-- `image` — works: a sprite's picture holds three colours and see-through, and a background's tiles four colours, from lists of four; a picture with more is refused, naming its colours.
+- `image` — works: a sprite's picture holds three colours and see-through. A background tile that gives its pixels as places in a list of four colours, and has no see-through pixel, holds all four. Every tile from one list uses the same colours, so the screen holds eight such lists. Any other background tile holds three colours and the backdrop, which is black. The build refuses a picture with more, and names its colours.
 - `color` — works: the same as on the Advance.
 - `rgb` — works: the same as on the Advance.
 - `rgb8` — works: the same as on the Advance.

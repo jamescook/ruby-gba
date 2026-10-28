@@ -129,6 +129,7 @@ module VBlank
             @background_tiles = []
             @background_tile_numbers = {}
             @background_palettes = []
+            @black_held = false # the first palette is black alone, until one that can be first comes
             @background_tile_of = {} # picture name -> [tile number, palette number]
             @run_tile_of = {} # a painted tile's name -> [tile number, palette number]
             @grids = []               # 2048 bytes each: the cells' tiles, then their attributes
@@ -323,24 +324,86 @@ module VBlank
 
           # The tile number and palette number a background's tile picture +name+ is drawn with, as
           # +room+ numbers it: one every screen keeps where there is one the same, or else the room's
-          # own. Without a room, in the tiles every screen keeps.
-          def background_tile(name, image, room: nil)
+          # own. Without a room, in the tiles every screen keeps. +recolored+ says a background
+          # showing it is drawn with other lists of colours, which write into its palette.
+          def background_tile(name, image, room: nil, recolored: false)
             @background_tile_of[[room&.id, name]] ||= begin
               unless image.width == 8 && image.height == 8
                 raise LoweringError, "the tile #{name.inspect} is #{image.width}×#{image.height}; the Game Boy Color " \
                                      "build makes 8×8 tiles only so far."
               end
 
-              drawn = tile_colors(image)
-              if drawn.size > OWN_COLORS
-                raise LoweringError, "the tile #{name.inspect} has #{drawn.size} colours, and a Game Boy Color tile holds " \
-                                     "#{OWN_COLORS} and the backdrop. To fix this, draw it in #{OWN_COLORS} colours."
-              end
-
-              colors = [BACKDROP, *drawn]
-              places = Array.new(64) { |i| image.tile_see_through_at?(i) ? 0 : drawn.index(image.color_at(i) & 0x7FFF) + 1 }
-              [tile_number_in(room, encode(places)), palette_number(@background_palettes, padded(colors), "backgrounds")]
+              order = list_order(image)
+              order ? listed_tile(image, order, room, recolored) : drawn_tile(name, image, room)
             end
+          end
+
+          # A TILE DRAWN BY PLACE FROM A LIST OF FOUR, with no see-through pixel, the way a cartridge
+          # made for the Color draws its screens: the list is its palette, all four colours of it,
+          # and every tile from the same list shares that palette — so eight lists are the Color's
+          # eight palettes. The backdrop has no place in it, since nothing of the tile shows
+          # through. Its places, in the order the palette holds them; nil for a tile that is not
+          # one (#drawn_tile).
+          #
+          # Black goes first when the list has it. An empty cell is written with the first palette,
+          # here and in the game's code, and shows that palette's first colour — so a list that
+          # starts with black can be the first palette (#background_palette_number).
+          def list_order(image)
+            list = image.colors
+            return nil unless image.places && list && list.length.between?(2, PLACES + 1)
+            return nil if (0...64).any? { |i| image.tile_see_through_at?(i) }
+
+            places = (1...list.length).to_a
+            black = places.find { |place| (list[place] & 0x7FFF) == BACKDROP }
+            black ? [black, *(places - [black])] : places
+          end
+
+          # The tile number and palette number of a tile drawn from its list (#list_order): each
+          # pixel is its place's position in +order+, and the palette is the list's colours in it.
+          # Another list drawn over it writes its first colour too, so a +recolored+ one cannot keep
+          # black first.
+          def listed_tile(image, order, room, recolored)
+            colors = padded(order.map { |place| image.colors[place] & 0x7FFF })
+            [tile_number_in(room, encode(Array.new(64) { |i| order.index(image.place_at(i)) })),
+             background_palette_number(colors, keeps_black: !recolored)]
+          end
+
+          # A background palette's number. The first of them has to start with black, the colour an
+          # empty cell shows (#list_order), and keep it while the game runs. A palette that cannot be
+          # the first, made while there is none, is put after a palette of black alone, held for
+          # the first palette after it that can: that one takes its place rather than a ninth.
+          def background_palette_number(colors, keeps_black: true)
+            can_be_first = keeps_black && colors.first == BACKDROP
+            found = @background_palettes.index(colors)
+            if found && (found.positive? || can_be_first)
+              @black_held = false if found.zero?
+              return found
+            end
+            if @black_held && can_be_first
+              @black_held = false
+              @background_palettes[0] = colors
+              return 0
+            end
+            if @background_palettes.empty? && !can_be_first
+              @background_palettes << padded([BACKDROP])
+              @black_held = true
+            end
+            added_palette_number(@background_palettes, colors, "backgrounds")
+          end
+
+          # A tile drawn any other way — from colours, or from a list with a see-through place or
+          # more than four colours: three colours of its own after the backdrop, in the order it
+          # first draws them, which its see-through pixels show.
+          def drawn_tile(name, image, room)
+            drawn = tile_colors(image)
+            if drawn.size > OWN_COLORS
+              raise LoweringError, "the tile #{name.inspect} has #{drawn.size} colours, and a Game Boy Color tile holds " \
+                                   "#{OWN_COLORS} and the backdrop. To fix this, draw it in #{OWN_COLORS} colours."
+            end
+
+            colors = [BACKDROP, *drawn]
+            places = Array.new(64) { |i| image.tile_see_through_at?(i) ? 0 : drawn.index(image.color_at(i) & 0x7FFF) + 1 }
+            [tile_number_in(room, encode(places)), background_palette_number(padded(colors))]
           end
 
           # The colours a background tile draws, in the order its palette holds them after the
@@ -364,7 +427,7 @@ module VBlank
 
               own = colors.drop(1).map { |color| color & 0x7FFF }
               [(@background_tiles << Array.new(16, 0)).length - 1,
-               palette_number(@background_palettes, padded([BACKDROP, *own]), "backgrounds")]
+               background_palette_number(padded([BACKDROP, *own]))]
             end
           end
 
@@ -780,10 +843,9 @@ module VBlank
 
           def padded(colors) = colors + ([BACKDROP] * (PLACES - colors.length))
 
-          def palette_number(palettes, colors, kind)
-            found = palettes.index(colors)
-            return found if found
+          def palette_number(palettes, colors, kind) = palettes.index(colors) || added_palette_number(palettes, colors, kind)
 
+          def added_palette_number(palettes, colors, kind)
             sprites = palettes.equal?(@sprite_palettes)
             most = if sprites then lends? ? MOST_LENT : PALETTES
                    elsif painting? then PALETTES - painted_palettes.length

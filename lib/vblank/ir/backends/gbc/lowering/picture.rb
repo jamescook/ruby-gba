@@ -1180,7 +1180,8 @@ module VBlank
 
             # The four colours tile +name+'s palette holds when drawn with +swaps+ (the list each of
             # the layer's own lists is drawn with, or nil for its own): the backdrop, then the colour
-            # each of its own shows.
+            # each of its own shows. A tile drawn by place from its list (GBC::Art#list_order) has a
+            # colour of the palette for each place instead, so it swaps place for place.
             def tile_colors_with(name, swaps)
               run = run_painting(name)
               if run
@@ -1191,8 +1192,14 @@ module VBlank
               end
 
               image = Assets::Image.of(@pictures.fetch(name))
-              drawn = @art.tile_colors(image)
               swapped = swaps && swaps[image.colors]
+              order = @art.list_order(image)
+              if order
+                shown = order.map { |place| ((swapped && swapped[place]) || image.colors[place]) & 0x7FFF }
+                return shown.fill(Art::BACKDROP, shown.length...Art::PLACES)
+              end
+
+              drawn = @art.tile_colors(image)
               return padded_colors(drawn) unless swapped
 
               recolor = Assets::Recolor.of(image, swapped)
@@ -1207,6 +1214,12 @@ module VBlank
                 ways.first
               end
               padded_colors(shown)
+            end
+
+            # Whether a background that shows the tile +name+ is drawn with other lists of colours.
+            def recolored_tile?(name)
+              @recolored_tiles ||= tiled_scenery.reject { |bg| Array(bg.recolors).empty? }.flat_map(&:tiles).to_set
+              @recolored_tiles.include?(name)
             end
 
             def padded_colors(colors) = [Art::BACKDROP, *colors.map { |color| color & 0x7FFF }].fill(Art::BACKDROP, colors.length + 1...Art::PLACES)

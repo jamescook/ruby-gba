@@ -99,9 +99,11 @@ module VBlank
         camera_follows: works,
 
         # --- pictures and sprites ---
-        image: works("a sprite's picture holds three colours and see-through, and a background's tiles " \
-                     "four colours, from lists of four; a picture with more is refused, naming its " \
-                     "colours."),
+        image: works("a sprite's picture holds three colours and see-through. A background tile that gives its " \
+                     "pixels as places in a list of four colours, and has no see-through pixel, holds all four. " \
+                     "Every tile from one list uses the same colours, so the screen holds eight such lists. Any " \
+                     "other background tile holds three colours and the backdrop, which is black. The build " \
+                     "refuses a picture with more, and names its colours."),
         color: works,
         rgb: works,
         rgb8: works,
