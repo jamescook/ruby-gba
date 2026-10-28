@@ -82,7 +82,7 @@ module VBlank
           # day the Super Nintendo does it; test_snes_kind_coverage.rb holds the list and the tables
           # above to every kind there is.
           NOT_LOWERED_YET = Ractor.make_shareable({
-                                                    "the picture" => %i[draw_column_at place_bar background_colors
+                                                    "the picture" => %i[draw_column_at background_colors
                                                                         scroll_rows show_picture_group
                                                                         color_list_holds
                                                                         copy_tiles copy_owed_tiles data_byte]

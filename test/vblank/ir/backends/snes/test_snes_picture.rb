@@ -169,6 +169,55 @@ class TestSNESPicture < Minitest::Test
     assert_empty run.black_frames
   end
 
+  # A STATUS BAR shows from its top row to the bottom of the screen, over a field that scrolls under
+  # it and is hidden there: the bar's see-through pixels, and its rows past its two, show the
+  # backdrop. A sprite goes over it. The bar is moved each pass, to rows either side of 127 (the
+  # most one step of the console's line table counts), to the top, past the bottom and above it,
+  # and a cell of it changes.
+  def test_a_status_bar_hides_the_field_under_it_wherever_it_is_put
+    run = checked(frames: 14) do
+      screen :tiled
+      image(:dark, "#" => :blue) { "########\n" * 8 }
+      image(:star, "#" => :yellow, "." => :blue) { "........\n...#....\n..###...\n...#....\n" + ("........\n" * 4) }
+      image(:edge, "#" => :gray) { "########\n" * 8 }
+      image(:pip, "#" => :green, "." => :transparent) { "..##....\n" * 8 }
+      image(:ball, "#" => :white) { "####\n" * 4 }
+      tiles :field_tiles, "." => :dark, "*" => :star
+      tiles :bar_tiles, "[" => :edge, "o" => :pip
+      field = background :field, tiles: :field_tiles, map: Array.new(32) { |row| (0...32).map { |col| (row + col) % 5 == 0 ? "*" : "." }.join }
+      bar = status_bar :score, tiles: :bar_tiles, map: ["[oooo[", "[[[[[["], top: 200
+      ball = sprite :ball, at: [20, 190]
+      tops = table :tops, [200, 0, 127, 128, 150, 224, 300, -5, 60, 126, 223]
+      t = var :t, 0
+      game_loop do
+        field.scroll_by 1, -1
+        ball.move_to 20 + (t * 3), 190
+        bar.move_to tops[t % 11]
+        (t == 4).then { bar.set_tile 2, 0, "[" }
+        t.add! 1
+      end
+    end
+
+    assert_equal 14, run[:t]
+  end
+
+  # A bar that a scene puts up, and takes down when another scene takes over, is not made yet.
+  def test_a_status_bar_that_a_scene_puts_up_is_refused_in_plain_words
+    error = assert_raises(SNES::Lowering::NotMadeYet) do
+      SNES.new.build(program_of do
+        screen :tiled
+        image(:edge, "#" => :gray) { "########\n" * 8 }
+        tiles :bar_tiles, "[" => :edge
+        state = var :state, 0
+        scene(:play) { status_bar :score, tiles: :bar_tiles, map: ["[["], top: 200 }
+        game_loop { case_var(:state) { when_val 0, :play } }
+        state.set! 0
+      end)
+    end
+
+    assert_match(/status bar that a scene puts up/, error.message)
+  end
+
   private def program_of(&game)
     builder = Builder.new
     builder.instance_eval(&game)

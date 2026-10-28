@@ -38,6 +38,18 @@ module VBlank
           #   rt_background_put_up   a map onto a layer, from its corner (or keeping its scroll)
           #   rt_background_scroll   where a layer's view sits
           #   rt_set_cell          one cell of a layer's map changed
+          #   rt_bar_place         a status bar's top put at a row (a game with a status bar)
+          #
+          # A STATUS BAR is one of the two layers, shown from its top row to the bottom of the screen
+          # and hidden above it, while the other layer is shown above it and hidden below. Which
+          # layers the console draws is TM, one register for the whole screen; but the copying
+          # engine can write a register a line at a time as the picture is drawn (HDMA), from a short
+          # table: so channel 1 writes TM from a table of two or three steps, each a count of lines and
+          # the value for them — the field's layer and the sprites down to the bar's top, then the
+          # bar's layer and the sprites (BAR_TABLE). A step counts 127 lines at most, so a top lower
+          # than that takes two. The bar's layer is scrolled up by its top, so its first row is there,
+          # and its rows past its map show the backdrop: tile 0 is see-through. The table is made in
+          # the blank, with the scroll, so the two always agree.
           module Picture
             BG_TILES = 0x0000
             LAYER_MAPS = [0x4000, 0x5000].freeze
@@ -69,13 +81,29 @@ module VBlank
             MOST_CELLS = 256
             # The most of a map copied at once: a quarter of a 64×64 map, half of what a blank holds.
             MAP_PIECE = 2048
+            # A status bar's top row, its layer, whether either changed since the last blank, and the
+            # table of lines the copying engine's channel 1 writes TM from (see the top).
+            BAR = "rt bar"
+            BAR_TOP = 0
+            BAR_LAYER = 2
+            BAR_CHANGED = 4
+            BAR_TABLE = 6
+            BAR_BYTES = BAR_TABLE + 8
+            BAR_CHANNEL = 0x10 # channel 1's registers, past channel 0's
+            # Which layers TM shows on a tiled screen: BG1 and BG2 (a bit each) and the sprites.
+            LAYERS_SHOWN = 0x13
+            SPRITES_SHOWN = 0x10
+            # The most lines one step of the table counts.
+            MOST_STEP_LINES = 127
+            SCREEN_HEIGHT = 224
 
             # A sprite hidden: below the screen, where none of its eight rows shows.
             HIDDEN_Y = 224
 
             module_function
 
-            def reserve(memory)
+            def reserve(memory, bar: false)
+              memory.reserve(BAR, BAR_BYTES) if bar
               memory.reserve_far(SHADOW_OAM, 544)
               memory.reserve_far(DRAWN, 2 + (MOST_SPRITES * DRAWN_BYTES))
               memory.reserve(NEXT_ROW, 2)
@@ -83,12 +111,14 @@ module VBlank
               memory.reserve(CELLS, 2 + (MOST_CELLS * 4))
             end
 
-            # +work+ is four words of the direct page the routines use.
-            def emit(asm, memory, work:, painted: false)
+            # +work+ is four words of the direct page the routines use. +bar+ for a game with a
+            # status bar.
+            def emit(asm, memory, work:, painted: false, bar: false)
               emit_start(asm, memory, painted)
               emit_sprites(asm, memory, work)
               emit_backgrounds(asm, memory, work)
-              emit_upload(asm, memory, work, painted)
+              emit_bar(asm, memory) if bar
+              emit_upload(asm, memory, work, painted, bar)
               asm.label("rt_picture_prepare")
               asm.jml(asm.long("rt_paint_prepare")) if painted
               asm.rtl unless painted
@@ -485,13 +515,116 @@ module VBlank
               asm.rtl
             end
 
+            # STATUS BAR. rt_bar_place(layer, top): the bar on +layer+ shown from row +top+, held to
+            # the screen (0 to its height, where none of it shows), from the next blank on.
+            def emit_bar(asm, memory)
+              r = ->(n) { Memory.register(n) }
+              bar = memory[BAR]
+              layers = memory[LAYERS]
+              asm.label("rt_bar_place")
+              asm.lda(asm.direct(r.call(1) + 2))
+              asm.bmi("rt_bar_place_none")
+              asm.bne("rt_bar_place_past")
+              asm.lda(asm.direct(r.call(1)))
+              asm.cmp(SCREEN_HEIGHT + 1)
+              asm.bcc("rt_bar_place_top")
+              asm.label("rt_bar_place_past")
+              asm.lda(SCREEN_HEIGHT)
+              asm.bra("rt_bar_place_top")
+              asm.label("rt_bar_place_none")
+              asm.lda(0)
+              asm.label("rt_bar_place_top")
+              asm.sta(asm.abs(bar + BAR_TOP))
+              asm.lda(asm.direct(r.call(0)))
+              asm.sta(asm.abs(bar + BAR_LAYER))
+              # The layer scrolled up by the top: its first row there, and never across.
+              asm.jsr(asm.abs("rt_layer_state"))
+              asm.stz(asm.abs_x(layers + LAYER_SCROLL_X))
+              asm.lda(asm.abs(bar + BAR_TOP))
+              asm.eor(0xFFFF)
+              asm.inc
+              asm.sta(asm.abs_x(layers + LAYER_SCROLL_Y))
+              asm.lda(1)
+              asm.sta(asm.abs(bar + BAR_CHANGED))
+              asm.rtl
+            end
+
+            # In the blank, if the bar moved: its table of lines made again, and channel 1 set to
+            # write TM from it on every frame from the next. +work+'s words: the bar's layer's bit,
+            # TM above the bar, TM from it down.
+            def emit_bar_table(asm, memory, work)
+              h = Console::SNESHardware
+              bar = memory[BAR]
+              table = bar + BAR_TABLE
+              channel = h::DMA_BASE + BAR_CHANNEL
+              asm.lda(asm.abs(bar + BAR_CHANGED))
+              asm.beq("rt_bar_table_kept")
+              asm.stz(asm.abs(bar + BAR_CHANGED))
+              asm.lda(asm.abs(bar + BAR_LAYER))
+              asm.inc # BG1's bit is 1, BG2's 2
+              asm.sta(asm.direct(work))
+              asm.lda(LAYERS_SHOWN)
+              asm.eor(asm.direct(work))
+              asm.sta(asm.direct(work + 2))
+              asm.lda(asm.direct(work))
+              asm.ora(SPRITES_SHOWN)
+              asm.sta(asm.direct(work + 4))
+              # The lines above the bar, in one step or two; none for a bar at the top.
+              asm.ldx(0)
+              asm.lda(asm.abs(bar + BAR_TOP))
+              asm.beq("rt_bar_table_below")
+              asm.cmp(MOST_STEP_LINES + 1)
+              asm.bcc("rt_bar_table_one_step")
+              asm.sec
+              asm.sbc(MOST_STEP_LINES)
+              asm.sep(0x20)
+              asm.sta(asm.abs(table + 2))
+              asm.lda(MOST_STEP_LINES)
+              asm.sta(asm.abs(table))
+              asm.lda(asm.direct(work + 2))
+              asm.sta(asm.abs(table + 1))
+              asm.sta(asm.abs(table + 3))
+              asm.rep(0x20)
+              asm.ldx(4)
+              asm.bra("rt_bar_table_below")
+              asm.label("rt_bar_table_one_step")
+              asm.sep(0x20)
+              asm.sta(asm.abs(table))
+              asm.lda(asm.direct(work + 2))
+              asm.sta(asm.abs(table + 1))
+              asm.rep(0x20)
+              asm.ldx(2)
+              # From the bar down: a step of one line, then the end of the table, which holds the
+              # value to the bottom of the screen.
+              asm.label("rt_bar_table_below")
+              asm.sep(0x20)
+              asm.lda(1)
+              asm.sta(asm.abs_x(table))
+              asm.lda(asm.direct(work + 4))
+              asm.sta(asm.abs_x(table + 1))
+              asm.stz(asm.abs_x(table + 2))
+              asm.stz(asm.abs(channel + h::DMAP)) # a byte a line, to one port, from the table itself
+              asm.lda(h::TM & 0xFF)
+              asm.sta(asm.abs(channel + h::BBAD))
+              asm.lda(table >> 16)
+              asm.sta(asm.abs(channel + h::A1B))
+              asm.rep(0x20)
+              asm.lda(table & 0xFFFF)
+              asm.sta(asm.abs(channel + h::A1TL))
+              asm.sep(0x20)
+              asm.lda(1 << (BAR_CHANNEL >> 4))
+              asm.sta(asm.abs(h::HDMAEN))
+              asm.rep(0x20)
+              asm.label("rt_bar_table_kept")
+            end
+
             # THE COPY IN THE BLANK, with the screen on (Blank says how). A map put up goes first, a
             # piece of MAP_PIECE bytes at a time as the blanks have room, with the old picture still
             # up; then, together in one blank, the sprite table, the colours, each layer's map
             # register and its scroll; then the cells changed, each when the blank has a line left
             # for it. A painted screen's copy is Paint's rt_paint_upload. With the screen still off,
             # before the first pass is shown, everything goes at once.
-            def emit_upload(asm, memory, work, painted)
+            def emit_upload(asm, memory, work, painted, bar)
               h = Console::SNESHardware
               layers = memory[LAYERS]
               # The first pass's, with the screen off (Frame switches it on), and every other's.
@@ -594,6 +727,7 @@ module VBlank
                 asm.dec
                 emit_scroll_register(asm, h::BG1VOFS + (layer * 2))
               end
+              emit_bar_table(asm, memory, work) if bar
               # The cells changed, each a word at its address.
               asm.ldx(0)
               asm.label("rt_upload_cell")

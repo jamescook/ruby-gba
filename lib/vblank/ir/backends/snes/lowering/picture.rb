@@ -21,8 +21,13 @@ module VBlank
                                                  scroll_background: :emit_scroll_background,
                                                  set_tile: :emit_set_tile, show_map: :emit_show_map,
                                                  present_objects: :emit_present_objects,
-                                                 hide_sprites: :emit_hide_sprites, fade: :emit_fade, tint: :emit_tint
+                                                 hide_sprites: :emit_hide_sprites, fade: :emit_fade, tint: :emit_tint,
+                                                 place_bar: :emit_place_bar
                                                })
+
+            # Whether +program+ has a status bar, which the runtime then carries what places
+            # (Runtime::Picture's rt_bar_place).
+            def self.status_bar?(program) = program.walk.any? { |node| node.kind == :background && node.bar? }
 
             # The SNES::Art the game's pictures were made into.
             attr_reader :art
@@ -51,7 +56,6 @@ module VBlank
               end
               @program.walk.select { |node| node.kind == :background }.each do |bg|
                 refuse_unmade!("background tiles of #{bg.tile_w}×#{bg.tile_h}") unless bg.tile_w == 8 && bg.tile_h == 8
-                refuse_unmade!("a status bar") if bg.bar?
                 refuse_unmade!("a background in a layer") if bg.layer
                 refuse_unmade!("a background drawn with other colours") unless Array(bg.recolors).empty? && Array(bg.palettes).empty?
                 refuse_unmade!("a background drawn from several sets of tiles") if bg.several_sets?
@@ -157,6 +161,8 @@ module VBlank
 
             def emit_put_up(bg)
               runtime_call("rt_background_put_up", [Build.int(layer_of(bg)), Build.int(grid_of(bg, 0).number), Build.int(1)])
+              # A status bar put up shows from the top it was declared with (Reference#bar_top_shown).
+              runtime_call("rt_bar_place", [Build.int(layer_of(bg)), Build.int(bg.bar_top)]) if bg.bar?
             end
 
             # WHICH OF THE TWO LAYERS EACH BACKGROUND IS ON (#assign_background_layers). A scene's own
@@ -172,6 +178,7 @@ module VBlank
               if always.length + @scene_layers > BACKGROUND_LAYERS
                 refuse_unmade!("more than two backgrounds on the screen at once")
               end
+              refuse_unmade!("a status bar that a scene puts up") if own.flatten.any?(&:bar?)
               always.each_with_index { |bg, i| @layers[bg] = @scene_layers + (always.length - 1 - i) }
               own.each { |scenery| scenery.each_with_index { |bg, i| @layers[bg] = scenery.length - 1 - i } }
             end
@@ -275,6 +282,13 @@ module VBlank
               word = tile ? tile | (palette << Art::PALETTE_SHIFT) : 0
               runtime_call("rt_set_cell", [Build.int(layer_of(bg)), Build.var_ref(column), Build.var_ref(row), Build.int(word)])
               @asm.label(outside)
+            end
+
+            # Reference#exec_place_bar: a background that is not a status bar has no top to place.
+            def emit_place_bar(node)
+              for_background(node) do |bg|
+                runtime_call("rt_bar_place", [Build.int(layer_of(bg)), node.top]) if bg.bar?
+              end
             end
 
             # Reference#exec_show_map: a number naming no map leaves the cells alone; the view stays

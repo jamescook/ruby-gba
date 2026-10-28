@@ -2,7 +2,7 @@
 # frozen_string_literal: true
 
 # A score bar along the bottom of the screen, over a field that scrolls under it — on the Game
-# Boy Advance and the Game Boy Color alike.
+# Boy Advance, the Game Boy Color and the Super Nintendo alike.
 #
 # The field drifts down all the time. Hold UP and DOWN to move the ball. While the ball is near
 # the bottom of the screen the bar slides down out of its way, three rows a frame, and slides back
@@ -13,7 +13,8 @@
 # it, so it is drawn from tiles of its own and coloured on its own. Moving it is `move_to`, a row of
 # the screen, and a pip is `set_tile`, one cell of its map. On the Color the bar is the console's
 # window, a layer it keeps beside its one background; on the Advance it is one of the four
-# background layers. Nothing below says which.
+# background layers; on the Super Nintendo it is one of the two, and the console is told line by
+# line which layer to draw. Nothing below says which.
 
 require_relative "../lib/vblank"
 
@@ -55,7 +56,7 @@ module Scoreboard
   BAR = Ractor.make_shareable(["[#{'o' * PIPS}]".ljust(32, "_"), "_" * 32])
   BAR_HEIGHT = 16
 
-  GAME = VBlank.game("SCOREBOARD", consoles: %i[gba gbc]) do
+  GAME = VBlank.game("SCOREBOARD", consoles: %i[gba gbc snes]) do
     screen :tiled
     image(:ball, "#" => :white, "." => :transparent) { BALL }
     image(:dark, "#" => :blue) { SOLID }
