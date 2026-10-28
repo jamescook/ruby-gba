@@ -43,7 +43,9 @@ task :compile_core do
     sh "make", "-C", File.join(source, "bsnes"), "target=libretro", "binary=library", "build=performance",
        "-j#{Etc.nprocessors}"
     mkdir_p File.dirname(BUILT)
-    cp File.join(source, "bsnes", "out", "bsnes_libretro.so"), BUILT
+    # bsnes names the library for the platform: .so on Linux, .dylib on macOS. It is kept as .so
+    # here whatever it was built as, since dlopen reads the file and never its name.
+    cp Dir[File.join(source, "bsnes", "out", "bsnes_libretro.{so,dylib}")].fetch(0), BUILT
   end
 end
 
