@@ -50,7 +50,7 @@ module Maze
     "##############################",
   ])
 
-  GAME = VBlank.game("MAZE", consoles: %i[gba]) do
+  GAME = VBlank.game("MAZE", consoles: %i[gba snes]) do
     screen :tiled # tile mode: a background room + a hardware sprite over it
 
     # Two 8x8 tiles: a brick wall and a dark floor. A little texture in each so a run
