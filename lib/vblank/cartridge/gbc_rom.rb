@@ -44,21 +44,27 @@ module VBlank
                                                 [true, false] => MBC3_TIMER_BATTERY,
                                                 [true, true] => MBC3_TIMER_RAM_BATTERY })
 
+      # ...and an MBC5 with a rumble motor (Runtime::Rumble), by whether it has that memory.
+      MBC5_RUMBLE = 0x1C
+      MBC5_RUMBLE_RAM_BATTERY = 0x1E
+      RUMBLE_TYPES = Ractor.make_shareable({ false => MBC5_RUMBLE, true => MBC5_RUMBLE_RAM_BATTERY })
+
       attr_reader :bytes
 
       # What the build worked out about the cartridge (where its variables are, the program it
       # came from), for the tools that read a running one back, or nil.
       attr_reader :built
 
-      # +banks+ is the linked cartridge, bank 0 first, each 16K.
-      def initialize(banks, title:, save_bytes: 0, clock: false, built: nil)
+      # +banks+ is the linked cartridge, bank 0 first, each 16K. +rumble+ says it carries a motor.
+      def initialize(banks, title:, save_bytes: 0, clock: false, rumble: false, built: nil)
         @built = built
         unless RAM_SIZE_CODES.key?(save_bytes)
           raise ArgumentError, "a Game Boy Color cartridge here keeps 0, 8K or 32K of save memory, not #{save_bytes} bytes"
         end
+        raise ArgumentError, "a Game Boy Color cartridge with a clock has no rumble motor" if clock && rumble
 
         @bytes = padded(banks.join.b)
-        write_header(title, save_bytes, clock)
+        write_header(title, save_bytes, clock, rumble)
       end
 
       def size = @bytes.bytesize
@@ -125,14 +131,15 @@ module VBlank
         bytes + ("\xFF".b * (size - bytes.bytesize))
       end
 
-      def write_header(title, save_bytes, clock)
+      def write_header(title, save_bytes, clock, rumble)
         @bytes[LOGO_AT, LOGO.size] = LOGO.pack("C*")
         @bytes[TITLE_AT, CGB_FLAG_AT - TITLE_AT] = "\0".b * (CGB_FLAG_AT - TITLE_AT)
         @bytes[TITLE_AT, TITLE_LENGTH] = title_field_for(title)
         @bytes.setbyte(CGB_FLAG_AT, CGB_ONLY)
         @bytes[NEW_LICENSEE_AT, 2] = "00"
         @bytes.setbyte(SGB_FLAG_AT, 0)
-        @bytes.setbyte(CARTRIDGE_TYPE_AT, CARTRIDGE_TYPES.fetch([clock, !save_bytes.zero?]))
+        kind = rumble ? RUMBLE_TYPES.fetch(!save_bytes.zero?) : CARTRIDGE_TYPES.fetch([clock, !save_bytes.zero?])
+        @bytes.setbyte(CARTRIDGE_TYPE_AT, kind)
         @bytes.setbyte(ROM_SIZE_AT, Math.log2(@bytes.bytesize / SMALLEST).to_i)
         @bytes.setbyte(RAM_SIZE_AT, RAM_SIZE_CODES.fetch(save_bytes))
         @bytes.setbyte(DESTINATION_AT, 0x01)

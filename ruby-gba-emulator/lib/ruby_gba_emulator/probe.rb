@@ -98,6 +98,15 @@ module RubyGBAEmulator
       self
     end
 
+    # Whether a rumble cartridge's motor is running now, as the game last set it. A cartridge
+    # without a motor never runs one.
+    #
+    # @return [Boolean]
+    def motor_on?
+      ensure_open!
+      @core.motor_on?
+    end
+
     # Advance the emulation by +n+ frames, holding +keys+ for each.
     #
     # @param n [Integer] number of frames to run

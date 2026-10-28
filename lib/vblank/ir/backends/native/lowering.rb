@@ -71,6 +71,8 @@ module VBlank
                                                copy_owed_tiles: :lower_copy_owed_tiles,
                                                present_objects: :lower_present_objects,
                                                hide_sprites: :lower_hide_sprites,
+                                               # a desktop or web page shakes no gamepad yet: nothing is felt
+                                               rumble: :lower_nothing,
                                                fade: :lower_fade, tint: :lower_tint,
                                                pixelate: :lower_pixelate,
                                                see_through: :lower_see_through,

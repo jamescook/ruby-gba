@@ -176,6 +176,14 @@ struct counting_clock {
     uint8_t held[5];       /* ...what they are held at */
 };
 
+/* A RUMBLE CARTRIDGE'S MOTOR. A Game Boy cartridge that says it has one (MBC5 with rumble)
+ * turns it on and off with a bit of a register of its own, and mGBA tells whoever holds the
+ * console's rumble that it did: this keeps how the motor stands, for Core#motor_on?. */
+struct cartridge_motor {
+    struct mRumble d;
+    int on;
+};
+
 struct mgba_core {
     struct mCore *core;
     color_t *video_buffer;
@@ -251,6 +259,7 @@ struct mgba_core {
         size_t room;
     } feed_log;
     struct counting_clock counting_clock;
+    struct cartridge_motor motor;
 };
 
 /* WHICH CARTRIDGE IS RUNNING RIGHT NOW, so the callbacks mGBA fires part-way through a
@@ -277,6 +286,15 @@ static GEMBA_PER_THREAD struct mgba_core *s_watching_core = NULL;
 
 static void
 install_core_callbacks(struct mgba_core *mc);
+
+/* mGBA's word that the game turned the motor on or off (struct cartridge_motor). This is the
+ * callback as mGBA 0.10 declares it; a later mGBA adds a third argument, the time since the
+ * last change, and this would then need it too. */
+static void
+motor_set(struct mRumble *rumble, int enable)
+{
+    ((struct cartridge_motor *)rumble)->on = enable ? 1 : 0;
+}
 
 static void
 display_recorder_free(struct mgba_core *mc);
@@ -457,6 +475,9 @@ mgba_core_initialize(int argc, VALUE *argv, VALUE self)
      * afterwards from where the frame boundaries fell. */
     mc->core = core;
     install_core_callbacks(mc);
+    mc->motor.d.setRumble = motor_set;
+    mc->motor.on = 0;
+    core->setPeripheral(core, mPERIPH_RUMBLE, &mc->motor.d);
 
     /* 3. Get desired video dimensions */
     unsigned w, h;
@@ -1162,6 +1183,21 @@ mgba_core_color_correction_p(VALUE self)
 /* hours 1 to 12 until it is told otherwise. mGBA itself      */
 /* always starts a chip as one that was set, in 24 hours.     */
 /* --------------------------------------------------------- */
+
+/* --------------------------------------------------------- */
+/* Core#motor_on?                                            */
+/*                                                           */
+/* WHETHER A RUMBLE CARTRIDGE'S MOTOR IS RUNNING now: as the */
+/* game last set it (struct cartridge_motor). A cartridge    */
+/* without a motor never runs one.                           */
+/* --------------------------------------------------------- */
+
+static VALUE
+mgba_core_motor_on_p(VALUE self)
+{
+    struct mgba_core *mc = get_mgba_core(self);
+    return mc->motor.on ? Qtrue : Qfalse;
+}
 
 static VALUE
 mgba_core_use_clock(VALUE self, VALUE epoch_ms, VALUE power_lost)
@@ -4470,6 +4506,7 @@ Init_ruby_gba_emulator_ext(void)
     rb_define_method(cCore, "color_correction=", mgba_core_set_color_correction, 1);
     rb_define_method(cCore, "color_correction?", mgba_core_color_correction_p, 0);
     rb_define_method(cCore, "use_clock",   mgba_core_use_clock, 2);
+    rb_define_method(cCore, "motor_on?",   mgba_core_motor_on_p, 0);
     rb_define_method(cCore, "use_counting_clock", mgba_core_use_counting_clock, 3);
     rb_define_method(cCore, "remove_clock",       mgba_core_remove_clock, 0);
     rb_define_method(cCore, "frame_blending=", mgba_core_set_frame_blending, 1);

@@ -25,6 +25,15 @@ module VBlank
 
             module_function
 
+            # The save memory's bank A in view: through rt_ram_bank in a game that runs the
+            # cartridge's motor from the same register, so the motor stays as it stands
+            # (Runtime::Rumble); straight to the register otherwise.
+            def emit_ram_bank(asm, memory)
+              return asm.call("rt_ram_bank") if Rumble.any?(memory)
+
+              asm.load([Console::GBCHardware::MBC_RAM_BANK], :a)
+            end
+
             def emit(asm, memory)
               h = Console::GBCHardware
               arg2 = ->(i) { Calls.arg(memory, i, 2) }
@@ -170,7 +179,7 @@ module VBlank
               asm.srl(:a)
               asm.and_a(3)
               asm.load_high(memory.args + 28, :a)
-              asm.load([h::MBC_RAM_BANK], :a)
+              emit_ram_bank(asm, memory)
               asm.load(:a, :h)
               asm.and_a((BANK_SIZE - 1) >> 8)
               asm.or_a(h::SRAM >> 8)
@@ -198,7 +207,7 @@ module VBlank
               asm.load_high(:a, memory.args + 28)
               asm.inc(:a)
               asm.load_high(memory.args + 28, :a)
-              asm.load([h::MBC_RAM_BANK], :a)
+              emit_ram_bank(asm, memory)
               asm.ret
 
               # The memory switched off again.

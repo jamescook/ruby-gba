@@ -203,6 +203,8 @@ module VBlank
         pressed: works("see `held`."),
         if_held: works("see `held`."),
         if_pressed: works("see `held`."),
+        rumble: works("the cartridge carries a rumble motor, and the motor runs on the frames the pattern " \
+                      "says. A cartridge with a `clock` has no motor, so a game that uses both is refused."),
 
         # --- randomness ---
         seed: works, randomize: works, roll: works, rand: works, chance: works, random_numbers: works,

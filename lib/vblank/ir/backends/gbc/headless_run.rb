@@ -106,6 +106,7 @@ module VBlank
             @audio_handed = 0
             @frames_took = {}
             @dark_frames = nil
+            @motor = false
             @deciding = false
             @decided = nil
             @moments = []
@@ -127,6 +128,9 @@ module VBlank
           # (Runtime::Frame::DARK_FRAMES), as the interpreter is told it (Reference#frames_setting_up):
           # none, for a game that does not count them.
           def dark_frames_counted = @dark_frames || 0
+
+          # Whether the cartridge's motor runs on the frame the run's picture is (Reference#motor_on?).
+          def motor_on? = @motor
 
           # The rest of what the interpreter answers, each refused by name.
           # What it drew at the moment the run ended, as the interpreter says it (Reference#sprites):
@@ -283,8 +287,10 @@ module VBlank
             @lists = lists
             @screen = picture
             @sounds = sounds
+            @motor = @core.motor_on? # as the frame the picture is was shown
             @moments << Moment.new(frame: frame, variables: variables, picture: picture_check(picture), sounds: sounds,
-                                   sprites: @sprites, collections: game_state.except(:vars), sounding: [])
+                                   sprites: @sprites, collections: game_state.except(:vars), sounding: [],
+                                   motor: @motor)
             @on_vblank&.call(frame) unless frame == :end
           end
 

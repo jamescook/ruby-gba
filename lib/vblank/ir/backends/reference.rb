@@ -153,6 +153,10 @@ module VBlank
           rows.select { |row| row.name == name }
         end
 
+        # WHETHER THE CARTRIDGE'S MOTOR IS RUNNING on the frame the screen shows now (`rumble`,
+        # #exec_rumble): never on a console whose cartridge has no motor.
+        def motor_on? = @motor_on
+
         # +save+ is the cartridge's save memory (an IR::SaveImage) — it outlives the
         # interpreter, so passing the SAME one to two Reference.new(...).run calls models
         # a power cycle (the second boot sees what the first one saved). Defaults to a
@@ -176,6 +180,7 @@ module VBlank
           @input_script = nil      # optional ->(frame) { buttons } to drive input over time
           @frames_script = nil     # optional ->(pass) { frames } to say a pass ran late
           @frames_setting_up = 0   # frames the screen was off for before the first (see #frames_setting_up)
+          @motor_on = false        # the cartridge's motor, on the frame shown now (see #motor_on?)
           @clock_started = nil     # the moment the cartridge's clock read at power-on, or nil for no clock
           @clock_set = true        # ...and whether it was ever set (see #clock_at)
           @clock_keeps_date = nil  # ...and whether it keeps the date, when not the console's chip
@@ -274,6 +279,9 @@ module VBlank
           @setting_up_uncounted = @frames_setting_up # counted at the first frame (#store_frame_counters)
           @placing_at_pass_end = false # while a boundary write placed at the end of a pass runs (#exec_loop)
           @loops_running = [] # the game loops running, innermost last (#place_pass_end_before_halt)
+          @rumble_left = 0 # frames the motor has still to run for (#exec_rumble)
+          @rumble_bits = 0 # ...and its pattern, the next frame's bit at the top
+          @motor_on = false
           size_screen_for(node)
           collect_definitions(node)
           start_mixer_clock(node)
@@ -700,6 +708,7 @@ module VBlank
           halt: :exec_halt,
           wait_vblank: :exec_wait_vblank,
           hide_sprites: :exec_hide_sprites,
+          rumble: :exec_rumble,
           screen: :exec_screen,
           clear_screen: :exec_clear_screen,
           pixel: :exec_pixel,
@@ -915,6 +924,7 @@ module VBlank
 
         def exec_halt(node)
           place_pass_end_before_halt
+          stop_motor
           @log << [:halt]
           throw :halt
         end
@@ -1039,6 +1049,31 @@ module VBlank
 
         def exec_enable_sound(node)
           @audio << [:enabled]
+        end
+
+        # SHAKE THE PLAYER'S HANDS (Nodes::Rumble): the motor runs on the frames the screen shows
+        # from the next on (#step_motor), as the console's interrupt runs it as each frame starts.
+        # Nothing on a console whose cartridge has no motor.
+        def exec_rumble(node)
+          return unless @console.rumbles
+
+          @rumble_left = IR::Rumble.frames(eval_value(node.frames))
+          @rumble_bits = eval_value(node.pattern) & 0xFF
+        end
+
+        # One frame of the motor, read from the pattern as IR::Rumble reads it, while the rumble
+        # lasts; off once it has run out.
+        def step_motor
+          return @motor_on = false unless @rumble_left.positive?
+
+          @motor_on, @rumble_bits = IR::Rumble.step(@rumble_bits)
+          @rumble_left -= 1
+        end
+
+        # A game that halts or goes wrong shakes nothing from then on.
+        def stop_motor
+          @rumble_left = 0
+          @motor_on = false
         end
 
         def exec_beep(node)
@@ -1185,6 +1220,7 @@ module VBlank
             # A program that never said `music_volume` has no level, rather than a level of 0.
             @player.advance(level: @vars.fetch(IR::Tunes::LEVEL, nil))
             @mixer.step_envelopes
+            step_motor
           end
           read_buttons(took)
           @log << [:vblank, @frame]

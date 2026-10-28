@@ -20,6 +20,7 @@ and a test fails when the two differ.
 - `pressed` — works: see `held`.
 - `if_held` — works: see `held`.
 - `if_pressed` — works: see `held`.
+- `rumble` — works: nothing is felt. A Game Boy Advance cartridge with a rumble motor is not made yet, so the game plays the same without it.
 
 These work as their group files say:
 

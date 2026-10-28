@@ -502,6 +502,10 @@ module VBlank
         Nodes.build(:hide_sprites)
       end
 
+      def rumble(frames:, pattern:)
+        Nodes.build(:rumble, frames: to_value_node(frames), pattern: to_value_node(pattern))
+      end
+
       # A raw escape hatch: pre-assembled target bytes a native backend appends
       # verbatim. Not portable — the interpreter refuses it, so a program using it
       # runs only on hardware. Reaching for this is a sign the IR has a gap: the

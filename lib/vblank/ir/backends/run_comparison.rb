@@ -18,10 +18,11 @@ module VBlank
         # every variable, the picture as a check number (see .picture_check), how long the sound
         # log was, the sprites it last drew, its lists and pools as Reference#game_state reads
         # them, and the recordings the mixer is sounding, a voice each in the order of the voices —
-        # which says whose voice a new note took.
-        Moment = Data.define(:frame, :variables, :picture, :sounds, :sprites, :collections, :sounding) do
+        # which says whose voice a new note took; and whether the cartridge's motor runs on the frame
+        # the picture is (Reference#motor_on?), off on a console without one.
+        Moment = Data.define(:frame, :variables, :picture, :sounds, :sprites, :collections, :sounding, :motor) do
           def initialize(frame:, variables:, picture:, sounds:, sprites:, collections: { lists: {}, pools: {} },
-                         sounding: [])
+                         sounding: [], motor: false)
             super
           end
         end
@@ -57,6 +58,11 @@ module VBlank
             if reference.sounding != lowered.sounding
               differences << "the mixer sounds #{lowered.sounding.inspect} in the #{lowered_side} and " \
                              "#{reference.sounding.inspect} in Reference"
+            end
+            if reference.motor != lowered.motor
+              on = ->(motor) { motor ? "on" : "off" }
+              differences << "the motor is #{on.call(lowered.motor)} in the #{lowered_side} and " \
+                             "#{on.call(reference.motor)} in Reference"
             end
             return "#{heading(reference.frame)}: #{differences.join('; ')}" if differences.any?
           end

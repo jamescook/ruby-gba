@@ -136,6 +136,7 @@ and a test fails when the two differ. The Advance's answers are in
 - `pressed` — works: see `held`.
 - `if_held` — works: see `held`.
 - `if_pressed` — works: see `held`.
+- `rumble` — works: the cartridge carries a rumble motor, and the motor runs on the frames the pattern says. A cartridge with a `clock` has no motor, so a game that uses both is refused.
 - `seed` — works: the same as on the Advance.
 - `randomize` — works: the same as on the Advance.
 - `roll` — works: the same as on the Advance.

@@ -341,6 +341,7 @@ module ConformanceFixture
       B.noise(:explosion),
       B.wave(shape: :sine, frequency: 440, volume: :full),
       B.stop_wave,
+      B.rumble(frames: B.var_ref(:x), pattern: 0b1100_1010), # felt only where a cartridge has a motor
       B.play_song(:tune),
       B.play_from_list(:tracks, which: B.var_ref(:x)), # a number worked out as the program runs
       B.play_sound_effect(:sfx, which: B.var_ref(:x)),

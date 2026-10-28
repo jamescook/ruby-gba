@@ -149,7 +149,7 @@ module VBlank
                                   bar_rows: lowering.bar_rows, slides: lowering.music.slides?,
                                   wobbles: lowering.music.wobbles?, shapes: lowering.music.shapes?,
                                   banked_songs: lowering.music.banked?, clips: lowering.clips.any?,
-                                  dark: lowering.counts_dark_frames?)
+                                  dark: lowering.counts_dark_frames?, rumble: lowering.rumbles?)
           game = lowering.sections
           runs = lowering.run_uploads
           clips = lowering.clips if lowering.clips.any?
@@ -181,7 +181,8 @@ module VBlank
                              sound_effects: lowering.music.effects.map(&:name), picture_checks: lowering.picture_checks,
                              together_checks: lowering.together_checks)
           save_bytes = SaveLayout.named_by?(program) ? Runtime::Saving::SIZE : 0
-          Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: save_bytes, clock: lowering.clock?, built: built)
+          Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: save_bytes, clock: lowering.clock?,
+                                              rumble: lowering.rumbles?, built: built)
         end
 
         # Where the runtime keeps how the run stands (Runtime::Frame's names and the rest).

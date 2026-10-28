@@ -144,6 +144,7 @@ module VBlank
               raise ArgumentError, "a game that counts its dark frames needs count_at:" if dark?(memory) && count_at.nil?
 
               clips = Clips.any?(memory)
+              rumble = Rumble.any?(memory)
               h = Console::GBCHardware
               vblank = memory.quick(1)
 
@@ -182,6 +183,7 @@ module VBlank
               asm.jump_relative("rt_vblank_music_done")
               asm.label("rt_vblank_music")
               asm.call("rt_music_tick")
+              asm.call("rt_rumble_tick") if rumble # the motor moves on with the music (Runtime::Rumble)
               asm.label("rt_vblank_music_done")
               asm.call("rt_pad_read")
               asm.load(:hl, memory[FRAMES])
@@ -237,6 +239,7 @@ module VBlank
               asm.dec(:a)
               asm.load([memory[MUSIC_OWED]], :a)
               asm.call("rt_music_tick")
+              asm.call("rt_rumble_tick") if rumble
               asm.jump_relative("rt_wait_vblank_owed")
               asm.label("rt_wait_vblank_paid")
               if clips
@@ -567,6 +570,7 @@ module VBlank
               asm.load(:a, HALTED)
               asm.label("rt_stop_with_state")
               asm.load([memory[STATE]], :a)
+              asm.call("rt_rumble_stop") if Rumble.any?(memory) # a game that has stopped shakes nothing
               asm.call("rt_paint_scan")
               asm.load_high(:a, h::LCDC)
               asm.bit(7, :a)

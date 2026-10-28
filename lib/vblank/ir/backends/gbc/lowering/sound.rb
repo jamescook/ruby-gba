@@ -16,7 +16,8 @@ module VBlank
                                                  play_song: :emit_play_song, stop_music: :emit_stop_music,
                                                  play_from_list: :emit_play_from_list,
                                                  play_sound_effect: :emit_play_sound_effect,
-                                                 play_sample: :emit_play_sample, stop_sample: :emit_stop_sample
+                                                 play_sample: :emit_play_sample, stop_sample: :emit_stop_sample,
+                                                 rumble: :emit_rumble
                                                })
 
             # The game's songs, as the player reads them; and its recordings, as a bit a sample.
@@ -28,6 +29,9 @@ module VBlank
 
             # Where the game keeps how loud its music is, or nil for a game that never says.
             def music_level = @variables[Tunes::LEVEL]
+
+            # Does the game run the cartridge's motor? Then its cartridge says it carries one.
+            def rumbles? = @reachable.any? { |node| node.kind == :rumble }
 
             private
 
@@ -129,6 +133,18 @@ module VBlank
             def emit_stop_music(_node) = @asm.call("rt_music_stop")
 
             def emit_enable_sound(_node) = sound_writes(VBlank::Audio::Sound::Registers.enable, [:enabled])
+
+            # Reference#exec_rumble: the cartridge's motor, a frame at a time (Runtime::Rumble).
+            def emit_rumble(node) = runtime_call("rt_rumble", [node.frames, node.pattern])
+
+            # A CARTRIDGE WITH A CLOCK HAS NO MOTOR: the Color's cartridges with a clock chip carry
+            # an MBC3 (Lowering::Clock), and its rumble cartridges an MBC5, and none was made with both.
+            def refuse_rumble_beside_clock!
+              return unless rumbles? && clock?
+
+              raise LoweringError, "this game uses `clock` and `rumble`. A Game Boy Color cartridge with a clock " \
+                                   "has no rumble motor. To fix this, remove `rumble`, or remove `clock`."
+            end
 
             def emit_beep(node)
               effect = VBlank::Audio::Sound.resolve_effect(node.tone, duty: node.duty, decay: node.decay,

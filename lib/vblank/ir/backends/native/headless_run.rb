@@ -290,6 +290,9 @@ module VBlank
           # never reaches the C at all (CheckedRun#refuse_endless_game_without_frames!).
           def stopped_at_budget? = false
 
+          # A desktop or web build shakes no gamepad yet, so its motor never runs (Reference#motor_on?).
+          def motor_on? = false
+
           # The rest of what the interpreter answers, each said by name, so a test asking one meets
           # a sentence saying so rather than a NoMethodError that reads like a typo in the test.
           # test_native_headless_run.rb holds this list to every public method the interpreter

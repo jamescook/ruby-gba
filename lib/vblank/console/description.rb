@@ -64,13 +64,16 @@ module VBlank
     # in the gap between frames places them after the wait, from the pass just ended. One that
     # sends them from a copy as the wait ends places them before it, or they would show a frame
     # later than the pass that moved them.
+    #
+    # +rumbles+ says a game's `rumble` is felt: the cartridge carries a motor the game turns on and
+    # off. Where it is not, the verb does nothing, since a game plays the same without it.
     Description = Data.define(:name, :title, :screen_width, :screen_height, :buttons, :sprites, :sprite_places,
                               :sprites_a_row, :turning_sprites, :backgrounds, :turning_backgrounds,
                               :backgrounds_beside_turning, :bar_is_a_background, :blends, :list_colors, :painted_pages,
                               :clock_keeps_date, :cycles_a_second, :cycles_a_frame, :samples_a_copy,
                               :sample_timer_step, :sample_timer_counts, :recordings_at_once, :mixes_recordings,
                               :voice_output_hz, :largest_memory_bytes, :work_memory_bytes, :work_memory_kept_bytes,
-                              :roomier_memory_bytes, :sprites_placed_before_wait, :extension) do
+                              :roomier_memory_bytes, :sprites_placed_before_wait, :rumbles, :extension) do
       def screen_size = [screen_width, screen_height]
 
       # How much of the work memory is free for a game's own variables and lists.
@@ -128,7 +131,9 @@ module VBlank
                               roomier_memory_bytes: 256 * 1024,
                               # The sprite table and the scroll are written straight into the
                               # console in the gap after the wait, and show on the frame after it.
-                              sprites_placed_before_wait: false, extension: ".gba")
+                              sprites_placed_before_wait: false,
+                              # Its rumble cartridges are not made here yet: nothing is felt.
+                              rumbles: false, extension: ".gba")
 
     # The Game Boy Color: a smaller screen, eight buttons, forty sprites and ten on a row, one
     # background, nothing that turns, lists of four colours, and a clock that counts days. What
@@ -164,7 +169,9 @@ module VBlank
                             roomier_memory_bytes: 0,
                             # The sprite table and the scroll are sent from a copy as the wait
                             # ends, so a pass's are placed before it to show on the frame after.
-                            sprites_placed_before_wait: true, extension: ".gbc")
+                            sprites_placed_before_wait: true,
+                            # A cartridge with a motor, for a game that rumbles (Runtime::Rumble).
+                            rumbles: true, extension: ".gbc")
 
     # Each console's description is reached through its kit (Console::Kit, Console.described).
 

@@ -102,6 +102,7 @@ Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`,
 ## Input — `.claude/dsl/input.md`
 
 - `held(:left)`, `pressed(:start)` (`:any`); low-level `if_held`, `if_pressed`. Buttons `a b select start right left up down r l`.
+- `rumble frames: 12, pattern: "##..##.."` — shake the player's hands, on a cartridge with a motor (the Color's).
 
 ## Menus — `.claude/dsl/menus.md`
 

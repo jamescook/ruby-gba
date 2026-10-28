@@ -138,6 +138,13 @@ module VBlank
         self
       end
 
+      # Whether the cartridge's rumble motor is running on the frame just played (`rumble`): never
+      # on a cartridge without one.
+      def motor_on?
+        ensure_rendered!
+        @probe.motor_on?
+      end
+
       # Get the 8-bit RGB color at a screen coordinate.
       # @return [Hash] { r:, g:, b: } with 0-255 values
       def pixel(x, y)

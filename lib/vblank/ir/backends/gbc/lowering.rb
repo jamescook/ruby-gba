@@ -219,6 +219,7 @@ module VBlank
             refuse_unfit_paint_squares!
             refuse_lists_in_use_past_eight!
             refuse_routines_that_call_themselves!
+            refuse_rumble_beside_clock!
             # ...and the ones a game loop keeps of its own in the Color's order (IR::Frames::ConsoleLoop).
             loops = game_loops.flat_map { |node| console_loop(node).variables }
             (Reach.variables(@program) | loops).each { |name| @variables[name] = @memory.reserve("the variable #{name.inspect}", 4) }

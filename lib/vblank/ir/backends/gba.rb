@@ -532,6 +532,8 @@ module VBlank
             show_picture_group: @picture_group_copying.method(:emit_show_picture_group),
             present_objects: @sprite_drawing.method(:emit_present_objects), save_region: @drawing.method(:emit_save_region),
             hide_sprites: @sprite_drawing.method(:emit_hide_sprites),
+            # The Advance's rumble cartridges are not made yet, so a rumble is not felt (Description#rumbles).
+            rumble: Lowering::NOTHING,
             restore_region: @drawing.method(:emit_restore_region), enable_sound: @audio.method(:emit_enable_sound),
             beep: @audio.method(:emit_beep),
             noise: @audio.method(:emit_noise), wave: @audio.method(:emit_wave),

@@ -624,6 +624,17 @@ module VBlank
         category :draw
       end
 
+      # THE PLAYER'S HANDS SHAKEN: a motor run for +frames+ frames, on or off on each by +pattern+'s
+      # eight bits from the top, round again after the eighth. A rumble said while one runs takes its
+      # place, and nought frames stops it. Felt only on a console whose cartridge has a motor
+      # (Console::Description#rumbles).
+      class Rumble
+        include Node
+        kind :rumble
+        category :sound
+        operands frames: :value, pattern: :value
+      end
+
       class FillRect
         include Node
         kind :fill_rect

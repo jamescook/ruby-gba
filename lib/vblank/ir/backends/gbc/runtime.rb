@@ -12,6 +12,7 @@ require_relative "runtime/sound"
 require_relative "runtime/music"
 require_relative "runtime/effects"
 require_relative "runtime/clips"
+require_relative "runtime/rumble"
 require_relative "runtime/big_maps"
 require_relative "runtime/saving"
 
@@ -40,10 +41,12 @@ module VBlank
           # +shapes+ that a square note says its shapes (GBC::Music#shapes?). +banked_songs+ says its
           # songs' notes are kept in the cartridge's banks (GBC::Music#banked?), +clips+ that it
           # plays a recording (GBC::Clips#any?), and +dark+ that it counts the frames its screen is
-          # off for (Lowering#counts_dark_frames?).
+          # off for (Lowering#counts_dark_frames?), and +rumble+ that it runs a cartridge's motor
+          # (Lowering#rumbles?).
           def reserve(memory, art:, effects: [], together: false, bar_rows: nil, slides: false, wobbles: false,
-                      shapes: false, banked_songs: false, clips: false, dark: false)
+                      shapes: false, banked_songs: false, clips: false, dark: false, rumble: false)
             Clips.reserve(memory) if clips
+            Rumble.reserve(memory) if rumble
             Frame.reserve(memory, together: together, dark: dark)
             Picture.reserve(memory, lends: art.lends?, groups: art.groups?, bar_rows: bar_rows, rooms: art.rooms.any?)
             BigMaps.reserve(memory)
@@ -93,6 +96,7 @@ module VBlank
                                     slides: music&.slides? || false, pans: music&.pans? || false)
             Saving.emit(asm, memory)
             Clips.emit(asm, memory, counts: clips.timer_counts) if shown
+            Rumble.emit(asm, memory) if Rumble.any?(memory)
             emit_start(asm)
             emit_main(asm, main)
             emit_frame_begins(asm, frame_begins)
