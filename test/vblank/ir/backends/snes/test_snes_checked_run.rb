@@ -177,6 +177,21 @@ class TestSNESCheckedRun < Minitest::Test
     assert_equal 1, run[:presses]
   end
 
+  # What is left after dividing by a power of two takes the divisor's sign, as Ruby's `%` does: -1
+  # % 16 is 15. Counted down through nought and far below it, by 1, 2, 16, 1024 and 2^30.
+  def test_what_is_left_by_a_power_of_two_takes_the_divisors_sign
+    run = checked(frames: 12) do
+      a = var :a, 2_000_037
+      left = var :left, 0
+      game_loop do
+        left.set! (a % 1) + ((a % 2) * 10) + ((a % 16) * 100) + ((a % 1024) * 10_000) + (a % 1_073_741_824)
+        a.sub! 777_781
+      end
+    end
+
+    assert_operator run[:a], :<, 0
+  end
+
   def test_scenes_picked_by_a_variable_agree_with_the_interpreter
     run = checked(frames: 20) do
       state = var :state, 0

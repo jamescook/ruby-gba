@@ -163,4 +163,4 @@ and a test fails when the two differ. The Advance's answers are in
 An answer above is what the Super Nintendo does with a verb. The build for it is still growing,
 and a game that reaches one of these steps is refused, naming the step, until it is made:
 
-- the picture: `draw_column_at`, `background_colors`, `scroll_rows`, `show_picture_group`, `color_list_holds`, `copy_tiles`, `copy_owed_tiles`, `data_byte`
+- the picture: `draw_column_at`, `background_colors`, `show_picture_group`, `color_list_holds`, `copy_tiles`, `copy_owed_tiles`, `data_byte`

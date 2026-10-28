@@ -271,6 +271,72 @@ class TestSNESPicture < Minitest::Test
     assert_match(/behind a background every screen shows/, error.message)
   end
 
+  # A BACKGROUND BENT ROW BY ROW: each of the screen's rows shown at its own sideways offset, worked
+  # out by the game at every frame boundary for the frame after, on top of the layer's own scroll.
+  # The block counts its rows too, which the checked run holds to the interpreter's count: 224 at
+  # each boundary. The other layer stays flat.
+  def test_a_background_bent_row_by_row_shows_each_row_where_the_interpreter_does
+    run = checked(frames: 8) do
+      screen :tiled
+      image(:water, "~" => :blue, "|" => :white) { "~~|~~~~~\n~~~~~~|~\n" * 4 }
+      image(:sky, "#" => :cyan, "o" => :yellow) { "##o#####\n" * 8 }
+      tiles :below, "~" => :water
+      tiles :above, "#" => :sky
+      sky = background :sky, tiles: :above, map: Array.new(32) { "#" * 32 }
+      water = background :water, tiles: :below, map: Array.new(32) { |row| row < 10 ? " " * 32 : "~" * 32 }
+      ripple = table :ripple, (0...16).map { |i| (Math.sin(i * 2 * Math::PI / 16) * 5).round }
+      phase = var :phase, 0
+      rows = var :rows, 0
+      water.scroll_each_row do |row|
+        rows.add! 1
+        ripple[(row - phase) % 16]
+      end
+      game_loop do
+        phase.add! 1
+        water.scroll_by 3, 0
+        sky.scroll_by 1, 0
+      end
+    end
+
+    assert_equal 224 * 8, run[:rows]
+  end
+
+  # The bend is worked out for all 224 rows at every boundary, so what each row costs is paid 224
+  # times a pass. A ripple read from a table at the row less the phase, wrapped to sixteen, fits two
+  # frames.
+  def test_a_rippling_bend_keeps_up_with_the_screen
+    program = program_of do
+      screen :tiled
+      image(:water, "~" => :blue, "|" => :white) { "~~|~~~~~\n~~~~~~|~\n" * 4 }
+      tiles :below, "~" => :water
+      water = background :water, tiles: :below, map: Array.new(32) { "~" * 32 }
+      ripple = table :ripple, (0...16).map { |i| (Math.sin(i * 2 * Math::PI / 16) * 5).round }
+      phase = var :phase, 0
+      water.scroll_each_row { |row| ripple[(row - phase) % 16] }
+      game_loop { phase.add! 1 }
+    end
+    run = SNES::HeadlessRun.new.run(program, frames: 6)
+
+    assert_operator (2..6).map { |pass| run.frames_took(pass) }.max, :<=, 2
+  end
+
+  # A scene's own background is on a layer another scene's background takes in turn, so bending
+  # one row by row is not made yet.
+  def test_a_bent_background_that_a_scene_puts_up_is_refused_in_plain_words
+    error = assert_raises(SNES::Lowering::NotMadeYet) do
+      SNES.new.build(program_of do
+        screen :tiled
+        image(:wall, "#" => :gray) { "########\n" * 8 }
+        tiles :set, "#" => :wall
+        state = var :state, 0
+        scene(:play) { background(:room, tiles: :set, map: ["##"]).scroll_each_row { |row| row % 3 } }
+        game_loop { case_var(:state) { when_val 0, :play } }
+      end)
+    end
+
+    assert_match(/bent row by row that a scene puts up/, error.message)
+  end
+
   private def program_of(&game)
     builder = Builder.new
     builder.instance_eval(&game)

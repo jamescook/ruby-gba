@@ -83,7 +83,7 @@ module VBlank
           # above to every kind there is.
           NOT_LOWERED_YET = Ractor.make_shareable({
                                                     "the picture" => %i[draw_column_at background_colors
-                                                                        scroll_rows show_picture_group
+                                                                        show_picture_group
                                                                         color_list_holds
                                                                         copy_tiles copy_owed_tiles data_byte]
                                                   })
@@ -170,8 +170,11 @@ module VBlank
               when :on_timer then node.timer
               end
             end.uniq.each_with_index.to_h
-            @called = Reach.routines(program, also: @tick_handlers.values)
-            @reachable = Reach.statements_from(program, *@called.map { |name| @funcs.fetch(name) }, *@tick_handlers.values)
+            # A bend's steps run at every frame boundary (Picture#emit_bends), wherever it is declared.
+            bend_roots = program.walk.select { |node| node.kind == :scroll_rows }
+            @called = Reach.routines(program, also: @tick_handlers.values + bend_roots)
+            @reachable = Reach.statements_from(program, *@called.map { |name| @funcs.fetch(name) }, *@tick_handlers.values,
+                                               *bend_roots)
             # A list is there, empty, from power-on wherever it is declared (the interpreter gathers
             # them before running), so its storage is the first declaration's.
             @declared_lists = @reachable.reverse.select { |node| node.kind == :list_new }.to_h { |node| [node.name, node] }
@@ -809,7 +812,8 @@ module VBlank
           # The runtime ends the frame (shows it, reads the buttons, keeps time), and the frame
           # counters the program can read move on, where the interpreter moves them
           # (Reference#store_frame_counters): the frames shown by every frame the pass took, and what
-          # the game catches up by held at the cap, both as the runtime counted them.
+          # the game catches up by held at the cap, both as the runtime counted them. Then the rows of
+          # each background bent row by row, for the frame after (Reference#work_out_bends).
           def emit_wait_vblank(_node)
             call_routine("rt_wait_vblank")
             count = place_of(Frames::COUNT)
@@ -826,6 +830,7 @@ module VBlank
             @asm.stz(@asm.abs(step + 2))
             value(Frames::COUNT)
             store(Frames::SEEN)
+            emit_bends
           end
 
           # --- lists (Runtime::Lists does the work and the checking) ---
@@ -1191,6 +1196,7 @@ module VBlank
             return value_of_comparison(node) if COMPARISONS.include?(node.op)
             return value_of_both_or_either(node) if %i[and or].include?(node.op)
             return if node.op == :* && multiplied_by_power_of_two?(node)
+            return if node.op == :% && left_by_power_of_two?(node)
 
             if (routine = CALLED_SUMS[node.op])
               return runtime_call(routine, [node.lhs, node.rhs])
@@ -1465,6 +1471,17 @@ module VBlank
 
           # A product by a power of two up to 16 written in the program, as shifts of the two halves —
           # none at all for a product by one. True when it was done so.
+          # What is left after dividing by a positive power of two, as Int32.mod has it: the sign of
+          # the divisor, so it is the low bits alone (-1 % 16 is 15, and so is -1 & 15) — an AND of
+          # each half, where the runtime's division takes a loop of 32 steps.
+          def left_by_power_of_two?(node)
+            divisor = folded(node.rhs)
+            return false unless divisor&.positive? && (divisor & (divisor - 1)).zero?
+
+            value(Build.binop(:&, node.lhs, Build.int(divisor - 1)))
+            true
+          end
+
           def multiplied_by_power_of_two?(node)
             [[node.rhs, node.lhs], [node.lhs, node.rhs]].each do |by, other|
               number = folded(by)

@@ -39,6 +39,8 @@ module VBlank
           #   rt_background_scroll   where a layer's view sits
           #   rt_set_cell          one cell of a layer's map changed
           #   rt_bar_place         a status bar's top put at a row (a game with a status bar)
+          #   rt_bends_prepare     at the end of every pass: the line tables of the backgrounds bent
+          #                        row by row, from the rows the game worked out (a game with bends)
           #
           # A STATUS BAR is one of the two layers, shown from its top row to the bottom of the screen
           # and hidden above it, while the other layer is shown above it and hidden below. Which
@@ -50,6 +52,15 @@ module VBlank
           # than that takes two. The bar's layer is scrolled up by its top, so its first row is there,
           # and its rows past its map show the backdrop: tile 0 is see-through. The table is made in
           # the blank, with the scroll, so the two always agree.
+          #
+          # A BACKGROUND BENT ROW BY ROW (`scroll_each_row`) is the same engine writing the layer's
+          # scroll across, BGnHOFS, on every line (channel 2 for BG1, 3 for BG2). The game works out
+          # each row's offset at every frame boundary, for the frame after, into the layer's
+          # BEND_OFFSETS (Lowering::Picture#emit_bends); as the pass ends, each row's offset and the
+          # layer's scroll, as the pass left it, go into a line table (rt_bends_prepare): two steps
+          # of 112 lines each, each line two bytes, the register written twice, low byte then high.
+          # There are two tables for each layer, and the blank switches the channel to the one just
+          # made, so a pass whose copy takes several blanks never shows a table half made.
           module Picture
             BG_TILES = 0x0000
             LAYER_MAPS = [0x4000, 0x5000].freeze
@@ -96,14 +107,36 @@ module VBlank
             # The most lines one step of the table counts.
             MOST_STEP_LINES = 127
             SCREEN_HEIGHT = 224
+            # The channels the copying engine writes registers on a line at a time, a bit each, as
+            # HDMAEN takes them: the bar's and the bends' share the register, so it is written from
+            # here whole.
+            HDMA_CHANNELS = "rt hdma channels"
+            # A bent layer's rows (a word each, the screen's height of them), its two line tables, and
+            # for each layer which of its two the channel reads (0 or 1).
+            def self.bend_offsets(layer) = "rt bend offsets #{layer}"
+            def self.bend_tables(layer) = "rt bend tables #{layer}"
+            BEND_SHOWN = "rt bend shown"
+            BEND_STEP_LINES = SCREEN_HEIGHT / 2
+            REPEAT = 0x80 # a step's count with this bit: a new value on every line of it
+            BEND_TABLE_BYTES = 1 + (BEND_STEP_LINES * 2) + 1 + (BEND_STEP_LINES * 2) + 1
+            BEND_CHANNELS = [2, 3].freeze
 
             # A sprite hidden: below the screen, where none of its eight rows shows.
             HIDDEN_Y = 224
 
             module_function
 
-            def reserve(memory, bar: false)
+            # +bar+ for a game with a status bar, +bends+ for one with a background bent row by row.
+            def reserve(memory, bar: false, bends: false)
               memory.reserve(BAR, BAR_BYTES) if bar
+              memory.reserve(HDMA_CHANNELS, 2) if bar || bends
+              if bends
+                memory.reserve(BEND_SHOWN, LAYER_MAPS.length * 2)
+                LAYER_MAPS.each_index do |layer|
+                  memory.reserve_far(bend_offsets(layer), SCREEN_HEIGHT * 2)
+                  memory.reserve_far(bend_tables(layer), BEND_TABLE_BYTES * 2)
+                end
+              end
               memory.reserve_far(SHADOW_OAM, 544)
               memory.reserve_far(DRAWN, 2 + (MOST_SPRITES * DRAWN_BYTES))
               memory.reserve(NEXT_ROW, 2)
@@ -112,16 +145,22 @@ module VBlank
             end
 
             # +work+ is four words of the direct page the routines use. +bar+ for a game with a
-            # status bar.
-            def emit(asm, memory, work:, painted: false, bar: false)
+            # status bar; +bent+ the layers bent row by row, for a game with bends.
+            def emit(asm, memory, work:, painted: false, bar: false, bent: [])
               emit_start(asm, memory, painted)
               emit_sprites(asm, memory, work)
               emit_backgrounds(asm, memory, work)
               emit_bar(asm, memory) if bar
-              emit_upload(asm, memory, work, painted, bar)
+              emit_bends_prepare(asm, memory, work, bent) unless bent.empty?
+              emit_upload(asm, memory, work, painted, bar, bent)
               asm.label("rt_picture_prepare")
-              asm.jml(asm.long("rt_paint_prepare")) if painted
-              asm.rtl unless painted
+              if painted
+                asm.jml(asm.long("rt_paint_prepare"))
+              elsif !bent.empty?
+                asm.jml(asm.long("rt_bends_prepare"))
+              else
+                asm.rtl
+              end
             end
 
             # The registers, then the tiles and the colours copied in while the screen is off — or,
@@ -611,11 +650,103 @@ module VBlank
               asm.rep(0x20)
               asm.lda(table & 0xFFFF)
               asm.sta(asm.abs(channel + h::A1TL))
-              asm.sep(0x20)
-              asm.lda(1 << (BAR_CHANNEL >> 4))
-              asm.sta(asm.abs(h::HDMAEN))
-              asm.rep(0x20)
+              asm.lda(asm.abs(memory[HDMA_CHANNELS]))
+              asm.ora(1 << (BAR_CHANNEL >> 4))
+              asm.sta(asm.abs(memory[HDMA_CHANNELS]))
               asm.label("rt_bar_table_kept")
+            end
+
+            # BENDS. rt_bends_prepare (JSL, as a pass ends): for each layer in +bent+, the line table
+            # the channel is not reading made from the layer's rows and its scroll across: +work+ is
+            # the table's place (three bytes and a spare) and the lines left of a step.
+            def emit_bends_prepare(asm, memory, work, bent)
+              layers = memory[LAYERS]
+              asm.label("rt_bends_prepare")
+              bent.each do |layer|
+                tables = memory[bend_tables(layer)]
+                offsets = memory[bend_offsets(layer)]
+                tag = "rt_bends_prepare_#{layer}"
+                # The table not shown: the second, past the first, while the first is shown.
+                asm.lda(asm.abs(memory[BEND_SHOWN] + (layer * 2)))
+                asm.beq("#{tag}_second")
+                asm.lda(0)
+                asm.bra("#{tag}_chosen")
+                asm.label("#{tag}_second")
+                asm.lda(BEND_TABLE_BYTES)
+                asm.label("#{tag}_chosen")
+                asm.clc
+                asm.adc(tables & 0xFFFF) # the tables are in one bank (Memory#reserve_far), so this never carries
+                asm.sta(asm.direct(work))
+                asm.lda(tables >> 16)
+                asm.sta(asm.direct(work + 2))
+                asm.ldy(0)
+                asm.ldx(0)
+                2.times do |step|
+                  asm.sep(0x20)
+                  asm.lda(REPEAT | BEND_STEP_LINES)
+                  asm.sta(asm.ind_long_y(work))
+                  asm.rep(0x20)
+                  asm.iny
+                  asm.lda(BEND_STEP_LINES)
+                  asm.sta(asm.direct(work + 4))
+                  asm.label("#{tag}_line_#{step}")
+                  asm.lda(asm.long_x(offsets))
+                  asm.clc
+                  asm.adc(asm.abs(layers + (layer * LAYER_STATE_BYTES) + LAYER_SCROLL_X))
+                  asm.sta(asm.ind_long_y(work))
+                  asm.iny
+                  asm.iny
+                  asm.inx
+                  asm.inx
+                  asm.dec(asm.direct(work + 4))
+                  asm.bne("#{tag}_line_#{step}")
+                end
+                asm.sep(0x20)
+                asm.lda(0) # the end of the table
+                asm.sta(asm.ind_long_y(work))
+                asm.rep(0x20)
+              end
+              asm.rtl
+            end
+
+            # In the blank: each bent layer's channel switched to the table just made, writing the
+            # layer's BGnHOFS twice a line (low byte, then high).
+            def emit_bends_shown(asm, memory, bent)
+              h = Console::SNESHardware
+              bent.each do |layer|
+                tables = memory[bend_tables(layer)]
+                channel = h::DMA_BASE + (BEND_CHANNELS.fetch(layer) << 4)
+                shown = memory[BEND_SHOWN] + (layer * 2)
+                tag = "rt_bends_shown_#{layer}"
+                asm.lda(asm.abs(shown))
+                asm.eor(1)
+                asm.sta(asm.abs(shown))
+                asm.beq("#{tag}_first")
+                asm.lda(BEND_TABLE_BYTES)
+                asm.label("#{tag}_first") # A is nought here for the first
+                asm.clc
+                asm.adc(tables & 0xFFFF)
+                asm.sta(asm.abs(channel + h::A1TL))
+                asm.sep(0x20)
+                asm.lda(tables >> 16)
+                asm.sta(asm.abs(channel + h::A1B))
+                asm.lda(h::DMA_TO_ONE_PORT_TWICE)
+                asm.sta(asm.abs(channel + h::DMAP))
+                asm.lda((h::BG1HOFS + (layer * 2)) & 0xFF)
+                asm.sta(asm.abs(channel + h::BBAD))
+                asm.rep(0x20)
+                asm.lda(asm.abs(memory[HDMA_CHANNELS]))
+                asm.ora(1 << BEND_CHANNELS.fetch(layer))
+                asm.sta(asm.abs(memory[HDMA_CHANNELS]))
+              end
+            end
+
+            # In the blank: the channels that write a register a line at a time switched on.
+            def emit_hdma_on(asm, memory)
+              asm.sep(0x20)
+              asm.lda(asm.abs(memory[HDMA_CHANNELS]))
+              asm.sta(asm.abs(Console::SNESHardware::HDMAEN))
+              asm.rep(0x20)
             end
 
             # THE COPY IN THE BLANK, with the screen on (Blank says how). A map put up goes first, a
@@ -624,7 +755,7 @@ module VBlank
             # register and its scroll; then the cells changed, each when the blank has a line left
             # for it. A painted screen's copy is Paint's rt_paint_upload. With the screen still off,
             # before the first pass is shown, everything goes at once.
-            def emit_upload(asm, memory, work, painted, bar)
+            def emit_upload(asm, memory, work, painted, bar, bent)
               h = Console::SNESHardware
               layers = memory[LAYERS]
               # The first pass's, with the screen off (Frame switches it on), and every other's.
@@ -728,6 +859,8 @@ module VBlank
                 emit_scroll_register(asm, h::BG1VOFS + (layer * 2))
               end
               emit_bar_table(asm, memory, work) if bar
+              emit_bends_shown(asm, memory, bent)
+              emit_hdma_on(asm, memory) if bar || !bent.empty?
               # The cells changed, each a word at its address.
               asm.ldx(0)
               asm.label("rt_upload_cell")

@@ -40,12 +40,13 @@ module VBlank
           # a plain cartridge's places do not move. A game with +songs+ keeps their player's places
           # (Music), those of the music volume if it sets one (+music_follows_level+), and those of
           # its +effects+ sound effects (Effects); one that plays its own recordings (+samples+) keeps
-          # their count (Recordings); one with a status bar (+bar+) keeps where it is (Picture).
+          # their count (Recordings); one with a status bar (+bar+) keeps where it is, and one with a
+          # background bent row by row (+bends+) its rows and line tables (Picture).
           def reserve(memory, painted: false, chip: false, sound: false, songs: false, music_follows_level: false,
-                      effects: 0, samples: false, bar: false)
+                      effects: 0, samples: false, bar: false, bends: false)
             Paint.reserve(memory, chip: chip) if painted
             Frame.reserve(memory)
-            Picture.reserve(memory, bar: bar)
+            Picture.reserve(memory, bar: bar, bends: bends)
             Tint.reserve(memory)
             Chip.reserve(memory) if chip
             Sound.reserve(memory) if sound
@@ -66,10 +67,11 @@ module VBlank
           # sound effects it has; +recordings+ its own recordings as the sound unit keeps them
           # (Samples.recording), sent with the rest, and +plays+ the section of its plays of them
           # (Lowering::Sound#recordings_section), for a game that plays them, which carries their count;
-          # +bar+ for a game with a status bar, which carries what places it (Picture's rt_bar_place).
+          # +bar+ for a game with a status bar, which carries what places it (Picture's rt_bar_place);
+          # +bent+ the layers a game bends row by row, whose line tables it then makes (Picture).
           def sections(memory, main:, frame_begins: nil, painted: false, board: Cartridge::SNESROM::PLAIN, saves: false,
                        sound: false, sound_waves: [], music: nil, music_level_at: nil, effects: 0, recordings: [],
-                       plays: nil, bar: false)
+                       plays: nil, bar: false, bent: [])
             chip = board.name == :super_fx
             vectors = W65816.new("runtime vectors", home: :first)
             Boot.emit_vectors(vectors)
@@ -80,7 +82,7 @@ module VBlank
             Frame.emit(asm, memory, pad: memory.scratch(4), sound: sound)
             Blank.emit(asm, memory, Blank.scratch(memory))
             Lists.emit(asm, memory, Lists.scratch(memory))
-            Picture.emit(asm, memory, work: memory.scratch(8), painted: painted, bar: bar)
+            Picture.emit(asm, memory, work: memory.scratch(8), painted: painted, bar: bar, bent: bent)
             Paint.emit(asm, memory, Paint.scratch(memory), chip: chip) if painted
             Tint.emit(asm, memory, Tint.scratch(memory))
             Collide.emit(asm, memory, Collide.scratch(memory))

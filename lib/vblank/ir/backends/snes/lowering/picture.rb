@@ -22,12 +22,16 @@ module VBlank
                                                  set_tile: :emit_set_tile, show_map: :emit_show_map,
                                                  present_objects: :emit_present_objects,
                                                  hide_sprites: :emit_hide_sprites, fade: :emit_fade, tint: :emit_tint,
-                                                 place_bar: :emit_place_bar
+                                                 place_bar: :emit_place_bar, scroll_rows: :emit_scroll_rows
                                                })
 
             # Whether +program+ has a status bar, which the runtime then carries what places
             # (Runtime::Picture's rt_bar_place).
             def self.status_bar?(program) = program.walk.any? { |node| node.kind == :background && node.bar? }
+
+            # Whether +program+ bends a background row by row, which the runtime then keeps the rows
+            # and line tables of (Runtime::Picture's rt_bends_prepare).
+            def self.bends?(program) = program.walk.any? { |node| node.kind == :scroll_rows }
 
             # The SNES::Art the game's pictures were made into.
             attr_reader :art
@@ -137,6 +141,9 @@ module VBlank
               asm.section
             end
 
+            # The layers bent, in #bends' order, whose line tables the runtime makes.
+            def bent_layers = painted? ? [] : bends.map { |bend| layer_of(background_declared_for(bend)) }
+
             private
 
             def by_kind(kind) = @program.walk.select { |node| node.kind == kind }.to_h { |node| [node.name, node] }
@@ -184,6 +191,7 @@ module VBlank
               end
               refuse_unmade!("a status bar that a scene puts up") if own.flatten.any?(&:bar?)
               refuse_unmade_stacking!(always)
+              refuse_unmade_bends!(always)
               always.each_with_index { |bg, i| @layers[bg] = @scene_layers + (always.length - 1 - i) }
               own.each { |scenery| scenery.each_with_index { |bg, i| @layers[bg] = scenery.length - 1 - i } }
             end
@@ -305,6 +313,72 @@ module VBlank
             def emit_place_bar(node)
               for_background(node) do |bg|
                 runtime_call("rt_bar_place", [Build.int(layer_of(bg)), node.top]) if bg.bar?
+              end
+            end
+
+            # --- a background bent row by row ---
+
+            # Reference#exec_scroll_rows: a standing declaration, gathered up front (#bends). Its rows
+            # are worked out at every frame boundary (#emit_bends), not where it is written.
+            def emit_scroll_rows(_node) = nil
+
+            # The game's bends: the last each background is given, in the order the backgrounds were
+            # first bent (Reference#collect_definitions).
+            def bends
+              @bends ||= @program.walk.select { |node| node.kind == :scroll_rows }.group_by(&:name).map { |_, said| said.last }
+            end
+
+            # Reference#work_out_bends, where the pass's wait ends: each row of the screen, its number
+            # in the bend's variable, the bend's own steps, and how far along the row sits kept in the
+            # layer's rows (Runtime::Picture.bend_offsets) for the frame after; the first row of each
+            # bend, then the rest of each, leaving each variable at the screen's height.
+            def emit_bends
+              bends.each { |bend| emit_bend_rows(bend, 0...1) }
+              bends.each { |bend| emit_bend_rows(bend, 1...Runtime::Picture::SCREEN_HEIGHT) }
+            end
+
+            # Rows +rows+ (a range short of its end) of +bend+.
+            def emit_bend_rows(bend, rows)
+              top = fresh("bend_row")
+              done = fresh("bend_rows_done")
+              statement(Build.set(bend.row, rows.begin))
+              @asm.label(top)
+              bend.children.each { |child| statement(child) }
+              emit_bend_offset(bend)
+              statement(Build.add(bend.row, 1))
+              return if rows.size == 1
+
+              jump_unless(Build.binop(:<, Build.var_ref(bend.row), Build.int(rows.end)), done)
+              @asm.brl(top)
+              @asm.label(done)
+            end
+
+            # The row in the bend's variable kept at its place in the layer's rows: the low 16 bits of
+            # how far along, all the console's scroll register takes.
+            def emit_bend_offset(bend)
+              offsets = @memory[Runtime::Picture.bend_offsets(layer_of(background_declared_for(bend)))]
+              value(bend.row)
+              @asm.lda(@asm.direct(R0))
+              @asm.asl
+              @asm.pha
+              value(bend.offset)
+              @asm.plx
+              @asm.lda(@asm.direct(R0))
+              @asm.sta(@asm.long_x(offsets))
+            end
+
+            # The bends a layer's line table cannot show yet: one on a scene's own background (its
+            # layer is another scene's in turn), on a status bar, or in a game that never waits for the
+            # screen (whose rows the interpreter works out as it paints them).
+            def refuse_unmade_bends!(always)
+              return if bends.empty?
+
+              refuse_unmade!("a background bent row by row in a game that never waits for the screen") unless
+                @program.walk.any? { |node| node.kind == :wait_vblank }
+              bends.each do |bend|
+                bg = background_declared_for(bend)
+                refuse_unmade!("a status bar bent row by row") if bg&.bar?
+                refuse_unmade!("a background bent row by row that a scene puts up") unless always.any? { |up| up.equal?(bg) }
               end
             end
 
