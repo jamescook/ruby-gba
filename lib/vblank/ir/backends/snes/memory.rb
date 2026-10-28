@@ -50,6 +50,7 @@ module VBlank
           def initialize
             @next = FIRST
             @next_far = FAR_FIRST
+            @next_last = LAST_BANK
             @next_scratch = SCRATCH
             @far_end = FAR_END
             @places = {}
@@ -78,16 +79,17 @@ module VBlank
             end
           end
 
-          # +bytes+ from the start of work RAM's last bank, $7F:0000, for +name+ — a painted screen's
-          # copy, which wants a bank of its own so a 16-bit address is a byte of it — and the far
-          # places asked for after it end where it starts. Asked before any other far place.
+          # +bytes+ of work RAM's last bank, $7F:0000 on, for +name+ — a painted screen's copy, which
+          # wants a bank of its own so a 16-bit address is a byte of it, then what the painted screen
+          # keeps beside it — each after the one asked for before, and the far places asked for
+          # after them end where the bank starts. Asked before any other far place.
           def reserve_last_bank(name, bytes)
             @places.fetch(name) do
               @far_end = LAST_BANK
-              raise Full, full_message(name, bytes, FAR_END - LAST_BANK, "its work RAM") if
-                @next_far > LAST_BANK || bytes > FAR_END - LAST_BANK
+              raise Full, full_message(name, bytes, FAR_END - @next_last, "its work RAM") if
+                @next_far > LAST_BANK || @next_last + bytes > FAR_END
 
-              @places[name] = LAST_BANK
+              @places[name] = @next_last.tap { @next_last += bytes }
             end
           end
 

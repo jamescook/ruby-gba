@@ -3,8 +3,8 @@
 require "test_helper"
 require VBlank.root.join("examples/buffered_bounce").to_s
 
-# examples/buffered_bounce.rb on a Super Nintendo cartridge with a Super FX 2: the screen cleared by
-# the chip every pass and copied to video RAM a blank at a time with the screen on, held to the
+# examples/buffered_bounce.rb on a Super Nintendo cartridge with a Super FX 2: the balls painted into
+# the chip's RAM every pass and copied to video RAM in the blank with the screen on, held to the
 # interpreter — every variable and every pixel — after every pass.
 class TestBufferedBounceOnSuperFX < Minitest::Test
   # Long enough for the second ball, which starts heading up, to reach the top wall and turn round.

@@ -90,8 +90,8 @@ module VBlank
             Recordings.emit(asm, memory) if plays
             emit_start(asm, chip: chip, sound: sound)
             emit_frame_begins(asm, frame_begins)
-            [vectors.section, asm.section] + (chip && painted ? [ChipPaint.gsu_section] : []) +
-              (sound ? Sound.sections(sound_waves, recordings: recordings) : []) + [music, plays].compact
+            [vectors.section, asm.section] + (sound ? Sound.sections(sound_waves, recordings: recordings) : []) +
+              [music, plays].compact
           end
 
           # What a game needs before its first line: its variables that do not start at nought (the

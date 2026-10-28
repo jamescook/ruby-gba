@@ -76,17 +76,6 @@ module VBlank
             @colors.dup.fill(BLACK, @colors.length...COLORS).pack("v*")
           end
 
-          # One row of tiles of the screen (32 tiles side by side, 64 bytes each) all in the colour
-          # at +place+: what clearing the screen copies, once for each row of tiles.
-          def clear_row(place)
-            tile = (0...4).flat_map do |pair|
-              low = place[pair * 2] == 1 ? 0xFF : 0
-              high = place[(pair * 2) + 1] == 1 ? 0xFF : 0
-              [low, high] * 8
-            end
-            tile.pack("C*") * 32
-          end
-
           private
 
           def make_picture(number, width, height, drawn)

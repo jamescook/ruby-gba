@@ -94,6 +94,7 @@ module VBlank
             @active_samples = nil
             @loudest_each_frame = []
             @black_each_frame = []
+            @picture_each_frame = []
             play(frames || Reference::DEFAULT_FRAMES)
             self
           end
@@ -165,6 +166,17 @@ module VBlank
           def black_frames
             first_lit = @black_each_frame.index(false) || @black_each_frame.size
             (first_lit...@black_each_frame.size).select { |frame| @black_each_frame[frame] }
+          end
+
+          # For a run made with +watch_picture+: the frames the console drew, after the first it drew
+          # anything, that show no pass's whole picture — a pass's change half copied, or its colours
+          # sent before its tiles. A pass's picture is the one read once the pass was shown, as the
+          # checked run holds it to the interpreter's; every frame between two passes is the first
+          # of them or the second, unless the copy between is seen arriving.
+          def torn_frames
+            whole = @moments.map(&:picture)
+            first_lit = @black_each_frame.index(false) || @black_each_frame.size
+            (first_lit...@picture_each_frame.size).reject { |frame| whole.include?(@picture_each_frame[frame]) }
           end
 
           # The rest of what the interpreter answers, each refused by name.
@@ -244,6 +256,27 @@ module VBlank
               hold_after_this_pass if passes > frames
               waited = 0
               @deciding = passes <= frames
+              decide_first_frame_late if passes == 1
+            end
+          end
+
+          # FRAME 1 CAN BE READ BEFORE IT IS DECIDED. An emulated frame ends as the console starts its
+          # vertical blank, and the blank's interrupt reads the controller as it starts — so a first
+          # pass that ends late in a frame finds that frame's interrupt, frame 1's, taken before the
+          # emulator stops and the pass is seen to be over: frame 1 read the buttons held from
+          # power-on. Until the pass is shown (SHOWN still nought) the game has not taken its buttons
+          # for the next pass from what the interrupt read (Runtime::Frame's rt_read_buttons), so what
+          # frame 1's interrupt would have read is written in its place. No interrupt came before
+          # it, so nothing was seen or pressed before.
+          def decide_first_frame_late
+            return unless @deciding && word(runtime_place(Runtime::Frame::FRAMES)) == 1 && shown_pass.zero?
+
+            @decided = 1
+            buttons = (@input_script ? Array(@input_script.call(1)) : @held).map(&:to_sym) - [Buttons::ANY]
+            bits = buttons.sum { |name| 1 << Buttons::NAMES.index(name) }
+            [Runtime::Frame::PAD_HELD, Runtime::Frame::PAD_PRESSED, Runtime::Frame::SEEN].each do |name|
+              @core.wram_write8(runtime_place(name), bits & 0xFF)
+              @core.wram_write8(runtime_place(name) + 1, bits >> 8)
             end
           end
 
@@ -370,7 +403,11 @@ module VBlank
             decide_buttons
             @core.run_frame
             @loudest_each_frame << (@core.take_audio.map(&:abs).max || 0)
-            @black_each_frame << @core.colors.none?(&:positive?) if @watch_picture
+            return unless @watch_picture
+
+            colors = @core.colors
+            @black_each_frame << colors.none?(&:positive?)
+            @picture_each_frame << RunComparison.picture_check(colors)
           end
 
           # The emulator's picture, each pixel the 15-bit colour the console holds.

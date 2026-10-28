@@ -32,7 +32,8 @@ module VBlank
           # painted screen's copy already does (Runtime::Paint): it never switches the screen off.
           #
           #   rt_picture_start     at power-on: the registers, the tiles and the colours
-          #   rt_picture_prepare   at the end of every pass, before the wait (nothing yet)
+          #   rt_picture_prepare   at the end of every pass, before the wait: a painted screen's
+          #                        runs of tiles to send (Paint's rt_paint_prepare), nothing else
           #   rt_upload_whole      the first pass, with the screen still off
           #   rt_upload            what the pass changed, in the blank
           #   rt_sprites_begin     every sprite hidden, ready for a pass's sprites
@@ -90,7 +91,8 @@ module VBlank
               emit_backgrounds(asm, memory, work)
               emit_upload(asm, memory, painted)
               asm.label("rt_picture_prepare")
-              asm.rtl
+              asm.jml(asm.long("rt_paint_prepare")) if painted
+              asm.rtl unless painted
             end
 
             # The registers, then the tiles and the colours copied in while the screen is off — or,
@@ -516,11 +518,12 @@ module VBlank
               asm.rtl
 
               asm.label("rt_upload_copy")
-              asm.jsr(asm.abs("rt_tint_upload")) # the colours, if a fade or a tint moved them
+              # A painted screen sends the colours with the last of its tiles (rt_paint_upload).
               if painted
                 asm.jmp(asm.abs("rt_paint_upload"))
                 return
               end
+              asm.jsr(asm.abs("rt_tint_upload")) # the colours, if a fade or a tint moved them
 
               # The sprite table, whole.
               asm.stz(asm.abs(h::OAMADDL))

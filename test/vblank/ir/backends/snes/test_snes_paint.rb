@@ -107,27 +107,86 @@ class TestSNESPaint < Minitest::Test
     assert_equal Color.resolve(:orange), run.screen.pixel(41, 21)
   end
 
-  # A pass that clears the whole screen changes every one of its 896 tiles, 57344 bytes, far more than a
-  # blank has time to copy. It reaches the screen over several frames, and none of them is black:
-  # the screen is never switched off for it. The checked run holds each pass's picture to the
-  # interpreter's; the frames between passes are what only a player sees, read here one by one.
-  # A blank copies 4096 bytes at most, so the 57344 bytes of the screen take 14 blanks, and the
-  # pass is shown on the frame after its last: no pass takes more than 15 frames.
-  def test_a_pass_that_changes_the_whole_screen_shows_no_black_frame
+  # A pass that clears the whole screen changes every one of its 896 tiles. Copied whole that is
+  # 57344 bytes, fourteen blanks' worth. But a clear writes nothing: the tiles it covers show one
+  # tile of the clear colour, so the pass sends that tile, the screen's map and the few tiles the
+  # rectangle covers (30 pixels square at a place off the tile edges: five by five tiles, 1600 bytes),
+  # all inside one blank. So each pass takes the one frame it takes on the interpreter, and none is
+  # black. The checked run holds each pass's picture to the interpreter's; the frames between
+  # passes are what only a player sees, read here one by one.
+  def test_a_pass_that_clears_and_draws_a_little_takes_one_frame
+    program = clear_and_draw_program
+    SNES::CheckedRun.new.run(program, frames: 6) # raises if a pass's picture differs from the interpreter's
+    run = SNES::HeadlessRun.new(watch_picture: true).run(program, frames: 6)
+
+    assert_empty run.black_frames
+    assert_equal [1] * 5, (2..6).map { |pass| run.frames_took(pass) }
+  end
+
+  # The same on a cartridge with a Super FX, whose copy of the screen is the chip's RAM.
+  def test_a_pass_that_clears_and_draws_a_little_takes_one_frame_on_the_super_fx
+    program = clear_and_draw_program.tap { |game| game.variant = :superfx }
+    SNES::CheckedRun.new.run(program, frames: 6)
+    run = SNES::HeadlessRun.new(watch_picture: true).run(program, frames: 6)
+
+    assert_empty run.black_frames
+    assert_equal [1] * 5, (2..6).map { |pass| run.frames_took(pass) }
+  end
+
+  # Half the screen painted each pass, the left half and then the right, is 448 tiles (28672
+  # bytes) for the blank: seven blanks' worth at least. While they arrive the screen must show the
+  # last pass's whole picture, and then this pass's whole picture, never a mix: not half the new
+  # tiles (a wipe down the screen), and not the old tiles in the new pass's faded colours.
+  def test_a_big_change_and_its_colours_arrive_on_the_same_frame
     program = program_of do
       screen :bitmap
-      x = var :x, 0
+      n = var :n, 0
+      game_loop do
+        clear_screen :black
+        fade :black, (n % 4) * 20
+        (n % 2 == 0).then { fill_rect 0, 0, 128, 224, :red }
+        (n % 2 == 1).then { fill_rect 128, 0, 128, 224, :green }
+        n.add! 1
+      end
+    end
+    SNES::CheckedRun.new.run(program, frames: 5)
+    run = SNES::HeadlessRun.new(watch_picture: true).run(program, frames: 5)
+
+    assert_operator run.frames_took(3), :>, 1, "the half screen takes more than one blank"
+    assert_empty run.black_frames
+    assert_empty run.torn_frames
+  end
+
+  # A clear moves the screen on a generation, and a tile painted in an older one is the clear
+  # colour. The count is a byte, so it comes round: the 257th clear has the number the first had.
+  # The tile painted red after the first clear, and never since, must still be the clear colour then,
+  # and the green square painted into it must show on the clear colour.
+  def test_a_tile_painted_before_the_generations_come_round_is_cleared_after
+    run = checked(frames: 257) do # the run ends on the pass n is 256 in
+      screen :bitmap
+      n = var :n, 0
       game_loop do
         clear_screen :blue
-        draw_rect_at x, 20, 30, 30, :yellow
+        (n == 0).then { fill_rect 0, 0, 8, 8, :red }
+        (n == 256).then { fill_rect 0, 0, 2, 2, :green }
+        n.add! 1
+      end
+    end
+
+    assert_equal Color.resolve(:green), run.screen.pixel(1, 1)
+    assert_equal Color.resolve(:blue), run.screen.pixel(5, 5)
+  end
+
+  private def clear_and_draw_program
+    program_of do
+      screen :bitmap
+      x = var :x, 3
+      game_loop do
+        clear_screen :blue
+        draw_rect_at x, 21, 30, 30, :yellow
         x.add! 7
       end
     end
-    SNES::CheckedRun.new.run(program, frames: 4) # raises if a pass's picture differs from the interpreter's
-    run =SNES::HeadlessRun.new(watch_picture: true).run(program, frames: 4)
-
-    assert_empty run.black_frames
-    assert_operator (2..4).map { |pass| run.frames_took(pass) }.max, :<=, (57_344 / 4096) + 1
   end
 
   private def program_of(&game)

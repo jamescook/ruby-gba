@@ -159,6 +159,24 @@ class TestSNESCheckedRun < Minitest::Test
     assert_operator run[:started], :>, 0
   end
 
+  # A painted screen's first pass ends late in its frame, so the frame's blank, frame 1, has read
+  # the controller before the run sees the pass is over. A press on frame 1 alone still reaches
+  # the second pass, as it does on the interpreter: 1, where the press was lost it is 0.
+  def test_a_press_on_frame_one_reaches_a_game_whose_first_pass_ends_late
+    run = SNES::CheckedRun.new
+    run.input_each_frame { |frame| frame == 1 ? [:a] : [] }.run(program_of do
+      screen :bitmap
+      presses = var :presses, 0
+      game_loop do
+        clear_screen :black
+        pressed(:a).then { presses.add! 1 }
+        draw_text "HI", 40, 30, :white
+      end
+    end, frames: 3)
+
+    assert_equal 1, run[:presses]
+  end
+
   def test_scenes_picked_by_a_variable_agree_with_the_interpreter
     run = checked(frames: 20) do
       state = var :state, 0

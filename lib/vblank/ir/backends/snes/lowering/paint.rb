@@ -41,7 +41,6 @@ module VBlank
             def prepare_paint
               @painted = Paint.painted?(@program)
               @painted_art = PaintedArt.new
-              @clear_rows = {} # a colour's place -> its number among the cleared rows
               @picture_lists = [] # each a list of SNES::PaintedArt pictures' numbers
               @patches = {} # a backing buffer's name -> [its place, its width, its height]
             end
@@ -59,7 +58,7 @@ module VBlank
             end
 
             # The tables Runtime::Paint reads, as sections for the Linker: the colours, every picture
-            # and its rows, the lists of pictures, and the cleared rows.
+            # and its rows, and the lists of pictures.
             def paint_sections
               tables = W65816.new("paint tables", holds: Picture::ART)
               tables.label("art colors")
@@ -79,11 +78,6 @@ module VBlank
                 tables.label("paint picture list #{number}")
                 tables.data_words(numbers.length, *numbers)
               end
-              tables.label("paint clear rows")
-              @clear_rows.each_value do |number|
-                tables.data_longs("paint clear row #{number}")
-                tables.data_bytes(0)
-              end
               @painted_art.pictures.each do |picture|
                 tables.label("paint rows #{picture.number}")
                 picture.height.times do |row|
@@ -91,8 +85,7 @@ module VBlank
                   tables.data_bytes(0)
                 end
               end
-              [tables.section, *picture_row_sections,
-               *@clear_rows.map { |place, number| bytes_section("paint clear row #{number}", @painted_art.clear_row(place)) }]
+              [tables.section, *picture_row_sections]
             end
 
             # The most bytes of pictures' rows in one section: well inside a bank of the cartridge.
@@ -127,9 +120,7 @@ module VBlank
 
             # Reference#exec_clear_screen.
             def emit_clear_screen(node)
-              place = place_of_color(node.color)
-              rows = @clear_rows[place] ||= @clear_rows.length
-              runtime_call("rt_paint_clear", [Build.int(place), Build.int(rows)])
+              runtime_call("rt_paint_clear", [Build.int(place_of_color(node.color))])
             end
 
             # Reference#exec_fill_rect, #exec_dma_fill_rect and #exec_draw_rect_at: the same rectangle.

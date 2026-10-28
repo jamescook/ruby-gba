@@ -232,10 +232,10 @@ module VBlank
               asm.rts
             end
 
-            # rt_tint_upload (JSR, in the blank, first of what is copied there): the moved colours, if
-            # they changed since the last blank. On a painted screen the screen stays on, and the
-            # 512 bytes go first, at the start of the blank; the tiles after them are not counted
-            # against them, but the third of the blank Paint's BLANK_BYTES leaves over covers them.
+            # rt_tint_upload (JSR, in the blank): the moved colours, if they changed since the last
+            # blank. A tiled screen sends them first; a painted screen sends them with the last of
+            # its tiles, counted against the blank's room with them (Paint's rt_paint_upload), so
+            # a faded colour never shows on the last pass's tiles.
             def emit_upload(asm, memory)
               h = Console::SNESHardware
               state = memory[STATE]
