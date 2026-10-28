@@ -31,6 +31,45 @@ class TestGBCProfiler < Minitest::Test
     assert_includes names, "the game loop"
   end
 
+  # A SCREEN FADED IN BY STEPPING ITS LISTS, the way a cartridge made for the Color fades: seven
+  # lists of the background's, and four lists that eight sprites wear two to a list, each drawn with
+  # the next of sixteen steps every frame, and no tint or fade said. Copying the colours that change
+  # is all the frame needs.
+  STEPPED = VBlank.game("STEPPED", consoles: %i[gba gbc]) do
+    screen :tiled
+    shade = ->(n, s) { [:transparent, *(0..3).map { |c| VBlank::Graphics::Color.rgb((n + s + c) % 32, s * 2, c * 8) }] }
+    steps = (0...16).to_a
+    quarters = Array.new(64) { |i| 1 + ((i % 8) / 4) + (2 * ((i / 8) / 4)) }
+    7.times do |n|
+      colors :"bg#{n}", shade.call(n, 0)
+      image :"tile#{n}", width: 8, height: 8, colors: :"bg#{n}", places: quarters
+      steps.each { |s| colors :"bg#{n}_#{s}", shade.call(n, s) }
+    end
+    4.times do |n|
+      colors :"sp#{n}", [:transparent, VBlank::Graphics::Color.rgb(31, n, 0)]
+      steps.each { |s| colors :"sp#{n}_#{s}", [:transparent, VBlank::Graphics::Color.rgb(31 - s, n, s)] }
+      image :"ball#{n}", width: 8, height: 8, colors: :"sp#{n}", places: Array.new(64, 1)
+    end
+    tiles :set, (0...7).to_h { |n| [n.to_s, :"tile#{n}"] }
+    board = background :board, tiles: :set, map: Array.new(18) { "0123456" * 3 }
+    balls = (0...8).map { |n| sprite :"ball#{n / 2}", at: [8 + (n * 16), 120] }
+    step = var :step, 0
+    game_loop do
+      step.set!((step + 1) % 16)
+      board.draw_with((0...7).to_h { |n| [:"bg#{n}", steps.map { |s| :"bg#{n}_#{s}" }] }, showing: step)
+      balls.each_with_index { |ball, n| ball.draw_with steps.map { |s| :"sp#{n / 2}_#{s}" }, showing: step }
+    end
+  end
+
+  def test_a_screen_stepping_eleven_lists_a_frame_keeps_a_pass_a_frame
+    rom = STEPPED.build_rom(console: :gbc, out: StringIO.new, err: StringIO.new, profile: false)
+
+    result = rom.profile(out: StringIO.new, frames: 30)
+
+    assert_in_delta 59.7, result.fps, 2.5
+    assert_equal 0, result.lists_missed, "every sprite found a list of colours free"
+  end
+
   def test_a_scene_to_measure_is_refused_in_plain_words
     error = assert_raises(ArgumentError) { profiled(scene: :title) }
 

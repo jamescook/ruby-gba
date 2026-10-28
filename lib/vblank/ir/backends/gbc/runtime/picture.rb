@@ -1845,21 +1845,40 @@ module VBlank
               asm.load(:a, :b)
               asm.load([:hl], :a)
               # Every colour of the palettes the game uses: its channels apart, each moved, and put
-              # back together. The others are never shown, so are left as they are.
+              # back together. The others are never shown, so are left as they are. With no fade or
+              # tint in force every colour stays as it is, so the colours are copied across as they
+              # are — a few instructions a colour rather than a few hundred, which is what lets a
+              # game that fades by stepping its lists itself (`draw_with` every frame) keep a pass a
+              # frame.
               asm.label("rt_tint_apply")
-              palette_runs(palettes_in_use).each do |first, count|
+              asm.load(:a, [at + 3])
+              asm.and_a(:a)
+              asm.jump(:z, "rt_tint_copy")
+              # HL = where palette +first+'s colours are drawn from now, DE = where in the copy.
+              from_and_to = lambda do |first|
                 asm.load(:hl, drawn_palettes ? drawn_palettes + (first * 8) : "art_palettes")
                 if !drawn_palettes && first.positive?
                   asm.load(:de, first * 8)
                   asm.add_hl(:de)
                 end
                 asm.load(:de, memory[SHADOW_PALETTES] + (first * 8))
+              end
+              palette_runs(palettes_in_use).each do |first, count|
+                from_and_to.call(first)
                 asm.load(:c, count * Art::PLACES)
                 asm.call("rt_tint_colors")
               end
+              asm.label("rt_tint_applied")
               asm.load(:a, 1)
               asm.load([memory[PALETTES_CHANGED]], :a)
               asm.ret
+              asm.label("rt_tint_copy")
+              palette_runs(palettes_in_use).each do |first, count|
+                from_and_to.call(first)
+                asm.load(:b, count * 8)
+                asm.call("rt_copy_b")
+              end
+              asm.jump("rt_tint_applied")
               # C colours from HL into the copy at DE.
               asm.label("rt_tint_colors")
               asm.push(:bc)
