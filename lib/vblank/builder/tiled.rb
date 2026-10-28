@@ -417,6 +417,9 @@ module VBlank
                              # so a mover is stopped by the walls of the room it is in
                              # rather than by the first room's, wherever it stands.
                              solid_cells: wall_grids(name, map_names, drawn, set, walls),
+                             # ...and which tiles are walls, so a cell set_tile changes takes
+                             # its tile's: walls written apart with `walls:` say nothing of tiles.
+                             solid_tiles: walls.nil? && !sets ? solid_tile_numbers(tile_names, set) : nil,
                              tile_size: [set[:tile_w], set[:tile_h]],
                              walks_areas: !sets.nil?,
                              tile_pictures: sets ? tile_names.uniq : (set[:by_key].values + set[:by_number].values).uniq)
@@ -937,6 +940,11 @@ module VBlank
       #
       # nil, not [], when the tileset marks nothing solid — there is no grid to consult and
       # a mover blocked by this background is not blocked by anything.
+      # The numbers of a tileset's tiles marked `solid:`, as a map numbers its cells.
+      def solid_tile_numbers(tile_names, set)
+        tile_names.each_index.select { |index| set[:solid_images].include?(tile_names[index]) }
+      end
+
       def solid_cell_grid(img_rows, set)
         solid = set[:solid_images]
         return nil if solid.empty?

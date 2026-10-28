@@ -46,7 +46,7 @@ module VBlank
       def initialize(builder, name:, scroll_x:, scroll_y:, walls: [],
                      cells: [0, 0], tile_index: {}, bitmap: false, map_names: nil,
                      solid_cells: [], tile_size: [8, 8], node: nil, tile_pictures: [], walks_areas: false,
-                     streams: false)
+                     streams: false, solid_tiles: nil)
         @builder = builder
         @name = name
         @tile_pictures = tile_pictures
@@ -55,6 +55,9 @@ module VBlank
         @scroll_y = scroll_y
         @walls = walls
         @solid_cells = solid_cells
+        # The tile numbers that are walls, or nil where the walls were written apart (`walls:`)
+        # and a tile says nothing about them.
+        @solid_tiles = solid_tiles
         @tile_size = tile_size
         @cells = cells
         @tile_index = tile_index
@@ -94,7 +97,22 @@ module VBlank
         raise ArgumentError, unknown_tile_message(tile) if index.nil?
 
         record(Build.set_tile(@name, Value.node_for(col), Value.node_for(row), index))
+        record_wall_change(col, row, index)
         self
+      end
+
+      # THE WALLS FOLLOW THE CELL. A mover is stopped by the walls the tileset's `solid:` tiles
+      # make, and those were worked out from the map as declared; a door opened with set_tile
+      # has to let it through, and a wall put down has to stop it. So a background whose cells
+      # the game changes keeps its walls where the game can change them too (see
+      # Builder::Collision#keep_walls_changeable), and the cell's wall goes with its tile: a wall if
+      # the tile is `solid:`, floor if not. Walls written apart with `walls:` say nothing of
+      # tiles, and stay as written.
+      def record_wall_change(col, row, index)
+        return if @solid_tiles.nil? || solid_lookup.nil?
+
+        @builder.record_wall_change(@builder.keep_walls_changeable(solid_lookup, @declaration_tail), col, row,
+                                    wall: @solid_tiles.include?(index))
       end
 
       # HAND THE BACKGROUND A WHOLE DIFFERENT MAP, while the game runs.

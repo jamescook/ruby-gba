@@ -10,9 +10,9 @@
 # Every floor is a scene, and every scene declares a background by the same name, :floor — the
 # way a game writes its levels. Each one has a map of its own, tiles of its own (stone, then
 # wood, then the roof's tiles with the gate among them) and walls of its own, and the hero is
-# stopped by the walls of the floor it is on. A line that names :floor, like the roof showing its
-# map with the gate open, changes the floor that is up. Nothing below says where any of it goes
-# in the console.
+# stopped by the walls of the floor it is on. A line that names :floor, like the gate opening,
+# changes the floor that is up, and its walls with it. Nothing below says where any of it goes in
+# the console.
 
 require_relative "../lib/vblank"
 
@@ -102,17 +102,14 @@ module Tower
     ####################
   MAP
 
-  # ...and the roof with its gate open, a map of its own: what a wall is follows the map showing.
-  ROOF_OPEN = Ractor.make_shareable(ROOF.map { |row| row.tr("=", ".") })
-
   # Where the hero starts on every floor: just inside, at the bottom left.
   START = Ractor.make_shareable([16, 120])
 
   # The stairs of each floor, as a cell.
   STAIRS = Ractor.make_shareable({ ground: [18, 1], upstairs: [17, 1] })
 
-  # One of the two cells of the gate on the roof.
-  GATE = Ractor.make_shareable([9, 8])
+  # The two cells of the gate on the roof.
+  GATE = Ractor.make_shareable([[9, 8], [10, 8]])
 
   GAME = VBlank.game("TOWER", consoles: %i[gba gbc]) do
     screen :tiled
@@ -152,14 +149,12 @@ module Tower
 
     scene(:ground) { climb.call(background(:floor, tiles: :stone_tiles, map: GROUND), STAIRS[:ground]) }
     scene(:upstairs) { climb.call(background(:floor, tiles: :wood_tiles, map: UPSTAIRS), STAIRS[:upstairs]) }
-    # The roof has two maps, the gate shut and the gate open, and A shows the second: the
-    # picture and the walls change together, so the hero can walk through.
-    gate = var :gate, 0
+    # A opens the gate: its two cells become roof, which is not a wall, so the hero can walk
+    # through where the gate stood.
     scene(:roof) do
-      floor = background :floor, tiles: :roof_tiles, map: { shut: ROOF, open: ROOF_OPEN }
+      floor = background :floor, tiles: :roof_tiles, map: ROOF
       climb.call(floor, nil)
-      pressed(:a).then { gate.set! 1 }
-      floor.show_map gate
+      pressed(:a).then { GATE.each { |col, row| floor.set_tile col, row, "." } }
     end
 
     game_loop do

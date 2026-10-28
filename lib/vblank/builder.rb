@@ -541,9 +541,10 @@ module VBlank
       @default_screen_mode = default_screen_mode
 
       emitted = {}
-      emit_bodies(emitted, default_screen_mode)
+      emit_bodies(emitted, default_screen_mode, holding_back: true)
       # Every routine the game wrote is built, so nothing more can be kept in a save_data
-      # record: the records are laid out now, and the routines that read them built after.
+      # record: the records are laid out now, and the routines that read them built after —
+      # with the ones held back until every line of the game was read (#build_last).
       check_saves_keep_everything!
       lay_out_save_records
       emit_bodies(emitted, default_screen_mode)
@@ -584,14 +585,19 @@ module VBlank
       swap_save_stores_for_change_flags
     end
 
+    # A routine the framework writes whose body depends on every line of the game, built only
+    # once all of them are (see #finalize_program).
+    def build_last(name) = (@built_last ||= []) << name
+
     # Build every routine body not built yet (+emitted+ says which are), each into a func
-    # node of its own.
-    def emit_bodies(emitted, default_screen_mode)
+    # node of its own — but, +holding_back+, not the ones #build_last named.
+    def emit_bodies(emitted, default_screen_mode, holding_back: false)
+      held = holding_back ? (@built_last || []) : []
       # Drain rather than iterate: building one body can declare another routine — a
       # verb reached from inside a scene may declare a `once_a_frame` of its own — and
       # walking the hash directly would either miss it or raise for growing mid-loop.
       # Emitting until nothing new is pending covers however deep that goes.
-      until (pending = @functions.reject { |name, _| emitted.key?(name) }).empty?
+      until (pending = @functions.reject { |name, _| emitted.key?(name) || held.include?(name) }).empty?
         pending.each do |name, block|
           emitted[name] = true
           # A scene's declarations belong to it: while its body is built, remember the
@@ -1125,7 +1131,7 @@ module VBlank
     def write_if_changed(said:, in_force:, write:)
       # A fresh var_ref each time: no node is ever shared between two places in the tree.
       Build.if_(Build.binop(:!=, Build.var_ref(said), Build.var_ref(in_force)),
-                write,
+                *Array(write),
                 Build.set(in_force, Build.var_ref(said)))
     end
 
@@ -1146,8 +1152,10 @@ module VBlank
     # differ exactly on the frame the answer changed, which is the frame to copy on.
     def finalize_background_maps
       write_between_frames(@inline_map_nodes, backgrounds_that(&:swaps_maps?)) do |name, background|
+        # ...and the walls the game changes of it are the new map's, as declared, from then on.
+        walls = every_kept_walls.select { |kept| kept.background == name }.map { |kept| Build.set(kept.fresh, Build.int(0)) }
         write_if_changed(said: background.shown_map, in_force: background.live_map,
-                         write: Build.show_map(name, which: Build.var_ref(background.shown_map)))
+                         write: [Build.show_map(name, which: Build.var_ref(background.shown_map)), *walls])
       end
     end
 

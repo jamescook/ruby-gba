@@ -55,7 +55,66 @@ module VBlank
           build_tile_collision(cells, hit_x, hit_y, hit_w, hit_h, @tile_collisions.size)
       end
 
+      # A BACKGROUND'S WALLS KEPT WHERE THE GAME CAN CHANGE THEM, for one whose cells the game
+      # changes with set_tile (see Background#record_wall_change): +list+ holds one wall byte a
+      # cell of the map showing, and +fresh+ says whether it holds that map's walls yet. 0 means
+      # not yet, and is what the variable holds wherever the background goes up as declared —
+      # the variables a background is put back to its first map with are put back to 0 then
+      # (IR::SceneHandover), and this is one of them — and after another map is shown. The walls
+      # are copied in from the map's walls as declared the first time they are asked after that.
+      # +background+ is the name of the background they are the walls of.
+      KeptWalls = Data.define(:list, :fresh, :cells, :background)
+
+      # The kept walls of the background whose walls are +cells+ (a Background::SolidCells),
+      # made the first time a cell of it is changed. +declaration+ is the background's node.
+      def keep_walls_changeable(cells, declaration)
+        @kept_walls ||= {}
+        @kept_walls[cells.table.name] ||= begin
+          tag = cells.table.name.to_s.delete_prefix("__solid_")
+          list = :"__walls_#{tag}"
+          at_boot(Build.list_new(list, cells.cells_per_map, width: :byte))
+          fresh = :"__walls_#{tag}_fresh"
+          ensure_var(fresh)
+          at_boot(Build.set(fresh, Build.int(0)))
+          declaration.choice = declaration.choice + [fresh]
+          KeptWalls.new(list: DSL::List.new(self, list), fresh: fresh, cells: cells, background: cells.name)
+        end
+      end
+
+      # The kept walls of +cells+, or nil for walls nobody changes.
+      def kept_walls_of(cells) = @kept_walls&.[](cells.table.name)
+
+      # Every background's kept walls (see KeptWalls).
+      def every_kept_walls = (@kept_walls || {}).values
+
+      # Change the wall of the cell at +col+, +row+ in +kept+ to +wall+, as set_tile changes the
+      # cell: a cell off the map changes nothing.
+      def record_wall_change(kept, col, row, wall:)
+        cells = kept.cells
+        [WALL_COL, WALL_ROW].each { |var| ensure_var(var) }
+        set!(WALL_COL, DSL::Value.node_for(col))
+        set!(WALL_ROW, DSL::Value.node_for(row))
+        record_walls_brought_up(kept)
+        at = ->(var) { DSL::Value.new(self, Build.var_ref(var), name: var) }
+        inside = (at.call(WALL_COL) >= 0) & (at.call(WALL_COL) < cells.cols) &
+                 (at.call(WALL_ROW) >= 0) & (at.call(WALL_ROW) < cells.rows)
+        inside.then { kept.list[(at.call(WALL_ROW) * cells.cols) + at.call(WALL_COL)] = wall ? 1 : 0 }
+      end
+
+      # Copy the walls of the map showing into +kept+, if they are not there yet.
+      def record_walls_brought_up(kept)
+        fresh = DSL::Value.new(self, Build.var_ref(kept.fresh), name: kept.fresh)
+        (fresh == 0).then do
+          kept.list.copy_from(kept.cells.table, at: map_base_for(kept.cells) || 0, count: kept.cells.cells_per_map)
+          fresh.set! 1
+        end
+      end
+
       private
+
+      # The cell a wall change is about, held while the change is worked out.
+      WALL_COL = :__wall_change_col
+      WALL_ROW = :__wall_change_row
 
       # The shared scratch a tile-collision check reads its question from and writes its
       # answer to. One set for the whole program: a check runs to its end before anything
@@ -73,15 +132,22 @@ module VBlank
         width = cells.cols * cells.tile_w
         height = cells.rows * cells.tile_h
 
+        # Built after every routine the game wrote, so it knows whether any line changes a cell
+        # of the background, wherever that line is (see #keep_walls_changeable).
+        build_last(name)
         func(name) do
           clear = DSL::Value.new(self, IR::Build.var_ref(TILE_COLLISION_CLEAR), name: TILE_COLLISION_CLEAR)
           left = DSL::Value.new(self, IR::Build.var_ref(TILE_COLLISION_X), name: TILE_COLLISION_X) + hit_x
           top = DSL::Value.new(self, IR::Build.var_ref(TILE_COLLISION_Y), name: TILE_COLLISION_Y) + hit_y
+          # Walls the game changes are read where they are kept, which holds the map showing
+          # alone; every other background's from its walls as declared.
+          kept = kept_walls_of(cells)
+          record_walls_brought_up(kept) if kept
           # WHICH ROOM'S WALLS, worked out once for the whole check rather than once per
           # cell: every sample a mover takes is in the map it is standing in, so the offset
           # to that map's grid is the same for all nine. That is what keeps a background
           # with two hundred rooms the same nine reads as a background with one.
-          base = map_base_for(cells)
+          base = kept ? nil : map_base_for(cells)
           clear.set! 1
           down.each do |dy|
             py = top + dy
@@ -93,7 +159,7 @@ module VBlank
               # a pixel just left of the map onto column 0.
               inside = (px >= 0) & (px < width) & (py >= 0) & (py < height)
               cell = ((py / cells.tile_h) * cells.cols) + (px / cells.tile_w)
-              solid = cells.table[base ? base + cell : cell]
+              solid = kept ? kept.list[cell] : cells.table[base ? base + cell : cell]
               (inside & (solid == 1)).then { clear.set! 0 }
             end
           end

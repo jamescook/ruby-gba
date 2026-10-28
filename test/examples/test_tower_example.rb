@@ -66,11 +66,11 @@ class TestTowerExample < Minitest::Test
 
     assert_equal 2, shut[:level], "the hero climbed both staircases"
     assert_equal CYAN, cell(shut.screen, 0, 8), "the roof's parapet"
-    assert_equal YELLOW, cell(shut.screen, 9, 8), "the gate, shut"
+    assert_equal YELLOW, cell(shut.screen, *Tower::GATE.first), "the gate, shut"
     refute_equal WHITE, cell(shut.screen, 10, 1), "the shut gate held the hero back"
 
     opened = played(climbed + [[:a, 1]] + UNDER_THE_GATE)
-    assert_equal BLUE, cell(opened.screen, 9, 8), "the gate, open"
+    assert_equal BLUE, cell(opened.screen, *Tower::GATE.first), "the gate, open"
     assert_equal WHITE, opened.screen.pixel(83, 9), "the hero walked through it to the top of the roof"
   end
 end
