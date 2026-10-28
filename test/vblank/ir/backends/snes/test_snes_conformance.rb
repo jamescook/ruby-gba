@@ -23,15 +23,19 @@ class TestSNESConformance < Minitest::Test
       refused || part.walk.any? { |node| UNMADE.include?(node.kind) } || not_made_yet?(alone)
     end
     # ...and the parts that change a background or place its bar, place a sprite or play a song whose
-    # declaration was left out.
+    # declaration was left out; and, on the fixture's painted screen, its tiles painted from a list.
+    # No background can show those there (the builder refuses a game one), and the interpreter's
+    # repaint owed for a copy clears a painted screen at the frame's end, which no game can reach.
     declared = kept.flat_map { |part| part.walk.to_a }.select { |node| %i[background object song].include?(node.kind) }
                    .map(&:name)
+    painted = kept.any? { |part| part.walk.any? { |node| node.kind == :screen && node.mode == :bitmap } }
     kept.reject do |part|
       part.walk.any? do |node|
         (%i[scroll_background set_tile show_map place_bar play_song].include?(node.kind) && !declared.include?(node.name)) ||
           (node.kind == :song_list && !(node.songs - declared).empty?) ||
           (node.kind == :sound_effect_list && !(node.effects - declared).empty?) ||
-          (node.kind == :present_objects && !(node.names - declared).empty?)
+          (node.kind == :present_objects && !(node.names - declared).empty?) ||
+          (painted && %i[tile_run copy_tiles copy_owed_tiles].include?(node.kind))
       end
     end
   end

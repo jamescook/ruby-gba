@@ -85,7 +85,7 @@ module VBlank
                                                     "the picture" => %i[draw_column_at background_colors
                                                                         show_picture_group
                                                                         color_list_holds
-                                                                        copy_tiles copy_owed_tiles data_byte]
+                                                                        data_byte]
                                                   })
 
           # The kinds the Super Nintendo cannot do at all, refused in the words its answers have

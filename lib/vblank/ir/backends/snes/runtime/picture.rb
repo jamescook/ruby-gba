@@ -41,6 +41,8 @@ module VBlank
           #   rt_bar_place         a status bar's top put at a row (a game with a status bar)
           #   rt_bends_prepare     at the end of every pass: the line tables of the backgrounds bent
           #                        row by row, from the rows the game worked out (a game with bends)
+          #   rt_tile_run_copy     a run's list made into its tiles, for the next blank (a game that
+          #                        paints tiles from lists)
           #
           # A STATUS BAR is one of the two layers, shown from its top row to the bottom of the screen
           # and hidden above it, while the other layer is shown above it and hidden below. Which
@@ -61,6 +63,15 @@ module VBlank
           # of 112 lines each, each line two bytes, the register written twice, low byte then high.
           # There are two tables for each layer, and the blank switches the channel to the one just
           # made, so a pass whose copy takes several blanks never shows a table half made.
+          #
+          # TILES PAINTED FROM A LIST (a run, Builder::TileRuns) hold their pixels as the game writes
+          # them: a byte is two pixels, the left one in the low four bits, a tile eight rows of four
+          # bytes. The console keeps a tile's pixels in planes (SNES::Art#tile_bytes): for each row,
+          # bit 0 of each of its eight pixels in one byte and bit 1 in the next, the leftmost pixel in
+          # the top bit, and the same for bits 2 and 3 sixteen bytes on. So a copy takes each pixel's
+          # four bits apart into four bytes, shifting one bit into each in turn (rt_tile_run_copy),
+          # into the run's place in work RAM; the blank then copies that to the run's tiles in video
+          # RAM. Each run's palette has its colours at the places the game named (SNES::Art#run_palette).
           module Picture
             BG_TILES = 0x0000
             LAYER_MAPS = [0x4000, 0x5000].freeze
@@ -120,14 +131,33 @@ module VBlank
             REPEAT = 0x80 # a step's count with this bit: a new value on every line of it
             BEND_TABLE_BYTES = 1 + (BEND_STEP_LINES * 2) + 1 + (BEND_STEP_LINES * 2) + 1
             BEND_CHANNELS = [2, 3].freeze
+            # Where a run's tiles are made in the console's form, and which runs are owed a copy to
+            # video RAM in the next blank (a word each). The lowering's table "art tile runs" says,
+            # for each run, sixteen bytes: its list's place and its staging's (three bytes and a
+            # spare each), its first tile's word in video RAM, its tiles, its bytes, and a spare.
+            def self.tile_run_staging(number) = "rt tile run #{number}"
+            TILE_RUNS_OWED = "rt tile runs owed"
+            RUN_ENTRY_BYTES = 16
+            RUN_LIST = 0
+            RUN_STAGING = 4
+            RUN_PLACE = 8
+            RUN_TILES = 10
+            RUN_BYTES = 12
+            # The direct page rt_tile_run_copy works on: the list's bytes and the staging (three bytes
+            # and a spare each), the bytes the list holds, the tiles left, the staging's tile, and a
+            # row's four planes.
+            RunScratch = Data.define(:list, :out, :held, :tiles, :tile, :planes)
 
             # A sprite hidden: below the screen, where none of its eight rows shows.
             HIDDEN_Y = 224
 
             module_function
 
-            # +bar+ for a game with a status bar, +bends+ for one with a background bent row by row.
-            def reserve(memory, bar: false, bends: false)
+            # +bar+ for a game with a status bar, +bends+ for one with a background bent row by row,
+            # +tile_runs+ the bytes of each run of tiles a game paints from a list.
+            def reserve(memory, bar: false, bends: false, tile_runs: [])
+              memory.reserve(TILE_RUNS_OWED, tile_runs.length * 2) unless tile_runs.empty?
+              tile_runs.each_with_index { |bytes, number| memory.reserve_far(tile_run_staging(number), bytes) }
               memory.reserve(BAR, BAR_BYTES) if bar
               memory.reserve(HDMA_CHANNELS, 2) if bar || bends
               if bends
@@ -145,14 +175,16 @@ module VBlank
             end
 
             # +work+ is four words of the direct page the routines use. +bar+ for a game with a
-            # status bar; +bent+ the layers bent row by row, for a game with bends.
-            def emit(asm, memory, work:, painted: false, bar: false, bent: [])
+            # status bar; +bent+ the layers bent row by row, for a game with bends; +tile_runs+ how
+            # many runs of tiles a game paints from lists, and +run_scratch+ RunScratch's places.
+            def emit(asm, memory, work:, painted: false, bar: false, bent: [], tile_runs: 0, run_scratch: nil)
               emit_start(asm, memory, painted)
               emit_sprites(asm, memory, work)
               emit_backgrounds(asm, memory, work)
               emit_bar(asm, memory) if bar
               emit_bends_prepare(asm, memory, work, bent) unless bent.empty?
-              emit_upload(asm, memory, work, painted, bar, bent)
+              emit_tile_run_copy(asm, memory, run_scratch) if tile_runs.positive?
+              emit_upload(asm, memory, work, painted, bar, bent, tile_runs)
               asm.label("rt_picture_prepare")
               if painted
                 asm.jml(asm.long("rt_paint_prepare"))
@@ -749,13 +781,163 @@ module VBlank
               asm.rep(0x20)
             end
 
+            # A run's scratch on the direct page.
+            def run_scratch(memory)
+              RunScratch.new(list: memory.scratch(4), out: memory.scratch(4), held: memory.scratch(2),
+                             tiles: memory.scratch(2), tile: memory.scratch(2), planes: memory.scratch(4))
+            end
+
+            # TILES PAINTED FROM A LIST. rt_tile_run_copy(run): run number +run+'s list made into its
+            # tiles in the console's form, at its staging, and owed to video RAM in the next blank.
+            # Bytes past what the list holds are nought, see-through, as the interpreter reads them.
+            def emit_tile_run_copy(asm, memory, s)
+              r = ->(n) { Memory.register(n) }
+              asm.label("rt_tile_run_copy")
+              asm.lda(asm.direct(r.call(0)))
+              asm.asl
+              asm.tax
+              asm.lda(1)
+              asm.sta(asm.abs_x(memory[TILE_RUNS_OWED]))
+              asm.txa
+              3.times { asm.asl } # an entry of the table
+              asm.tax
+              [[RUN_LIST, s.list], [RUN_STAGING, s.out]].each do |at, to|
+                asm.lda(asm.long_x("art tile runs", at))
+                asm.sta(asm.direct(to))
+                asm.lda(asm.long_x("art tile runs", at + 2))
+                asm.sta(asm.direct(to + 2))
+              end
+              asm.lda(asm.long_x("art tile runs", RUN_TILES))
+              asm.sta(asm.direct(s.tiles))
+              # The bytes the list holds, its run's bytes at most; then from its first byte, past the
+              # header (a list never straddles a bank, Memory#reserve_far).
+              asm.ldy(Lists::LENGTH)
+              asm.lda(asm.ind_long_y(s.list))
+              asm.cmp(asm.long_x("art tile runs", RUN_BYTES))
+              asm.bcc("rt_tile_run_copy_held")
+              asm.lda(asm.long_x("art tile runs", RUN_BYTES))
+              asm.label("rt_tile_run_copy_held")
+              asm.sta(asm.direct(s.held))
+              asm.lda(asm.direct(s.list))
+              asm.clc
+              asm.adc(Lists::HEADER)
+              asm.sta(asm.direct(s.list))
+              asm.stz(asm.direct(s.tile))
+              asm.ldy(0) # the list's byte
+              asm.label("rt_tile_run_copy_tile")
+              asm.ldx(0) # the row, two bytes a row
+              asm.label("rt_tile_run_copy_row")
+              asm.sep(0x20)
+              4.times do |byte|
+                read = "rt_tile_run_copy_byte_#{byte}"
+                asm.cpy(asm.direct(s.held))
+                asm.bcs("#{read}_past")
+                asm.lda(asm.ind_long_y(s.list))
+                asm.bra(read)
+                asm.label("#{read}_past")
+                asm.lda(0)
+                asm.label(read)
+                asm.iny
+                # Two pixels, the left one first: each of its four bits into its plane in turn.
+                8.times do |bit|
+                  asm.lsr
+                  asm.rol(asm.direct(s.planes + (bit % 4)))
+                end
+              end
+              asm.rep(0x20)
+              # Planes 0 and 1 at the row's two bytes of the tile, planes 2 and 3 sixteen on.
+              asm.phy
+              asm.txa
+              asm.clc
+              asm.adc(asm.direct(s.tile))
+              asm.tay
+              asm.lda(asm.direct(s.planes))
+              asm.sta(asm.ind_long_y(s.out))
+              asm.tya
+              asm.clc
+              asm.adc(16)
+              asm.tay
+              asm.lda(asm.direct(s.planes + 2))
+              asm.sta(asm.ind_long_y(s.out))
+              asm.ply
+              asm.inx
+              asm.inx
+              asm.cpx(16)
+              asm.branch_long(:bne, "rt_tile_run_copy_row")
+              asm.lda(asm.direct(s.tile))
+              asm.clc
+              asm.adc(32)
+              asm.sta(asm.direct(s.tile))
+              asm.dec(asm.direct(s.tiles))
+              asm.branch_long(:bne, "rt_tile_run_copy_tile")
+              asm.rtl
+            end
+
+            # In the blank: each run owed a copy, its staging to its tiles in video RAM, a piece of
+            # MAP_PIECE bytes at a time as the blanks have room. +work+: the piece's bytes, and the
+            # run's entry of the table.
+            def emit_tile_run_upload(asm, memory, work, tile_runs)
+              h = Console::SNESHardware
+              tile_runs.times do |number|
+                done = "rt_upload_run#{number}_copied"
+                piece = "rt_upload_run#{number}_piece"
+                entry = number * RUN_ENTRY_BYTES
+                owed = memory[TILE_RUNS_OWED] + (number * 2)
+                asm.lda(asm.abs(owed))
+                asm.branch_long(:beq, done)
+                asm.stz(asm.abs(owed))
+                asm.ldx(0)
+                asm.label(piece)
+                asm.txa
+                asm.cmp(asm.long("art tile runs", entry + RUN_BYTES))
+                asm.branch_long(:bcs, done)
+                asm.stx(asm.direct(work))
+                asm.lda(asm.long("art tile runs", entry + RUN_BYTES))
+                asm.sec
+                asm.sbc(asm.direct(work))
+                asm.cmp(MAP_PIECE)
+                asm.bcc("#{piece}_bytes")
+                asm.lda(MAP_PIECE)
+                asm.label("#{piece}_bytes")
+                asm.sta(asm.direct(work))
+                asm.jsr(asm.abs("rt_blank_room"))
+                asm.lda(asm.direct(work))
+                asm.sta(asm.abs(h::DMA_BASE + h::DASL))
+                asm.txa
+                asm.lsr # a word of video RAM for every two bytes
+                asm.clc
+                asm.adc(asm.long("art tile runs", entry + RUN_PLACE))
+                asm.sta(asm.abs(h::VMADDL))
+                asm.txa
+                asm.clc
+                asm.adc(asm.long("art tile runs", entry + RUN_STAGING)) # the staging is in one bank
+                asm.sta(asm.abs(h::DMA_BASE + h::A1TL))
+                asm.sep(0x20)
+                asm.lda(asm.long("art tile runs", entry + RUN_STAGING + 2))
+                asm.sta(asm.abs(h::DMA_BASE + h::A1B))
+                asm.lda(h::DMA_TO_TWO_PORTS)
+                asm.sta(asm.abs(h::DMA_BASE + h::DMAP))
+                asm.lda(h::VMDATAL & 0xFF)
+                asm.sta(asm.abs(h::DMA_BASE + h::BBAD))
+                asm.lda(1)
+                asm.sta(asm.abs(h::MDMAEN))
+                asm.rep(0x20)
+                asm.txa
+                asm.clc
+                asm.adc(asm.direct(work))
+                asm.tax
+                asm.brl(piece)
+                asm.label(done)
+              end
+            end
+
             # THE COPY IN THE BLANK, with the screen on (Blank says how). A map put up goes first, a
             # piece of MAP_PIECE bytes at a time as the blanks have room, with the old picture still
             # up; then, together in one blank, the sprite table, the colours, each layer's map
             # register and its scroll; then the cells changed, each when the blank has a line left
             # for it. A painted screen's copy is Paint's rt_paint_upload. With the screen still off,
             # before the first pass is shown, everything goes at once.
-            def emit_upload(asm, memory, work, painted, bar, bent)
+            def emit_upload(asm, memory, work, painted, bar, bent, tile_runs)
               h = Console::SNESHardware
               layers = memory[LAYERS]
               # The first pass's, with the screen off (Frame switches it on), and every other's.
@@ -821,6 +1003,8 @@ module VBlank
                 asm.bra(piece)
                 asm.label(done)
               end
+
+              emit_tile_run_upload(asm, memory, work, tile_runs)
 
               # Together: the sprite table whole, the colours if a fade or a tint moved them, and
               # each layer's map register, for a map just put up, and scroll.

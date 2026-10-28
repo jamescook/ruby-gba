@@ -22,7 +22,8 @@ module VBlank
                                                  set_tile: :emit_set_tile, show_map: :emit_show_map,
                                                  present_objects: :emit_present_objects,
                                                  hide_sprites: :emit_hide_sprites, fade: :emit_fade, tint: :emit_tint,
-                                                 place_bar: :emit_place_bar, scroll_rows: :emit_scroll_rows
+                                                 place_bar: :emit_place_bar, scroll_rows: :emit_scroll_rows,
+                                                 copy_tiles: :emit_copy_tiles, copy_owed_tiles: :emit_copy_owed_tiles
                                                })
 
             # Whether +program+ has a status bar, which the runtime then carries what places
@@ -32,6 +33,15 @@ module VBlank
             # Whether +program+ bends a background row by row, which the runtime then keeps the rows
             # and line tables of (Runtime::Picture's rt_bends_prepare).
             def self.bends?(program) = program.walk.any? { |node| node.kind == :scroll_rows }
+
+            # The runs of tiles +program+ paints from lists (Builder::TileRuns), each once, in the order
+            # they were declared: the order the runtime numbers them in.
+            def self.tile_runs(program) = program.walk.select { |node| node.kind == :tile_run }.uniq(&:name)
+
+            # The bytes each run's tiles take in the console's form, which the runtime stages a copy in.
+            def self.tile_run_bytes(program)
+              tile_runs(program).map { |run| (run.picture ? (run.width / 8) * (run.height / 8) : run.tiles.length) * 32 }
+            end
 
             # The SNES::Art the game's pictures were made into.
             attr_reader :art
@@ -44,6 +54,9 @@ module VBlank
               @sprite_names = SpriteNames.new(@program)
               @grids = {}
               @pose_tables = {}
+              @tile_runs = Picture.tile_runs(@program)
+              @run_cells = {} # a run's tile's image name -> [tile, palette]
+              @run_places = [] # each run's first tile's word in video RAM
             end
 
             # Each piece of the picture this lowering does not make yet, refused by name: the
@@ -75,8 +88,25 @@ module VBlank
             # Every picture a sprite can show, made into sprite pieces, in the order the pose tables
             # number them.
             def make_sprite_art
+              make_run_art
               @sprite_pictures = @objects.values.flat_map(&:poses).uniq
-              @sprite_pictures.each { |name| @art.sprite_picture(name, Assets::Image.of(picture_named(name))) }
+              painted = @tile_runs.filter_map(&:picture)
+              (@sprite_pictures - painted).each { |name| @art.sprite_picture(name, Assets::Image.of(picture_named(name))) }
+            end
+
+            # Each run's tiles (SNES::Art#background_run, #sprite_run_picture), and where in video RAM
+            # the first is: tiles are 16 words each (Runtime::Picture's layout).
+            def make_run_art
+              @tile_runs.each do |run|
+                if run.picture
+                  picture = @art.sprite_run_picture(run.picture, run.width, run.height, run.colors)
+                  @run_places << (Runtime::Picture::SPRITE_TILES + (picture.pieces.first.tile * Art::TILE_BYTES / 2))
+                else
+                  first, palette = @art.background_run(run.colors, run.tiles.length)
+                  run.tiles.each_with_index { |image, k| @run_cells[image] = [first + k, palette] }
+                  @run_places << (Runtime::Picture::BG_TILES + (first * Art::TILE_BYTES / 2))
+                end
+              end
             end
 
             def refuse_unmade!(what)
@@ -114,6 +144,13 @@ module VBlank
                 data.data_longs(grid_label(grid.number))
                 data.data_bytes(0)
                 data.data_words(grid.bytes.bytesize, grid.size_bits, grid.columns)
+              end
+              data.label("art tile runs")
+              @tile_runs.each_with_index do |run, number|
+                list = @lists.fetch(run.list).first
+                staging = @memory[Runtime::Picture.tile_run_staging(number)]
+                data.data_words(list & 0xFFFF, list >> 16, staging & 0xFFFF, staging >> 16, @run_places[number],
+                                Picture.tile_run_bytes(@program)[number] / 32, Picture.tile_run_bytes(@program)[number], 0)
               end
               @pose_tables.each do |obj, label|
                 data.label(label)
@@ -241,14 +278,18 @@ module VBlank
               end
             end
 
-            # A scene taking over (Lowering#emit_scene): what it shows of its own goes up from its
-            # corner, as declared, with every map it chooses back at the first; and the layers its own
-            # scenery does not use, which the scene before may have used, come down
+            # A scene taking over (Lowering#emit_scene): the tiles its scenery and its sprites paint
+            # from lists copied in again, as each list is now; what it shows of its own goes up from
+            # its corner, as declared, with every map it chooses back at the first; and the layers its
+            # own scenery does not use, which the scene before may have used, come down
             # (IR::SceneHandover). The scenery every screen shows stays as it is.
             def emit_scene_arrival(scene)
-              return if painted? || @scene_layers.zero?
+              return if painted?
 
               arrival = @handover.arrival(scene)
+              (arrival.painted_tiles + arrival.painted_pictures).each { |run| emit_tile_run_copy(run.name) }
+              return if @scene_layers.zero?
+
               arrival.map_choices.each { |var| store_number(place_of(var), 0) }
               arrival.scenery.each { |bg| emit_put_up(bg) }
               ((0...@scene_layers).to_a - arrival.scenery.map { |bg| layer_of(bg) }).each do |layer|
@@ -273,7 +314,8 @@ module VBlank
             def cell_of(bg, tile)
               return nil if tile.nil? || tile.negative?
 
-              @art.background_cell(Assets::Image.of(picture_named(bg.tiles.fetch(tile))))
+              name = bg.tiles.fetch(tile)
+              @run_cells.fetch(name) { @art.background_cell(Assets::Image.of(picture_named(name))) }
             end
 
             # Reference#exec_scroll_background.
@@ -313,6 +355,30 @@ module VBlank
             def emit_place_bar(node)
               for_background(node) do |bg|
                 runtime_call("rt_bar_place", [Build.int(layer_of(bg)), node.top]) if bg.bar?
+              end
+            end
+
+            # --- tiles painted from a list ---
+
+            # Reference#exec_copy_tiles: the run's list copied into its tiles, shown with this pass.
+            def emit_copy_tiles(node) = emit_tile_run_copy(node.name)
+
+            # The run named +name+ copied from its list (Runtime::Picture's rt_tile_run_copy), by the
+            # number the runtime knows it by.
+            def emit_tile_run_copy(name)
+              runtime_call("rt_tile_run_copy", [Build.int(@tile_runs.index { |run| run.name == name })])
+            end
+
+            # Reference#exec_copy_owed_tiles: every run whose bit of the masks is set, in the order
+            # they were declared.
+            def emit_copy_owed_tiles(node)
+              per = Nodes::CopyOwedTiles::RUNS_PER_MASK
+              node.runs.each_with_index do |name, i|
+                skip = fresh("run_not_owed")
+                owed = Build.binop(:&, Build.var_ref(node.masks.fetch(i / per)), Build.int(1 << (i % per)))
+                jump_unless(Build.binop(:!=, owed, Build.int(0)), skip)
+                emit_tile_run_copy(name)
+                @asm.label(skip)
               end
             end
 

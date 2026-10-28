@@ -136,6 +136,40 @@ module VBlank
             end
           end
 
+          # --- tiles a game paints from a list (a run: Builder::TileRuns) ---
+          #
+          # Their pixels are not known while the game is built, so each run has tiles of its own,
+          # blank until the game copies its list into them, never merged with another tile, and a
+          # palette whose places are its colours in the order the game listed them: each four
+          # bits of the list name a place (Runtime::Picture's rt_tile_run_copy), place 0 see-through.
+
+          # +count+ background tiles for a run in +colors+ (place 0 first): the first's number, and
+          # the palette.
+          def background_run(colors, count)
+            palette = run_palette(@background_palettes, colors, "backgrounds")
+            first = @background_tiles.length
+            refuse_too_many!(first + count - 1, MOST_BACKGROUND_TILES, "backgrounds")
+            count.times { @background_tiles << blank_tile }
+            [first, palette]
+          end
+
+          # A sprite's picture +name+ of +width+ × +height+, painted from a list in +colors+: a piece
+          # for each 8×8 tile, left to right and then top to bottom, as the list holds them.
+          def sprite_run_picture(name, width, height, colors)
+            palette = run_palette(@sprite_palettes, colors, "sprites")
+            across = width / 8
+            first = @sprite_tiles.length
+            refuse_too_many!(first + (across * (height / 8)) - 1, MOST_SPRITE_TILES, "sprites")
+            pieces = (0...(height / 8)).flat_map do |down|
+              (0...across).map do |left|
+                @sprite_tiles << blank_tile
+                Piece.new(dx: left * 8, dy: down * 8, tile: first + (down * across) + left, palette: palette)
+              end
+            end
+            @sprite_pictures[name] = SpritePicture.new(name: name, number: @sprite_pictures.length, width: width,
+                                                       height: height, pieces: pieces)
+          end
+
           # --- the colour memory ---
 
           # All 256 colours, as the console's colour memory holds them: two bytes each, the
@@ -186,6 +220,25 @@ module VBlank
             end
 
             palettes << colors.dup
+            palettes.length - 1
+          end
+
+          # The palette of +palettes+ whose first places are a run's +colors+ (past place 0) in their
+          # order, starting one where none is. Other pictures' colours may join it later, after them.
+          def run_palette(palettes, colors, what)
+            own = colors.drop(1)
+            found = palettes.index { |list| list.take(own.length) == own }
+            return found if found
+
+            empty = palettes.index(&:empty?)
+            return empty.tap { palettes[empty] = own.dup } if empty
+            if palettes.length >= PALETTES
+              raise TooMuch, "The pictures of the #{what} use more colours than a Super Nintendo can show for them. " \
+                             "It holds #{PALETTES} sets of #{OWN_COLORS} colours, and each list of colours a game " \
+                             "paints with takes a set of its own. To fix this, use fewer colours or fewer lists."
+            end
+
+            palettes << own.dup
             palettes.length - 1
           end
 

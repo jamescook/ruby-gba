@@ -337,6 +337,66 @@ class TestSNESPicture < Minitest::Test
     assert_match(/bent row by row that a scene puts up/, error.message)
   end
 
+  # TILES PAINTED FROM A LIST: each byte two pixels, the left one in the low four bits, each four
+  # bits a place in the run's colours. The bytes are written so every place shows at every pixel of
+  # a row over the passes, and the copy is owed, so it arrives in the gap after the pass that said
+  # `changed`. A second run's list holds fewer bytes than its tiles, so the rest is see-through; it
+  # shrinks now and then too, leaving bytes past its end that must not show.
+  def test_tiles_painted_from_a_list_show_what_the_list_holds
+    run = checked(frames: 10) do
+      screen :tiled
+      colors = [:transparent, :red, :green, :blue, :yellow, :white, :cyan, :magenta, :gray,
+                rgb(31, 16, 0), rgb(16, 0, 31), rgb(0, 16, 16), rgb(20, 20, 4), rgb(4, 20, 20), rgb(28, 8, 8),
+                rgb(8, 28, 8)]
+      pixels = list :pixels, capacity: 64, width: :byte
+      short = list :short, capacity: 32, width: :byte
+      image(:floor, "#" => :black) { "########\n" * 8 }
+      painted = tiles :painted, from: pixels, count: 2, colors: colors, "#" => :floor
+      partial = tiles :partial, from: short, count: 1, colors: %i[transparent orange white]
+      background :under, tiles: :painted, map: [[1, 2, "#"], ["#", "#", "#"]]
+      background :over, tiles: :partial, map: [[nil, nil, nil], [1, nil, nil]]
+      64.times { pixels.push 0 }
+      t = var :t, 0
+      i = var :i, 0
+      game_loop do
+        i.set! 0
+        repeat(64) do
+          pixels[i] = (i * 17) + (t * 33)
+          i.add! 1
+        end
+        painted.changed
+        (t < 20).then { short.push ((t % 2) + 1) + 32 } # places 1 or 2, then 2: never see-through
+        (t % 3 == 2).then { short.pop }
+        partial.changed
+        t.add! 1
+      end
+    end
+
+    assert_equal 10, run[:t]
+  end
+
+  # A sprite's picture painted from a list (a canvas a sprite shows), and a canvas shown at once
+  # (`changed now: true`), whose pixels are in the pass that drew them.
+  def test_a_sprites_picture_and_a_canvas_changed_now_show_what_was_painted
+    run = checked(frames: 8) do
+      screen :tiled
+      tag = canvas :tag, width: 16, height: 16, colors: %i[transparent white green], as: :sprite
+      board = canvas :board, width: 32, height: 8, colors: %i[transparent yellow]
+      background :board_bg, tiles: :board, map: board.cells
+      mark = sprite :tag, at: [40, 40]
+      t = var :t, 0
+      game_loop do
+        tag.pixel (t * 5) % 16, (t * 3) % 16, :green
+        board.fill_rect t * 3, 2, 3, 3, :yellow
+        board.changed now: true
+        mark.move_to 40 + t, 40
+        t.add! 1
+      end
+    end
+
+    assert_equal 8, run[:t]
+  end
+
   private def program_of(&game)
     builder = Builder.new
     builder.instance_eval(&game)
