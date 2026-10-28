@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "variant"
+
 module VBlank
   module Console
     # WHICH PARTS OF THE LIBRARY SERVE EACH CONSOLE, asked of one place.
@@ -91,6 +93,26 @@ module VBlank
       # The console settings its build reads, by name, and whether +setting+ is one of them.
       def console_settings = builder.console_settings
       def console_setting?(setting) = console_settings.include?(setting)
+
+      # The variants of this console a build can ask for (Console::Variant), by name: none, for most.
+      def variants = {}
+
+      # The variant +name+ names, or nil for the console as it is (NO_VARIANT, or no name). A name
+      # this console has no variant by is refused, naming the ones it has.
+      def variant(name)
+        return nil if name.nil? || name.to_sym == NO_VARIANT
+
+        variants.fetch(name.to_sym) do
+          known = variants.keys.map(&:inspect)
+          has = known.empty? ? "It has no variants" : "Its variants are #{known.join(', ')}"
+          raise ArgumentError, "The #{title} has no variant named #{name.inspect}. #{has}. To fix this, name one " \
+                               "of those, or leave the variant out."
+        end
+      end
+
+      # What a game can tell about this console with the variant +name+: its description, with the
+      # variant's limits.
+      def described_as(name) = variant(name)&.apply(description) || description
     end
 
     # The Game Boy Advance's.
@@ -124,6 +146,38 @@ module VBlank
       def reading = Diagnostics::SNESReading
       def open_core(path, save_dir:) = Diagnostics::Emulator.open_snes(path, save_dir: save_dir)
       def save_file_extension = ".srm"
+      def variants = SNES_VARIANTS
+
+      # THE CHIPS A CARTRIDGE CAN CARRY that more than a handful of games used. The one-game chips
+      # (the Cx4 of Mega Man X2 and X3, the S-DD1, the SPC7110, the ST010 and the rest) are left out
+      # on purpose.
+      #
+      # Each chip's cartridge is a board of its own, not a plain cartridge with a different header:
+      # a Super FX board's ROM is read slowly by the console (no FastROM banks), its RAM is at
+      # $70:0000 and its size is in the extended header, and an SA-1 board maps memory its own way.
+      # So +build+ is empty, and the build refuses a chip (Cartridge::SNESBuild) until it lays a
+      # cartridge out for that board and puts the chip to work, checked in bsnes, which plays
+      # those boards as the hardware does.
+      SNES_VARIANTS = Ractor.make_shareable({
+        superfx: Variant.new(name: :superfx, title: "a Super FX 2 chip",
+                             # Its 64K of RAM is where it draws; the console's processor can use it
+                             # while the chip is not drawing, and two pictures fit in it, so a
+                             # painted screen keeps two pages.
+                             changes: { roomier_memory_bytes: (120 + 64) * 1024, painted_pages: 2 },
+                             build: {},
+                             note: "the Super FX 2 (GSU-2), a 21 MHz processor of its own that draws into " \
+                                   "the cartridge's RAM: Yoshi's Island, Doom, Star Fox 2"),
+        sa1: Variant.new(name: :sa1, title: "an SA-1 chip",
+                         # 128K of battery-backed RAM beside the console's work RAM.
+                         changes: { roomier_memory_bytes: (120 + 128) * 1024 },
+                         build: {},
+                         note: "the SA-1, a 65816 at 10.74 MHz with RAM of its own: Super Mario RPG, " \
+                               "Kirby Super Star, about 35 games"),
+        dsp1: Variant.new(name: :dsp1, title: "a DSP-1 chip", changes: {},
+                          build: {},
+                          note: "the DSP-1, a maths chip for turning and projecting: Super Mario Kart, " \
+                                "Pilotwings, about 16 games")
+      })
     end
 
     KITS = Ractor.make_shareable({ gba: AdvanceKit.new(ADVANCE), gbc: ColorKit.new(COLOR),
@@ -180,7 +234,7 @@ module VBlank
     end
 
     # What a game can tell about the console named +name+.
-    def self.described(name) = self.for(name).description
+    def self.described(name, variant: nil) = self.for(name).described_as(variant)
 
     # The console +name+ names, as the Symbol every part of the library holds it as, so a console
     # named in a String is the same console and never a name compared and missed. A name no
