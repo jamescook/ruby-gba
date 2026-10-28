@@ -9,16 +9,17 @@
 # and the Color, and sounds the same on both.
 #
 # HELD NOTES is a little tune of four bars the way a song's notes were before they could fade:
-# each note starts at its volume and stays there until the next, like an organ.
+# each note of the melody and the chords starts at its volume and stays there until the next,
+# like an organ. Its drums ring out, as drums always did.
 #
 # FADING NOTES is the same tune, note for note, with the voices counting each note's loudness
 # down or up by themselves while it holds:
 #   1. The lead is plucked: each note fades out (`decay :medium`), so a long note rings away and
 #      a run of short ones sparkles. Its last note says its own, slower fade.
 #   2. The second voice is a pad that breathes in: it starts each chord at nothing and swells up
-#      (`volume 0` and `swell :slow`).
-#   3. The drums fade at their own speeds, a long kick and a short hat, and the last hit of the
-#      bar swells in instead — a cymbal played backwards (DRUMS, below).
+#      over the bar (`volume 0` and `swell 7`, the slowest).
+#   3. The drums say how each hit fades, and the last hit of the bar swells in instead — a
+#      cymbal played backwards (DRUMS, below).
 # Switch between the two and listen to the same notes come out as two instruments.
 #
 # Run it to build examples/chip_band.gba and examples/chip_band.gbc:
@@ -43,15 +44,17 @@ module ChipBand
   CHORDS = Ractor.make_shareable(%i[C4 A3 F3 G3])
 
   # One bar of drums, played four times: a kick on the beat, hats between, and a last hit high up.
-  # A noise note's pitch is how high the hiss sits, so a low one is a kick and a high one a hat.
-  # Each hit says how it fades when the tune lets it — a long kick, a short hat, and the last hit
-  # swelling in from almost nothing, a cymbal played backwards.
+  # A noise note's pitch is how high the hiss sits, so a lower one is a kick and a high one a hat —
+  # though a hiss held low and long is a rumble under everything, so the kick is kept short. Each
+  # hit says how it fades when the tune lets it: a quick kick, a quicker hat, and the last hit
+  # rising from almost nothing and cut off by the next bar, a cymbal played backwards.
+  # (The note names stop at C6, so the hat's hiss is given in Hz.)
   DRUMS = Ractor.make_shareable([
-    [:C2, :quarter, { decay: :slow }],
-    [:C6, :eighth, { decay: :fast }],
-    [:C6, :eighth, { decay: :fast }],
-    [:C2, :quarter, { decay: :slow }],
-    [:C5, :quarter, { swell: :medium, volume: 2 }],
+    [:C4, :quarter, { decay: :fast }],
+    [4000, :eighth, { decay: :fast }],
+    [4000, :eighth, { decay: :fast }],
+    [:C4, :quarter, { decay: :fast }],
+    [:C6, :quarter, { swell: 4, volume: 1 }],
   ])
 
   GAME = Ractor.make_shareable(VBlank.game("CHIP BAND", consoles: %i[gba gbc]) do
@@ -69,10 +72,9 @@ module ChipBand
         v.volume 6
         CHORDS.each { |pitch| v.note pitch, :whole }
       end
-      # Every hit holds until the next, the way the rest of this tune does.
+      # The drums ring out the way a drum part always did, every hit alike.
       voice :drums, plays: :noise do |v|
-        v.decay :none
-        v.volume 6
+        v.volume 8
         4.times { DRUMS.each { |pitch, length, _fade| v.note pitch, length } }
       end
     end
@@ -86,10 +88,11 @@ module ChipBand
         pitch, length = LEAD.last
         v.note pitch, length, decay: :slow
       end
+      # The slowest swell there is: a bar to climb from nothing to full.
       voice :chords do |v|
         v.duty :quarter
         v.volume 0
-        v.swell :slow
+        v.swell 7
         CHORDS.each { |pitch| v.note pitch, :whole }
       end
       voice :drums, plays: :noise do |v|

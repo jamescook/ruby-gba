@@ -37,7 +37,7 @@ class TestChipBandExample < Minitest::Test
     drums = played.select { |_, voice, _| voice == 4 }.map(&:last).uniq
 
     assert_equal [NoteFade.down(3)], lead, "the lead is plucked"
-    assert_equal [NoteFade.up(5)], chords, "the chords breathe in"
-    assert_includes drums, NoteFade.up(3), "the last hit of a bar swells in"
+    assert_equal [NoteFade.up(7)], chords, "the chords breathe in"
+    assert_includes drums, NoteFade.up(4), "the last hit of a bar swells in"
   end
 end
