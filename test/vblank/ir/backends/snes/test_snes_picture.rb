@@ -118,6 +118,57 @@ class TestSNESPicture < Minitest::Test
     assert_operator run[:x], :>, 0
   end
 
+  # A 64×64 map is 8192 bytes of video RAM, two blanks' worth and more, handed to a background in
+  # one pass. It arrives over several blanks with the screen on, and no frame is black: the checked
+  # run holds each pass's picture to the interpreter's, and the frames between are read one by one.
+  # The view is on the map's last quarter, the last piece copied, so a piece written after its
+  # blank ended, and lost, shows as a picture that differs.
+  def test_a_big_map_handed_to_a_background_shows_no_black_frame
+    program = program_of do
+      screen :tiled
+      image(:wall, "#" => :gray) { "########\n" * 8 }
+      image(:gem, "g" => :green) { "gggggggg\n" * 8 }
+      tiles :set, "#" => :wall, "g" => :gem
+      room = background :room, tiles: :set, map: { walls: "#{'#' * 64}\n" * 64, gems: "#{'g#' * 32}\n" * 64 }
+      game_loop do
+        room.scroll_to 260, 280
+        pressed(:a).then { room.show_map 1 }
+      end
+    end
+    press = ->(frame) { frame == 3 ? [:a] : [] }
+    SNES::CheckedRun.new.input_each_frame(&press).run(program, frames: 8)
+    run = SNES::HeadlessRun.new(watch_picture: true).input_each_frame(&press).run(program, frames: 8)
+
+    assert_operator run.frames_took(4), :>, 1, "the map takes more than one blank"
+    assert_empty run.black_frames
+  end
+
+  # Each changed cell is a word written on its own, and 200 of them take longer than a blank.
+  def test_many_cells_changed_in_one_pass_show_no_black_frame
+    program = program_of do
+      screen :tiled
+      image(:wall, "#" => :gray) { "########\n" * 8 }
+      image(:gem, "g" => :green) { "gggggggg\n" * 8 }
+      tiles :set, "#" => :wall, "g" => :gem
+      room = background :room, tiles: :set, map: "#{'#' * 32}\n" * 32
+      i = var :i, 0
+      game_loop do
+        pressed(:a).then do
+          i.set! 0
+          repeat(200) do
+            room.set_tile i % 25, i / 25, "g"
+            i.add! 1
+          end
+        end
+      end
+    end
+    press = ->(frame) { frame == 3 ? [:a] : [] }
+    SNES::CheckedRun.new.input_each_frame(&press).run(program, frames: 8)
+    run = SNES::HeadlessRun.new(watch_picture: true).input_each_frame(&press).run(program, frames: 8)
+
+    assert_empty run.black_frames
+  end
+
   private def program_of(&game)
     builder = Builder.new
     builder.instance_eval(&game)

@@ -233,9 +233,9 @@ module VBlank
             end
 
             # rt_tint_upload (JSR, in the blank): the moved colours, if they changed since the last
-            # blank. A tiled screen sends them first; a painted screen sends them with the last of
-            # its tiles, counted against the blank's room with them (Paint's rt_paint_upload), so
-            # a faded colour never shows on the last pass's tiles.
+            # blank. Each screen sends them in one blank with the rest of what shows the pass, and
+            # counts them against that blank's room (Picture's rt_upload_copy, Paint's
+            # rt_paint_upload), so a moved colour never shows on the last pass's picture.
             def emit_upload(asm, memory)
               h = Console::SNESHardware
               state = memory[STATE]

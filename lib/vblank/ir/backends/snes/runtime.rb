@@ -3,6 +3,7 @@
 require_relative "runtime/boot"
 require_relative "runtime/int32"
 require_relative "runtime/frame"
+require_relative "runtime/blank"
 require_relative "runtime/lists"
 require_relative "runtime/picture"
 require_relative "runtime/paint"
@@ -76,6 +77,7 @@ module VBlank
             Boot.emit_zero(asm)
             Int32.emit(asm, Int32.scratch(memory))
             Frame.emit(asm, memory, pad: memory.scratch(4), sound: sound)
+            Blank.emit(asm, memory, Blank.scratch(memory))
             Lists.emit(asm, memory, Lists.scratch(memory))
             Picture.emit(asm, memory, work: memory.scratch(8), painted: painted)
             Paint.emit(asm, memory, Paint.scratch(memory), chip: chip) if painted

@@ -40,21 +40,13 @@ module VBlank
           # between them are put on a list of RUNS, side by side in video RAM and in the copy, a copy
           # each. Then, if they changed, the clear tile, the map and the colours of a fade or tint.
           #
-          # THE COPY TO VIDEO RAM IS SPREAD OVER BLANKS, WITH THE SCREEN ON. Video RAM can only be
-          # written in the blank or with the screen switched off; written while the picture is being
-          # drawn, the writes are lost (fullsnes, "SNES PPU Video Memory"). Switching the screen off
-          # for a big change shows a black frame. So the runs go one at a time, each only when the
-          # line the picture is on says it can be sent before the blank ends, and only while the
-          # blank has room for it (BLANK_BYTES). The map, the clear tile and the colours go last, all
-          # in one blank: until then a tile that was the clear colour still shows the clear tile, so
-          # a tile sent early is not seen early, and the colours never show with the last pass's
-          # tiles. A tile painted in both passes shows as it arrives; a pass that changes more than a
-          # blank holds of such tiles still shows them coming in down the screen.
-          #
-          # A blank is 37 of the console's lines, each 1364 of its master clock's cycles, and the
-          # copying engine takes 8 of those cycles a byte (fullsnes, "SNES Timing" and "SNES DMA");
-          # BLANK_BYTES leaves a third of the blank for the interrupt and the setting up. With the
-          # screen still off, before the first pass is shown, everything goes at once.
+          # THE COPY TO VIDEO RAM IS SPREAD OVER BLANKS, WITH THE SCREEN ON (Blank says how): the
+          # runs go one at a time, each when the blank has room and time for it. The map, the clear
+          # tile and the colours go last, all in one blank: until then a tile that was the clear
+          # colour still shows the clear tile, so a tile sent early is not seen early, and the
+          # colours never show with the last pass's tiles. A tile painted in both passes shows as it
+          # arrives; a pass that changes more than a blank holds of such tiles still shows them
+          # coming in down the screen.
           #
           # A TILE KEEPS ITS PIXELS IN PLANES. A pixel's colour is a place in the colour memory, eight
           # bits; a tile keeps the first bit of each of its 64 pixels together, a row of eight pixels
@@ -126,11 +118,6 @@ module VBlank
             RUNS = "rt paint runs"
             RUNS_END = "rt paint runs end"
             MOST_RUNS = TILES / 2
-
-            BLANK_BYTES = 4096
-            # The lines of a North American frame, 0 to 261; the blank is 225 to 261.
-            LINES = 262
-            FIRST_BLANK_LINE = 225
 
             # The direct page the routines work on.
             Scratch = Data.define(:left, :right, :top, :bottom, :area, :y, :row, :count, :chunk, :last,
@@ -207,11 +194,6 @@ module VBlank
               asm.sta(asm.abs(h::BG1SC))
               asm.lda(0x01) # the first layer alone on the main screen
               asm.sta(asm.abs(h::TM))
-              # WRIO's top bit lets a read of SLHV latch the line the picture is on, which
-              # rt_paint_upload reads to know how much of the blank is left. It is the bit's
-              # power-on value, which Boot clears.
-              asm.lda(0x80)
-              asm.sta(asm.abs(h::WRIO))
               # The screen's first row is the console's line 1 (see Runtime::Picture's scroll), so the
               # layer is scrolled up one: -1 is $3FF in the register's ten bits.
               asm.lda(0xFF)
@@ -1301,12 +1283,11 @@ module VBlank
             # rt_paint_upload (JSR, in the blank, the screen on — or off, before the first pass is
             # shown): the runs, each copied to video RAM from the copy in +bank+; then together the
             # clear tile, the map and the colours of a fade or tint, those of them that changed. Each
-            # goes only while the blank lasts and has room for it, waiting for the next blank when not.
+            # goes when the blank has room for it (Blank's rt_blank_room).
             def emit_upload(asm, memory, s, bank)
               h = Console::SNESHardware
               tint_changed = memory[Tint::STATE] + Tint::CHANGED
               asm.label("rt_paint_upload")
-              asm.stz(asm.direct(s.count)) # the bytes copied in this blank
               asm.ldx(0)
               asm.label("rt_paint_upload_run")
               asm.cpx(asm.abs(memory[RUNS_END]))
@@ -1314,7 +1295,7 @@ module VBlank
               asm.lda(asm.long_x(memory[RUNS] + 2))
               6.times { asm.asl }
               asm.sta(asm.direct(s.chunk))
-              asm.jsr(asm.abs("rt_paint_room"))
+              asm.jsr(asm.abs("rt_blank_room"))
               asm.lda(asm.direct(s.chunk))
               asm.sta(asm.abs(h::DMA_BASE + h::DASL))
               asm.lda(asm.long_x(memory[RUNS]))
@@ -1347,7 +1328,7 @@ module VBlank
               end
               asm.lda(asm.direct(s.chunk))
               asm.beq("rt_paint_upload_done")
-              asm.jsr(asm.abs("rt_paint_room"))
+              asm.jsr(asm.abs("rt_blank_room"))
               [[CLEAR_CHANGED, CLEAR_TILE_COPY, CLEAR_TILE_AT, TILE_BYTES],
                [MAP_CHANGED, MAP_COPY, MAP, MAP_BYTES]].each do |flag, from, to, bytes|
                 skip = "rt_paint_upload_#{to}_sent"
@@ -1368,39 +1349,6 @@ module VBlank
               asm.jsr(asm.abs("rt_tint_upload"))
               asm.label("rt_paint_upload_done")
               asm.rts
-
-              # rt_paint_room (JSR): room for +chunk+ more bytes in this blank, and time for them before
-              # it ends — or the next blank waited for. Keeps X. With the screen still off, there is
-              # always room.
-              asm.label("rt_paint_room")
-              asm.lda(asm.abs(memory[Frame::DISPLAY_ON]))
-              asm.beq("rt_paint_room_there")
-              asm.lda(asm.direct(s.chunk))
-              asm.clc
-              asm.adc(asm.direct(s.count))
-              asm.cmp(BLANK_BYTES + 1)
-              asm.bcs("rt_paint_room_wait")
-              emit_line_now(asm)
-              asm.cmp(FIRST_BLANK_LINE)
-              asm.bcc("rt_paint_room_wait")
-              asm.sta(asm.direct(s.temp))
-              asm.lda(asm.direct(s.chunk))
-              7.times { asm.lsr } # the lines it takes: a line copies 170 bytes, so this is more than enough
-              asm.sec # and one line more
-              asm.adc(asm.direct(s.temp))
-              asm.cmp(LINES - 1)
-              asm.bcc("rt_paint_room_there")
-              asm.label("rt_paint_room_wait")
-              asm.phx
-              asm.jsr(asm.abs("rt_sleep_until_vblank"))
-              asm.plx
-              asm.stz(asm.direct(s.count))
-              asm.label("rt_paint_room_there")
-              asm.lda(asm.direct(s.chunk))
-              asm.clc
-              asm.adc(asm.direct(s.count))
-              asm.sta(asm.direct(s.count))
-              asm.rts
             end
 
             # The copying engine's channel 0 sending to video RAM's two ports, from the bank in A (8
@@ -1414,23 +1362,6 @@ module VBlank
               asm.sta(asm.abs(h::DMA_BASE + h::BBAD))
               asm.lda(1)
               asm.sta(asm.abs(h::MDMAEN))
-              asm.rep(0x20)
-            end
-
-            # A = the line the picture is on now (OPVCT, nine bits), latched by reading SLHV, which
-            # latches only while WRIO's top bit is set (rt_paint_start sets it). STAT78 is read first
-            # so OPVCT gives its low byte, then its ninth bit. (fullsnes, "SNES PPU Timers and
-            # Status".) Leaves A 16 bits wide.
-            def emit_line_now(asm)
-              h = Console::SNESHardware
-              asm.sep(0x20)
-              asm.lda(asm.abs(h::STAT78))
-              asm.lda(asm.abs(h::SLHV))
-              asm.lda(asm.abs(h::OPVCT))
-              asm.xba
-              asm.lda(asm.abs(h::OPVCT))
-              asm.and_a(0x01)
-              asm.xba
               asm.rep(0x20)
             end
 

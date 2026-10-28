@@ -21,15 +21,12 @@ module VBlank
           # sprite table, written whole every pass a game places its sprites (a shadow of the
           # console's 544 bytes); a map put up, copied whole from the cartridge; single cells
           # changed (a queue of them); and where each layer is scrolled to. The console takes video
-          # RAM and the sprite table only while it is not drawing, so this is all done in the blank
-          # with the screen switched off for the copy, so the console takes the writes however long
-          # the copy runs. A copy that ends inside the blank switches the screen on again there and
-          # nothing shows; one too long for the blank (a map of 64×64 cells is 8K) runs on into the
-          # frame and switches the screen on in the next blank, before the pass is said to be shown
-          # (Runtime::Frame's SHOWN). The frame drawn while it was off is black: the checked run never
-          # reads it, but a player sees it, as a flash each time a big map is put up. Cutting a long
-          # copy over several blanks, with the old picture still up, would take the flash away, as a
-          # painted screen's copy already does (Runtime::Paint): it never switches the screen off.
+          # RAM and the sprite table only while it is not drawing, so it is all copied in the blank
+          # with the screen on, as much as each blank has room for (Blank): a copy too long for one
+          # blank (a map of 64×64 cells is 8K, or many cells) arrives over several, with the old
+          # picture still up, and the pass is said to be shown once it is all there (Runtime::Frame's
+          # SHOWN). The screen is never switched off for it, so no frame is black. A map arriving
+          # over several blanks shows its first pieces before the rest.
           #
           #   rt_picture_start     at power-on: the registers, the tiles and the colours
           #   rt_picture_prepare   at the end of every pass, before the wait: a painted screen's
@@ -70,6 +67,8 @@ module VBlank
             # Cells changed since the last blank: how many, then each its video RAM address and word.
             CELLS = "rt cells"
             MOST_CELLS = 256
+            # The most of a map copied at once: a quarter of a 64×64 map, half of what a blank holds.
+            MAP_PIECE = 2048
 
             # A sprite hidden: below the screen, where none of its eight rows shows.
             HIDDEN_Y = 224
@@ -89,7 +88,7 @@ module VBlank
               emit_start(asm, memory, painted)
               emit_sprites(asm, memory, work)
               emit_backgrounds(asm, memory, work)
-              emit_upload(asm, memory, painted)
+              emit_upload(asm, memory, work, painted)
               asm.label("rt_picture_prepare")
               asm.jml(asm.long("rt_paint_prepare")) if painted
               asm.rtl unless painted
@@ -100,6 +99,13 @@ module VBlank
             def emit_start(asm, memory, painted)
               h = Console::SNESHardware
               asm.label("rt_picture_start")
+              # WRIO's top bit lets a read of SLHV latch the line the picture is on, which the copy
+              # in the blank reads to know how much of the blank is left (Blank). It is the bit's
+              # power-on value, which Boot clears.
+              asm.sep(0x20)
+              asm.lda(0x80)
+              asm.sta(asm.abs(h::WRIO))
+              asm.rep(0x20)
               if painted
                 asm.jsl(asm.long("rt_paint_start"))
                 asm.jml(asm.long("rt_sprites_begin"))
@@ -479,73 +485,60 @@ module VBlank
               asm.rtl
             end
 
-            # THE COPY IN THE BLANK. On a tiled screen the screen is switched off first, so nothing
-            # below needs to fit in the blank; then on again — straight away while the blank lasts,
-            # or in the next one. A painted screen's copy keeps to the blanks itself and leaves the
-            # screen on.
-            def emit_upload(asm, memory, painted)
+            # THE COPY IN THE BLANK, with the screen on (Blank says how). A map put up goes first, a
+            # piece of MAP_PIECE bytes at a time as the blanks have room, with the old picture still
+            # up; then, together in one blank, the sprite table, the colours, each layer's map
+            # register and its scroll; then the cells changed, each when the blank has a line left
+            # for it. A painted screen's copy is Paint's rt_paint_upload. With the screen still off,
+            # before the first pass is shown, everything goes at once.
+            def emit_upload(asm, memory, work, painted)
               h = Console::SNESHardware
               layers = memory[LAYERS]
-              # The first pass's: the screen is off already, and Frame switches it on.
+              # The first pass's, with the screen off (Frame switches it on), and every other's.
               asm.label("rt_upload_whole")
-              asm.jsr(asm.abs("rt_upload_copy"))
-              asm.rtl
-
               asm.label("rt_upload")
-              if painted
-                # A painted screen is copied with the screen on, a blank at a time (Paint's
-                # rt_paint_upload), so nothing is switched off.
-                asm.jsr(asm.abs("rt_upload_copy"))
-                asm.rtl
-              end
-              asm.sep(0x20)
-              asm.lda(h::FORCED_BLANK)
-              asm.sta(asm.abs(h::INIDISP))
-              asm.rep(0x20)
               asm.jsr(asm.abs("rt_upload_copy"))
-              # On again: in this blank if it is not over, or the next.
-              asm.sep(0x20)
-              asm.lda(asm.abs(h::HVBJOY))
-              asm.rep(0x20)
-              asm.and_a(0x0080)
-              asm.bne("rt_upload_on")
-              asm.jsr(asm.abs("rt_sleep_until_vblank"))
-              asm.label("rt_upload_on")
-              asm.sep(0x20)
-              asm.lda(h::FULL_BRIGHTNESS)
-              asm.sta(asm.abs(h::INIDISP))
-              asm.rep(0x20)
               asm.rtl
 
               asm.label("rt_upload_copy")
-              # A painted screen sends the colours with the last of its tiles (rt_paint_upload).
+              asm.jsr(asm.abs("rt_blank_begin"))
               if painted
                 asm.jmp(asm.abs("rt_paint_upload"))
                 return
               end
-              asm.jsr(asm.abs("rt_tint_upload")) # the colours, if a fade or a tint moved them
 
-              # The sprite table, whole.
-              asm.stz(asm.abs(h::OAMADDL))
-              emit_dma(asm, h::DMA_TO_ONE_PORT, h::OAMDATA, asm.imm(memory[SHADOW_OAM] & 0xFFFF),
-                       memory[SHADOW_OAM] >> 16, 544)
-              # Each layer: its map, if one is waiting, and its scroll.
+              # Each layer's map, if one is waiting, a piece at a time: X is how far it has got.
               LAYER_MAPS.each_with_index do |at, layer|
                 state = layers + (layer * LAYER_STATE_BYTES)
                 done = "rt_upload_layer#{layer}_copied"
+                piece = "rt_upload_layer#{layer}_piece"
                 asm.lda(asm.abs(state + LAYER_PENDING))
                 asm.beq(done)
-                asm.stz(asm.abs(state + LAYER_PENDING))
-                asm.lda(at)
-                asm.sta(asm.abs(h::VMADDL))
-                asm.sep(0x20)
-                asm.lda(asm.abs(state + LAYER_SC))
-                asm.ora((at >> 10) << 2)
-                asm.sta(asm.abs(h::BG1SC + layer))
-                asm.rep(0x20)
-                asm.lda(asm.abs(state + LAYER_BYTES))
+                asm.ldx(0)
+                asm.label(piece)
+                asm.txa
+                asm.cmp(asm.abs(state + LAYER_BYTES))
+                asm.bcs(done)
+                asm.lda(asm.abs(state + LAYER_BYTES)) # the bytes left, MAP_PIECE at most
+                asm.stx(asm.direct(work))
+                asm.sec
+                asm.sbc(asm.direct(work))
+                asm.cmp(MAP_PIECE)
+                asm.bcc("#{piece}_bytes")
+                asm.lda(MAP_PIECE)
+                asm.label("#{piece}_bytes")
+                asm.sta(asm.direct(work))
+                asm.jsr(asm.abs("rt_blank_room"))
+                asm.lda(asm.direct(work))
                 asm.sta(asm.abs(h::DMA_BASE + h::DASL))
-                asm.lda(asm.abs(state + LAYER_SOURCE))
+                asm.txa
+                asm.lsr # a word of video RAM for every two bytes
+                asm.clc
+                asm.adc(at)
+                asm.sta(asm.abs(h::VMADDL))
+                asm.txa
+                asm.clc
+                asm.adc(asm.abs(state + LAYER_SOURCE)) # a map is whole in one bank, so this never carries
                 asm.sta(asm.abs(h::DMA_BASE + h::A1TL))
                 asm.sep(0x20)
                 asm.lda(asm.abs(state + LAYER_SOURCE + 2))
@@ -557,7 +550,40 @@ module VBlank
                 asm.lda(1)
                 asm.sta(asm.abs(h::MDMAEN))
                 asm.rep(0x20)
+                asm.txa
+                asm.clc
+                asm.adc(asm.direct(work))
+                asm.tax
+                asm.bra(piece)
                 asm.label(done)
+              end
+
+              # Together: the sprite table whole, the colours if a fade or a tint moved them, and
+              # each layer's map register, for a map just put up, and scroll.
+              tint_changed = memory[Tint::STATE] + Tint::CHANGED
+              asm.lda(asm.abs(tint_changed))
+              asm.beq("rt_upload_together_bytes")
+              asm.lda(512)
+              asm.label("rt_upload_together_bytes")
+              asm.clc
+              asm.adc(544)
+              asm.jsr(asm.abs("rt_blank_room"))
+              asm.stz(asm.abs(h::OAMADDL))
+              emit_dma(asm, h::DMA_TO_ONE_PORT, h::OAMDATA, asm.imm(memory[SHADOW_OAM] & 0xFFFF),
+                       memory[SHADOW_OAM] >> 16, 544)
+              asm.jsr(asm.abs("rt_tint_upload"))
+              LAYER_MAPS.each_with_index do |at, layer|
+                state = layers + (layer * LAYER_STATE_BYTES)
+                kept = "rt_upload_layer#{layer}_register_kept"
+                asm.lda(asm.abs(state + LAYER_PENDING))
+                asm.beq(kept)
+                asm.stz(asm.abs(state + LAYER_PENDING))
+                asm.sep(0x20)
+                asm.lda(asm.abs(state + LAYER_SC))
+                asm.ora((at >> 10) << 2)
+                asm.sta(asm.abs(h::BG1SC + layer))
+                asm.rep(0x20)
+                asm.label(kept)
                 # The scroll, each register written twice, its low byte and then its high. The
                 # screen's first row is the console's line 1, not line 0, so a layer shows the map
                 # row one past its vertical scroll there: the scroll written is one less than the
@@ -573,6 +599,7 @@ module VBlank
               asm.label("rt_upload_cell")
               asm.lda(asm.abs(memory[CELLS]))
               asm.beq("rt_upload_cells_done")
+              asm.jsr(asm.abs("rt_blank_time"))
               asm.dec(asm.abs(memory[CELLS]))
               asm.lda(asm.abs_x(memory[CELLS] + 2))
               asm.sta(asm.abs(h::VMADDL))

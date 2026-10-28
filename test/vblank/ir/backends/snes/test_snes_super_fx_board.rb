@@ -20,9 +20,9 @@ class TestSNESSuperFXBoard < Minitest::Test
   # because another board exists; a change to the SNES lowering that is meant to change plain
   # cartridges records new digests here, in the same commit.
   PLAIN_DIGESTS = {
-    Tiles => "46ab4d395b34f5f487b21dd89e76ca113d898992a555634a64b87b1c222fd5b4",
-    BufferedBounce => "87b2454c84cccf3e1f75da8d29e2586e41546300fd535e4da699f7307137c8ab",
-    Sparks => "3d710f6905e296b2da37616a1d970047060b61a93a8cbf6896f18fef03f96f23"
+    Tiles => "8896dac94b3cc4b54361b5dd2b3745e92ec0b8a527dec85cdca06a4f60726425",
+    BufferedBounce => "9fe8496900ddc0cf1b6ca27f349558ddba6097c8445bc655f6f100b5f3f214e9",
+    Sparks => "e55312ad47bd3792e9d7b286bd392fbb019bf9fb25b7c35930f695edc4cb76fb"
   }.freeze
 
   def test_a_plain_cartridge_is_byte_for_byte_what_it_was
