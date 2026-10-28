@@ -148,27 +148,32 @@ module VBlank
           # A SONG'S SQUARE PARTS play on the voices the Advance's square voices are: the first part on
           # voice 0, the second on voice 1, which beeps share as they share the Advance's second. A
           # note holds at a fixed gain, as the Advance's song notes hold their volume, and a rest lets
-          # the voice go. stop_music lets go of every voice a song plays on, as the Color's player
-          # quiets all four.
+          # the voice go. A tune that stops lets go of the voices its own parts play on and no other,
+          # as the Advance's player does: a beep sounding beside a one-part tune is not cut off.
           SQUARE_VOICES = { 1 => 0, 2 => 1 }.freeze
-          SONG_VOICES = 0x0F
 
           # WHAT A LOG ENTRY DOES NOT SAY. The interpreter logs a song's note as the voice set to a
           # frequency and volume, which is all the Advance's player writes; the square's width is the
-          # part's, written once. So the writes are worked out with the game's +waves+ (its wave
-          # voice's waveforms, in the order its build recorded them, Samples::FIRST_WAVE on) and
-          # +duties+, each song's square parts' widths by [the song's name, its channel].
-          Voicing = Data.define(:waves, :duties) do
-            def initialize(waves: [], duties: {}) = super
+          # part's, written once; and a tune stopping as [:stop_music], whichever tune it was. So the
+          # writes are worked out with the game's +waves+ (its wave voice's waveforms, in the order its
+          # build recorded them, Samples::FIRST_WAVE on) and +parts+, each song's parts by [the song's
+          # name, its channel].
+          Voicing = Data.define(:waves, :parts) do
+            def initialize(waves: [], parts: {}) = super
+
+            # The voices +song+'s parts play on, a bit each.
+            def song_voices(song)
+              parts.keys.sum { |name, channel| name == song ? 1 << SQUARE_VOICES.fetch(channel) : 0 }
+            end
           end
 
           NO_VOICING = Voicing.new
 
           # The writes one sound-log entry means: [:enabled], [:beep, effect], [:noise, hit], [:wave,
           # params], [:stop_wave], a song's [:note, ...] (nothing: the [:voice, ...] after it is the
-          # note) and [:voice, channel, song, frequency, volume], and [:stop_music]. Each is [register,
-          # value], or [SET_BITS, register, mask, bits].
-          def for_entry(entry, voicing = NO_VOICING)
+          # note) and [:voice, channel, song, frequency, volume], and [:stop_music], for the tune
+          # +song+. Each is [register, value], or [SET_BITS, register, mask, bits].
+          def for_entry(entry, voicing = NO_VOICING, song: nil)
             case entry.first
             when :enabled then [[SET_BITS, FLAGS, SWITCHES, SOUND_ON], [MAIN_LEFT, MAIN_VOLUME], [MAIN_RIGHT, MAIN_VOLUME]]
             when :beep then beep(entry.last)
@@ -176,21 +181,21 @@ module VBlank
             when :wave then wave(entry.last, voicing.waves)
             when :stop_wave then key_off(1 << WAVE_VOICE)
             when :note then []
-            when :voice then song_note(*entry.drop(1), voicing.duties)
-            when :stop_music then key_off(SONG_VOICES)
+            when :voice then song_note(*entry.drop(1), voicing.parts)
+            when :stop_music then key_off(voicing.song_voices(song))
             else raise ArgumentError, "the Super Nintendo build does not play #{entry.first.inspect} yet"
             end
           end
 
           # A song's note on channel +channel+: on a square voice, the note held at a fixed gain, or
           # the voice let go for a rest or a note at volume nought.
-          def song_note(channel, song, frequency, volume, duties)
+          def song_note(channel, song, frequency, volume, parts)
             voice = SQUARE_VOICES.fetch(channel) do
               raise ArgumentError, "the Super Nintendo build does not play a song's part on channel #{channel} yet"
             end
             return key_off(1 << voice) if frequency.zero? || volume.zero?
 
-            duty = duties.fetch([song, channel]) { raise ArgumentError, "no square part of #{song.inspect} on #{channel}" }
+            duty = parts.fetch([song, channel]) { raise ArgumentError, "no part of #{song.inspect} on #{channel}" }.duty
             base = voice << 4
             wave = wave_for(frequency)
             pitch = pitch_for(frequency, wave)
@@ -306,10 +311,15 @@ module VBlank
           # What the registers hold after the sound log +entries+, by register, for each one written,
           # and FLG and KOFF, which the sound unit starts as at_power_on says and whose bits an entry
           # changes only some of. +voicing+ as for #for_entry.
+          #
+          # The tune a [:stop_music] stops is the one whose note was logged last: a tune plays its
+          # first frame's notes, rests included, as it starts.
           def after(entries, voicing = NO_VOICING)
             held = { FLAGS => SOUND_OFF, KEY_OFF => 0 }
+            song = nil
             entries.each do |entry|
-              for_entry(entry, voicing).each do |register, *value|
+              song = entry[1] if entry.first == :note
+              for_entry(entry, voicing, song: song).each do |register, *value|
                 if register == SET_BITS
                   register, mask, bits = value
                   held[register] = (held[register] & ~mask & 0xFF) | (bits & mask)

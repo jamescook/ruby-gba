@@ -17,22 +17,36 @@ module VBlank
         # THE TABLE, all of it 16-bit words, every place in it counted from its start:
         #
         #   0             where the table of songs is
-        #   QUIET_AT      the group a stopped tune plays: every voice a song plays on let go, and
-        #                 [:stop_music] logged
+        #   the groups    [command, first number, second number] each, nought after the last
         #   the songs     a word for each song, numbered in the order declared: where its record is
         #   a record      its length in frames, the frame it comes round from, 1 if it plays once,
-        #                 how many parts; and for each part where its first time round's notes are
-        #                 and how many, and the same for every time after (IR::Tunes.loop_passes)
+        #                 how many parts, and where its group for stopping is (the voices its parts
+        #                 play on let go, and [:stop_music] logged); then for each part where its
+        #                 first time round's notes are and how many, and the same for every time
+        #                 after (IR::Tunes.loop_passes)
         #   a note        its frame, and where its group is
-        #   a group       [command, first number, second number] each, nought after the last
         class Music
           # What the songs are to the author, for a cartridge too full for them.
           SONGS = W65816::Holding.new(what: "the game's songs", fix: "make its songs shorter, or use fewer of them")
 
-          QUIET_AT = 2
-          RECORD_WORDS = 4
-          PART_WORDS = 4
-          NOTE_WORDS = 2
+          # Where each number is, in bytes: in a song's record, then in each part's entry after it
+          # (where its notes are, and how many), in a note, and how long a group's command is.
+          LENGTH = 0
+          LOOP_FRAME = 2
+          PLAYS_ONCE = 4
+          PART_COUNT = 6
+          QUIET_GROUP = 8
+          RECORD_BYTES = 10
+          NOTES_AT = 0
+          NOTE_COUNT = 2
+          AGAIN = 4 # the same two for every time round after the first
+          PART_BYTES = 8
+          NOTE_FRAME = 0
+          NOTE_GROUP = 2
+          NOTE_BYTES = 4
+          COMMAND_FIRST = 2
+          COMMAND_SECOND = 4
+          COMMAND_BYTES = 6
 
           # The most parts a song has: one on each of the voices the Advance plays itself.
           PARTS = 4
@@ -54,10 +68,10 @@ module VBlank
             (@songs.index { |song| song.name == name } or raise LoweringError, "the song #{name.inspect} is not declared") + 1
           end
 
-          # Each square part's width, by [the song's name, its channel] (DSPWrites::Voicing).
-          def duties
+          # Each song's parts, by [the song's name, its channel] (DSPWrites::Voicing).
+          def parts
             @songs.each_with_object({}) do |song, held|
-              channels_of(song).each { |part, channel| held[[song.name, channel]] = part.duty }
+              channels_of(song).each { |part, channel| held[[song.name, channel]] = part }
             end
           end
 
@@ -65,36 +79,37 @@ module VBlank
           # the number the cartridge's sound log keeps an entry as.
           def words(voicing)
             @songs.each { |song| refuse_parts!(song) }
-            groups = {} # the log entries a group is -> its commands, in the order first met
-            group = lambda do |entries|
-              groups[entries] ||= entries.flat_map do |entry|
-                DSPWrites.for_entry(entry, voicing).map { |write| Runtime::Sound.command_for(write) } +
+            groups = [] # every group's commands, each once, in the order first met
+            group = lambda do |entries, song = nil|
+              commands = entries.flat_map do |entry|
+                DSPWrites.for_entry(entry, voicing, song: song).map { |write| Runtime::Sound.command_for(write) } +
                   [[GROUP_LOG, yield(entry), 0]]
               end
-              entries
+              groups << commands unless groups.include?(commands)
+              commands
             end
-            group.call(QUIET)
-            songs = @songs.map { |song| [song, parts_notes(song, group)] }
+            songs = @songs.map { |song| [song, group.call(QUIET, song.name), parts_notes(song, group)] }
 
             table = [0]
             places = {}
-            groups.each do |entries, commands|
-              places[entries] = table.size * 2
+            groups.each do |commands|
+              places[commands] = table.size * 2
               table.concat(commands.flatten, [GROUP_END])
             end
             songs_at = table.size
             table[0] = songs_at * 2
             table.concat(Array.new(songs.size, 0))
-            songs.each_with_index do |(song, parts), i|
+            songs.each_with_index do |(song, quiet, parts), i|
               table[songs_at + i] = table.size * 2
-              table.concat([song.total_frames, IR::Tunes.loop_frame(song), IR::Tunes.plays_once?(song) ? 1 : 0, parts.size])
+              table.concat([song.total_frames, IR::Tunes.loop_frame(song), IR::Tunes.plays_once?(song) ? 1 : 0, parts.size,
+                            places.fetch(quiet)])
               lists = parts.flatten(1)
-              at = table.size + (parts.size * PART_WORDS)
+              at = table.size + (parts.size * PART_BYTES / 2)
               lists.each do |notes|
                 table.concat([at * 2, notes.size])
-                at += notes.size * NOTE_WORDS
+                at += notes.size * NOTE_BYTES / 2
               end
-              lists.each { |notes| notes.each { |frame, entries| table.concat([frame, places.fetch(entries)]) } }
+              lists.each { |notes| notes.each { |frame, commands| table.concat([frame, places.fetch(commands)]) } }
             end
             table
           end
@@ -110,7 +125,7 @@ module VBlank
           private
 
           # Each part's two lists of notes, the first time round and every time after, each note [its
-          # frame, the log entries it is], its group made by +group+.
+          # frame, its group's commands], each group made by +group+.
           def parts_notes(song, group)
             passes = IR::Tunes.loop_passes(song)
             channels_of(song).map do |part, channel|

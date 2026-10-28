@@ -32,7 +32,7 @@ module VBlank
             def sound_waves = @sound_waves.dup
 
             # What the DSP writes for this game's sound-log entries are worked out with.
-            def sound_voicing = DSPWrites::Voicing.new(waves: @sound_waves, duties: @music.duties)
+            def sound_voicing = DSPWrites::Voicing.new(waves: @sound_waves, parts: @music.parts)
 
             # The section of the game's songs (SNES::Music), each note's sound-log entries numbered
             # among the rest.

@@ -92,10 +92,12 @@ module VBlank
             LOGGED = "rt sound logged"
             LOG_LENGTH = 256
             # ...and how many there were where each of the last Frame::STEPS_KEPT passes' waits ended,
-            # the music of the frames it took played (Music): a word each, by the pass's number less
-            # its multiples of STEPS_KEPT. That is the interpreter's log as the pass's frame boundary
+            # the music of the frames it took played (Music), by the pass's number less its multiples
+            # of STEPS_KEPT: the pass's number's low word, so a reader can tell the slot is this
+            # pass's, then the count. That is the interpreter's log as the pass's frame boundary
             # leaves it.
             LOGGED_BY_PASS = "rt sound logged by pass"
+            LOGGED_SLOT_BYTES = 4
 
             R0 = Memory.register(0)
             R1 = Memory.register(1)
@@ -119,7 +121,7 @@ module VBlank
               memory.reserve(DROPPED, 2)
               memory.reserve(LOGGED, 2)
               memory.reserve(LOG, LOG_LENGTH)
-              memory.reserve(LOGGED_BY_PASS, Frame::STEPS_KEPT * 2)
+              memory.reserve(LOGGED_BY_PASS, Frame::STEPS_KEPT * LOGGED_SLOT_BYTES)
             end
 
             # Everything sent across at power-on, from DRIVER_AT: the program, then from TABLE_AT the
@@ -163,7 +165,7 @@ module VBlank
                 label "set_bits"
                 mov :a, direct(ports[2]) # which bits change
                 eor :a, imm(0xFF)
-                and_ :a, direct(DSP_DATA) # FLG's other bits, as the DSP holds them
+                and_ :a, direct(DSP_DATA) # the register's other bits, as the DSP holds them
                 mov direct(KEPT_BITS), :a
                 mov :a, direct(ports[3])
                 and_ :a, direct(ports[2]) # the new bits
@@ -201,8 +203,11 @@ module VBlank
               asm.lda(asm.abs(memory[Frame::PASSES]))
               asm.and_a(Frame::STEPS_KEPT - 1)
               asm.asl
+              asm.asl
               asm.tax
               asm.lda(asm.abs(memory[LOGGED]))
+              asm.sta(asm.abs_x(memory[LOGGED_BY_PASS], 2))
+              asm.lda(asm.abs(memory[Frame::PASSES]))
               asm.sta(asm.abs_x(memory[LOGGED_BY_PASS]))
               asm.rtl
             end

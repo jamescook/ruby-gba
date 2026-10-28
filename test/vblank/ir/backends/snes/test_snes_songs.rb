@@ -107,5 +107,50 @@ class TestSNESSongs < Minitest::Test
     assert_equal 0, dsp.getbyte(KEY_OFF) & (1 << 1), "its key-off cleared"
   end
 
+  # A tune stopping lets go of its own parts' voices and no other: a beep beside a one-part tune
+  # sounds on through stop_music, as on the Advance.
+  def test_stop_music_leaves_a_beep_beside_the_tune_sounding
+    game = VBlank.game("BEEPBESIDE", consoles: %i[gba snes]) do
+      enable_sound
+      song(:tune) { voice(:lead) { note :A4, :whole } }
+      define_sound :ping, frequency: 880, decay: :none
+      n = var :n, 0
+      game_loop do
+        n.add! 1
+        (n == 1).then { play_song :tune }
+        (n == 3).then { beep :ping }
+        (n == 4).then { stop_music }
+      end
+    end
+    dsp = SNES::CheckedRun.new.run(game.program(console: :snes), frames: 7).dsp_registers
+
+    assert_equal 0, dsp.getbyte(FIRST + ENVX), "the tune let go"
+    assert_operator dsp.getbyte(SECOND + ENVX), :>, 0, "the beep sounding on"
+  end
+
+  # The player's awkward moments, each held to the interpreter's log and DSP writes by the checked
+  # run: a stop and a play in one pass start the tune over, a tune named `this_frame:` plays its
+  # first frame where it is named, and a tune that plays once ends and stays quiet while named.
+  def test_a_restart_a_tune_started_this_frame_and_a_tune_that_ends
+    build = VBlank::IR::Build
+    n = build.var_ref(:n)
+    program = build.program(
+      build.enable_sound,
+      build.song(:tune, events: [[0, 440], [3, 494]], total_frames: 6),
+      build.song(:finale, events: [[0, 294]], total_frames: 2, plays_once: true),
+      build.loop_(
+        build.add(:n, 1),
+        build.if_(build.binop(:==, n, build.int(1)), build.play_song(:tune)),
+        build.if_(build.binop(:==, n, build.int(4)), build.stop_music, build.play_song(:tune)),
+        build.if_(build.binop(:==, n, build.int(8)), build.play_song(:finale, this_frame: true)),
+        build.wait_vblank
+      )
+    )
+    run = SNES::CheckedRun.new.run(program, frames: 14)
+
+    assert_equal 3, run.audio.count([:stop_music]), "stopped for the restart, for the finale, and at its end"
+    assert_equal 0, run.dsp_registers.getbyte(FIRST + ENVX), "quiet after the finale"
+  end
+
   private def played(frames:) = SNES::CheckedRun.new.run(TUNE.program(console: :snes), frames: frames).dsp_registers
 end

@@ -179,7 +179,7 @@ module VBlank
               play_frame
               waited += 1
               refuse_stuck_game! if waited > LONGEST_PASS_FRAMES
-              if pending && shown_pass == pending.first
+              if pending && shown_pass == pending.first && (pending.first > frames || sounds_counted?(pending.first))
                 pass, variables, lists, @sprites, sounds = pending
                 pending = nil
                 return record_moment(:end, variables, lists, picture_now, sounds) if pass > frames
@@ -230,9 +230,9 @@ module VBlank
           # A PASS'S SOUNDS INCLUDE ITS FRAME BOUNDARY'S MUSIC, which the interpreter plays after the
           # pass, before anything reads the frame (Reference#advance_frame). The cartridge plays it
           # where the wait ends (Runtime::Music), after the game was found waiting, so a pass's moment
-          # takes the count the cartridge kept as that wait ended (Runtime::Sound::LOGGED_BY_PASS) —
-          # which it has by now, since the moment is taken once the pass's picture shows, and the
-          # wait ends as it does. The moment the run ended on has no boundary after it.
+          # takes the count the cartridge kept as that wait ended (Runtime::Sound::LOGGED_BY_PASS),
+          # which #play_passes waits for (#sounds_counted?). The moment the run ended on has no
+          # boundary after it.
           def record_moment(frame, variables, lists, picture, sounds)
             @vars = variables
             @lists = lists
@@ -259,8 +259,15 @@ module VBlank
           def sound? = @places.runtime.key?(Runtime::Sound::LOGGED)
 
           # How many entries the sound log held as pass +pass+'s wait ended.
-          def logged_by_pass(pass)
-            half(runtime_place(Runtime::Sound::LOGGED_BY_PASS) + ((pass % Runtime::Frame::STEPS_KEPT) * 2))
+          def logged_by_pass(pass) = half(logged_slot(pass) + 2)
+
+          # Whether the cartridge has kept that count for +pass+ yet: its slot carries the pass's
+          # number. True for a game that makes no sound.
+          def sounds_counted?(pass) = !sound? || half(logged_slot(pass)) == (pass & 0xFFFF)
+
+          def logged_slot(pass)
+            runtime_place(Runtime::Sound::LOGGED_BY_PASS) +
+              ((pass % Runtime::Frame::STEPS_KEPT) * Runtime::Sound::LOGGED_SLOT_BYTES)
           end
 
           # The cartridge's sound log read into the interpreter's words as far as +logged+ entries.
