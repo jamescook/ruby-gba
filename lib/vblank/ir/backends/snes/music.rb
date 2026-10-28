@@ -112,9 +112,12 @@ module VBlank
           # (Reference::Player#silence_song), and which voices the stop lets go of depends on the
           # tune. A tune whose every voice an effect holds logs no note to tell it by, so the
           # cartridge logs each tune's stop as an entry of its own, [:stop_music, name], which reads
-          # back as the interpreter's [:stop_music] (HeadlessRun#audio) and tells the checked run
-          # which tune stopped (HeadlessRun#audio_as_logged).
+          # back as the interpreter's [:stop_music] (Music.interpreter_entry, for HeadlessRun's log)
+          # and tells the checked run which tune stopped (HeadlessRun#audio_as_logged).
           def self.stop_entry(name) = [:stop_music, name]
+
+          # A cartridge's log entry in the interpreter's words: a stop without its tune.
+          def self.interpreter_entry(entry) = entry.first == :stop_music ? [:stop_music] : entry
 
           # Whether +program+ sets how loud its music plays (`music_volume`, or a fade), and so logs and
           # writes each note's loudness (Reference::Player#play_song_frame with a level): whether a run

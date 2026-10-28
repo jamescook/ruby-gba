@@ -177,8 +177,7 @@ module VBlank
           # The writes one sound-log entry means: [:enabled], [:beep, effect], [:noise, hit], [:wave,
           # params], [:stop_wave], a song's or a sound effect's [:note, ...] (nothing: the [:voice, ...]
           # after it is the note) and [:voice, channel, song, frequency, volume], [:sound_effect, name]
-          # (nothing: its notes are its writes), and [:stop_music, name] (or [:stop_music] for the tune
-          # +song+), which lets go
+          # (nothing: its notes are its writes), and [:stop_music, name], the cartridge's, which lets go
           # of its voices but those a sound effect holds (+effect_voices+, a bit each). Each is
           # [register, value], or [SET_BITS, register, mask, bits].
           def for_entry(entry, voicing = NO_VOICING, song: nil, effect_voices: 0)
@@ -190,7 +189,7 @@ module VBlank
             when :stop_wave then key_off(1 << WAVE_VOICE)
             when :note, :sound_effect, :sample, :stop_sample then [] # a recording's voice is the count's (Runtime::Recordings)
             when :voice then song_note(*entry.drop(1), voicing.parts)
-            when :stop_music then key_off(voicing.song_voices(entry[1] || song) & ~effect_voices & 0xFF)
+            when :stop_music then key_off(voicing.song_voices(entry.fetch(1)) & ~effect_voices & 0xFF)
             when :loudness then loudness_at(entry[1], entry[2], voicing, song)
             else raise ArgumentError, "the Super Nintendo build does not play #{entry.first.inspect} yet"
             end
@@ -359,9 +358,8 @@ module VBlank
           # - the tune a [:loudness ...] for a held note reaches is the one whose note was logged last
           #   (or +song+ before any), since a tune plays its first frame's notes, rests included, as
           #   it starts — and a sound effect's notes are not a tune's. A stop says its tune itself, as
-          #   the cartridge logs it ([:stop_music, name], Music.stop_entry): the interpreter's bare
-          #   [:stop_music] is taken for the last tune's, which a tune whose every voice an effect
-          #   holds, and so logs no note, would get wrong;
+          #   the cartridge logs it ([:stop_music, name], Music.stop_entry; #misnamed_stop holds it to
+          #   the log);
           # - a song's note on the wave or noise voice plays at the note's own volume, which its
           #   [:voice ...] entry carries, where the [:wave ...] or [:noise ...] entry after it carries
           #   the part's (Reference::Player#log_wave_or_noise), as the Color's player plays it;
@@ -427,6 +425,25 @@ module VBlank
           # What the registers hold after the sound log +entries+, by register, for each one written,
           # and FLG and KOFF, which the sound unit starts as at_power_on says and whose bits an entry
           # changes only some of. +voicing+ as for #for_entry.
+          # WHICH TUNE A STOP STOPPED is the cartridge's to say (Music.stop_entry), since the
+          # interpreter's [:stop_music] does not. Where a tune has logged a note since the last stop,
+          # the log says it too, and the two must agree: the index in +entries+ (the cartridge's log,
+          # stops named) of the first stop that names another tune, or nil. With no note since the
+          # last stop — a tune whose every voice an effect holds — the cartridge's word stands.
+          def misnamed_stop(entries, voicing = NO_VOICING)
+            heard = nil # the tune whose note was logged since the last stop
+            entries.each_with_index do |entry, i|
+              case entry.first
+              when :note then heard = entry[1] unless voicing.effects.include?(entry[1])
+              when :stop_music
+                return i if heard && entry[1] != heard
+
+                heard = nil
+              end
+            end
+            nil
+          end
+
           def after(entries, voicing = NO_VOICING)
             held = { FLAGS => SOUND_OFF, KEY_OFF => 0 }
             writes(entries, voicing).each do |register, *value|

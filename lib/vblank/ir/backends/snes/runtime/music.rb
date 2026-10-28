@@ -238,7 +238,8 @@ module VBlank
 
               # THE PLAYING TUNE STOPS (Reference::Player#silence_song; SONG is still the tune's): the
               # voices its parts play on let go — but one a sound effect holds, which stays the
-              # effect's — every voice the tune held free, no note held, and [:stop_music] logged.
+              # effect's — every voice the tune held free, no note held, and the tune's own stop
+              # logged (Music.stop_entry).
               asm.label("rt_music_quiet")
               if level_at
                 SNES::Music::PARTS.times do |p|

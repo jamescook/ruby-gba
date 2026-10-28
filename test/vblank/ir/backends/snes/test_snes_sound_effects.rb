@@ -144,4 +144,19 @@ class TestSNESSoundEffects < Minitest::Test
 
     assert_equal 0x7F, dsp.getbyte((SNES::DSPWrites::WAVE_VOICE << 4) + ENVX), "the game's wave"
   end
+
+  # The cartridge says which tune a stop stopped, and the interpreter's log says it too wherever the
+  # tune logged a note since the last stop: there the two must agree. A stop of :hum after the lead's
+  # note is the cartridge stopping the wrong tune; an effect's note says nothing of the tune; and with
+  # no note since the last stop, the cartridge's word is all there is.
+  def test_a_stop_naming_another_tune_than_the_one_playing_is_caught
+    dsp = SNES::DSPWrites
+    voicing = dsp::Voicing.new(effects: [:"sfx.hit"])
+    lead = [[:note, :lead, 262], [:voice, 1, :lead, 262, 12]]
+
+    assert_equal 2, dsp.misnamed_stop([*lead, [:stop_music, :hum]], voicing), "the lead's note, then :hum stopped"
+    assert_nil dsp.misnamed_stop([*lead, [:stop_music, :lead]], voicing), "the lead stopped"
+    assert_nil dsp.misnamed_stop([*lead, [:note, :"sfx.hit", 659], [:stop_music, :lead]], voicing), "an effect's note between"
+    assert_nil dsp.misnamed_stop([*lead, [:stop_music, :lead], [:stop_music, :hum]], voicing), "no note since the last stop"
+  end
 end

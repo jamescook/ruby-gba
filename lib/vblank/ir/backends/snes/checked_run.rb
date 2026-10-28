@@ -133,8 +133,13 @@ module VBlank
           def dsp_difference
             voicing = @cartridge.rom.built.sound_voicing
             recordings = !@cartridge.rom.built.recording_names.empty?
+            # Only as far as the interpreter's log goes: past it, nothing held the cartridge's entries.
+            logged_entries = @cartridge.audio_as_logged.take(@interpreter_sounds.size)
+            stop = DSPWrites.misnamed_stop(logged_entries, voicing)
+            return "entry #{stop + 1} of the sound log: the cartridge stopped #{logged_entries[stop][1].inspect}, not the tune playing" if stop
+
             @cartridge.dsp_reads.each_with_index do |(logged, held), i|
-              expected = DSPWrites.after(@cartridge.audio_as_logged.take(logged), voicing)
+              expected = DSPWrites.after(logged_entries.take(logged), voicing)
               expected = DSPWrites.console_voices_only(expected) if recordings
               wrong = expected.filter_map do |register, value|
                 got = held.getbyte(register)

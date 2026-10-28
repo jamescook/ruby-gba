@@ -81,7 +81,6 @@ module VBlank
             @vars = {}
             @lists = {}
             @sprites = []
-            @sound_entries = []
             @logged_entries = []
             @sounds = 0
             @audio = []
@@ -107,19 +106,20 @@ module VBlank
 
           # The sound log up to the moment the run ended, or the one at the frame boundary a watching
           # block is asked at, in the interpreter's words (the build's sound_entries, by the number the
-          # cartridge's own log keeps: Runtime::Sound). It is the test's to clear as it watches, as
-          # the interpreter's is: what comes after is added to what the test left.
+          # cartridge's own log keeps: Runtime::Sound, read as Music.interpreter_entry). It is the
+          # test's to clear as it watches, as the interpreter's is: what comes after is added to what
+          # the test left.
           def audio
-            @audio.concat(@sound_entries[@audio_handed...@sounds]) if @sounds > @audio_handed
+            @audio.concat(in_interpreter_words(@logged_entries[@audio_handed...@sounds])) if @sounds > @audio_handed
             @audio_handed = [@audio_handed, @sounds].max
             @audio
           end
 
           # The sound log up to the moment the run ended, every entry, whatever a test did to #audio.
-          def audio_played = @sound_entries.take(@sounds)
+          def audio_played = in_interpreter_words(@logged_entries.take(@sounds))
 
           # Every entry the cartridge logged, past where the run ended too.
-          def whole_audio = @sound_entries.dup
+          def whole_audio = in_interpreter_words(@logged_entries)
 
           # Every entry the cartridge logged, as it logged them: the same as #whole_audio but that a
           # stop names the tune it stopped ([:stop_music, name], Music.stop_entry), which the
@@ -325,18 +325,18 @@ module VBlank
 
           # The cartridge's sound log read into the interpreter's words as far as +logged+ entries.
           def read_sound_entries(logged)
-            if logged - @sound_entries.size > Runtime::Sound::LOG_LENGTH
+            if logged - @logged_entries.size > Runtime::Sound::LOG_LENGTH
               raise CannotAnswer, "the Super Nintendo cartridge logged more than #{Runtime::Sound::LOG_LENGTH} sounds in " \
                                   "one pass, more than its sound log holds"
             end
 
             ring = wram_offset(runtime_place(Runtime::Sound::LOG))
-            (@sound_entries.size...logged).each do |count|
-              entry = @places.sound_entries.fetch(@core.wram_read8(ring + (count % Runtime::Sound::LOG_LENGTH)))
-              @logged_entries << entry
-              @sound_entries << (entry.first == :stop_music ? [:stop_music] : entry)
+            (@logged_entries.size...logged).each do |count|
+              @logged_entries << @places.sound_entries.fetch(@core.wram_read8(ring + (count % Runtime::Sound::LOG_LENGTH)))
             end
           end
+
+          def in_interpreter_words(entries) = entries.map { |entry| Music.interpreter_entry(entry) }
 
           # The game halted: its picture shown once more (copied over several blanks on a Super FX
           # cartridge, ChipPaint); the moment is the end of the run.
