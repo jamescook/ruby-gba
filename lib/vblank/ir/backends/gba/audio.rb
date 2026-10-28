@@ -344,10 +344,15 @@ module VBlank
             # A game that never moves the music volume plays every note exactly as it was written,
             # and none of the working-out for one is emitted.
             @scales = program.walk.any? { |node| node.kind == :set && node.var == IR::Tunes::LEVEL }
-            # ...and one whose square notes never fade or swell by themselves holds every one of them
-            # for it (IR::Tunes.fades_by_itself?), with no test of each.
+            # ...and one whose square notes never fade, swell or slide by themselves holds every one
+            # of them for it (IR::Tunes.changes_by_itself?), with no test of each.
             @fades = IR::Tunes.played_songs(program).any? do |song|
-              song.voices.any? { |part| part.events.any? { |event| IR::Tunes.fades_by_itself?(part, event) } }
+              song.voices.any? { |part| part.events.any? { |event| IR::Tunes.changes_by_itself?(part, event) } }
+            end
+            # ...and one where no note slides its pitch, a song's or a sound effect's, writes nothing
+            # but 0 to the first square voice's slide (see #emit_slide).
+            @slides = IR::Tunes.playable_songs(program).any? do |song|
+              song.voices.any? { |part| part.events.any? { |event| VBlank::Audio::PitchSlide.moves?(IR::Tunes.said_slide(part, event)) } }
             end
             @loops = IR::Tunes.played_songs(program).any? { |song| IR::Tunes.loop_frame(song).positive? }
             # A game whose every tune comes round emits nothing for one that ends.
@@ -1584,8 +1589,10 @@ module VBlank
           def sounding_mask(lane) = lane.kind == :wave ? 0xF << WAVE_VOLUME_SHIFT : 0xF000
 
           # The note in NOTE_REG is what lane +number+ holds now — unless it is a square note that
-          # fades or swells by itself, which is left to it as a drum hit is (IR::Tunes.fades_by_itself?):
-          # the step the voice counts by is in bits 8 to 10, and a held note of nothing is no note.
+          # fades, swells or slides by itself, which is left to it as a drum hit is
+          # (IR::Tunes.changes_by_itself?): the step the voice counts by is in bits 8 to 10, a slide's
+          # shift (never 0 in a slide) in bits 0 to 2 (#packed_with_slide), and a held note of nothing is
+          # no note.
           def emit_hold_note(lane, number)
             unless @fades && lane.kind == :square
               return @primitives.store_var(NOTE_REG, self.class.music_note(number))
@@ -1594,6 +1601,10 @@ module VBlank
             @emitter.emit(ASM.mov_reg(ACC, NOTE_REG))
             @emitter.emit(ASM.tst_imm(ACC, 0x0700))
             @emitter.emit(ASM.mov_imm_cond(:ne, ACC, 0))
+            if slides_on?(lane)
+              @emitter.emit(ASM.tst_imm(ACC, SLIDE_SHIFT_BITS))
+              @emitter.emit(ASM.mov_imm_cond(:ne, ACC, 0))
+            end
             @primitives.store_var(ACC, self.class.music_note(number))
           end
 
@@ -1649,7 +1660,12 @@ module VBlank
           # note is, the same as always.
           def emit_scaled_note(lane, starts: true)
             regs = music_voice_regs(lane)
-            emit_clear_sweep(regs)
+            if slides_on?(lane)
+              @emitter.emit(ASM.mov_reg(ACC, NOTE_REG))
+              emit_slide
+            else
+              emit_clear_sweep(regs)
+            end
             wave = lane.kind == :wave
             @emitter.emit(ASM.lsr_imm(WORK_REG, NOTE_REG, wave ? WAVE_VOLUME_SHIFT : 12))
             @emitter.emit(ASM.and_imm(WORK_REG, WORK_REG, 0xF))      # the written volume
@@ -1765,7 +1781,12 @@ module VBlank
           # for a square note, a wave note and a drum hit alike.
           def emit_console_note(lane, at)
             regs = music_voice_regs(lane)
-            emit_clear_sweep(regs)
+            if slides_on?(lane)
+              @emitter.emit(ASM.ldr_offset(ACC, at, 4)) # both register values
+              emit_slide
+            else
+              emit_clear_sweep(regs)
+            end
             [[4, regs[:reg_a]], [6, regs[:reg_b]]].each do |offset, addr|
               @emitter.emit(ASM.load_halfword_offset(ACC, at, offset))
               @emitter.emit(ASM.load_immediate(TMP, addr))
@@ -1780,6 +1801,22 @@ module VBlank
               @emitter.emit(ASM.load_immediate(TMP, addr))
               @emitter.emit(ASM.store_halfword(ACC, TMP))
             end
+          end
+
+          # Whether this lane's notes can slide: the first square voice, in a game where one does.
+          def slides_on?(lane) = @slides && lane.kind == :square && lane.index == 1
+
+          # CHANNEL 1'S SLIDE, out of the row's two values in ACC (the control low, the pitch high):
+          # the six bits under the control and the one at the pitch's bit 11 (#packed_with_slide), back
+          # together, and written before the note so the trigger lands last. A note that says no
+          # slide has none of those bits, and writes 0 as every note did before.
+          def emit_slide
+            @emitter.emit(ASM.and_imm(TMP, ACC, SLIDE_LOW_BITS))
+            @emitter.emit(ASM.lsr_imm(ACC, ACC, 16 + SLIDE_PITCH_BIT)) # the pitch is the high half
+            @emitter.emit(ASM.and_imm(ACC, ACC, 1)) # the one bit
+            @emitter.emit(ASM.orr_reg_lsl(TMP, TMP, ACC, SLIDE_LOW_WIDTH))
+            @emitter.emit(ASM.load_immediate(ACC, REG_SOUND1CNT_L))
+            @emitter.emit(ASM.store_halfword(TMP, ACC))
           end
 
           # Start the row's note on a mixer voice — from the top of the recording the row names, at
@@ -2058,10 +2095,29 @@ module VBlank
                 writes = console_note(lane, part, frequency, volume || part.volume, fade: IR::Tunes.said_fade(part, event))
                 control = note_reg_value(writes, regs[:reg_a])
                 control |= (volume || part.volume) << WAVE_VOLUME_SHIFT if keeps_wave_volume?(lane, frequency)
-                [frame, control, note_reg_value(writes, regs[:reg_b])].pack("Vvv")
+                pitch = note_reg_value(writes, regs[:reg_b])
+                slide = IR::Tunes.said_slide(part, event) if frequency.positive?
+                control, pitch = packed_with_slide(control, pitch, slide) if slide
+                [frame, control, pitch].pack("Vvv")
               end
               rows.join + [NEVER, 0, 0].pack("Vvv")
             end
+          end
+
+          # WHERE A ROW KEEPS ITS NOTE'S SLIDE: the slide register's seven bits ride in bits of the
+          # row's two values that their own registers never read, so a row stays eight bytes and a
+          # song with no slide is the bytes it always was. The control's low six bits are a note
+          # length, read only by a voice told to stop at it, which a song's never are; they keep the
+          # slide's low six. Bit 11 of the pitch is past the eleven a pitch has, and keeps the
+          # seventh. #emit_slide puts them back together.
+          SLIDE_LOW_WIDTH = 6
+          SLIDE_LOW_BITS = (1 << SLIDE_LOW_WIDTH) - 1
+          SLIDE_PITCH_BIT = 11
+          # The slide's shift is its lowest three bits, and a slide never shifts by nought.
+          SLIDE_SHIFT_BITS = VBlank::Audio::PitchSlide::THREE_BITS
+
+          def packed_with_slide(control, pitch, slide)
+            [control | (slide.bits & SLIDE_LOW_BITS), pitch | ((slide.bits >> SLIDE_LOW_WIDTH) << SLIDE_PITCH_BIT)]
           end
 
           # Whether this row carries its written volume alongside the register value (see

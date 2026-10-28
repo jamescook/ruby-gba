@@ -22,6 +22,14 @@
 #      cymbal played backwards (DRUMS, below).
 # Switch between the two and listen to the same notes come out as two instruments.
 #
+# SLIDING NOTES is the same tune again, with the lead's pitch moving by itself while each note
+# holds — only the first square voice can, so only the lead slides:
+#   1. Every eighth note zaps up (`slide_up: :fast`): it climbs faster and faster until it runs off
+#      the top of what the voice can play, and goes silent — the sound of a laser.
+#   2. Every longer note swoops slowly down (`slide_down :slow`), falling away under the chords.
+#
+# The chords and the drums play as they do in FADING NOTES.
+#
 # Run it to build examples/chip_band.gba and examples/chip_band.gbc:
 #   ruby examples/chip_band.rb
 
@@ -31,6 +39,7 @@ module ChipBand
   TUNES = Ractor.make_shareable([
     { name: :held, label: "HELD NOTES" },
     { name: :fading, label: "FADING NOTES" },
+    { name: :sliding, label: "SLIDING NOTES" },
   ])
 
   # The tune, as four bars of notes every version plays: the lead's [note, length] and the
@@ -89,6 +98,28 @@ module ChipBand
         v.note pitch, length, decay: :slow
       end
       # The slowest swell there is: a bar to climb from nothing to full.
+      voice :chords do |v|
+        v.duty :quarter
+        v.volume 0
+        v.swell 7
+        CHORDS.each { |pitch| v.note pitch, :whole }
+      end
+      voice :drums, plays: :noise do |v|
+        v.volume 9
+        4.times { DRUMS.each { |pitch, length, fade| v.note pitch, length, **fade } }
+      end
+    end
+
+    song :sliding do
+      tempo 132
+      # The lead is the song's first square part, so it plays on the voice that can slide.
+      voice :lead do |v|
+        v.duty :half
+        v.slide_down :slow
+        LEAD.each do |pitch, length|
+          length == :eighth ? v.note(pitch, length, slide_up: :fast) : v.note(pitch, length)
+        end
+      end
       voice :chords do |v|
         v.duty :quarter
         v.volume 0

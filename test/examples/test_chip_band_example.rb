@@ -36,8 +36,21 @@ class TestChipBandExample < Minitest::Test
     chords = played.select { |_, voice, _| voice == 2 }.map(&:last).uniq
     drums = played.select { |_, voice, _| voice == 4 }.map(&:last).uniq
 
-    assert_equal [NoteFade.down(3)], lead, "the lead is plucked"
-    assert_equal [NoteFade.up(7)], chords, "the chords breathe in"
-    assert_includes drums, NoteFade.up(4), "the last hit of a bar swells in"
+    assert_equal [NoteFade.fading(3)], lead, "the lead is plucked"
+    assert_equal [NoteFade.swelling(7)], chords, "the chords breathe in"
+    assert_includes drums, NoteFade.swelling(4), "the last hit of a bar swells in"
+  end
+
+  def test_the_third_tune_zaps_and_swoops_its_lead
+    pass = 0
+    player = game_player
+    player.input_each_frame { [5, 10].include?(pass += 1) ? [:down] : [] }
+    log = player.run(ChipBand.program(console: game_console), frames: 90).audio
+    slides = log.select { |entry| entry.first == :voice && entry[1] == 1 && entry[2] == :sliding && entry[3].positive? }
+                .map(&:last).uniq
+    slide = VBlank::Audio::PitchSlide
+
+    assert_equal [slide.upward(every: 1, shift: 5), slide.downward(every: 7, shift: 5)].sort_by(&:direction),
+                 slides.sort_by(&:direction), "eighths zap up, longer notes swoop down"
   end
 end

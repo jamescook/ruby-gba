@@ -106,12 +106,27 @@ module VBlank
       # this and the part.
       def said_fade(part, event) = event[5] || part.fade
 
-      # DOES THE VOICE MOVE THIS NOTE'S LOUDNESS ITSELF — a square note that said a fade or a swell
-      # with a step to count? Such a note is not held for the music volume: the volume reaches a
-      # held note by striking it again, which would start its counting over, so a plucked note
-      # would never die away while the music fades. It is left to fade as a drum hit is, and a new
-      # music volume reaches the part's next note.
-      def fades_by_itself?(part, event) = said_fade(part, event)&.step&.positive? || false
+      # HOW A NOTE SLIDES ITS PITCH (an Audio::PitchSlide), as the note or its part said it, or nil
+      # when neither did. Only the first square voice slides, and a part elsewhere saying one was
+      # refused before it got here.
+      def said_slide(part, event) = event[6] || part.slide
+
+      # A NOTE SETTING ITS VOICE, as every backend's log says it: [:voice, channel, who, frequency,
+      # volume], then the note's fade and its slide when it said them (#said_fade, #said_slide), with
+      # a nil fade before a slide said alone. A rest says neither: nothing sounds to change.
+      def voice_entry(channel, who, frequency, volume, fade: nil, slide: nil)
+        said = frequency.positive? ? Audio::Music.without_trailing_nils([fade, slide]) : []
+        [:voice, channel, who, frequency, volume, *said]
+      end
+
+      # DOES THE VOICE CHANGE THIS NOTE ITSELF — a square note that said a fade or a swell with a
+      # step to count, or a slide? Such a note is not held for the music volume: the volume reaches
+      # a held note by striking it again, which would start its counting over, so a plucked note
+      # would never die away while the music fades, and a swoop would start again from the top. It
+      # is left to change as a drum hit is, and a new music volume reaches the part's next note.
+      def changes_by_itself?(part, event)
+        said_fade(part, event)&.step&.positive? || Audio::PitchSlide.moves?(said_slide(part, event))
+      end
 
       # How many of a song's parts play on each of the console's voices.
       def parts_on(song, kind)

@@ -207,8 +207,8 @@ module VBlank
               @log << voice_log_entry(channel, @playing, part, event) if shared
               if channel && level
                 written = frequency.zero? ? 0 : volume || part.volume
-                if kind == :noise || IR::Tunes.fades_by_itself?(part, event)
-                  @sounding.delete(channel) # rings and fades by itself (IR::Tunes.fades_by_itself?)
+                if kind == :noise || IR::Tunes.changes_by_itself?(part, event)
+                  @sounding.delete(channel) # rings and fades by itself (IR::Tunes.changes_by_itself?)
                   log_loudness(channel, written)
                 else
                   record_note_volume(channel, written)
@@ -224,13 +224,10 @@ module VBlank
             advance_song_frame(song)
           end
 
-          # A NOTE SETTING ITS VOICE, as the log says it: [:voice, channel, who, frequency, volume],
-          # and then how the note fades or swells when its part or the note said so
-          # (IR::Tunes.said_fade). A rest says no fade: there is nothing sounding to fade.
+          # A NOTE SETTING ITS VOICE, as the log says it (IR::Tunes.voice_entry).
           def voice_log_entry(channel, who, part, event)
-            frequency, volume = event[1], event[3] || part.volume
-            fade = IR::Tunes.said_fade(part, event) if frequency.positive?
-            [:voice, channel, who, frequency, volume, *fade]
+            IR::Tunes.voice_entry(channel, who, event[1], event[3] || part.volume,
+                                  fade: IR::Tunes.said_fade(part, event), slide: IR::Tunes.said_slide(part, event))
           end
 
           # Every sound effect with its rank, highest first.

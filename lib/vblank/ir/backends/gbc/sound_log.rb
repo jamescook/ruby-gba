@@ -45,9 +45,10 @@ module VBlank
           def initialize(places)
             code = places.code
             @tables = places.sound_tables.to_h { |label, entry| [code.fetch(label).address, entry] }
+            bytes = Music.note_bytes(Music.slides_in?(places.notes))
             @notes = places.notes.each_with_object({}) do |(label, notes), at|
               start = code.fetch(label).address
-              notes.each_with_index { |note, k| at[start + (k * Music::NOTE_BYTES)] = note }
+              notes.each_with_index { |note, k| at[start + (k * bytes)] = note }
             end
             @routines = ROUTINES.filter_map { |name| [code.fetch(name).address, name] if code.key?(name) }.to_h
             # A sound effect starting (Runtime::Effects#emit_frame), and letting a voice go at its end
@@ -119,7 +120,7 @@ module VBlank
             note = @note
             @note = nil
             @music << [:note, note.song, note.pitch]
-            @music << [:voice, note.voice, note.song, note.pitch, note.volume, *note.fade]
+            @music << voice_log_entry(note)
             @music << [:loudness, note.voice, note.pitch.zero? ? 0 : volume] if volume
             kind = Tunes.part_kind(note.part)
             @music << wave_or_noise(kind, note) if %i[wave noise].include?(kind)
@@ -129,10 +130,13 @@ module VBlank
           # volume, so nothing is said of a music level.
           def effect_note(note)
             @music << [:note, note.song, note.pitch]
-            @music << [:voice, note.voice, note.song, note.pitch, note.volume, *note.fade]
+            @music << voice_log_entry(note)
             kind = Tunes.part_kind(note.part)
             @music << wave_or_noise(kind, note) unless kind == :square
           end
+
+          def voice_log_entry(note) = Tunes.voice_entry(note.voice, note.song, note.pitch, note.volume,
+                                                        fade: note.fade, slide: note.slide)
 
           # An effect over, letting a voice it held go quiet (Reference::Player#finish_effect).
           def voice_let_go(name, voice)

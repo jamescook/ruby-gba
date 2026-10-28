@@ -22,12 +22,12 @@ module VBlank
       # The slowest the voice counts: seven 64ths of a second on each step of loudness.
       SLOWEST = 7
 
-      def self.down(step) = new(direction: :down, step: step)
+      def self.fading(step) = new(direction: :down, step: step)
 
-      def self.up(step) = new(direction: :up, step: step)
+      def self.swelling(step) = new(direction: :up, step: step)
 
       # A note that holds at its volume.
-      HOLD = down(0)
+      HOLD = fading(0)
 
       # THE SHAPE A PART OR NOTE SAID, from the two words a song writes it with: +decay+ to fade
       # each note out, +swell+ to bring it in. Each is a speed (:fast, :medium, :slow or :none) or
@@ -40,7 +40,7 @@ module VBlank
                                "but not both. To fix this, remove one of them."
         end
 
-        decay.nil? ? up(step_of(swell, "swell", where)) : down(step_of(decay, "decay", where))
+        decay.nil? ? swelling(step_of(swell, "swell", where)) : fading(step_of(decay, "decay", where))
       end
 
       def self.step_of(speed, word, where)
@@ -55,7 +55,7 @@ module VBlank
       # A WHOLE PART'S FADE, from what it said: a part on the noise voice keeps its fade-out as its
       # own `decay`, as a drum always did, so only a swell is a fade of its own there. Every other
       # part's is what it said.
-      def self.for_part(said, drum:) = drum && !said&.up? ? nil : said
+      def self.for_part(said, drum:) = drum && !said&.swells? ? nil : said
 
       # A recording and the wave voice have no counting of their own to fade a note with: the
       # wave voice plays at one of its few fixed volumes, and a recording's shape is its envelope.
@@ -73,7 +73,7 @@ module VBlank
 
       def self.from_bits(bits) = new(direction: bits.anybits?(8) ? :up : :down, step: bits & 7)
 
-      def up? = direction == :up
+      def swells? = direction == :up
     end
   end
 end

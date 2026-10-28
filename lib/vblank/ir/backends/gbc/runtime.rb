@@ -34,13 +34,14 @@ module VBlank
           # works). +art+ is what the game's pictures were made into (GBC::Art), +effects+ its sound
           # effects (GBC::Music#effects). +together+ says it has picture groups with more than one
           # slot (Frame#emit_groups_together). +bar_rows+ is how many rows of the window's grid its status
-          # bars fill, or nil for a game with none (Picture#emit_bar).
-          def reserve(memory, art:, effects: [], together: false, bar_rows: nil)
+          # bars fill, or nil for a game with none (Picture#emit_bar). +slides+ says a note of its music
+          # slides its pitch (GBC::Music#slides?).
+          def reserve(memory, art:, effects: [], together: false, bar_rows: nil, slides: false)
             Frame.reserve(memory, together: together)
             Picture.reserve(memory, lends: art.lends?, groups: art.groups?, bar_rows: bar_rows, rooms: art.rooms.any?)
             BigMaps.reserve(memory)
             Paint.reserve(memory, painting: art.painting?)
-            Music.reserve(memory, effects: effects)
+            Music.reserve(memory, effects: effects, slides: slides)
           end
 
           # The runtime's sections: the processor's entry points, and everything else in one.
@@ -72,7 +73,8 @@ module VBlank
             Paint.emit(asm, memory, painting: art.painting?, map_count: art.square_maps.length, bar: !bar_rows.nil?)
             Sound.emit(asm)
             Music.emit(asm, memory, level: music_level, songs: songs, effects: music&.effects || [],
-                                    by_rank: music&.effects_by_rank || [], fades: music&.fades? || false)
+                                    by_rank: music&.effects_by_rank || [], fades: music&.fades? || false,
+                                    slides: music&.slides? || false)
             Saving.emit(asm, memory)
             emit_start(asm)
             emit_main(asm, main)

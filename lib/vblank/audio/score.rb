@@ -99,7 +99,8 @@ module VBlank
         parts.flat_map(&:notes).map { |note| note.at + (note.length || ticks_per_beat) }.max || 0
       end
 
-      Part = Data.define(:notes, :plays, :volume, :duty, :decay, :swell, :metallic, :envelope)
+      Part = Data.define(:notes, :plays, :volume, :duty, :decay, :swell, :metallic, :envelope, :slide_up,
+                         :slide_down)
 
       class Part
         # +decay+ is how fast each note fades out, and +swell+ how fast it swells in, as a `song`
@@ -108,11 +109,14 @@ module VBlank
         # part that says nothing holds each note until the next. +metallic+ is the noise voice's
         # alone: whether a hit rattles or thuds.
         #
+        # +slide_up+ and +slide_down+ are how each note slides its pitch, as a song block's part
+        # says them (Music::VoiceContext#slide_up), and only the song's first square part can.
+        #
         # +envelope+ shapes how each of this part's notes starts and ends — read only by a part
         # that plays a recording, since the console's own voices shape their own. A part that says
         # nothing takes whatever the instrument it plays was declared with.
         def initialize(notes:, plays: nil, volume: 12, duty: :half, decay: nil, swell: nil, metallic: false,
-                       envelope: nil)
+                       envelope: nil, slide_up: nil, slide_down: nil)
           super
         end
 
@@ -129,16 +133,23 @@ module VBlank
           if (voice[:wave] || voice[:instrument]) && (fade || events.any? { |event| event[5] })
             NoteFade.refuse_without_counting!(who, wave: voice[:wave])
           end
+          slide = PitchSlide.said(up: slide_up, down: slide_down, where: who)
+          if !Music.plays_square?(voice) && Music.slides_said?(slide, events)
+            PitchSlide.refuse_off_square!(who, wave: voice[:wave], noise: voice[:noise])
+          end
           Music::Part.playing(plays, events: events, duty: duty,
                                      volume: volume, decay: (drum && decay) || :fast, metallic: metallic,
                                      envelope: Envelope.of(envelope, "a part"),
-                                     fade: NoteFade.for_part(fade, drum: drum))
+                                     fade: NoteFade.for_part(fade, drum: drum),
+                                     slide: slide)
         end
       end
 
-      # A note of a Score. +volume+ (0-15) is its loudness instead of its part's, and +decay+ or
-      # +swell+ how it fades out or swells in instead of how its part's notes do.
-      Note = Data.define(:at, :key, :length, :instrument, :volume, :envelope, :hz, :decay, :swell)
+      # A note of a Score. +volume+ (0-15) is its loudness instead of its part's, +decay+ or
+      # +swell+ how it fades out or swells in instead of how its part's notes do, and +slide_up+ or
+      # +slide_down+ how it slides its pitch.
+      Note = Data.define(:at, :key, :length, :instrument, :volume, :envelope, :hz, :decay, :swell, :slide_up,
+                         :slide_down)
 
       class Note
         # A NOTE ON THE NOISE VOICE CAN GIVE +hz+ IN PLACE OF A KEY: how many times a second its
@@ -148,13 +159,18 @@ module VBlank
         # still plays the rung of its ladder nearest the rate (Sound.noise_rung), as it does for a
         # key.
         def initialize(at:, key: nil, length: nil, instrument: nil, volume: nil, envelope: nil, hz: nil,
-                       decay: nil, swell: nil)
+                       decay: nil, swell: nil, slide_up: nil, slide_down: nil)
           super
         end
 
         # How this note fades or swells, when it says (an Audio::NoteFade), or nil. +part+ names its
         # part, for a friendly error.
         def fade(part) = NoteFade.said(decay: decay, swell: swell, where: "The note at tick #{at} of #{part.downcase}")
+
+        # How this note slides its pitch, when it says (an Audio::PitchSlide), or nil.
+        def slide(part)
+          PitchSlide.said(up: slide_up, down: slide_down, where: "The note at tick #{at} of #{part.downcase}")
+        end
 
         # How high the note is, in Hz — 0 for a rest. A note that gives +hz+ is that; a MIDI note
         # number is tuned the usual way, from A above middle C (number 69) at 440 Hz.
@@ -209,7 +225,7 @@ module VBlank
           notes = part.notes.sort_by(&:at)
           events = notes.each_with_index.flat_map do |note, n|
             on = [frames.at(note.at), note.frequency, note.instrument_name, note.volume,
-                  Envelope.of(note.envelope, "a note"), *note.fade(who)]
+                  Envelope.of(note.envelope, "a note"), *Music.without_trailing_nils([note.fade(who), note.slide(who)])]
             next [on] unless note.length
 
             ends = note.at + note.length

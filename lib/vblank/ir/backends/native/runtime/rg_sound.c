@@ -88,7 +88,9 @@
  *       voice's clock (one wave, or one step of the hiss) — or, on a recorded part, which row of
  *       rg_game_note_sounds it sounds (-1 for a rest) — and how it fades or swells when the note
  *       or its part said so: the voice's four bits of it (Audio::NoteFade#bits) with SAID_FADE
- *       set, or 0 to leave it to the voice (see note_fade)
+ *       set, or 0 to leave it to the voice (see note_fade) — and in the same number, how it
+ *       slides its pitch when it or its part said so: SAID_SLIDE set, and the slide's seven bits
+ *       (Audio::PitchSlide#bits) from SLIDE_AT up (see note_slide)
  *
  * rg_game_note_sounds: how many rows, then eight numbers each — the recording a note plays, how
  * far through it the mixer reads for each of its own samples (the note's pitch), how far back it
@@ -126,6 +128,14 @@
 #define FADE_STEP_BITS 7 /* a note's fade (Audio::NoteFade#bits): the 64ths of a second a step lasts */
 #define FADE_UP 8        /* ...set when it swells */
 #define SAID_FADE 16     /* ...and beside them in a note, set when the note or its part said one */
+#define SAID_SLIDE 32    /* ...and above that, set when the note or its part said a slide */
+#define SLIDE_AT 6       /* ...whose seven bits (Audio::PitchSlide#bits) are above that again */
+#define SLIDE_BITS 0x7F
+#define SLIDE_DOWN 8     /* a slide's bits: set when it slides down, */
+#define SLIDE_SHIFT_BITS 7 /* ...the shift, */
+#define SLIDE_EVERY_AT 4 /* ...and the 128ths of a second a step waits, above them, */
+#define SLIDE_EVERY_BITS 7 /* ...in three bits */
+#define PITCH_COUNT_TOP 2048 /* the square voices keep a pitch as this less its ticks a wave */
 #define NUMBERS_PER_NOTE_SOUND 8
 #define NUMBERS_PER_BEEP 4
 #define NUMBERS_PER_WAVE 3
@@ -221,22 +231,71 @@ typedef struct {
   fading_volume loudness;
   int32_t eighth;          /* which eighth of the wave it is in */
   int64_t eighth_progress; /* how far through that eighth, in ticks times samples a second */
+  int32_t slide;           /* how its pitch slides (Audio::PitchSlide#bits); 0 holds it */
+  int32_t slide_left;      /* ticks of the slide clock until the slide's next step */
+  int32_t slid_ticks;      /* the wave a slide has moved it to, which it takes up at its next eighth */
 } square_voice;
 
 static square_voice squares[RG_SQUARE_VOICES];
 static int32_t heard_only; /* a test listening to one voice: its number, or 0 for every voice */
 static uint64_t sample_carry; /* the fraction of a sample left over from the last frame */
 
+/* --- a pitch that slides --- */
+
+/* THE SLIDE CLOCK ticks 128 times a second from the moment the sound starts, and a slide steps on
+ * every so many of its ticks — the console's own clock, which a note does not start again. So a
+ * note's first step comes part way into a tick, as early as the next one. */
+#define SLIDE_TICK_SAMPLES (RG_SOUND_RATE / 128)
+static int32_t slide_clock; /* samples since the slide clock last ticked */
+
+/* The ticks between two steps of a slide: so many 128ths of a second. */
+static int32_t slide_step_ticks(int32_t slide) { return (slide >> SLIDE_EVERY_AT) & SLIDE_EVERY_BITS; }
+
+/* WHERE A STEP OF THE SLIDE TAKES THE PITCH. The first square voice keeps its pitch as a count that
+ * climbs as the note gets higher — PITCH_COUNT_TOP less the ticks one wave lasts — and a step moves
+ * the count by itself shifted right by the slide's shift, up or down. Past the top of the count
+ * there is no pitch to play, and the voice switches itself off: that answers 0. */
+static int32_t slid_wave_ticks(int32_t wave_ticks, int32_t slide) {
+  int32_t count = PITCH_COUNT_TOP - wave_ticks, by = count >> (slide & SLIDE_SHIFT_BITS);
+  int32_t next = slide & SLIDE_DOWN ? count - by : count + by;
+  return next >= PITCH_COUNT_TOP ? 0 : PITCH_COUNT_TOP - next;
+}
+
+/* THE VOICE LOOKS ONE STEP AHEAD, as the console's does: as a note starts and after every step, it
+ * works out the next step up, and a next step past the top switches it off then — so the highest
+ * pitch a slide up reaches is never heard. A slide down never runs out. */
+static int32_t slide_runs_out(int32_t wave_ticks, int32_t slide) {
+  return (slide & SLIDE_SHIFT_BITS) != 0 && !(slide & SLIDE_DOWN) && slid_wave_ticks(wave_ticks, slide) == 0;
+}
+
+/* The slide clock has ticked, on a voice whose note slides. A slide with no shift steps without
+ * moving. The voice takes a step's new pitch up as it starts its next eighth of a wave, as the chip
+ * does: the eighth it is in runs out at the old one. Switching itself off is at once. */
+static void slide_one_tick(square_voice *square) {
+  if (slide_step_ticks(square->slide) == 0 || square->wave_ticks == 0 || --square->slide_left > 0) return;
+
+  square->slide_left = slide_step_ticks(square->slide);
+  if ((square->slide & SLIDE_SHIFT_BITS) == 0) return;
+
+  square->slid_ticks = slid_wave_ticks(square->slid_ticks, square->slide);
+  if (square->slid_ticks == 0 || slide_runs_out(square->slid_ticks, square->slide)) square->wave_ticks = 0;
+}
+
 /* A voice starts a note where it is in its wave, as the chip does in the emulator the cartridge is
  * checked in: starting a note again leaves its place in the wave alone. A game fading its music
  * starts every held note again each frame, and a voice that went back to the top of its wave each
  * time would break a wave every frame, heard as a rumble under the note. No ticks, or no volume, is
- * silence. */
-static void square_start(int32_t voice, int32_t wave_ticks, int32_t eighths_high, int32_t volume, int32_t fade) {
+ * silence. +slide+ is how the note slides its pitch (0 holds it), which only a note on the first voice
+ * says (Guardrails::Checks::SlideOffFirstSquare). */
+static void square_start(int32_t voice, int32_t wave_ticks, int32_t eighths_high, int32_t volume, int32_t fade,
+                         int32_t slide) {
   square_voice *square = &squares[voice - 1];
-  square->wave_ticks = wave_ticks;
+  square->wave_ticks = wave_ticks != 0 && slide_runs_out(wave_ticks, slide) ? 0 : wave_ticks;
+  square->slid_ticks = wave_ticks;
   square->eighths_high = eighths_high;
   square->loudness = volume_from(volume, fade);
+  square->slide = slide;
+  square->slide_left = slide_step_ticks(slide);
 }
 
 /* The console's own order of high and low through a wave, for each tone: which of the eight
@@ -267,6 +326,8 @@ static int32_t square_sample(square_voice *square) {
   while (square->eighth_progress >= eighth_length) {
     square->eighth_progress -= eighth_length;
     square->eighth = (square->eighth + 1) & 7;
+    square->wave_ticks = square->slid_ticks;
+    eighth_length = (int64_t)square->wave_ticks * RG_SOUND_RATE;
   }
   fade_one_sample(&square->loudness);
   return sample;
@@ -427,6 +488,10 @@ int32_t rg_sound_render_frame(int16_t *samples) {
   int32_t mixed_count = heard_only == 0 ? rg_mix_newest_slice(&mixed) : 0;
 
   for (int32_t i = 0; i < count; i++) {
+    if (++slide_clock == SLIDE_TICK_SAMPLES) {
+      slide_clock = 0;
+      for (int32_t voice = 1; voice <= RG_SQUARE_VOICES; voice++) slide_one_tick(&squares[voice - 1]);
+    }
     int32_t sum = 0; /* every voice moves on, heard or not */
     for (int32_t voice = 1; voice <= RG_SQUARE_VOICES; voice++) sum += heard(voice, square_sample(&squares[voice - 1]));
     sum += heard(RG_WAVE_VOICE, wave_sample());
@@ -460,7 +525,7 @@ void rg_sound_beep(int32_t which) {
   if (which < 0 || which >= rg_game_beeps[0]) rg_fault("there is no beep number %d", (int)which);
   const int32_t *beep = &rg_game_beeps[1 + (which * NUMBERS_PER_BEEP)];
   rg_sound_log("beep %d", (int)which);
-  square_start(BEEP_VOICE, beep[0], beep[1], beep[2], beep[3]);
+  square_start(BEEP_VOICE, beep[0], beep[1], beep[2], beep[3], 0);
 }
 
 void rg_sound_wave(int32_t which) {
@@ -638,7 +703,7 @@ static void follow_level(int32_t now) {
     if (note->voice == RG_WAVE_VOICE) {
       wave_set_loudness(wave_quarters_at(scaled_volume(note->volume)));
     } else {
-      square_start(note->voice, note->wave_ticks, note->eighths_high, scaled_volume(note->volume), note->fade);
+      square_start(note->voice, note->wave_ticks, note->eighths_high, scaled_volume(note->volume), note->fade, 0);
     }
   }
 }
@@ -649,7 +714,7 @@ static void silence_voice(int32_t voice) {
   switch (voice) {
   case RG_WAVE_VOICE: wave_set_loudness(0); break;
   case RG_NOISE_VOICE: noise_start(0, hiss.bits, 0, 0); break;
-  default: square_start(voice, 0, 0, 0, 0); break;
+  default: square_start(voice, 0, 0, 0, 0, 0); break;
   }
 }
 
@@ -789,12 +854,20 @@ static int32_t note_fade(const part_walk *part, const int32_t *note) {
   return part->kind == PART_NOISE ? part->fade : 0;
 }
 
-/* The log's line for a note setting its voice (Reference::Player#voice_log_entry): with the note's fade
- * at the end when it said one. */
+/* HOW A NOTE ON THE FIRST SQUARE VOICE SLIDES ITS PITCH (IR::Tunes.said_slide), as the voice's seven
+ * bits of it, or 0 to hold it. Only the song's first square part can say one. */
+static int32_t note_slide(const int32_t *note) { return (note[4] >> SLIDE_AT) & SLIDE_BITS; }
+
+/* The log's line for a note setting its voice (Reference::Player#voice_log_entry): with the note's
+ * fade after it when it said one, and its slide after that when it said one — with a fade of -1, for
+ * none, before a slide said alone. */
 static void log_voice_set(int32_t voice, int32_t who, int32_t pitch, int32_t volume, const int32_t *note) {
-  if (note[4] & SAID_FADE) {
-    rg_sound_log("voice %d %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume,
-                 (int)(note[4] & (FADE_UP | FADE_STEP_BITS)));
+  int32_t fade = note[4] & SAID_FADE ? note[4] & (FADE_UP | FADE_STEP_BITS) : -1;
+  if (note[4] & SAID_SLIDE) {
+    rg_sound_log("voice %d %d %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume, (int)fade,
+                 (int)note_slide(note));
+  } else if (note[4] & SAID_FADE) {
+    rg_sound_log("voice %d %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume, (int)fade);
   } else {
     rg_sound_log("voice %d %d %d %d", (int)voice, (int)who, (int)pitch, (int)volume);
   }
@@ -841,15 +914,15 @@ static void play_note(part_walk *part, const int32_t *note) {
     }
     break;
   default:
-    /* A note that fades or swells by itself is left to it, as a drum hit is: striking it again at
-     * a new music volume would start its counting over (IR::Tunes.fades_by_itself?). */
-    if (level_variable && (fade & FADE_STEP_BITS) != 0) {
+    /* A note that fades, swells or slides by itself is left to it, as a drum hit is: striking it
+     * again at a new music volume would start its counting over (IR::Tunes.changes_by_itself?). */
+    if (level_variable && ((fade & FADE_STEP_BITS) != 0 || note_slide(note) != 0)) {
       drop_held_note(part->voice);
       rg_sound_log("loudness %d %d", (int)part->voice, (int)sounded);
     } else if (level_variable) {
       hold_note((held_note){part->voice, 0, written, ticks, part->tone, fade});
     }
-    square_start(part->voice, ticks, part->tone, sounded, fade);
+    square_start(part->voice, ticks, part->tone, sounded, fade, note_slide(note));
     break;
   }
 }
@@ -975,7 +1048,7 @@ static void play_effect_note(int32_t effect, const part_walk *part, const int32_
       noise_start(ticks, part->tone, volume, fade);
     }
     break;
-  default: square_start(part->voice, ticks, part->tone, pitch == 0 ? 0 : volume, fade); break;
+  default: square_start(part->voice, ticks, part->tone, pitch == 0 ? 0 : volume, fade, note_slide(note)); break;
   }
 }
 

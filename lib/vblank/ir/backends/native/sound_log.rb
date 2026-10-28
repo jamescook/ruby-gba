@@ -78,8 +78,11 @@ module VBlank
             when "beep" then [:beep, @effects.fetch(numbers[0])]
             when "note" then [:note, @songs.fetch(numbers[0]).name, @pitches.fetch(numbers[1])]
             when "voice"
-              [:voice, numbers[0], @songs.fetch(numbers[1]).name, @pitches.fetch(numbers[2]), numbers[3],
-               *(Audio::NoteFade.from_bits(numbers[4]) if numbers[4])]
+              # A fade of -1 is none, said before a slide that came alone.
+              fade = Audio::NoteFade.from_bits(numbers[4]) if numbers[4] && numbers[4] >= 0
+              slide = Audio::PitchSlide.from_bits(numbers[5]) if numbers[5]
+              Tunes.voice_entry(numbers[0], @songs.fetch(numbers[1]).name, @pitches.fetch(numbers[2]), numbers[3],
+                                fade: fade, slide: slide)
             when "loudness" then [:loudness, numbers[0], numbers[1]]
             when "mixer_loudness" then [:loudness, [:mixer, numbers[0]], numbers[1]]
             when "stop_music" then [:stop_music]

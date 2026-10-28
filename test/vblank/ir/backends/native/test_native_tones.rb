@@ -112,6 +112,58 @@ class TestNativeTones < Minitest::Test
     assert_native_sounds_like_the_console program, frames: 60, voices: [:square1]
   end
 
+  # A song whose notes slide their pitch on the first voice, the voice moving it itself: a zap up
+  # that runs off the top and goes silent, a slow swoop down, a fine slide in the voice's own
+  # numbers, and a note that holds its pitch over a part that slides. Then the music fades out,
+  # and a sliding note is left to slide.
+  def test_a_songs_notes_slide_as_the_consoles_do
+    program = program_of do
+      enable_sound
+      song :tune do
+        tempo 120
+        voice :melody do
+          slide_down :slow
+          note :C5, :quarter, slide_up: :fast
+          note :A5, :half
+          note :E5, :quarter, slide_up: { every: 2, shift: 7 }
+          note :G4, :quarter, slide_down: :none
+        end
+        voice :bass do
+          note :C3, :whole
+        end
+      end
+      play_song :tune
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 100).then { fade_music_out frames: 20 }
+      end
+    end
+
+    assert_native_sounds_like_the_console program, frames: 150
+  end
+
+  # A sound effect's notes slide the same way, and a last one holds still, to tune by.
+  def test_a_sound_effects_notes_slide_as_the_consoles_do
+    score = VBlank::Audio::Score
+    laser = score.new(tempo: 120, parts: [score::Part.new(slide_down: :medium, notes: [
+                                            score::Note.new(at: 0, key: 88, length: 12), # E6
+                                            score::Note.new(at: 12, key: :C5, length: 24, slide_up: :fast),
+                                            score::Note.new(at: 36, key: :G5, length: 48, slide_down: :none),
+                                          ])])
+    program = program_of do
+      enable_sound
+      sfx = sound_effects :sfx, { laser: laser }
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 4).then { sfx.play :laser }
+      end
+    end
+
+    assert_native_sounds_like_the_console program, frames: 120, voices: [:square1]
+  end
+
   # The music turned down by hand and then faded out and back: a held note follows it.
   def test_the_music_volume_and_its_fades_are_heard
     program = program_of do

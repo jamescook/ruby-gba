@@ -82,6 +82,34 @@ module RuntimeSounds
     assert_sounds_like_the_native_runtime program, frames: 130
   end
 
+  # Notes that slide their pitch by themselves on the first voice: a zap up that runs off the top,
+  # a slow swoop down, a fine slide in the voice's own numbers and a note held still, with the music
+  # turned down while they sound.
+  def test_notes_that_slide_sound_as_on_the_native_runtime
+    program = sound_program do
+      enable_sound
+      song :tune do
+        tempo 120
+        voice(:melody) do
+          slide_down :slow
+          note :C5, :quarter, slide_up: :fast
+          note :A5, :half
+          note :E5, :quarter, slide_up: { every: 2, shift: 7 }
+          note :G4, :quarter, slide_down: :none
+        end
+        voice(:bass) { note :C3, :whole }
+      end
+      count = var :count, 0
+      play_song :tune
+      game_loop do
+        count.add! 1
+        (count == 40).then { music_volume 50 }
+      end
+    end
+
+    assert_sounds_like_the_native_runtime program, frames: 160
+  end
+
   # The wave voice told what to play at each loudness, then stopped; hits on the noise voice at
   # each of its pitches, plain and metallic. Each voice is heard on its own as well, the way a test
   # of one voice hears it.

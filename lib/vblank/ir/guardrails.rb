@@ -298,6 +298,7 @@ require_relative "guardrails/song_needs_frames"
 require_relative "guardrails/song_instrument_unknown"
 require_relative "guardrails/song_too_many_parts"
 require_relative "guardrails/square_note_too_low"
+require_relative "guardrails/slide_off_first_square"
 require_relative "guardrails/note_never_plays"
 require_relative "guardrails/song_loops_into_silence"
 require_relative "guardrails/redraw_everything"
@@ -352,6 +353,7 @@ module VBlank
         Checks::SongInstrumentUnknown.new,
         Checks::SongTooManyParts.new,
         Checks::SquareNoteTooLow.new,
+        Checks::SlideOffFirstSquare.new,
         Checks::NoteNeverPlays.new,
         Checks::SongLoopsIntoSilence.new,
         Checks::RedrawEverything.new,

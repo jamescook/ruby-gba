@@ -27,6 +27,11 @@ module VBlank
           # said one, rather than leaving it to the voice (rg_sound.c's SAID_FADE).
           SAID_FADE = 16
 
+          # ...and above them, set when the note or its part said a slide (Audio::PitchSlide#bits),
+          # whose seven bits are above that again (rg_sound.c's SAID_SLIDE and SLIDE_AT).
+          SAID_SLIDE = 32
+          SLIDE_AT = 6
+
           private
 
           def prepare_sound
@@ -314,7 +319,8 @@ module VBlank
           # sounds. A recorded note's volume is written as its loudness on the mixer, since it can
           # hold a fraction. Then how it fades or swells, when its part or the note said so
           # (IR::Tunes.said_fade): the voice's four bits of it, and SAID_FADE beside them; 0 for a
-          # note that leaves it to the voice, and for a rest.
+          # note that leaves it to the voice, and for a rest. With them, in the same number, how it
+          # slides its pitch when it or its part said so (IR::Tunes.said_slide).
           def encoded_note(note, part, kind)
             at, pitch, _, volume = note
             volume ||= part.volume
@@ -324,7 +330,9 @@ module VBlank
                             [volume, pitch.zero? ? 0 : note_ticks(kind, pitch)]
                           end
             fade = Tunes.said_fade(part, note) unless pitch.zero?
-            [at, @sound_log.pitch_number(pitch), heard, last, fade ? SAID_FADE | fade.bits : 0]
+            slide = Tunes.said_slide(part, note) unless pitch.zero?
+            said = (fade ? SAID_FADE | fade.bits : 0) | (slide ? SAID_SLIDE | (slide.bits << SLIDE_AT) : 0)
+            [at, @sound_log.pitch_number(pitch), heard, last, said]
           end
 
           # EVERYTHING A RECORDED NOTE IS BUT HOW LOUD, the interpreter's way

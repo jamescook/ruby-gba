@@ -49,7 +49,7 @@ class TestSongNoteFades < Minitest::Test
       end
     end)
 
-    assert_equal [[1, c4, 12, NoteFade.down(5)], [1, e4, 12, NoteFade.down(5)]], played
+    assert_equal [[1, c4, 12, NoteFade.fading(5)], [1, e4, 12, NoteFade.fading(5)]], played
   end
 
   # A NOTE CAN SAY ITS OWN, in place of its part's: a pluck in a bowed line, or one note that
@@ -65,7 +65,7 @@ class TestSongNoteFades < Minitest::Test
       end
     end)
 
-    assert_equal [[1, c4, 9, NoteFade.down(2)], [1, e4, 12, NoteFade.up(3)]], played
+    assert_equal [[1, c4, 9, NoteFade.fading(2)], [1, e4, 12, NoteFade.swelling(3)]], played
   end
 
   # A DRUM THAT SAYS NOTHING OF A NOTE'S FADE rings out as its part says, and the log says what it
@@ -80,7 +80,7 @@ class TestSongNoteFades < Minitest::Test
       end
     end)
 
-    assert_equal [[4, c2, 12, nil], [4, c2, 12, NoteFade.up(1)]], played
+    assert_equal [[4, c2, 12, nil], [4, c2, 12, NoteFade.swelling(1)]], played
   end
 
   # A SCORE SAYS IT THE SAME WAY, for a game that converts another game's music into one: a part's
@@ -103,7 +103,7 @@ class TestSongNoteFades < Minitest::Test
     b.finalize_program
 
     sounding = voices_set(b.program).reject { |_, pitch| pitch.zero? }
-    assert_equal [[12, NoteFade.up(4)], [15, NoteFade.down(7)]], sounding.map { |_, _, volume, fade| [volume, fade] }
+    assert_equal [[12, NoteFade.swelling(4)], [15, NoteFade.fading(7)]], sounding.map { |_, _, volume, fade| [volume, fade] }
   end
 
   # THE MUSIC VOLUME REACHES A HELD NOTE BY STRIKING IT AGAIN, which would start a fading note's

@@ -38,6 +38,8 @@ module VBlank
             DUTIES = "rt music duties"
             LEVEL_SET = "rt music level set"
             NOTE_VOLUME = "rt music note volume" # the note being played's volume, as written
+            # ...and how it slides its pitch, in a game where a note does (GBC::Music.note_bytes).
+            NOTE_SLIDE = "rt music note slide"
             HELD_VOICES = 3
             # The waveform in the wave voice, 1 up, in a game with sound effects: a song's part and an
             # effect's can each sound in their own, so a note puts its own in when it is not there.
@@ -48,9 +50,10 @@ module VBlank
 
             module_function
 
-            def reserve(memory, effects: [])
+            def reserve(memory, effects: [], slides: false)
               reserve_song_player(memory)
               memory.reserve(WAVE_LOADED, 1) unless effects.empty?
+              memory.reserve(NOTE_SLIDE, 1) if slides
               Effects.reserve(memory, effects)
             end
 
@@ -73,15 +76,39 @@ module VBlank
             # +level+ is where the game keeps the music's level, or nil for a game that never sets it.
             # +songs+ says whether the game has any songs at all; +effects+ are its sound effects
             # (GBC::Music#effects), and +by_rank+ the same in the order a frame plays them. +fades+
-            # says whether any note says how it fades or swells (GBC::Music#fades?).
-            def emit(asm, memory, level:, songs:, effects: [], by_rank: [], fades: false)
+            # says whether any note says how it fades or swells (GBC::Music#fades?), and +slides+
+            # whether any slides its pitch (GBC::Music#slides?).
+            def emit(asm, memory, level:, songs:, effects: [], by_rank: [], fades: false, slides: false)
               sharing = !effects.empty?
               emit_game_side(asm, memory, sharing)
               return emit_no_songs(asm) unless songs
 
               emit_tick(asm, memory, level, sharing)
-              emit_notes(asm, memory, level, sharing, fades)
-              Effects.emit(asm, memory, effects, by_rank) if sharing
+              emit_notes(asm, memory, level, sharing, fades, slides)
+              Effects.emit(asm, memory, effects, by_rank, slides: slides) if sharing
+            end
+
+            # HL = HL × the bytes a note takes (GBC::Music.note_bytes), DE its number too: five a note,
+            # or six in a game where a note slides. Spends DE's number into HL.
+            def emit_times_note_bytes(asm, slides)
+              asm.add_hl(:hl)
+              if slides
+                asm.add_hl(:de)
+                asm.add_hl(:hl)
+              else
+                asm.add_hl(:hl)
+                asm.add_hl(:de)
+              end
+            end
+
+            # The slide of the note whose volume is at HL, kept for rt_voice_write: the byte after the
+            # volume, in a game where a note slides. Keeps B and DE.
+            def emit_keep_slide(asm, memory, slides)
+              return unless slides
+
+              asm.inc(:hl)
+              asm.load(:a, [:hl])
+              asm.load([memory[NOTE_SLIDE]], :a)
             end
 
             # Voice +voice+ quiet: its volume nothing, and a square or noise voice started again so
@@ -374,8 +401,9 @@ module VBlank
             # One part (HL = its entry, C = its number): each of its notes whose frame has come. With
             # sound effects, a note whose voice a higher rank holds is passed over, unplayed. With
             # +fades+, a note's fade comes out of its tuning's top four bits (GBC::Music::FADE_SHIFT)
-            # and goes under its volume.
-            def emit_notes(asm, memory, level, sharing, fades)
+            # and goes under its volume. With +slides+, a note on the first square voice writes its
+            # slide (the byte after its volume) to the voice's sweep register before it starts.
+            def emit_notes(asm, memory, level, sharing, fades, slides)
               h = Console::GBCHardware
               part = memory[PART]
               asm.label("rt_music_part")
@@ -418,11 +446,9 @@ module VBlank
               asm.ret(:z) # no more notes this time round
               asm.label("rt_music_part_more")
               asm.push(:hl)
-              asm.load(:h, :d) # HL = where the notes are + 5 × the number
+              asm.load(:h, :d) # HL = where the notes are + the number × a note's bytes
               asm.load(:l, :e)
-              asm.add_hl(:hl)
-              asm.add_hl(:hl)
-              asm.add_hl(:de)
+              emit_times_note_bytes(asm, slides)
               asm.load(:a, [part + 4])
               asm.load(:e, :a)
               asm.load(:a, [part + 5])
@@ -465,6 +491,7 @@ module VBlank
               asm.load(:a, [:hli])
               asm.load(:d, :a)
               asm.load(:b, [:hl]) # its volume, times the music's level over 16
+              emit_keep_slide(asm, memory, slides)
               asm.load(:a, :b)
               asm.load([memory[NOTE_VOLUME]], :a)
               if level
@@ -483,7 +510,16 @@ module VBlank
               asm.jump_relative(:z, "rt_music_note_wave")
               asm.cp_a(GBC::Music::NOISE_VOICE)
               asm.jump_relative(:z, "rt_music_note_noise")
-              # A square voice: its duty, its volume, its period, and start.
+              # A square voice: its duty, its volume, its period, and start — and on the first, in a
+              # game where a note slides, how this one slides, before it starts.
+              if slides
+                asm.cp_a(1)
+                asm.jump_relative(:nz, "rt_music_note_unslid")
+                asm.load(:a, [memory[NOTE_SLIDE]])
+                asm.load_high(h::NR10, :a)
+                asm.load(:a, 1)
+                asm.label("rt_music_note_unslid")
+              end
               asm.cp_a(1)
               asm.load(:c, h::NR11 & 0xFF)
               asm.jump_relative(:z, "rt_music_note_square")
@@ -572,7 +608,7 @@ module VBlank
               asm.ret
 
               emit_wave_load(asm, memory) if sharing
-              emit_hold(asm, memory, part, fades)
+              emit_hold(asm, memory, part, fades, slides)
               emit_relevel(asm, memory, level, fades) if level
 
               # The volume a voice is told, in its top four bits: none for a rest.
@@ -615,9 +651,10 @@ module VBlank
             # voice holds now, a rest holding nothing. Keeps B and DE.
             #
             # With +fades+, a note that fades or swells by itself holds nothing either: it is left to
-            # it, as a drum hit is (IR::Tunes.fades_by_itself?). The step its voice counts by is bits
-            # 4 to 6 of its tuning's high byte (GBC::Music::FADE_SHIFT).
-            def emit_hold(asm, memory, part, fades)
+            # it, as a drum hit is (IR::Tunes.changes_by_itself?). The step its voice counts by is bits
+            # 4 to 6 of its tuning's high byte (GBC::Music::FADE_SHIFT). With +slides+, so is a note
+            # that slides: one whose slide (NOTE_SLIDE) is not nought.
+            def emit_hold(asm, memory, part, fades, slides)
               asm.label("rt_music_hold")
               asm.load(:a, :d)
               asm.and_a(:e)
@@ -633,6 +670,13 @@ module VBlank
                 asm.jump_relative(:z, "rt_music_hold_counted")
                 asm.load(:c, 0)
                 asm.label("rt_music_hold_counted")
+              end
+              if slides
+                asm.load(:a, [memory[NOTE_SLIDE]])
+                asm.and_a(:a)
+                asm.jump_relative(:z, "rt_music_hold_unslid")
+                asm.load(:c, 0)
+                asm.label("rt_music_hold_unslid")
               end
               asm.load(:a, [part])
               (1..HELD_VOICES).each do |voice|

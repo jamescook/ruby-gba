@@ -142,6 +142,24 @@ module VBlank
         end
       end
 
+      # Whether what a part PLAYS (.resolve_plays, or a Part's own fields) is the square wave: no
+      # recording, no waveform and no hiss.
+      def self.plays_square?(plays) = !(plays[:wave] || plays[:instrument] || plays[:noise])
+
+      # Whether a part's own slide, or one of its events' (the seventh place), moves the pitch
+      # (PitchSlide#moves?).
+      def self.slides_said?(slide, events) = PitchSlide.moves?(slide) || events.any? { |event| PitchSlide.moves?(event[6]) }
+
+      # AN EVENT, OR A LOG ENTRY, IS READ BY POSITION, and what a note did not say is left off the
+      # end rather than written as nil — so the shape a note can have costs nothing to a note that
+      # has none, and a song written before it existed is what it always was. A nil before
+      # something said stays, to keep its place.
+      def self.without_trailing_nils(said)
+        said = said.dup
+        said.pop while !said.empty? && said.last.nil?
+        said
+      end
+
       # `plays: :square` is refused because it can be read two ways and the wrong reading is
       # silent: the reader means "this part plays a square wave", which is what a part does with
       # no `plays:` at all, and would get the WAVE voice shaped like a square instead — a
@@ -177,10 +195,13 @@ module VBlank
       # out or swells in by itself (a NoteFade), unless the note says its own. Nil leaves it to the
       # voice — a drum rings out as +decay+ says, a square note holds (see IR::Tunes.said_fade).
       #
-      # AN EVENT CAN SAY ITS OWN in a sixth place, after the envelope: [frame, frequency,
-      # instrument, volume, envelope, fade].
+      # +slide+ is how each note of the song's first square part slides its pitch by itself (a
+      # PitchSlide), unless the note says its own; nil slides nothing.
+      #
+      # AN EVENT CAN SAY ITS OWN in a sixth place, after the envelope, and its own slide in a
+      # seventh: [frame, frequency, instrument, volume, envelope, fade, slide].
       Part = Data.define(:events, :duty, :volume, :instrument, :wave, :noise, :decay, :metallic,
-                         :name, :envelope, :fade)
+                         :name, :envelope, :fade, :slide)
 
       class Part
         # WHAT A PART CARRIES WHEN IT SAYS NOTHING — every optional field's answer, in one place,
@@ -189,16 +210,25 @@ module VBlank
         # here: a part with no notes in it is a part nobody wrote.
         DEFAULTS = { duty: :half, volume: 12, instrument: nil, wave: nil,
                      noise: false, decay: :fast, metallic: false, name: nil, envelope: nil,
-                     fade: nil }.freeze
+                     fade: nil, slide: nil }.freeze
 
-        # A part whose voice cannot fade a note, saying a fade, is refused (NoteFade.refuse_without_counting!).
-        # A Score names its part itself, before it gets here.
+        # A part whose voice cannot fade a note, saying a fade, is refused (NoteFade.refuse_without_counting!),
+        # and so is one off the square voices saying a slide. A Score names its part itself, before
+        # it gets here.
         def initialize(events:, **said)
           super(events: events, **DEFAULTS.merge(said))
-          return unless (wave || instrument) && (fade || events.any? { |event| event[5] })
+          who = name ? "The part #{name.inspect}" : "A part"
+          if (wave || instrument) && (fade || events.any? { |event| event[5] })
+            NoteFade.refuse_without_counting!(who, wave: wave)
+          end
+          return unless Music.slides_said?(slide, events) && !Music.plays_square?(wave: wave, instrument: instrument,
+                                                                                    noise: noise)
 
-          NoteFade.refuse_without_counting!(name ? "The part #{name.inspect}" : "A part", wave: wave)
+          PitchSlide.refuse_off_square!(who, wave: wave, noise: noise)
         end
+
+        # Does this part, or a note of it, say a slide?
+        def slides? = Music.slides_said?(slide, events)
 
         # A part built from what its author said it PLAYS — an instrument's name, a wave shape,
         # :noise, or nothing for the square wave. One reader for that word (Music.resolve_plays),
@@ -227,6 +257,7 @@ module VBlank
           @decay = :fast     # a drum hit, for a part on the noise voice
           @metallic = false  # ...and whether it rattles (a snare, a hat) or thuds (a kick)
           @fade = nil        # how every note fades or swells, when the part says (a NoteFade)
+          @slide = nil       # how every note slides its pitch, when the part says (a PitchSlide)
           @events = []       # [[frame_offset, freq_hz], ...]
           @current_frame = 0
         end
@@ -255,6 +286,17 @@ module VBlank
           @fade = NoteFade.said(decay: nil, swell: s, where: "The part #{part_label.inspect}")
         end
 
+        # HOW FAST EACH NOTE SLIDES ITS PITCH UP, or down — :fast, :medium or :slow, or the voice's
+        # own numbers, { every: 1..7, shift: 1..7 } (see PitchSlide). Only the song's first square
+        # part can: the first square voice is the one with the circuit.
+        def slide_up(speed)
+          @slide = PitchSlide.said(up: speed, down: nil, where: "The part #{part_label.inspect}")
+        end
+
+        def slide_down(speed)
+          @slide = PitchSlide.said(up: nil, down: speed, where: "The part #{part_label.inspect}")
+        end
+
         # ...and whether the hiss is the tighter, more tonal rattle (a snare, a hat) or the full
         # one (a kick, an explosion). Read only by a part on the noise voice, same as #decay.
         def metallic(m = nil)
@@ -277,18 +319,16 @@ module VBlank
         # An +envelope+ here shapes this one note instead of the part's — a note plucked where the
         # rest are bowed.
         # A +volume+ here (0-15) is this note's loudness instead of the part's, and +decay+ or
-        # +swell+ how it fades out or swells in instead of how the part's notes do (see #decay).
-        # An event is read by position and a note that says nothing leaves the later slots off
-        # entirely — so the shape a note can have costs nothing to every note that has none, and
-        # a song written before shapes existed builds the events it always did.
-        def note(pitch, duration, envelope: nil, volume: nil, decay: nil, swell: nil)
+        # +swell+ how it fades out or swells in instead of how the part's notes do (see #decay),
+        # and +slide_up+ or +slide_down+ how it slides its pitch (see #slide_up).
+        # A note that says nothing leaves the later slots off its event (Music.without_trailing_nils).
+        def note(pitch, duration, envelope: nil, volume: nil, decay: nil, swell: nil, slide_up: nil, slide_down: nil)
           where = "a note of the part #{part_label.inspect}"
           shape = Envelope.of(envelope, where)
           fade = NoteFade.said(decay: decay, swell: swell, where: where.capitalize)
+          slide = PitchSlide.said(up: slide_up, down: slide_down, where: where.capitalize)
           refuse_volume_out_of_range!(volume) if volume
-          said = [nil, volume, shape, fade]
-          said.pop while !said.empty? && said.last.nil?
-          @events << [@current_frame, resolve_pitch(pitch), *said]
+          @events << [@current_frame, resolve_pitch(pitch), *Music.without_trailing_nils([nil, volume, shape, fade, slide])]
           @current_frame += duration_frames(duration)
         end
 
@@ -316,7 +356,8 @@ module VBlank
         # there. Every other part's `decay` is its +fade+.
         def to_voice
           Part.new(events: @events, duty: @duty, volume: @volume, decay: @decay, metallic: @metallic, name: @name,
-                   envelope: @envelope, fade: NoteFade.for_part(@fade, drum: @plays[:noise]), **@plays)
+                   envelope: @envelope, fade: NoteFade.for_part(@fade, drum: @plays[:noise]), slide: @slide,
+                   **@plays)
         end
 
         private
