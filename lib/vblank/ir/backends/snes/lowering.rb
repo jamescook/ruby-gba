@@ -62,6 +62,7 @@ module VBlank
 
           include Picture
           include Paint
+          include Collision
 
           VALUES = Ractor.make_shareable({
                                            int: :value_of_int, var_ref: :value_of_var_ref, binop: :value_of_binop,
@@ -72,7 +73,7 @@ module VBlank
                                            pressed: :value_of_pressed, list_get: :value_of_list_get,
                                            list_len: :value_of_list_len, table_get: :value_of_table_get,
                                            timer_ticks: :value_of_timer_ticks, chance: :value_of_chance
-                                         })
+                                         }.merge(Collision::VALUES))
 
           # EVERY KIND THIS LOWERING CANNOT MAKE YET, by what it is part of. A kind leaves the list the
           # day the Super Nintendo does it; test_snes_kind_coverage.rb holds the list and the tables
@@ -80,7 +81,7 @@ module VBlank
           NOT_LOWERED_YET = Ractor.make_shareable({
                                                     "the picture" => %i[draw_column_at place_bar background_colors
                                                                         scroll_rows camera show_picture_group
-                                                                        color_list_holds pixels_overlap
+                                                                        color_list_holds
                                                                         copy_tiles copy_owed_tiles data_byte],
                                                     "the sound" => %i[enable_sound beep noise wave stop_wave play_song
                                                                       stop_music play_from_list play_sound_effect
@@ -184,6 +185,7 @@ module VBlank
             @section_routines = {}
             prepare_picture
             prepare_paint
+            prepare_collision
           end
 
           # The game's code, as sections for the Linker: its data, every routine a run can reach, and

@@ -36,6 +36,7 @@ module VBlank
             SAVE_READ_OUTSIDE = 7
             SAVE_WRITE_OUTSIDE = 8
             CELLS_FULL = 11 # more cells of a background changed in one pass than the queue holds
+            PICTURE_NOT_THERE = 12 # a sprite showing a picture its list does not have: the pose, the count
 
             # FAULT: what went wrong (a word), the list's place (three bytes and a spare), and two
             # numbers that say how (four bytes each).

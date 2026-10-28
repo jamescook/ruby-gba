@@ -118,7 +118,7 @@ module VBlank
               [data.section, *bytes_section("art background tiles", @art.background_tile_data),
                *bytes_section("art sprite tiles", @art.sprite_tile_data),
                *@art.grids.map { |grid| bytes_section(grid_label(grid.number), grid.bytes) },
-               *(painted? ? paint_sections : [])]
+               *(painted? ? paint_sections : []), *collision_sections]
             end
 
             ART = W65816::Holding.new(what: "the game's pictures", fix: "use fewer different pictures and maps")

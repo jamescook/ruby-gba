@@ -7,6 +7,7 @@ require_relative "runtime/lists"
 require_relative "runtime/picture"
 require_relative "runtime/paint"
 require_relative "runtime/tint"
+require_relative "runtime/collide"
 
 module VBlank
   module IR
@@ -50,6 +51,7 @@ module VBlank
             Picture.emit(asm, memory, work: memory.scratch(8), painted: painted)
             Paint.emit(asm, memory, Paint.scratch(memory)) if painted
             Tint.emit(asm, memory, Tint.scratch(memory))
+            Collide.emit(asm, memory, Collide.scratch(memory))
             emit_start(asm)
             emit_frame_begins(asm, frame_begins)
             [vectors.section, asm.section]

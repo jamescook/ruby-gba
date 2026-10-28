@@ -297,6 +297,7 @@ module VBlank
             when Runtime::Frame::INDEX_OUT_OF_RANGE then Faults.index_out_of_range(list, first, second)
             when Runtime::Frame::LIST_FULL then Faults.list_full(list, first)
             when Runtime::Frame::LIST_EMPTY then Faults.list_empty(list, first.zero? ? :back : :front)
+            when Runtime::Frame::PICTURE_NOT_THERE then Faults.picture_missing(first, second)
             when Runtime::Frame::CELLS_FULL
               raise CannotAnswer, "the Super Nintendo cartridge stopped: the game changed more than " \
                                   "#{Runtime::Picture::MOST_CELLS} cells of its backgrounds in one pass, more than its " \
