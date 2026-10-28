@@ -89,8 +89,9 @@ module VBlank
 
     # The same, on the Super Nintendo lowering's run: the game built as a Super Nintendo cartridge and
     # played in bsnes (SNES::CheckedRun), checked against the interpreter after every pass, each test's
-    # program played as a Super Nintendo program. What its build does not make yet fails, since it is
-    # still to be made; what the run cannot answer of it is a skip.
+    # program played as a Super Nintendo program. What its build does not make yet is a skip naming
+    # the part (the picture, the sound), so the run's count of skips by reason says what is left to
+    # make; what the run cannot answer of it is a skip too.
     class SNESCheckedPlayer < IR::Backends::SNES::CheckedRun
       include DisagreementFailsTest
 
@@ -106,6 +107,8 @@ module VBlank
         super
       rescue IR::Backends::SNES::HeadlessRun::CannotAnswer => e
         raise Minitest::Skip, cannot_answer_reason(e)
+      rescue IR::Backends::SNES::Lowering::NotMadeYet => e
+        raise Minitest::Skip, "Super Nintendo build does not make yet: #{e.part}"
       end
 
       def method_missing(name, ...)

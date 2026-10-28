@@ -149,7 +149,7 @@ module VBlank
               end
               case state
               when Runtime::Frame::HALTED then return finish_after_halt
-              when Runtime::Frame::WENT_WRONG then raise_fault
+              when Runtime::Frame::WENT_WRONG then raise_cartridge_fault!
               end
               next unless pending.nil? && waiting? && passes > @moments.size
 
@@ -273,7 +273,7 @@ module VBlank
 
           # The game went wrong: the interpreter's words for what went wrong, from what the runtime
           # kept of it.
-          def raise_fault
+          def raise_cartridge_fault!
             at = runtime_place(Runtime::Frame::FAULT)
             code = half(at)
             place = @core.wram_read32(at + Runtime::Frame::FAULT_LIST) & 0xFFFFFF

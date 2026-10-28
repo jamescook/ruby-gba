@@ -95,10 +95,10 @@ interpreter on every frame, and on the Game Boy Color run the Color cartridge, c
 interpreter after every pass. `Reference.new` by name is for a test of the interpreter itself. A
 test that reaches for the Advance's cartridge in the emulator skips itself on the native,
 JavaScript, Ruby and Color runs. A test one of them cannot play yet says `skip_on_native "why"`
-(or `skip_on_js`, `skip_on_ruby`, `skip_on_gbc`). A test of one lowering's own output lives in a
+(or `skip_on_js`, `skip_on_ruby`, `skip_on_gbc`, `skip_on_snes`). A test of one lowering's own output lives in a
 folder that lowering owns and is played by its run alone (`TestSuites::LOWERING_FOLDERS`:
 `ir/backends/gba/`, `diagnostics/` and `playthroughs/` for GBA, `ir/backends/native/`,
-`ir/backends/js/`, `ir/backends/ruby/`, `ir/backends/gbc/`). See `lowerings.md`.
+`ir/backends/js/`, `ir/backends/ruby/`, `ir/backends/gbc/`, `ir/backends/snes/`). See `lowerings.md`.
 
 **What only the Advance can do is tested in `test/advance/`**, which the GBA, native, JavaScript
 and Ruby runs load and the Color's never does: fading part of the screen, a recording in a song,

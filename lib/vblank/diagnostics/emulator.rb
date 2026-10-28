@@ -147,8 +147,13 @@ module VBlank
         true
       rescue LoadError
         lib = VBlank.root.join("ruby-snes-emulator", "lib").to_s
-        raise LoadError, "An emulator is required to run a Super Nintendo cartridge, and ruby-snes-emulator will " \
-                         "not load. Put it in your Gemfile beside ruby-gba-emulator." unless File.directory?(lib)
+        unless File.directory?(lib)
+          raise LoadError, "An emulator is required to run a Super Nintendo cartridge, and ruby-snes-emulator will " \
+                           "not load. To fix this, add it to the git block that names vblank and ruby-gba-emulator " \
+                           "in your Gemfile: widen its glob to \"{,ruby-gba-emulator/,ruby-snes-emulator/}*.gemspec\" " \
+                           "and add `gem \"ruby-snes-emulator\"` inside it. Then run `rake compile_core` in " \
+                           "ruby-snes-emulator/ to build the bsnes core it plays cartridges in."
+        end
 
         $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
         require "ruby_snes_emulator"

@@ -29,7 +29,18 @@ module VBlank
         # It makes the kinds in its two tables, and refuses by name a program that reaches one it does
         # not make yet (NOT_LOWERED_YET) or one a Super Nintendo cannot do at all (REFUSED).
         class Lowering
-          STATEMENTS = Ractor.make_shareable({
+          # A program refused because it reaches something the build does not make yet, with the
+          # +part+ of the build that is missing ("the picture"), for a test run to count skips by.
+          class NotMadeYet < LoweringError
+            attr_reader :part
+
+            def initialize(message, part:)
+              super(message)
+              @part = part
+            end
+          end
+
+          STATEMENTS =Ractor.make_shareable({
                                                program: :emit_children, set: :emit_set, add: :emit_add,
                                                sub: :emit_sub, copy: :emit_copy, negate: :emit_negate,
                                                abs: :emit_abs, negate_abs: :emit_negate_abs, clamp: :emit_clamp,
@@ -207,16 +218,20 @@ module VBlank
             kinds = @reachable.map(&:kind).uniq
             hardware = kinds.select { |kind| Portability.hardware_only?(kind) }
             unless hardware.empty?
-              raise LoweringError, "this program uses #{hardware.map(&:inspect).join(', ')}, which only means " \
-                                   "something on the Game Boy Advance, so the Super Nintendo build cannot make it."
+              raise LoweringError, "This game uses #{hardware.map(&:inspect).join(', ')}, which only means something " \
+                                   "on the Game Boy Advance. The Super Nintendo build cannot make it. To fix this, " \
+                                   "build the game for the Game Boy Advance alone."
             end
 
             missing = NOT_LOWERED_YET.select { |_, listed| listed.intersect?(kinds) }
             return if missing.empty?
 
             uses = missing.values.flatten & kinds
-            raise LoweringError, "this program uses #{uses.map(&:inspect).join(', ')}, which the Super Nintendo build " \
-                                 "cannot make yet (#{missing.keys.join(', ')})."
+            raise NotMadeYet.new(
+              "This game uses #{uses.map(&:inspect).join(', ')}, part of #{missing.keys.join(' and ')}. The Super " \
+              "Nintendo build does not make that yet. To fix this, build the game for the Game Boy Advance alone " \
+              "for now (`consoles: %i[gba]`).", part: missing.keys.join(" and ")
+            )
           end
 
           # What a Super Nintendo cannot do at all, and the layers one screen cannot have, refused as a
@@ -247,8 +262,8 @@ module VBlank
               until waiting.empty?
                 name = waiting.shift
                 if name == start
-                  raise LoweringError, "the routine #{start.inspect} can call itself again before it has finished, " \
-                                       "which the Super Nintendo build cannot make yet."
+                  raise LoweringError, "The routine #{start.inspect} can call itself again before it has finished. The Super " \
+                                       "Nintendo build cannot make that yet. To fix this, count with a loop in the routine instead."
                 end
                 next if seen.include?(name)
 
@@ -570,20 +585,20 @@ module VBlank
               at_power_on = keep_local(:at_power_on)
               value(Build.binop(:==, Build.var_ref(@scene), Build.int(-1)))
               store(at_power_on)
-              take_over(scene, number)
+              emit_scene_number(number)
               jump_unless(Build.var_ref(at_power_on), done)
               call_routine(label)
               @asm.brl(done)
             else
-              take_over(scene, number)
+              emit_scene_number(number)
             end
             @asm.label(staying)
             call_routine(label)
             @asm.label(done)
           end
 
-          # The scene numbered +number+ is the one running now, and what it does as it arrives is done.
-          def take_over(_scene, number) = store_number(place_of(@scene), number)
+          # The note of the scene running now, set to +number+.
+          def emit_scene_number(number) = store_number(place_of(@scene), number)
 
           def emit_halt(_node) = @asm.jml(@asm.long("rt_halt"))
 
