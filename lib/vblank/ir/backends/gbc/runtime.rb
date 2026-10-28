@@ -70,7 +70,7 @@ module VBlank
             noted = memory[Music::BANK_NOTED] if Music.banked?(memory)
             shown = memory[Clips::SHOWN] if Clips.any?(memory)
             asm = SM83.new("runtime", home: :fixed, bank_noted_at: noted, bank_shown_at: shown)
-            Boot.emit(asm, main: "rt_main", clips: !shown.nil?)
+            Boot.emit(asm, main: "rt_main", clips: !shown.nil?, backdrop: art.backdrop_at_power_on)
             Boot.emit_display_off(asm)
             Boot.emit_clear(asm)
             Int32.emit(asm, memory)

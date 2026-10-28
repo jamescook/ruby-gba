@@ -51,7 +51,8 @@ module VBlank
 
             # The start-up routine, ending in a call to +main+. In a game that plays a recording
             # (+clips+), the timer is stopped and its interrupt switched on, for a clip to start.
-            def emit(asm, main:, clips: false)
+            # +backdrop+ is the colour the screen shows before the game's first frame (Art#backdrop_at_power_on).
+            def emit(asm, main:, clips: false, backdrop: Art::BACKDROP)
               h = Console::GBCHardware
               asm.label("rt_boot")
               asm.di
@@ -67,6 +68,8 @@ module VBlank
               asm.stop
               asm.label("rt_boot_fast")
               asm.call("rt_display_off")
+              backdrop_written = backdrop != Art::BACKDROP
+              emit_backdrop(asm, backdrop) if backdrop_written
               asm.load(:a, 1)
               asm.load_high(h::SVBK, :a)
               asm.xor_a(:a)
@@ -94,12 +97,14 @@ module VBlank
                 asm.call("rt_clear")
               end
               copy_oam_dma(asm)
-              # Every colour of every list black, which is the interpreter's empty screen.
+              # Every colour of every list black, which is the interpreter's empty screen — but the
+              # backdrop, where one was put first (#emit_backdrop), which is left as it is.
               [h::BCPS, h::OCPS].each do |select|
-                asm.load(:a, 0x80) # from the first, moving on after each byte
+                skipped = backdrop_written && select == h::BCPS ? 2 : 0 # the first colour's two bytes
+                asm.load(:a, 0x80 | skipped) # from the first, moving on after each byte
                 asm.load_high(select, :a)
                 asm.xor_a(:a)
-                asm.load(:b, 64)
+                asm.load(:b, 64 - skipped)
                 asm.label("rt_boot_black_#{select}")
                 asm.load_high(select + 1, :a)
                 asm.dec(:b)
@@ -124,6 +129,27 @@ module VBlank
               asm.call("rt_start")
               asm.call(main)
               asm.jump("rt_halt") # a game whose main routine ends has stopped, as one that halts has
+            end
+
+            # THE SCREEN BEFORE THE GAME'S FIRST FRAME. The screen stays off until the first frame is
+            # ready (#emit), and the emulator the tests play in shows a screen that is off in the
+            # first colour of the first background list, whatever it holds at the moment each frame
+            # ends. The art's lists put the backdrop there once they are copied in (Picture#emit_start),
+            # which is what shows while the game sets itself up; before that, from the screen going
+            # off to the copy, the boot's black would. So a game whose backdrop is not black has that
+            # colour put there as the screen goes off, and the boot's black leaves it alone: a game
+            # whose first screen comes in from white shows white from power-on, as the Color's own
+            # games do. Black for even an instant between two writes is a black frame wherever a
+            # frame happens to end there. A game whose screens bring their own colours in starts from
+            # a list of black alone (Art#background_palette_number), so its backdrop is black here.
+            def emit_backdrop(asm, backdrop)
+              h = Console::GBCHardware
+              asm.load(:a, 0x80) # the first colour of the first list, moving on after each byte
+              asm.load_high(h::BCPS, :a)
+              asm.load(:a, backdrop & 0xFF)
+              asm.load_high(h::BCPD, :a)
+              asm.load(:a, backdrop >> 8)
+              asm.load_high(h::BCPD, :a)
             end
 
             # The display off, which is only allowed during a vertical blank: wait for one first.

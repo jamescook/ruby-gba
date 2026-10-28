@@ -273,6 +273,18 @@ module VBlank
             (backgrounds + sprites).uniq
           end
 
+          # The background palettes as the console is given them at power-on: the backgrounds', with
+          # the painted screen's at their own numbers.
+          def background_colors_at_power_on
+            backgrounds = @background_palettes.map(&:colors)
+            painted_palettes.zip(paint_palettes).each { |number, colors| backgrounds[number] = colors }
+            backgrounds
+          end
+
+          # The backdrop: the first colour of the first background palette, which every empty cell is
+          # drawn in, and which the screen shows before the game's first frame (Runtime::Boot#emit).
+          def backdrop_at_power_on = (background_colors_at_power_on.first&.first || BACKDROP) & 0x7FFF
+
           # The place a painted colour is kept at in every one of the painted screen's palettes.
           def paint_place(color) = @square_colors.place(color)
 
@@ -736,10 +748,8 @@ module VBlank
           def tables_section
             asm = SM83.new("art tables", home: :fixed, holds: PICTURE_TABLES)
             asm.label("art_palettes")
-            backgrounds = @background_palettes.map(&:colors)
-            painted_palettes.zip(paint_palettes).each { |number, colors| backgrounds[number] = colors }
             # A game that lends its sprites' lists starts with nothing in the eight.
-            [backgrounds, lends? ? [] : @sprite_palettes].each do |palettes|
+            [background_colors_at_power_on, lends? ? [] : @sprite_palettes].each do |palettes|
               PALETTES.times do |i|
                 colors = palettes[i] || Array.new(PLACES, BACKDROP)
                 asm.data_words(colors)
