@@ -143,6 +143,8 @@ module VBlank
           # or right, as a number from 0 to 32768. The registers say what the sound unit was told
           # at the end of each pass; this says what came out between, so a test can measure a
           # sound's shape — a rest's silence, a fade's length — where the registers cannot see it.
+          # Taking it every frame also keeps the emulator from holding every sample of the run.
+          # A frame is the finest it sees: what happens inside one is not in it.
           attr_reader :loudest_each_frame
 
           # The rest of what the interpreter answers, each refused by name.

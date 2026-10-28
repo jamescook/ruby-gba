@@ -11,28 +11,33 @@ require "test_helper"
 class TestSNESHeard < Minitest::Test
   SNES = VBlank::IR::Backends::SNES
   Build = VBlank::IR::Build
-  Music = VBlank::Audio::Music
 
-  private def heard(*body, frames:)
+  # The frames a held note is measured over once it has started: past its first.
+  STEADY = 1..8
+
+  # A program that turns the sound on, does +body+, and waits.
+  private def sounding(*body)
     program = Build.program(Build.enable_sound, *body, Build.loop_(Build.wait_vblank))
     program.console = :snes
-    SNES::CheckedRun.new.run(program, frames: frames).loudest_each_frame
+    program
   end
 
-  # The frames from the first one that sounds.
-  private def from_onset(loudest) = loudest.drop_while(&:zero?)
+  # The loudest sample of each frame +program+ played, checked, from the first frame that sounds.
+  private def loudest_from_onset(program, frames:)
+    SNES::CheckedRun.new.run(program, frames: frames).loudest_each_frame.drop_while(&:zero?)
+  end
 
   # A tune of a note for 20 frames, a rest for 20, and the note again: a rest lets the voice go,
-  # and the S-DSP's release takes the envelope down by 8 of its 2047 every sample (fullsnes, "KOFF"),
-  # 256 samples, a small part of one frame. So the output falls silent for the rest, all but the
-  # frame the release falls in, and sounds again when the note comes back.
+  # and the S-DSP's release takes the envelope down by 8 of its 2047 every sample (fullsnes, "ADSR/Gain
+  # Envelope"), 256 samples, a part of one frame. So the output falls silent for the rest, all but
+  # the frame the release falls in, and sounds again when the note comes back.
   def test_a_rest_is_silent_in_the_sound_played
     tune = Build.song(:tune, events: [[0, 440], [20, 0], [40, 440]], total_frames: 60)
-    loudest = from_onset(heard(tune, Build.play_song(:tune), frames: 70))
-    silent = loudest.take(60).chunk_while { |a, b| a.zero? == b.zero? }.map { |run| [run.first.zero?, run.size] }
+    loudest = loudest_from_onset(sounding(tune, Build.play_song(:tune)), frames: 70)
+    runs = loudest.take(60).chunk_while { |a, b| a.zero? == b.zero? }.map { |run| [run.first.zero?, run.size] }
 
-    assert_equal [false, true, false], silent.map(&:first), "a note, a silence, a note: #{silent.inspect}"
-    assert_includes 19..20, silent[1].last, "the rest's frames, less the one its release falls in"
+    assert_equal [false, true, false], runs.map(&:first), "a note, a silence, a note: #{runs.inspect}"
+    assert_includes 19..20, runs[1].last, "the rest's frames, less the one its release falls in"
   end
 
   # The Advance takes a beep down a volume step every 5 64ths of a second at :slow, so one at
@@ -42,7 +47,7 @@ class TestSNESHeard < Minitest::Test
   def test_a_beep_fades_out_in_about_the_advances_time
     loud, quiet = [15, 5].map do |volume|
       sound = Build.define_sound(:ping, frequency: 440, decay: :slow, volume: volume)
-      from_onset(heard(sound, Build.beep(:ping), frames: 100)).take_while(&:positive?).size
+      loudest_from_onset(sounding(sound, Build.beep(:ping)), frames: 100).take_while(&:positive?).size
     end
 
     assert_in_delta 70, loud, 70 * 0.2, "volume 15 at :slow"
@@ -51,11 +56,11 @@ class TestSNESHeard < Minitest::Test
 
   # A wave note under music_volume 50 plays the recording of its waveform at :half, half the swing
   # of the note's own at :full. The wave voice changes recording only where the one it is reading
-  # comes round (fullsnes, "SRCN"), so a note keyed on before its recording is written plays once
-  # round at :full first: its first frame, twice as loud as the rest. Heard, the first frame is
-  # about as loud as the frames after it — a little over, as the voice's first samples are read
-  # with nothing before them to smooth them against — and they are about half as loud as the note
-  # at full volume.
+  # comes round (fullsnes, "SRCN"), so a note keyed on before its recording was written would play
+  # once round at :full first, and its first frame would be twice as loud as the rest. Heard, the
+  # first frame is about as loud as the frames after it — a little over, as the voice's first
+  # samples are read with nothing before them to smooth them against — and those are about half
+  # as loud as the note at full volume.
   def test_a_wave_note_under_a_music_volume_starts_quiet
     full, half = [100, 50].map do |level|
       game = VBlank.game("WAVEHEARD", consoles: %i[gba snes]) do
@@ -64,11 +69,11 @@ class TestSNESHeard < Minitest::Test
         music_volume level
         game_loop { play_song :tune }
       end
-      from_onset(SNES::CheckedRun.new.run(game.program(console: :snes), frames: 12).loudest_each_frame)
+      loudest_from_onset(game.program(console: :snes), frames: 12)
     end
-    steady = half[1..8].max
+    steady = half[STEADY].max
 
     assert_operator half.first, :<=, steady * 1.1, "the note's first frame against the frames after it"
-    assert_in_delta 0.5, steady.fdiv(full[1..8].max), 0.1, "half the note's loudness at full"
+    assert_in_delta 0.5, steady.fdiv(full[STEADY].max), 0.1, "half the note's loudness at full"
   end
 end
