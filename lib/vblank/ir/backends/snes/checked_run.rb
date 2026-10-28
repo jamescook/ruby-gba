@@ -128,6 +128,8 @@ module VBlank
             return nil if @cartridge.dsp_moments.empty?
 
             moments.zip(@expected_dsp, @cartridge.dsp_moments).each do |moment, expected, held|
+              return "#{self.class.heading(moment.frame)}: the sound unit's DSP registers were never read" unless held
+
               wrong = expected.filter_map do |register, value|
                 got = held.getbyte(register)
                 format("$%<register>02X holds $%<got>02X, the log says $%<value>02X", register: register, got: got,

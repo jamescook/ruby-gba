@@ -17,24 +17,25 @@ module VBlank
         # write that never arrived, arrived late or arrived wrong shows up, in the sound unit itself.
         #
         # THE SQUARE VOICES. The Advance has two voices that play a square wave of their own, in four
-        # widths. The S-DSP has none: it only plays recordings. So the four widths are four short
-        # recordings of one wave each (Samples), looped, and a beep picks one by its source number.
-        # Each is 32 samples a wave, so its pitch register, where $1000 reads 32000 samples a second
-        # (fullsnes, "SNES APU DSP BRR Pitch"), is the note's frequency * 32 * $1000 / 32000.
+        # widths. The S-DSP has none: it only plays recordings. So each width is a short looped
+        # recording of a square wave (Samples), and a beep picks one by its source number: the one
+        # whose wave is 32 samples long when the note is low enough, and the one of 8 samples above
+        # that. Its pitch register, where $1000 reads 32000 samples a second (fullsnes, "SNES APU DSP
+        # BRR Pitch"), is then the note's frequency * the wave's samples * $1000 / 32000.
         #
         # THE FADE. The Advance fades a beep a volume step at a time, a step every 1, 3 or 5 64ths of
-        # a second (Audio::Sound::FADE_STEP_SIXTY_FOURTHS): volume 15 fading :fast is gone in 15/64
-        # of a second. The S-DSP's envelope instead starts each note at the top (the fastest attack,
-        # ADSR1 $8F) and takes it down a 256th of where it is at every step (its sustain mode), at a
-        # rate picked so a note at full falls to almost nothing in about the Advance's time at
-        # volume 15: some 1240 steps, of 6, 16 or 32 of the DSP's samples. :none holds (rate nought).
-        # How loud the note is stays in its volume registers, eight steps a volume.
+        # a second (Audio::Sound::FADE_STEP_SIXTY_FOURTHS), so volume v fading :fast is gone in v/64
+        # of a second, and a quiet beep sooner than a loud one. The S-DSP's envelope instead starts
+        # each note at the top (the fastest attack, ADSR1 $8F) and, in its sustain mode, takes it
+        # down a 256th of where it is, and one more, at every step (fullsnes, "SNES APU DSP ADSR/Gain
+        # Envelope"); how loud the note is stays in its volume registers, eight steps a volume. So the
+        # fade is chosen per beep: the step rate (fullsnes's table of them, RATE_SAMPLES) whose steps,
+        # as many as it takes the envelope to fall from the top to where its top seven bits read
+        # nought (#steps_to_silence), come nearest to the Advance's time for that volume and speed.
+        # :none holds (rate nought).
         module DSPWrites
           # The voice beeps play on, as the Advance plays them on its second square voice.
           BEEP_VOICE = 1
-
-          # The source number of each square width's recording (Samples::SQUARE_HIGH_EIGHTHS's order).
-          SHAPES = { eighth: 0, quarter: 1, half: 2, square: 2, three_quarter: 3 }.freeze
 
           # A voice's registers, counted from its first ($x0).
           VOLUME_LEFT = 0x0
@@ -65,20 +66,27 @@ module VBlank
           # ...and as the sound unit starts: muted and every voice held off, said outright, since
           # what FLG reads before anything writes it is not to be relied on (fullsnes).
           SOUND_OFF = 0xE0
-          # Main volume, near the top (127 of 127, on both sides).
+          # Main volume, the most there is (127, on both sides).
           MAIN_VOLUME = 0x7F
 
           # Fastest attack, ADSR on (ADSR1); the sustain level at the top (ADSR2's high three bits),
-          # so the note goes straight to its sustain, whose rate below is its fade.
+          # so the note goes straight to its sustain, whose rate (ADSR2's low five bits) is its fade.
           ATTACK = 0x8F
           SUSTAIN_AT_TOP = 0xE0
-          FADE_RATES = { fast: 0x1A, medium: 0x16, slow: 0x13, none: 0x00 }.freeze
+
+          # How many of the DSP's samples each of the 32 envelope rates waits between steps, by rate:
+          # nought never steps (fullsnes, "ADSR/Gain (and Noise) Rates").
+          RATE_SAMPLES = [nil, 2048, 1536, 1280, 1024, 768, 640, 512, 384, 320, 256, 192, 160, 128, 96, 80, 64, 48, 40,
+                          32, 24, 20, 16, 12, 10, 8, 6, 5, 4, 3, 2, 1].freeze
+
+          # The envelope's top, and the level below which its top seven bits (ENVX) read nought.
+          ENVELOPE_TOP = 0x7FF
+          ENVELOPE_SILENT = 0x10
 
           # Eight steps of the voice's volume register (0..127) a step of the game's (0..15).
           VOLUME_STEP = 8
 
-          # Samples a wave of each square recording, and the pitch register's scale.
-          WAVE_SAMPLES = 32
+          # The pitch register's scale, and the most it holds.
           PITCH_ONE = 0x1000
           DSP_RATE = 32_000
           PITCH_TOP = 0x3FFF
@@ -105,16 +113,45 @@ module VBlank
           # A beep: its voice's registers, and key-on last, which starts it from the top.
           def beep(effect)
             base = BEEP_VOICE << 4
-            pitch = pitch_for(effect.frequency)
+            wave = wave_for(effect.frequency)
+            pitch = pitch_for(effect.frequency, wave)
             volume = effect.volume * VOLUME_STEP
             [[base + VOLUME_LEFT, volume], [base + VOLUME_RIGHT, volume], [base + PITCH_LOW, pitch & 0xFF],
-             [base + PITCH_HIGH, pitch >> 8], [base + SOURCE, SHAPES.fetch(effect.duty)], [base + ADSR1, ATTACK],
-             [base + ADSR2, SUSTAIN_AT_TOP | FADE_RATES.fetch(effect.decay)], [KEY_ON, 1 << BEEP_VOICE]]
+             [base + PITCH_HIGH, pitch >> 8], [base + SOURCE, Samples.source(effect.duty, wave)], [base + ADSR1, ATTACK],
+             [base + ADSR2, SUSTAIN_AT_TOP | fade_rate(effect.volume, effect.decay)], [KEY_ON, 1 << BEEP_VOICE]]
           end
 
-          # The pitch register for a +frequency+ Hz note on a square recording, held to the most the
-          # register has.
-          def pitch_for(frequency) = ((frequency * WAVE_SAMPLES * PITCH_ONE) / DSP_RATE.to_f).round.clamp(1, PITCH_TOP)
+          # The length of wave a +frequency+ Hz note is played on: the long one, unless the pitch
+          # register cannot read it that fast.
+          def wave_for(frequency) = raw_pitch(frequency, Samples::LONG_WAVE) <= PITCH_TOP ? Samples::LONG_WAVE : Samples::SHORT_WAVE
+
+          # The pitch register for a +frequency+ Hz note on a wave of +wave+ samples, held to what the
+          # register holds: a note above what the short wave reaches plays at the highest it can.
+          def pitch_for(frequency, wave) = raw_pitch(frequency, wave).clamp(1, PITCH_TOP)
+
+          def raw_pitch(frequency, wave) = ((frequency * wave * PITCH_ONE) / DSP_RATE.to_f).round
+
+          # The sustain rate (0..31) that fades a note of +volume+ (0..15) at +decay+ in about the
+          # Advance's time for it; nought, which never steps, for :none.
+          def fade_rate(volume, decay)
+            step = VBlank::Audio::Sound::FADE_STEP_SIXTY_FOURTHS.fetch(decay)
+            return 0 if step.zero?
+
+            wanted = volume * step * DSP_RATE / 64.0 / steps_to_silence
+            (1...RATE_SAMPLES.size).min_by { |rate| (Math.log(RATE_SAMPLES[rate]) - Math.log([wanted, 1].max)).abs }
+          end
+
+          # How many steps the sustain mode takes the envelope from the top to where ENVX reads nought:
+          # each step takes off ((level - 1) >> 8) + 1 (fullsnes).
+          def steps_to_silence
+            level = ENVELOPE_TOP
+            steps = 0
+            while level >= ENVELOPE_SILENT
+              level -= ((level - 1) >> 8) + 1
+              steps += 1
+            end
+            steps
+          end
 
           # What the registers hold after the sound log +entries+, by register, for each one written.
           def after(entries)

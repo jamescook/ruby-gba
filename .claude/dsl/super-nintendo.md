@@ -142,7 +142,7 @@ and a test fails when the two differ. The Advance's answers are in
 - `chance` — works: the same as on the Advance.
 - `random_numbers` — works: the same as on the Advance.
 - `enable_sound` — works: the same as on the Advance.
-- `define_sound` — works: a Super Nintendo has no square voice: its sound chip plays recordings, so the square is played as a recording of one.
+- `define_sound` — works: a Super Nintendo has no square voice: its sound chip plays recordings, so the square is played as a recording of one. The sound chip cannot make a note above 16000 Hz, so a higher note plays at 16000 Hz.
 - `beep` — works: see `define_sound`.
 - `noise` — works: played on the sound chip's own noise.
 - `wave` — works: see `define_sound`.
