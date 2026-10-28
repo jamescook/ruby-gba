@@ -900,7 +900,7 @@ module VBlank
              *arrival.map_choices.map { |var| assign(var, C::Int.new(0)) },
              *(arrival.painted_tiles + arrival.painted_pictures).map { |run| tile_copy(run) },
              *arrival.scenery.map { |bg| eval_call("rg_background_put_up", C::Int.new(entry_of(bg))) },
-             *(arrival.scenery.empty? ? [] : [eval_call("rg_scene_redraw_sprites")])]
+             eval_call("rg_scene_redraw_sprites", C::Int.new(arrival.scenery.empty? ? 0 : 1))]
           end
 
           # The number rg_screen.c knows this one declaration by. A name gives the entry that

@@ -1854,9 +1854,14 @@ int32_t rg_screen_cross_to(int32_t new_kind, int32_t two_pages) {
 
 void rg_scene_enter(int32_t scene) { current_scene = scene; }
 
+/* Whether the last scene to take over took any scenery down (Reference#take_down_scenery's
+ * answer), which rg_scene_redraw_sprites asks. */
+static int32_t scenery_taken_down;
+
 /* The middle of Reference#take_over, and #take_down_scenery: the last scene's own scenery comes
  * down, and the picture goes back to the scenery every screen shows. */
 void rg_scene_take_down(int32_t brings_scenery) {
+  scenery_taken_down = 0;
   int32_t any_scene_owned = 0;
   for (int32_t i = 0; i < shown_count; i++)
     if (background_field(shown_backgrounds[i], RG_BG_SCENE) != RG_EVERY_SCENE) any_scene_owned = 1;
@@ -1872,13 +1877,16 @@ void rg_scene_take_down(int32_t brings_scenery) {
   scenery_kept = 0;
   clear_to(0);
   stamp_in_stack_order(-1);
+  scenery_taken_down = 1;
 }
 
 /* Reference#redraw_sprites_over_arrived_scenery: the sprites of this frame were drawn as it began,
  * the leaving scene's among them, and the scenery a scene put up after them covered them. The
  * display draws sprites over whatever scenery is up, so the picture is built again from the
- * scenery and the sprites kept when they were drawn. A painted screen is left alone. */
-void rg_scene_redraw_sprites(void) {
+ * scenery and the sprites kept when they were drawn. A painted screen is left alone. The same
+ * for a scene that brings none but took the last one's down, which wiped those sprites too. */
+void rg_scene_redraw_sprites(int32_t brings_scenery) {
+  if (!brings_scenery && !scenery_taken_down) return;
   if (painted_screen() || sprite_layer_count == 0) return;
   request_repaint();
 }

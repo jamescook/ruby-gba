@@ -1293,4 +1293,41 @@ class TestSceneBackgrounds < Minitest::Test
     assert_equal RED, played.call((NAME_SWITCH_AT * 2) + 2).pixel(8, 0), "the second level's attic"
     assert_backends_agree(prog, frames: [3, 5, (NAME_SWITCH_AT * 2) + 2], name: "SCNFIRST")
   end
+
+  # A SPRITE EVERY SCREEN SHOWS, OVER A SCENE WITH NO BACKGROUND OF ITS OWN: the hall takes the
+  # scenery down as it goes, and the sprite stays where it is over the backdrop, then over the
+  # hall again as it comes back.
+  private def a_sprite_over_a_scene_with_no_scenery
+    program do
+      screen :tiled
+      image(:wall_art, "#" => :blue) { SOLID_TILE }
+      image(:hero_art, "#" => :red) { SOLID_TILE }
+      tiles :walls, "#" => :wall_art
+      sprite :hero_art, at: [16, 16]
+      tick = var :tick, 0
+      var :state, 0
+      scene(:hall) { background :room, tiles: :walls, map: Array.new(5) { "#" * 10 } }
+      scene(:away) { nil }
+      game_loop do
+        tick.add! 1
+        (tick == 5).then { set! :state, 1 }
+        (tick == 7).then { set! :state, 0 }
+        case_var(:state) do
+          when_val 0, :hall
+          when_val 1, :away
+        end
+      end
+    end
+  end
+
+  def test_a_sprite_shows_over_a_scene_with_no_scenery_of_its_own
+    prog = a_sprite_over_a_scene_with_no_scenery
+    played = ->(frames) { game_player.run(prog, frames: frames).screen }
+
+    assert_equal RED, played.call(5).pixel(20, 20), "the sprite, on the frame the hall comes down"
+    assert_equal RED, played.call(6).pixel(20, 20), "the sprite, over nothing"
+    refute_equal BLUE, played.call(6).pixel(60, 20), "the hall is down"
+    assert_equal BLUE, played.call(9).pixel(60, 20), "and up again"
+    assert_backends_agree(prog, frames: [5, 6, 9], name: "SCNAWAY")
+  end
 end

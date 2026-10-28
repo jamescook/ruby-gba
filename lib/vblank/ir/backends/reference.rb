@@ -1357,9 +1357,10 @@ module VBlank
           # the same name in the scene leaving can hold tiles this scene's declaration has not.
           arrival.scenery.each { |bg| @bg_maps.delete(bg.name) }
           arrival.screen ? exec_screen(arrival.screen) : cross_to_scene_screen(arrival)
+          took_down = false
           if @bg_shown.any?(&:scene) || arrival.scenery.any?
             paint_owed_repaint
-            take_down_scenery
+            took_down = take_down_scenery
           end
           # Its picture groups are left as the scene left them, since they say what its sprites
           # can show and its sprites are left as they were too: a scene given the screen back
@@ -1369,7 +1370,7 @@ module VBlank
           arrival.map_choices.each { |var| @vars[var] = 0 }
           (arrival.painted_tiles + arrival.painted_pictures).each { |run| copy_run_tiles(run) }
           arrival.scenery.each { |bg| put_up_background(bg) }
-          redraw_sprites_over_arrived_scenery(arrival)
+          redraw_sprites_over_arrived_scenery(arrival, took_down: took_down)
           true
         end
 
@@ -1380,8 +1381,12 @@ module VBlank
         # where the console draws sprites over whatever scenery is up whenever it arrived. So the
         # picture is built again from the scenery and those sprites, as they were kept when they
         # were drawn. A painted screen keeps its own sprites in its picture and is left alone.
-        def redraw_sprites_over_arrived_scenery(arrival)
-          return if arrival.scenery.empty? || painted_screen? || @obj_layer.empty?
+        #
+        # The same for a scene that brings no scenery but +took_down+ the last one's: wiping the
+        # picture back to what every screen shows wiped those sprites too, where the console goes
+        # on drawing them over the backdrop.
+        def redraw_sprites_over_arrived_scenery(arrival, took_down:)
+          return if (arrival.scenery.empty? && !took_down) || painted_screen? || @obj_layer.empty?
 
           request_repaint
         end
@@ -1456,14 +1461,16 @@ module VBlank
         # IR::SceneHandover). A painted screen has no layers to switch off, so the picture
         # goes back to the backdrop and the scenery every screen shows, and the next scene's
         # own is stamped from there.
+        # True when it took any down.
         def take_down_scenery
           kept = @bg_shown.reject { |bg| @handover.on_arrival?(bg) }
-          return if kept.length == @bg_shown.length
+          return false if kept.length == @bg_shown.length
 
           @bg_shown = kept
           @scene_fb = nil
           @screen.clear(0)
           in_stack_order(kept).each { |bg| stamp_background(bg) }
+          true
         end
 
         # NOTHING IS UP ANY MORE. Said when the display is wiped under everything — the one

@@ -2030,6 +2030,7 @@ end
 # The middle of Reference#take_over, and #take_down_scenery: the last scene's own scenery comes
 # down, and the picture goes back to the scenery every screen shows.
 def rg_scene_take_down(brings_scenery)
+  @rg_scenery_taken_down = false # whether this takeover took any down, which rg_scene_redraw_sprites asks
   any_scene_owned = @rg_shown_backgrounds.any? { |bg| rg_background_field(bg, RG_BG_SCENE) != RG_EVERY_SCENE }
   return if !any_scene_owned && brings_scenery == 0
 
@@ -2041,13 +2042,16 @@ def rg_scene_take_down(brings_scenery)
   @rg_scenery_kept = false
   rg_clear_to(0)
   rg_stamp_in_stack_order(-1)
+  @rg_scenery_taken_down = true
 end
 
 # Reference#redraw_sprites_over_arrived_scenery: the sprites of this frame were drawn as it began,
 # the leaving scene's among them, and the scenery a scene put up after them covered them. The
 # display draws sprites over whatever scenery is up, so the picture is built again from the scenery
-# and the sprites kept when they were drawn. A painted screen is left alone.
-def rg_scene_redraw_sprites
+# and the sprites kept when they were drawn. A painted screen is left alone. The same for a scene
+# that brings none but took the last one's down, which wiped those sprites too.
+def rg_scene_redraw_sprites(brings_scenery)
+  return if brings_scenery == 0 && !@rg_scenery_taken_down
   return if rg_painted_screen? || @rg_sprite_layer.empty?
 
   rg_request_repaint
