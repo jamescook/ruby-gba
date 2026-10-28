@@ -160,10 +160,11 @@ module VBlank
           # frequency and volume, which is all the Advance's player writes; the square's width is the
           # part's, written once; and a tune stopping as [:stop_music], whichever tune it was. So the
           # writes are worked out with the game's +waves+ (its wave voice's waveforms, in the order its
-          # build recorded them, Samples::FIRST_WAVE on) and +parts+, each song's parts by [the song's
-          # name, its channel].
-          Voicing = Data.define(:waves, :parts) do
-            def initialize(waves: [], parts: {}) = super
+          # build recorded them, Samples::FIRST_WAVE on), +parts+, each song's parts by [the song's
+          # name, its channel] (a sound effect's among them), and +effects+, the names of the songs
+          # that are sound effects.
+          Voicing = Data.define(:waves, :parts, :effects) do
+            def initialize(waves: [], parts: {}, effects: []) = super
 
             # The voices +song+'s parts play on, a bit each.
             def song_voices(song)
@@ -174,22 +175,33 @@ module VBlank
           NO_VOICING = Voicing.new
 
           # The writes one sound-log entry means: [:enabled], [:beep, effect], [:noise, hit], [:wave,
-          # params], [:stop_wave], a song's [:note, ...] (nothing: the [:voice, ...] after it is the
-          # note) and [:voice, channel, song, frequency, volume], and [:stop_music], for the tune
-          # +song+. Each is [register, value], or [SET_BITS, register, mask, bits].
-          def for_entry(entry, voicing = NO_VOICING, song: nil)
+          # params], [:stop_wave], a song's or a sound effect's [:note, ...] (nothing: the [:voice, ...]
+          # after it is the note) and [:voice, channel, song, frequency, volume], [:sound_effect, name]
+          # (nothing: its notes are its writes), and [:stop_music] for the tune +song+, which lets go
+          # of its voices but those a sound effect holds (+effect_voices+, a bit each). Each is
+          # [register, value], or [SET_BITS, register, mask, bits].
+          def for_entry(entry, voicing = NO_VOICING, song: nil, effect_voices: 0)
             case entry.first
             when :enabled then [[SET_BITS, FLAGS, SWITCHES, SOUND_ON], [MAIN_LEFT, MAIN_VOLUME], [MAIN_RIGHT, MAIN_VOLUME]]
             when :beep then beep(entry.last)
             when :noise then entry.last ? noise(entry.last) : key_off(1 << NOISE_VOICE)
             when :wave then wave(entry.last, voicing.waves)
             when :stop_wave then key_off(1 << WAVE_VOICE)
-            when :note then []
+            when :note, :sound_effect then []
             when :voice then song_note(*entry.drop(1), voicing.parts)
-            when :stop_music then key_off(voicing.song_voices(song))
+            when :stop_music then key_off(voicing.song_voices(song) & ~effect_voices & 0xFF)
             when :loudness then loudness_at(entry[1], entry[2], voicing, song)
             else raise ArgumentError, "the Super Nintendo build does not play #{entry.first.inspect} yet"
             end
+          end
+
+          # Whether a song's or an effect's note on +channel+ makes a sound (Reference::Player#sounds?):
+          # not a rest, not at volume nought, nor on the wave voice at a volume whose nearest of that
+          # voice's loudnesses is none.
+          def sounds?(channel, frequency, volume)
+            return false unless frequency.positive? && volume.positive?
+
+            CHANNEL_VOICES.fetch(channel) != WAVE_VOICE || VBlank::Audio::Sound.wave_level(volume) != :mute
           end
 
           # THE MUSIC VOLUME reaching +song+'s note on channel +channel+, now at +volume+ (0..15): a
@@ -363,18 +375,30 @@ module VBlank
             note_volume = nil
             loudness = [] # the registers a new note's loudness has just written
             previous = nil
+            effect_voices = 0 # the voices a sound effect holds, a bit each
             entries.each do |entry|
-              song = entry[1] if entry.first == :note
+              song = entry[1] if entry.first == :note && !voicing.effects.include?(entry[1])
+              effect_voices = held_by_effects(effect_voices, entry, voicing) if entry.first == :voice
               played = note_volume && wave_or_noise_note?(entry) ? [entry.first, entry.last.merge(volume: note_volume)] : entry
               note_volume = entry[4] if entry.first == :voice && !SQUARE_VOICES.key?(entry[1])
               note_volume = nil unless %i[voice loudness].include?(entry.first)
-              writes = for_entry(played, voicing, song: song)
+              writes = for_entry(played, voicing, song: song, effect_voices: effect_voices)
               writes = writes.reject { |register, *| loudness.include?(register) } if voice_own_entry?(entry)
               # A note's loudness follows its [:voice ...]; one that does not is a held note's, at a new level.
               loudness = entry.first == :loudness && previous == :voice ? writes.map(&:first) : []
               previous = entry.first
               yield entry, writes
             end
+          end
+
+          # +voices+, the voices sound effects hold, after a [:voice ...] +entry+: whoever's note it is
+          # took the voice (only a note that takes it is logged), and holds it while it sounds
+          # (Reference::Player#claim_channel) — so a sound effect's sounding note holds it for the
+          # effect, and anything else lets it go from one.
+          def held_by_effects(voices, entry, voicing)
+            _, channel, who, frequency, volume = entry
+            bit = 1 << CHANNEL_VOICES.fetch(channel)
+            voicing.effects.include?(who) && sounds?(channel, frequency, volume) ? voices | bit : voices & ~bit
           end
 
           # A [:wave ...] or [:noise ...] entry that plays a note, not a rest.

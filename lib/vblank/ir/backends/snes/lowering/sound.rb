@@ -13,7 +13,8 @@ module VBlank
           module Sound
             STATEMENTS = Ractor.make_shareable({ enable_sound: :emit_enable_sound, beep: :emit_beep, noise: :emit_noise,
                                                  wave: :emit_wave, stop_wave: :emit_stop_wave, play_song: :emit_play_song,
-                                                 stop_music: :emit_stop_music, play_from_list: :emit_play_from_list })
+                                                 stop_music: :emit_stop_music, play_from_list: :emit_play_from_list,
+                                                 play_sound_effect: :emit_play_sound_effect })
 
             # The kinds that reach the sound unit: a program with none of them is built without it.
             KINDS = STATEMENTS.keys.freeze
@@ -22,7 +23,7 @@ module VBlank
             def self.sounds?(program) = program.walk.any? { |node| KINDS.include?(node.kind) }
 
             # Whether +program+ plays songs, and so carries their player (Runtime::Music).
-            def self.songs?(program) = program.walk.any? { |node| %i[song play_song stop_music play_from_list].include?(node.kind) }
+            def self.songs?(program) = program.walk.any? { |node| %i[song play_song stop_music play_from_list play_sound_effect].include?(node.kind) }
 
             # Every entry of the sound log the cartridge can write, by the number it writes.
             def sound_entries = @sound_entries.dup
@@ -32,7 +33,7 @@ module VBlank
             def sound_waves = @sound_waves.dup
 
             # What the DSP writes for this game's sound-log entries are worked out with.
-            def sound_voicing = DSPWrites::Voicing.new(waves: @sound_waves, parts: @music.parts)
+            def sound_voicing = DSPWrites::Voicing.new(waves: @sound_waves, parts: @music.parts, effects: @music.effect_names)
 
             # The section of the game's songs (SNES::Music), each note's sound-log entries numbered
             # among the rest.
@@ -60,6 +61,12 @@ module VBlank
             def emit_play_from_list(node)
               routine = node.this_frame ? "rt_music_play_from_list_now" : "rt_music_play_from_list"
               runtime_call(routine, [node.which, Build.int(@music.list_number(node.name))])
+            end
+
+            # Reference#exec_play_sound_effect: the effect at the place the game works out, of the list.
+            def emit_play_sound_effect(node)
+              routine = node.this_frame ? "rt_sfx_play_now" : "rt_sfx_play"
+              runtime_call(routine, [node.which, Build.int(@music.effect_list_number(node.name))])
             end
 
             # Reference#exec_wave's entry.

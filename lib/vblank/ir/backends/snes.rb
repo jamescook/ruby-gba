@@ -77,15 +77,17 @@ module VBlank
           sound = Lowering::Sound.sounds?(program)
           songs = Lowering::Sound.songs?(program)
           follows_level = songs && Music.follows_level?(program)
+          effects = IR::Tunes.effects(program).uniq.size
           Runtime.reserve(memory, painted: painted, chip: board.name == :super_fx, sound: sound, songs: songs,
-                                  music_follows_level: follows_level)
+                                  music_follows_level: follows_level, effects: effects)
           lowering = Lowering.new(program, memory: memory)
           game = lowering.sections + lowering.art_sections
           runtime = Runtime.sections(memory, main: Lowering::MAIN, frame_begins: lowering.frame_begins, painted: painted,
                                              board: board, saves: saves, sound: sound,
                                              sound_waves: lowering.sound_waves,
                                              music: (lowering.music_section if songs),
-                                             music_level_at: (lowering.variables.fetch(IR::Tunes::LEVEL) if follows_level))
+                                             music_level_at: (lowering.variables.fetch(IR::Tunes::LEVEL) if follows_level),
+                                             effects: effects)
           linked = Linker.new(runtime + game, most_banks: board.most_banks).link
           routines = lowering.section_routines.map do |label, routine|
             placed = linked.sections.fetch(label)

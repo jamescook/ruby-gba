@@ -13,6 +13,7 @@ require_relative "runtime/chip_paint"
 require_relative "runtime/saving"
 require_relative "runtime/sound"
 require_relative "runtime/music"
+require_relative "runtime/effects"
 
 module VBlank
   module IR
@@ -35,15 +36,17 @@ module VBlank
           # +painted+ (Paint) keeps its copy of the screen in work RAM's last bank. A cartridge with a
           # Super FX (+chip+) keeps the chip's waiting loop and its counts (Chip), after the rest so
           # a plain cartridge's places do not move. A game with +songs+ keeps their player's places
-          # (Music), and those of the music volume if it sets one (+music_follows_level+).
-          def reserve(memory, painted: false, chip: false, sound: false, songs: false, music_follows_level: false)
+          # (Music), those of the music volume if it sets one (+music_follows_level+), and those of
+          # its +effects+ sound effects (Effects).
+          def reserve(memory, painted: false, chip: false, sound: false, songs: false, music_follows_level: false,
+                      effects: 0)
             Paint.reserve(memory, chip: chip) if painted
             Frame.reserve(memory)
             Picture.reserve(memory)
             Tint.reserve(memory)
             Chip.reserve(memory) if chip
             Sound.reserve(memory) if sound
-            Music.reserve(memory, follows_level: music_follows_level) if songs
+            Music.reserve(memory, follows_level: music_follows_level, effects: effects) if songs
           end
 
           # The runtime's sections: the entry points in the first bank, and everything else in one.
@@ -55,9 +58,10 @@ module VBlank
           # for a game that makes sound, which sends the sound unit its program at power-on, with
           # +sound_waves+, the wave voice's waveforms, recorded beside it; +music+ the section of its
           # songs (SNES::Music#section), for a game with songs, whose player (Music) it then carries;
-          # +music_level_at+ where such a game keeps its music volume, if it sets one.
+          # +music_level_at+ where such a game keeps its music volume, if it sets one; +effects+ how many
+          # sound effects it has.
           def sections(memory, main:, frame_begins: nil, painted: false, board: Cartridge::SNESROM::PLAIN, saves: false,
-                       sound: false, sound_waves: [], music: nil, music_level_at: nil)
+                       sound: false, sound_waves: [], music: nil, music_level_at: nil, effects: 0)
             chip = board.name == :super_fx
             vectors = W65816.new("runtime vectors", home: :first)
             Boot.emit_vectors(vectors)
@@ -74,7 +78,7 @@ module VBlank
             Chip.emit(asm, memory) if chip
             Saving.emit(asm, memory, Saving.scratch(memory)) if saves
             Sound.emit(asm, memory, sound_waves, songs: !music.nil?) if sound
-            Music.emit(asm, memory, level_at: music_level_at) if music
+            Music.emit(asm, memory, level_at: music_level_at, effects: effects) if music
             emit_start(asm, chip: chip, sound: sound)
             emit_frame_begins(asm, frame_begins)
             [vectors.section, asm.section] + (chip && painted ? [ChipPaint.gsu_section] : []) +

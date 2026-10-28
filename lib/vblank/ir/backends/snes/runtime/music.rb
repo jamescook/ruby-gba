@@ -51,28 +51,42 @@ module VBlank
             LOUDNESS = "rt music loudness"
             LEVEL_NOW = "rt music level now"
             LOUDNESS_TABLE = "rt music loudness table"
+            # THE PARTS WHOSE VOICES HOLD A NOTE, in the order they first took one since the tune
+            # started (Reference::Player's @sounding, a Hash kept in the order its keys came): each
+            # part's number, two bytes apart, and where the list ends, and whether each part is in it.
+            # A sound effect taking a part's voice takes the part out, and the part's next note puts
+            # it back at the end, so the order is the parts' only until an effect plays.
+            HELD_ORDER = "rt music held order"
+            HELD_END = "rt music held end"
+            HELD_IN = "rt music held in"
+            CHANNEL_FOUND = "rt music channel found"
 
             module_function
 
-            # +follows_level+ for a game that sets the music volume (SNES::Music.follows_level?).
-            def reserve(memory, follows_level: false)
+            # +follows_level+ for a game that sets the music volume (SNES::Music.follows_level?);
+            # +effects+ how many sound effects the game has (Effects).
+            def reserve(memory, follows_level: false, effects: 0)
               [NAMED, PLAYING, STOPS, STOPS_SEEN, ENDED, FRAME, AGAIN, SONG, PART, PARTS_IN, COUNT, LIST,
                LEFT, ENTRY, NOTE].each { |name| memory.reserve(name, 2) }
               memory.reserve(CURSORS, SNES::Music::PARTS * 2)
+              Effects.reserve(memory, effects) if effects.positive?
               return unless follows_level
 
-              [LEVEL_SET, LOUDNESS, LEVEL_NOW, LOUDNESS_TABLE].each { |name| memory.reserve(name, 2) }
-              memory.reserve(HELD, SNES::Music::PARTS * 2)
+              [LEVEL_SET, LOUDNESS, LEVEL_NOW, LOUDNESS_TABLE, HELD_END, CHANNEL_FOUND].each { |name| memory.reserve(name, 2) }
+              [HELD, HELD_ORDER, HELD_IN].each { |name| memory.reserve(name, SNES::Music::PARTS * 2) }
             end
 
-            # +level_at+ is where a game that sets its music volume keeps it (IR::Tunes::LEVEL), or nil.
-            def emit(asm, memory, level_at: nil)
+            # +level_at+ is where a game that sets its music volume keeps it (IR::Tunes::LEVEL), or nil;
+            # +effects+ how many sound effects the game has.
+            def emit(asm, memory, level_at: nil, effects: 0)
               at = ->(name, plus = 0) { asm.abs(memory[name], plus) }
+              sharing = effects.positive?
               emit_game_side(asm, at)
-              emit_frames(asm, at)
-              emit_switch(asm, at, memory, level_at)
-              emit_song_frame(asm, at, memory, level_at)
+              emit_frames(asm, at, sharing)
+              emit_switch(asm, at, memory, level_at, sharing)
+              emit_song_frame(asm, at, memory, level_at, sharing)
               emit_level(asm, at, memory, level_at) if level_at
+              Effects.emit(asm, memory, effects, level_at) if sharing
               emit_group(asm)
             end
 
@@ -145,17 +159,21 @@ module VBlank
               asm.rts
             end
 
-            # rt_music_frames: the player, once for each frame the pass just ended took.
-            def emit_frames(asm, at)
+            # rt_music_frames: the player, once for each frame the pass just ended took — with sound
+            # effects, Reference::Player#advance's order: the tune caught up with, the effects that
+            # outrank it, its parts, and the other effects (Effects).
+            def emit_frames(asm, at, sharing)
               asm.label("rt_music_frames")
               asm.lda(at.call(Frame::FRAMES_TAKEN))
               asm.sta(at.call(LEFT))
               asm.label("rt_music_frames_next")
               asm.jsr(asm.abs("rt_music_switch"))
+              asm.jsr(asm.abs("rt_sfx_above")) if sharing
               asm.lda(at.call(PLAYING))
               asm.beq("rt_music_frames_played")
               asm.jsr(asm.abs("rt_music_song_frame"))
               asm.label("rt_music_frames_played")
+              asm.jsr(asm.abs("rt_sfx_below")) if sharing
               asm.dec(at.call(LEFT))
               asm.bne("rt_music_frames_next")
               asm.rts
@@ -163,7 +181,7 @@ module VBlank
 
             # rt_music_switch: caught up with the tune the game names (Reference::Player#switch_to_wanted_song).
             # A is 1 when that changed what is playing, nought when not.
-            def emit_switch(asm, at, memory, level_at)
+            def emit_switch(asm, at, memory, level_at, sharing)
               asm.label("rt_music_switch")
               asm.lda(at.call(ENDED))
               asm.beq("rt_music_switch_live")
@@ -219,18 +237,34 @@ module VBlank
               SNES::Music::PARTS.times { |p| asm.stz(at.call(CURSORS, p * 2)) }
               asm.rts
 
-              # The playing tune's group for stopping (SONG is still the tune's), and no note held.
+              # THE PLAYING TUNE STOPS (Reference::Player#silence_song; SONG is still the tune's): the
+              # voices its parts play on let go — but one a sound effect holds, which stays the
+              # effect's — every voice the tune held free, no note held, and [:stop_music] logged.
               asm.label("rt_music_quiet")
-              SNES::Music::PARTS.times { |p| asm.stz(asm.abs(memory[HELD], p * 2)) } if level_at
+              if level_at
+                SNES::Music::PARTS.times do |p|
+                  asm.stz(asm.abs(memory[HELD], p * 2))
+                  asm.stz(asm.abs(memory[HELD_IN], p * 2))
+                end
+                asm.stz(at.call(HELD_END))
+              end
               asm.ldx(at.call(SONG))
-              asm.lda(asm.long_x("music_data", SNES::Music::QUIET_GROUP))
+              asm.lda(asm.long_x("music_data", SNES::Music::VOICES))
+              asm.sta(asm.direct(Sound::R0))
+              Effects.emit_release_tune_voices(asm, memory) if sharing
+              asm.lda(asm.direct(Sound::R0))
+              asm.sta(asm.direct(Sound::R1))
+              asm.lda(Sound::SET_KEY_OFF_BITS)
+              asm.jsl(asm.long("rt_sound_command"))
+              asm.ldx(at.call(SONG))
+              asm.lda(asm.long_x("music_data", SNES::Music::STOP_LOG))
               asm.tax
               asm.jmp(asm.abs("rt_sound_group"))
             end
 
             # rt_music_song_frame: each part's note whose frame has come, then the frame on
             # (Reference::Player#play_song_frame and #advance_song_frame).
-            def emit_song_frame(asm, at, memory, level_at)
+            def emit_song_frame(asm, at, memory, level_at, sharing)
               m = SNES::Music
               asm.label("rt_music_song_frame")
               asm.ldx(at.call(SONG))
@@ -256,15 +290,24 @@ module VBlank
               asm.tay
               asm.lda(asm.abs_y(memory[CURSORS]))
               asm.cmp(at.call(COUNT))
-              asm.bcs("rt_music_part_next")
+              asm.branch_long(:bcs, "rt_music_part_next")
               emit_times(asm, m::NOTE_BYTES) # the next note: its frame, and where its group is
               asm.clc
               asm.adc(at.call(LIST))
               asm.tax
               asm.lda(asm.long_x("music_data", m::NOTE_FRAME))
               asm.cmp(at.call(FRAME))
-              asm.bne("rt_music_part_next")
+              asm.branch_long(:bne, "rt_music_part_next")
               asm.stx(at.call(NOTE))
+              if sharing
+                # A voice a sound effect holds with a higher rank: the part carries on in time,
+                # silent here (Reference::Player#play_song_frame).
+                asm.ldx(at.call(SONG))
+                asm.lda(asm.long_x("music_data", m::RANK))
+                Effects.emit_claim(asm, memory)
+                asm.branch_long(:beq, "rt_music_part_passed")
+              end
+              asm.ldx(at.call(NOTE))
               asm.lda(asm.long_x("music_data", m::NOTE_HEAD))
               asm.tax
               asm.jsr(asm.abs("rt_sound_group"))
@@ -273,6 +316,7 @@ module VBlank
               asm.lda(asm.long_x("music_data", m::NOTE_TAIL))
               asm.tax
               asm.jsr(asm.abs("rt_sound_group"))
+              asm.label("rt_music_part_passed")
               asm.lda(at.call(PART))
               asm.asl
               asm.tax
@@ -330,6 +374,16 @@ module VBlank
               asm.tay
               asm.lda(asm.stack(1))
               asm.sta(asm.abs_y(memory[HELD]))
+              asm.lda(asm.abs_y(memory[HELD_IN]))
+              asm.bne("rt_music_note_not_held") # in the list already, where it first came
+              asm.lda(1)
+              asm.sta(asm.abs_y(memory[HELD_IN]))
+              asm.ldx(at.call(HELD_END))
+              asm.lda(at.call(PART))
+              asm.sta(asm.abs_x(memory[HELD_ORDER]))
+              asm.inx
+              asm.inx
+              asm.stx(at.call(HELD_END))
               asm.label("rt_music_note_not_held")
               asm.pla
               asm.jsr(asm.abs("rt_music_loudness"))
@@ -337,9 +391,12 @@ module VBlank
 
             # THE MUSIC VOLUME MOVED (Reference::Player#apply_music_volume): at the start of a frame
             # of the tune, before any note, every part whose voice holds a note writes and logs its
-            # loudness at the new level, in the order of the parts — which is the order they first
-            # sounded, as the interpreter keeps them, since every part's first time round starts with
-            # an event at frame 0 (IR::Tunes.loop_passes).
+            # loudness at the new level, in the order the parts first took their voices (HELD_ORDER) —
+            # the order of the parts, since every part's first time round starts with an event at
+            # frame 0 (IR::Tunes.loop_passes), until a sound effect takes one.
+            #
+            # rt_music_unhold: the playing tune's part on channel A taken out of HELD_ORDER, its note
+            # no longer held, as a sound effect takes its voice (Reference::Player#play_effect_frame).
             #
             # rt_music_loudness: the part at ENTRY's loudness group for the volume in A at the level.
             # rt_music_scaled: A = the volume in A at the level (IR::Tunes.scaled_volume), the level
@@ -355,11 +412,14 @@ module VBlank
               asm.rts
               asm.label("rt_music_relevel_moved")
               asm.sta(at.call(LEVEL_SET))
-              asm.stz(at.call(PART))
+              asm.stz(at.call(LIST)) # where in HELD_ORDER, two bytes a part
               asm.label("rt_music_relevel_part")
-              asm.lda(at.call(PART))
-              asm.cmp(at.call(PARTS_IN))
+              asm.lda(at.call(LIST))
+              asm.cmp(at.call(HELD_END))
               asm.bcs("rt_music_relevel_done")
+              asm.tax
+              asm.lda(asm.abs_x(memory[HELD_ORDER]))
+              asm.sta(at.call(PART))
               asm.asl
               asm.tay
               asm.lda(asm.abs_y(memory[HELD]))
@@ -369,9 +429,59 @@ module VBlank
               asm.pla
               asm.jsr(asm.abs("rt_music_loudness"))
               asm.label("rt_music_relevel_next")
-              asm.inc(at.call(PART))
+              asm.inc(at.call(LIST))
+              asm.inc(at.call(LIST))
               asm.bra("rt_music_relevel_part")
               asm.label("rt_music_relevel_done")
+              asm.rts
+
+              asm.label("rt_music_unhold")
+              asm.sta(at.call(CHANNEL_FOUND))
+              asm.lda(at.call(PLAYING))
+              asm.beq("rt_music_unhold_done")
+              asm.ldx(at.call(SONG))
+              asm.lda(asm.long_x("music_data", m::PART_COUNT))
+              asm.sta(at.call(PARTS_IN))
+              asm.stz(at.call(PART))
+              asm.label("rt_music_unhold_find")
+              asm.lda(at.call(PART))
+              asm.cmp(at.call(PARTS_IN))
+              asm.bcs("rt_music_unhold_done")
+              asm.jsr(asm.abs("rt_music_entry"))
+              asm.lda(asm.long_x("music_data", m::CHANNEL))
+              asm.cmp(at.call(CHANNEL_FOUND))
+              asm.beq("rt_music_unhold_found")
+              asm.inc(at.call(PART))
+              asm.bra("rt_music_unhold_find")
+              asm.label("rt_music_unhold_found")
+              asm.lda(at.call(PART))
+              asm.asl
+              asm.tay
+              asm.lda(0)
+              asm.sta(asm.abs_y(memory[HELD]))
+              asm.lda(asm.abs_y(memory[HELD_IN]))
+              asm.beq("rt_music_unhold_done")
+              asm.lda(0)
+              asm.sta(asm.abs_y(memory[HELD_IN]))
+              # Out of the list: every part after it moves down a place.
+              asm.ldx(0)
+              asm.label("rt_music_unhold_seek")
+              asm.lda(asm.abs_x(memory[HELD_ORDER]))
+              asm.cmp(at.call(PART))
+              asm.beq("rt_music_unhold_shift")
+              asm.inx
+              asm.inx
+              asm.bra("rt_music_unhold_seek")
+              asm.label("rt_music_unhold_shift")
+              asm.lda(asm.abs_x(memory[HELD_ORDER], 2))
+              asm.sta(asm.abs_x(memory[HELD_ORDER]))
+              asm.inx
+              asm.inx
+              asm.cpx(at.call(HELD_END))
+              asm.bcc("rt_music_unhold_shift")
+              asm.dec(at.call(HELD_END))
+              asm.dec(at.call(HELD_END))
+              asm.label("rt_music_unhold_done")
               asm.rts
 
               asm.label("rt_music_loudness")
