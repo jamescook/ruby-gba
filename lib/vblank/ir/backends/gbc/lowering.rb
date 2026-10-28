@@ -160,12 +160,14 @@ module VBlank
 
           # +lends_sprite_colors+ builds the game with its sprites' lists of colours borrowing the
           # console's eight as it runs (Art::TooManySpriteLists). +tile_rooms+ builds it with each screen
-          # bringing its own background tiles in (Art::TooManyBackgroundTiles, Picture#plan_tile_rooms).
-          def initialize(program, memory:, lends_sprite_colors: false, tile_rooms: false)
+          # bringing its own background tiles in (Art::TooManyBackgroundTiles, Picture#plan_tile_rooms),
+          # and +room_colors+ with its own background colours too (Art::TooManyBackgroundLists).
+          def initialize(program, memory:, lends_sprite_colors: false, tile_rooms: false, room_colors: false)
             @program = program
             @memory = memory
             @lends_sprite_colors = lends_sprite_colors
             @plans_tile_rooms = tile_rooms # each screen brings its own tiles in (Picture#plan_tile_rooms)
+            @plans_room_colors = room_colors
             @funcs = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
             # What each timer does when it ticks, wherever that is written, and the number each is
             # known by here, in the order the program first names them.
@@ -224,6 +226,7 @@ module VBlank
             keep_patches
             keep_tile_runs
             keep_drawn_palettes
+            keep_background_colors_held
             keep_big_map_places
             keep_column_numbers
             keep_clock_readings

@@ -1154,6 +1154,74 @@ class TestSceneBackgrounds < Minitest::Test
     assert_backends_agree(prog, frames: [2, TILES_SWITCH_AT + 3, (TILES_SWITCH_AT * 2) + 3], name: "SCNTILES")
   end
 
+  # EACH SCENE'S COLOURS ARE ITS OWN TO COUNT too: two scenes each drawing from six lists of four
+  # colours of their own, twelve between them, which is more than the eight a Game Boy Color holds
+  # at once. A fade is in force from before the second scene arrives until after, so its colours
+  # arrive faded, and the first scene comes back after the second's colours went in where its own
+  # had been.
+  COLORS_SWITCH_AT = 4
+
+  # Six lists of four colours, place 0 see-through, numbered from +first+: no two alike, black in each.
+  private def six_lists(first)
+    (first...(first + 6)).map do |n|
+      [:transparent, VBlank::Graphics::Color.rgb(31, 31 - n, 2 * n), VBlank::Graphics::Color.rgb(2 * n, 31, 8),
+       VBlank::Graphics::Color.rgb(n, n, 31), 0]
+    end
+  end
+
+  # +dusk+, a list of colours, is one the first scene's first list is drawn with from the first
+  # frame, said once.
+  private def two_scenes_of_six_lists_each(dusk: nil)
+    lists = { one: six_lists(0), two: six_lists(6) }
+    switch = COLORS_SWITCH_AT
+    program do
+      screen :tiled
+      row = lists.map { |name, colored| ManyTiles.declare_listed(self, :"#{name}_set", colored) }.first
+      colors :dusk, dusk if dusk
+      state = var :state, 0
+      tick = var :tick, 0
+      dim = var :dim, 0
+      scene(:one) do
+        first = background :one, tiles: :one_set, map: Array.new(4) { row }
+        (tick == 1).then { first.draw_with({ one_set_list0: :dusk }) } if dusk
+      end
+      scene(:two) { background :two, tiles: :two_set, map: Array.new(4) { row } }
+      game_loop do
+        tick.add! 1
+        (tick == switch - 1).then { dim.set! 50 }
+        (tick == switch + 3).then { dim.set! 0 }
+        (tick == switch).then { state.set! 1 }
+        (tick == switch * 3).then { state.set! 0 }
+        fade :black, dim
+        case_var(:state) do
+          when_val 0, :one
+          when_val 1, :two
+        end
+      end
+    end
+  end
+
+  def test_scenes_whose_colours_together_are_more_than_the_console_holds_each_show_their_own
+    prog = two_scenes_of_six_lists_each
+    played = ->(frames) { game_player.run(prog, frames: frames).screen }
+    one, two = [0, 6].map { |n| VBlank::Graphics::Color.rgb(31, 31 - n, 2 * n) }
+
+    assert_equal one, played.call(2).pixel(0, 0), "the first scene's first list"
+    assert_equal two, played.call((COLORS_SWITCH_AT * 2) + 1).pixel(0, 0), "the second scene's"
+    assert_equal one, played.call((COLORS_SWITCH_AT * 3) + 3).pixel(0, 0), "the first scene's again"
+    assert_backends_agree(prog, frames: [2, COLORS_SWITCH_AT + 2, (COLORS_SWITCH_AT * 3) + 3], name: "SCNCOLORS")
+  end
+
+  # A scene's background drawn with another list keeps it when the scene comes back, said once,
+  # though the scene's own colours came in again with it.
+  def test_a_scene_back_with_its_own_colours_keeps_the_list_it_was_drawn_with
+    dusk = [:transparent, VBlank::Graphics::Color.rgb(3, 3, 20), VBlank::Graphics::Color.rgb(20, 3, 3),
+            VBlank::Graphics::Color.rgb(3, 20, 3), VBlank::Graphics::Color.rgb(31, 31, 31)]
+    prog = two_scenes_of_six_lists_each(dusk: dusk)
+
+    assert_equal dusk[1], game_player.run(prog, frames: (COLORS_SWITCH_AT * 3) + 3).screen.pixel(0, 0)
+  end
+
   # --- one background name in two scenes ---
 
   # ONE NAME, A DECLARATION IN EACH SCENE, the way a game writes its levels: each level is a

@@ -70,7 +70,7 @@ module VBlank
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length,
                                       runs: runs, drawn_palettes: drawn_palettes, lends: art.lends?,
                                       palettes_in_use: art.palettes_in_use, groups: art.groups?, bar_rows: bar_rows,
-                                      rooms: art.rooms.any?)
+                                      rooms: art.rooms.any?, room_colors: art.room_colors?)
             BigMaps.emit(asm, memory, buffer: big_maps&.first, staged: big_maps&.last)
             Paint.emit(asm, memory, painting: art.painting?, map_count: art.square_maps.length, bar: !bar_rows.nil?)
             Sound.emit(asm)

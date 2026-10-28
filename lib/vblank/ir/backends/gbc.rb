@@ -113,24 +113,33 @@ module VBlank
         # A game whose sprites wear more lists of colours than the console holds is built again
         # with the lists borrowing them as it runs (Art::TooManySpriteLists).
         # A game whose backgrounds need more tiles than the console holds at once is built again with
-        # each screen bringing its own tiles in (Art::TooManyBackgroundTiles).
+        # each screen bringing its own tiles in (Art::TooManyBackgroundTiles), and one whose
+        # backgrounds draw from more lists of colours than it holds at once with each screen bringing
+        # its own colours in as well (Art::TooManyBackgroundLists).
         def build(program, title: "RUBYGBA")
+          build_with_rooms_if_needed(program, title)
+        rescue Art::TooManyBackgroundLists
+          build_lending_if_needed(program, title, tile_rooms: true, room_colors: true)
+        end
+
+        private
+
+        def build_with_rooms_if_needed(program, title)
           build_lending_if_needed(program, title, tile_rooms: false)
         rescue Art::TooManyBackgroundTiles
           build_lending_if_needed(program, title, tile_rooms: true)
         end
 
-        private
-
-        def build_lending_if_needed(program, title, tile_rooms:)
-          build_cartridge(program, title, lends: false, tile_rooms: tile_rooms)
+        def build_lending_if_needed(program, title, tile_rooms:, room_colors: false)
+          build_cartridge(program, title, lends: false, tile_rooms: tile_rooms, room_colors: room_colors)
         rescue Art::TooManySpriteLists
-          build_cartridge(program, title, lends: true, tile_rooms: tile_rooms)
+          build_cartridge(program, title, lends: true, tile_rooms: tile_rooms, room_colors: room_colors)
         end
 
-        def build_cartridge(program, title, lends:, tile_rooms:)
+        def build_cartridge(program, title, lends:, tile_rooms:, room_colors:)
           memory = Memory.new
-          lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends, tile_rooms: tile_rooms)
+          lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends, tile_rooms: tile_rooms,
+                                           room_colors: room_colors)
           # The runtime's places first, so they are in the half of work memory always in view.
           Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?,
                                   bar_rows: lowering.bar_rows, slides: lowering.music.slides?,

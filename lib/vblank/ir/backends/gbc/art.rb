@@ -84,6 +84,13 @@ module VBlank
           # build is made again with rooms (GBC#build).
           class TooManyBackgroundTiles < LoweringError; end
 
+          # MORE BACKGROUND LISTS OF COLOURS THAN THE COLOR HOLDS AT ONCE. A game whose backgrounds
+          # between them draw from more than eight lists still fits when no one screen draws from
+          # more: each screen then brings its own palettes in with its tiles (a Room's +palettes+). A
+          # game is first built with every palette in the console from power-on; this is raised when
+          # that runs out, and the build is made again with rooms that carry colours (GBC#build).
+          class TooManyBackgroundLists < LoweringError; end
+
           # THE TILES ONE SCREEN BRINGS IN, past the ones every screen keeps from power-on: a scene's
           # own backgrounds' tiles, or one area's of a background that walks between areas. +number+
           # is the one the runtime brings it in by (one up, so that nought is none), or nil for a
@@ -91,12 +98,33 @@ module VBlank
           # its first tile's number, +tiles+ its own tiles (16 bytes each) and +numbers+ which number
           # each is by its bytes. +what+ says whose it is, for a message, and +id+ which it is among
           # every room the game has, which labels its tiles in the cartridge.
-          Room = Struct.new(:id, :number, :base, :parent, :tiles, :numbers, :what) do
+          #
+          # In a game whose screens bring their colours in too (Art#room_colors?), +palettes+ are the
+          # room's own lists of four, numbered from +palette_base+, past every screen's and its
+          # parent's; and +first_palette+ is the one it puts first, where an empty cell is drawn
+          # from, when no palette every screen keeps is there (#room_palette_number).
+          Room = Struct.new(:id, :number, :base, :parent, :tiles, :numbers, :what, :palette_base, :palettes,
+                            :first_palette) do
             # The number its tiles take up to, past every room it carries.
             def reach = base + tiles.length
 
+            # The number its palettes take up to, past every room it carries.
+            def palette_reach = palette_base + palettes.length
+
             # The rooms whose tiles it brings in, its parent's first.
             def chain = parent ? [*parent.chain, self] : [self]
+
+            # The palette it or a room it carries puts first, nil for none yet.
+            def first_palette_in_chain = first_palette || parent&.first_palette_in_chain
+
+            # Every palette of its own and of the rooms it carries, [number, colours] each, its
+            # parent's first.
+            def chain_palettes
+              chain.flat_map { |link| link.palettes.each_with_index.map { |colors, i| [link.palette_base + i, colors] } }
+            end
+
+            # Whether it brings anything in: tiles, or colours.
+            def brings_in? = chain.any? { |link| link.tiles.any? || link.palettes.any? || link.first_palette }
           end
 
           attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids
@@ -114,10 +142,15 @@ module VBlank
           # a game that paints no screen. +lends+ says the sprites' lists borrow the console's eight
           # as the game runs (TooManySpriteLists). +grouped+ is the set of picture groups each grouped
           # picture is copied in by, by the picture's name (Lowering::Picture#grouped_pictures).
-          def initialize(square_colors: nil, lends: false, grouped: {})
+          # +room_colors+ says each screen brings its own palettes in with its tiles
+          # (TooManyBackgroundLists).
+          def initialize(square_colors: nil, lends: false, grouped: {}, room_colors: false)
             @square_colors = square_colors
             @lends = lends
             @grouped = grouped
+            @room_colors = room_colors
+            @shared_palettes = nil # how many palettes every screen keeps, once rooms are planned
+            @first_free = false # ...and whether the first of them is black alone, a room's to take
             @rooms = [] # the Rooms the runtime brings in, by their number less one
             @all_rooms = [] # ...and every Room, the ones only carried by another too
             @shared_tiles = nil # how many tiles every screen keeps, once rooms are planned
@@ -156,6 +189,9 @@ module VBlank
           # palette's number counts into every list the game has (art_lent_palettes), not the eight.
           def lends? = @lends
 
+          # Do the screens bring their own background palettes in with their tiles?
+          def room_colors? = @room_colors
+
           # Has the game pictures grouped by room, copied in as a room comes up (Runtime::PictureGroups)?
           def groups? = !@grouped.empty?
 
@@ -192,9 +228,11 @@ module VBlank
 
           # The palettes the game can show, by the console's numbers: the backgrounds' from 0 — the
           # first always, since its first colour is the backdrop — the painted screen's, and the
-          # sprites' from 8, all eight of those when they are lent.
+          # sprites' from 8, all eight of those when they are lent. A screen's own palettes count up to
+          # the most any screen reaches.
           def palettes_in_use
-            backgrounds = (0...[@background_palettes.length, 1].max).to_a
+            reach = [@background_palettes.length, 1, *@all_rooms.map(&:palette_reach)].max
+            backgrounds = (0...reach).to_a
             backgrounds.concat(painted_palettes)
             sprites =(0...(lends? ? PALETTES : @sprite_palettes.length)).map { |n| PALETTES + n }
             (backgrounds + sprites).uniq
@@ -293,18 +331,29 @@ module VBlank
           # Whether the tiles every screen keeps are settled, so the rest go in rooms.
           def shared_tiles_settled? = !@shared_tiles.nil?
 
-          # Settle the tiles every screen keeps: those asked for so far. Every tile asked for after
-          # this is asked for in a room.
-          def keep_tiles_asked_so_far = @shared_tiles = @background_tiles.length
+          # Keep the tiles every screen keeps: those asked for so far. Every tile asked for after
+          # this is asked for in a room. In a game whose screens bring their colours in, the palettes
+          # every screen keeps are settled too; where none of them can be first, the first is black
+          # alone, and each room puts a palette of its own there (#room_palette_number).
+          def keep_art_asked_so_far
+            @shared_tiles = @background_tiles.length
+            return unless room_colors?
+
+            @first_free = @black_held || @background_palettes.empty?
+            @background_palettes << black_alone if @background_palettes.empty?
+            @shared_palettes = @background_palettes.length
+          end
 
           # A room for the tiles +what+ brings in (see Room), numbered from +base+: from its parent's
           # last, or past the tiles every screen keeps. +brought_in+ says the runtime brings it in by
-          # a number of its own; a scene's tiles carried by its areas' rooms are not.
+          # a number of its own; a scene's tiles carried by its areas' rooms are not. Its palettes are
+          # numbered the same way.
           def add_room(what, parent: nil, base: nil, brought_in: true)
             base ||= parent ? parent.reach : @shared_tiles
             refuse_too_many_rooms! if brought_in
             made = Room.new(id: @all_rooms.length, number: brought_in ? @rooms.length + 1 : nil, base: base,
-                            parent: parent, tiles: [], numbers: {}, what: what)
+                            parent: parent, tiles: [], numbers: {}, what: what, palettes: [],
+                            palette_base: parent ? parent.palette_reach : @background_palettes.length)
             @rooms << made if brought_in
             @all_rooms << made
             made
@@ -365,17 +414,21 @@ module VBlank
           def listed_tile(image, order, room, recolored)
             colors = padded(order.map { |place| image.colors[place] & 0x7FFF })
             [tile_number_in(room, encode(Array.new(64) { |i| order.index(image.place_at(i)) })),
-             background_palette_number(colors, keeps_black: !recolored)]
+             background_palette_number(colors, keeps_black: !recolored, room: room)]
           end
 
           # A background palette's number. The first of them has to start with black, the colour an
           # empty cell shows (#list_order), and keep it while the game runs. A palette that cannot be
           # the first, made while there is none, is put after a palette of black alone, held for
           # the first palette after it that can: that one takes its place rather than a ninth.
-          def background_palette_number(colors, keeps_black: true)
+          # +room+ is the one whose tiles it draws, in a game whose screens bring their colours in.
+          def background_palette_number(colors, keeps_black: true, room: nil)
             can_be_first = keeps_black && colors.first == BACKDROP
-            found = @background_palettes.index(colors)
-            if found && (found.positive? || can_be_first)
+            return room_palette_number(room, colors, can_be_first) if room && room_colors?
+            return settled_palette_number(colors, can_be_first) if @shared_palettes
+
+            found = kept_palette_number(colors, can_be_first)
+            if found
               @black_held = false if found.zero?
               return found
             end
@@ -385,11 +438,65 @@ module VBlank
               return 0
             end
             if @background_palettes.empty? && !can_be_first
-              @background_palettes << padded([BACKDROP])
+              @background_palettes << black_alone
               @black_held = true
             end
             added_palette_number(@background_palettes, colors, "backgrounds")
           end
+
+          # The number of a palette made already that every screen keeps, nil for none. The first
+          # is the answer only for colours that can be first, and only while it is not black alone
+          # held for a room's own (#keep_art_asked_so_far).
+          def kept_palette_number(colors, can_be_first)
+            found = @background_palettes.index(colors)
+            found if found && (found.positive? || (can_be_first && !@first_free))
+          end
+
+          # A palette's number among those +room+ shows: one every screen keeps, one of its own or
+          # a room's it carries, or a new one of its own after those. The first palette is its own
+          # to put there where every screen's first is black alone (#keep_art_asked_so_far): the
+          # first that can be first takes it, as the first palette of a game does.
+          def room_palette_number(room, colors, can_be_first)
+            first = room.first_palette_in_chain
+            return 0 if first == colors && can_be_first
+
+            kept = kept_palette_number(colors, can_be_first)
+            return kept if kept
+
+            own = room.chain_palettes.find { |_, listed| listed == colors }
+            return own.first if own
+            if @first_free && first.nil? && can_be_first
+              room.first_palette = colors
+              return 0
+            end
+            refuse_too_many_room_palettes!(room)
+            room.palettes << colors
+            room.palette_reach - 1
+          end
+
+          def refuse_too_many_room_palettes!(room)
+            most = most_background_palettes
+            return if room.palette_reach < most
+
+            beside = painting? ? " beside a painted screen" : ""
+            raise LoweringError, "the backgrounds of #{room.what} need more than #{most} lists of colours, with the " \
+                                 "lists that every scene shares. A Game Boy Color holds #{most}#{beside} at one " \
+                                 "time. To fix this, draw more of them from the same colours."
+          end
+
+          # A palette every screen keeps, asked for once the rooms are planned. Every one is made
+          # before the rooms are, since a room's are numbered past them.
+          def settled_palette_number(colors, can_be_first)
+            kept_palette_number(colors, can_be_first) ||
+              raise(LoweringError, "the Game Boy Color build asked for a new list of colours for every screen after " \
+                                   "it numbered each screen's own. This is a fault in the build, not in the game.")
+          end
+
+          # How many palettes the backgrounds have: the eight, less the painted screen's.
+          def most_background_palettes = painting? ? PALETTES - painted_palettes.length : PALETTES
+
+          # The palette of black alone, where an empty cell is drawn from while nothing else is first.
+          def black_alone = padded([BACKDROP])
 
           # A tile drawn any other way — from colours, or from a list with a see-through place or
           # more than four colours: three colours of its own after the backdrop, in the order it
@@ -403,7 +510,7 @@ module VBlank
 
             colors = [BACKDROP, *drawn]
             places = Array.new(64) { |i| image.tile_see_through_at?(i) ? 0 : drawn.index(image.color_at(i) & 0x7FFF) + 1 }
-            [tile_number_in(room, encode(places)), background_palette_number(padded(colors))]
+            [tile_number_in(room, encode(places)), background_palette_number(padded(colors), room: room)]
           end
 
           # The colours a background tile draws, in the order its palette holds them after the
@@ -593,6 +700,27 @@ module VBlank
                 end
               end
               asm.data_bytes(0)
+            end
+            emit_room_colors(asm) if room_colors?
+          end
+
+          # The palettes each Room brings in, as rt_background_colors reads a list of them: a word
+          # for each room, by its number, saying where its list is; then each list — how many
+          # palettes, then each one's number and its four colours — its parents' first. Where every
+          # screen's first palette is black alone, each list puts its own first, or black alone again
+          # over the one another room put there.
+          def emit_room_colors(asm)
+            asm.label("art_room_colors")
+            @rooms.each { |room| asm.data_words("art_room_colors_#{room.number}") }
+            @rooms.each do |room|
+              asm.label("art_room_colors_#{room.number}")
+              listed = room.chain_palettes
+              listed.unshift([0, room.first_palette_in_chain || black_alone]) if @first_free
+              asm.data_bytes(listed.length)
+              listed.each do |number, colors|
+                asm.data_bytes(number)
+                asm.data_words(colors)
+              end
             end
           end
 
@@ -848,15 +976,17 @@ module VBlank
           def added_palette_number(palettes, colors, kind)
             sprites = palettes.equal?(@sprite_palettes)
             most = if sprites then lends? ? MOST_LENT : PALETTES
-                   elsif painting? then PALETTES - painted_palettes.length
-                   else PALETTES
+                   else most_background_palettes
                    end
             if palettes.length == most
               raise TooManySpriteLists, "more lists" if sprites && !lends?
+              raise TooManyBackgroundLists, "more lists" unless sprites || room_colors?
 
+              scenes = sprites ? "" : " Or declare each background in the scene that shows it. Then each scene brings " \
+                                      "its own colours in."
               raise LoweringError, "this game's #{kind} need more than the #{most} lists of colours a Game Boy Color " \
                                    "#{sprites ? 'build keeps' : 'holds'} for them. To fix this, draw more of them " \
-                                   "from the same colours."
+                                   "from the same colours.#{scenes}"
             end
 
             (palettes << colors).length - 1

@@ -95,7 +95,7 @@ module VBlank
               @square_colors = square_colors
               @picture_sets = by_name(@program.walk, :picture_groups)
               @art = Art.new(square_colors: @square_colors&.refusal ? nil : @square_colors, lends: @lends_sprite_colors,
-                             grouped: grouped_pictures)
+                             grouped: grouped_pictures, room_colors: @plans_room_colors)
               @grids = {} # a background declaration -> its grid's number
               @backgrounds = by_name(@program.walk, :background)
               @drawn_sprites = SpriteNames.new(@program) # the numbers a run says its sprites by
@@ -125,7 +125,7 @@ module VBlank
               tile_runs.each_value { |run| run.tiles.each { |tile| @art.run_tile(tile, run.colors) } unless run.picture }
               every = tiled_scenery.reject(&:scene)
               every.reject(&:several_sets?).each { |bg| tiles_shown(bg).each { |name| background_tile_named(name) } }
-              @art.keep_tiles_asked_so_far
+              @art.keep_art_asked_so_far
               @tile_rooms = {} # [scene, area] -> the Room brought in for a screen of that scene, at that area
               @scene_rooms = {} # a scene -> the Room its own tiles are numbered in
               tiled_scenery.filter_map(&:scene).uniq.each { |scene| plan_scene_room(scene) }
@@ -220,9 +220,10 @@ module VBlank
               end
             end
 
-            # Bring +room+ in, from the blank after this pass (Runtime::Picture#emit_rooms).
+            # Bring +room+ in, from the blank after this pass (Runtime::Picture#emit_rooms): its tiles,
+            # and its colours where the screens bring theirs in.
             def emit_tile_room(room)
-              runtime_call("rt_tiles_put_up", [Build.int(room.number)]) if room&.number && room.chain.any? { |link| link.tiles.any? }
+              runtime_call("rt_tiles_put_up", [Build.int(room.number)]) if room&.number && room.brings_in?
             end
 
             # Each colour list's own number, saying which of its sets it holds now (Reference
@@ -538,6 +539,7 @@ module VBlank
               screen = arrival_screen(arrival)
               emit_screen_change(screen)
               emit_tile_room(arrival_room(scene)) # its own tiles, before its grids name them
+              arrival.scenery.each { |bg| emit_held_background_colors(bg) }
               arrival.map_choices.each do |var|
                 load_constant(0)
                 store(var)
@@ -1110,9 +1112,10 @@ module VBlank
             end
 
             # Room for every palette's colours as drawn now, in a game that draws a background in
-            # other colours anywhere a run can reach, or whose sprites' lists borrow the eight.
+            # other colours anywhere a run can reach, whose sprites' lists borrow the eight, or whose
+            # screens bring their own colours in.
             def keep_drawn_palettes
-              return unless @art.lends? || @reachable.any? { |node| node.kind == :background_colors }
+              return unless @art.lends? || @art.room_colors? || @reachable.any? { |node| node.kind == :background_colors }
 
               @drawn_palettes = @memory.reserve("the colours drawn now", 128)
             end
@@ -1131,14 +1134,55 @@ module VBlank
             # Color draws a tile in one of its palettes, so the background's palettes are written
             # with the colours its tiles show now (#background_colors_table), into the colours the
             # pictures are drawn in now, and the fade in force moves them from there.
-            def emit_background_colors(node) = each_declaration(node) { |bg| emit_background_colors_for_declaration(bg, node) }
+            #
+            # In a game whose screens bring their own colours in, a scene's background keeps the
+            # number it was told, since its scene's colours come in again each time it arrives
+            # (#emit_held_background_colors).
+            def emit_background_colors(node)
+              which = node.which
+              held = @background_colors_held[node.name]
+              if held
+                statement(Build.set(held, which))
+                which = Build.var_ref(held)
+              end
+              each_declaration(node) { |bg| emit_background_colors_for_declaration(bg, which) }
+            end
 
-            def emit_background_colors_for_declaration(bg, node)
+            # Each background a scene of a game whose screens bring their own colours in shows and
+            # draws with other colours: the number it was told last, by its name, from power-on the
+            # one naming none — as the interpreter keeps it by name (Reference @bg_colors).
+            def keep_background_colors_held
+              recolored = @art.room_colors? ? tiled_scenery.select { |bg| bg.scene && Array(bg.recolors).any? } : []
+              @background_colors_held = recolored.map(&:name).uniq.to_h do |name|
+                [name, keep_local(:"colors_of_#{name}", start: Build::NO_RECOLOR)]
+              end
+            end
+
+            # Where each area brings its own colours in, one area's list of colours can be in a palette
+            # another area's list is in, so a background that walks between areas cannot be drawn
+            # with other colours.
+            def refuse_walking_recolor!(bg)
+              return unless bg.several_sets? && @art.room_colors?
+
+              raise LoweringError, "the background #{bg.name.inspect} walks between areas and is told `draw_with`. " \
+                                   "This game uses more lists of colours than a Game Boy Color holds at once, so each " \
+                                   "area brings its own lists in. Then #{build_name} cannot draw such a background " \
+                                   "with other colours. To fix this, remove `draw_with`, or use fewer lists of colours."
+            end
+
+            # The colours +bg+ was told to draw with, said again as its scene's own colours arrive.
+            def emit_held_background_colors(bg)
+              held = @background_colors_held[bg.name]
+              emit_background_colors_for_declaration(bg, Build.var_ref(held)) if held
+            end
+
+            def emit_background_colors_for_declaration(bg, which)
+              refuse_walking_recolor!(bg)
               steps = Array(bg.recolors)
               own = drawing_table("background_colors", 1, background_colors_table(bg, nil))
               tables = steps.each_index.map { |step| drawing_table("background_colors", 1, background_colors_table(bg, step)) }
               chosen = fresh("background_colors_chosen")
-              value(node.which)
+              value(which)
               @asm.load(:hl, own)
               @asm.load(:a, :b)
               @asm.or_a(:c)
@@ -1161,11 +1205,13 @@ module VBlank
             # (nil for its own), as rt_background_colors reads them: how many, then each palette's
             # number and its four colours. Each tile's list swaps its colours by place
             # (Assets::Recolor), and the Color keeps one palette for each set of colours, so two
-            # tiles that share one and are drawn differently are not made yet.
+            # tiles that share one and are drawn differently are not made yet. Where each screen
+            # brings its own tiles in, the tiles counted are the ones the background shows, as its
+            # screen's tiles and colours were planned (#plan_tile_rooms).
             def background_colors_table(bg, step)
               swaps = step && bg.palettes.zip(bg.recolors.fetch(step)).to_h
               palettes = {}
-              bg.tiles.compact.uniq.each do |name|
+              (@tile_rooms ? tiles_shown(bg) : bg.tiles.compact.uniq).each do |name|
                 _, palette = background_tile_named(name, tile_room(bg))
                 colors = tile_colors_with(name, swaps)
                 if palettes.key?(palette) && palettes[palette] != colors

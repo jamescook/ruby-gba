@@ -142,7 +142,10 @@ module VBlank
                           "tiles come in as the scene takes over, and each area's tiles of a background " \
                           "that walks between areas come in as a map of the area is shown. The display is " \
                           "off for that one frame. A scene or an area that needs more than 512 tiles is " \
-                          "refused."),
+                          "refused. The console holds eight lists of colours for backgrounds at once. When " \
+                          "a game needs more, the lists of each scene and each area come in with its tiles. " \
+                          "A fade or a tint that is on then changes them too. A scene or an area that needs " \
+                          "more than eight lists, with the lists that every scene shares, is refused."),
         status_bar: works("the bar is a layer of its own beside the one background, so a game with a bar " \
                           "still has its background. The bar's tiles and the background's tiles share the " \
                           "room for 512 tiles. A game with a bar cannot have a `screen :bitmap`, because the " \

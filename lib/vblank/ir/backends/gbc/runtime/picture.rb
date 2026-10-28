@@ -133,12 +133,13 @@ module VBlank
             # moves those alone. +groups+ says it has pictures grouped by room (Runtime::PictureGroups).
             # +bar_rows+ is how many rows of the window's grid a game's status bars fill, the most of
             # any of them, or nil for a game with none.
-            # +rooms+ says its screens bring their own tiles in (#emit_rooms).
+            # +rooms+ says its screens bring their own tiles in (#emit_rooms), and +room_colors+ their
+            # own colours with them, which needs +drawn_palettes+.
             def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false,
-                     palettes_in_use:, groups: false, bar_rows: nil, rooms: false)
+                     palettes_in_use:, groups: false, bar_rows: nil, rooms: false, room_colors: false)
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
                                       drawn_palettes: drawn_palettes, bar: !bar_rows.nil?)
-              emit_rooms(asm, memory) if rooms
+              emit_rooms(asm, memory, colors: room_colors) if rooms
               emit_upload(asm, memory, groups: groups, bar: !bar_rows.nil?, label: rooms ? "rt_upload_now" : "rt_upload")
               PictureGroups.emit(asm, memory) if groups
               emit_tile_runs(asm, runs)
@@ -1167,7 +1168,12 @@ module VBlank
             # rt_upload_now). The picture is the screen's, whole, from the frame after: the one frame
             # the display is off shows nothing, which is the cut a game moving between two parts of a
             # big world makes anyway, rather than a picture half of old tiles and half of new.
-            def emit_rooms(asm, memory)
+            #
+            # A game whose screens bring their own COLOURS in too (+colors+, Art#room_colors?) copies
+            # the room's palettes (art_room_colors) into the colours drawn now as it asks, and those
+            # through the fade or tint in force into the copy the blank sends (rt_background_colors):
+            # so they reach the console in the same blank as the tiles, already faded as the rest.
+            def emit_rooms(asm, memory, colors: false)
               h = Console::GBCHardware
               asm.label("rt_tiles_put_up")
               asm.load_hl_sp(2)
@@ -1177,7 +1183,20 @@ module VBlank
               asm.ret(:z)
               asm.load([:hl], :a)
               asm.load([memory[ROOMS] + ROOM_PENDING], :a)
-              asm.ret
+              if colors # its entry in the table, a word a room, one up
+                asm.dec(:a)
+                asm.add_a(:a)
+                asm.load(:e, :a)
+                asm.load(:d, 0)
+                asm.load(:hl, "art_room_colors")
+                asm.add_hl(:de)
+                asm.load(:a, [:hli])
+                asm.load(:h, [:hl])
+                asm.load(:l, :a)
+                asm.jump("rt_background_colors")
+              else
+                asm.ret
+              end
 
               asm.label("rt_upload")
               asm.load(:a, [memory[ROOMS] + ROOM_PENDING])
