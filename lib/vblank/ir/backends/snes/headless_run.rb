@@ -72,6 +72,7 @@ module VBlank
 
             @rom = SNES.new.build(program, title: "CHECKED")
             @places = @rom.built
+            @drawn_sprites = SpriteNames.new(program)
             @declared_lists = program.walk.select { |node| node.kind == :list_new }.map(&:name).uniq
             @frames_took = {}
             @deciding = false
@@ -93,7 +94,7 @@ module VBlank
           def frames_took(pass) = @frames_took.fetch(pass, 1)
 
           # What it drew at the moment the run ended, as the interpreter says it (Reference#sprites).
-          def sprites(_name = nil) = @sprites
+          def sprites(name = nil) = name ? @drawn_sprites.rows_named(@sprites, name) : @sprites
 
           # The sound log: a Super Nintendo cartridge plays no sound yet, so it is empty.
           def audio = []
@@ -218,9 +219,17 @@ module VBlank
 
           def read_variables = @places.variables.transform_values { |address| word(address) }
 
-          # The sprites the game placed in its last pass: none yet, since the Super Nintendo build
-          # makes no sprites.
-          def read_sprites = []
+          # The sprites the game placed in its last pass, back to front, as the interpreter says them
+          # (Reference#sprites): the runtime keeps a row for each (Runtime::Picture::DRAWN) — whose,
+          # which picture, where — and SpriteNames turns the numbers back into names.
+          def read_sprites
+            at = wram_offset(runtime_place(Runtime::Picture::DRAWN))
+            signed = ->(value) { value >= 0x8000 ? value - 0x10000 : value }
+            Array.new(@core.wram_read16(at)) do |i|
+              whose, picture, x, y = @core.wram_bytes(at + 2 + (i * Runtime::Picture::DRAWN_BYTES), 8).unpack("v4")
+              @drawn_sprites.row(signed.call(whose), picture, signed.call(x), signed.call(y))
+            end
+          end
 
           def read_lists
             @places.lists.to_h do |name, (address, _capacity, width, _label)|
@@ -288,6 +297,10 @@ module VBlank
             when Runtime::Frame::INDEX_OUT_OF_RANGE then Faults.index_out_of_range(list, first, second)
             when Runtime::Frame::LIST_FULL then Faults.list_full(list, first)
             when Runtime::Frame::LIST_EMPTY then Faults.list_empty(list, first.zero? ? :back : :front)
+            when Runtime::Frame::CELLS_FULL
+              raise CannotAnswer, "the Super Nintendo cartridge stopped: the game changed more than " \
+                                  "#{Runtime::Picture::MOST_CELLS} cells of its backgrounds in one pass, more than its " \
+                                  "queue for the blank holds"
             else "the game went wrong (#{code})"
             end
           end

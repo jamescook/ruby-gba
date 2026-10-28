@@ -163,6 +163,6 @@ and a test fails when the two differ. The Advance's answers are in
 An answer above is what the Super Nintendo does with a verb. The build for it is still growing,
 and a game that reaches one of these steps is refused, naming the step, until it is made:
 
-- the picture: `screen`, `clear_screen`, `fill_rect`, `dma_fill_rect`, `draw_rect_at`, `pixel`, `draw_text`, `draw_digit`, `inside`, `blit`, `blit_pose`, `draw_column_at`, `save_region`, `restore_region`, `background`, `scroll_background`, `place_bar`, `show_map`, `set_tile`, `background_colors`, `scroll_rows`, `camera`, `present_objects`, `hide_sprites`, `show_picture_group`, `color_list_holds`, `fade`, `tint`, `pixels_overlap`, `copy_tiles`, `copy_owed_tiles`, `data_byte`
+- the picture: `clear_screen`, `fill_rect`, `dma_fill_rect`, `draw_rect_at`, `pixel`, `draw_text`, `draw_digit`, `inside`, `blit`, `blit_pose`, `draw_column_at`, `save_region`, `restore_region`, `place_bar`, `background_colors`, `scroll_rows`, `camera`, `show_picture_group`, `color_list_holds`, `fade`, `tint`, `pixels_overlap`, `copy_tiles`, `copy_owed_tiles`, `data_byte`
 - the sound: `enable_sound`, `beep`, `noise`, `wave`, `stop_wave`, `play_song`, `stop_music`, `play_from_list`, `play_sound_effect`, `play_sample`, `stop_sample`
 - save memory: `save_init`, `save_store`, `save_write`, `save_erase`, `save_read`, `save_sum`

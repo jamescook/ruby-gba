@@ -65,7 +65,7 @@ module VBlank
           SHIFT_MODES = { dp: 0x06, a: 0x0A, abs: 0x0E, dp_x: 0x16, abs_x: 0x1E }.freeze
 
           # Every other instruction that takes an operand, by mnemonic and way of naming it.
-          OPERATED = {
+          OPERATED = Ractor.make_shareable({
             inc: { a: 0x1A, dp: 0xE6, abs: 0xEE, dp_x: 0xF6, abs_x: 0xFE },
             dec: { a: 0x3A, dp: 0xC6, abs: 0xCE, dp_x: 0xD6, abs_x: 0xDE },
             ldx: { imm: 0xA2, dp: 0xA6, abs: 0xAE, dp_y: 0xB6, abs_y: 0xBE },
@@ -84,7 +84,7 @@ module VBlank
             jsl: { long: 0x22 },
             pei: { dp: 0xD4 },
             pea: { abs: 0xF4 }
-          }.freeze
+          })
 
           # The instructions whose immediate number is as wide as A, and those as wide as X and Y.
           A_WIDE = (ALU.keys + [:bit]).freeze
@@ -218,35 +218,48 @@ module VBlank
           end
 
           # --- instructions ---
+          #
+          # WRITTEN OUT AS SOURCE rather than made from blocks: a method made from a block carries
+          # the block with it, and Ruby will not let another Ractor call one, so a game built in a
+          # Ractor (as the GBA run's tests build every console's) could not be lowered.
 
           ALU.each do |name, base|
-            define_method(name) do |operand|
-              mode = mode_of(name, operand)
-              refuse_mode!(name, operand) if name == :sta && mode == :imm # its place is BIT #'s
-              emit_operated(name, operand, base + ALU_MODES.fetch(mode))
-            end
+            class_eval <<~RUBY, __FILE__, __LINE__ + 1
+              def #{name}(operand)
+                mode = mode_of(:#{name}, operand)
+                refuse_mode!(:#{name}, operand) if :#{name} == :sta && mode == :imm # its place is BIT #'s
+                emit_operated(:#{name}, operand, #{base} + ALU_MODES.fetch(mode))
+              end
+            RUBY
           end
 
           SHIFTS.each do |name, base|
-            define_method(name) do |operand = :a|
-              emit_operated(name, operand, base + SHIFT_MODES.fetch(mode_of(name, operand)))
-            end
+            class_eval <<~RUBY, __FILE__, __LINE__ + 1
+              def #{name}(operand = :a)
+                emit_operated(:#{name}, operand, #{base} + SHIFT_MODES.fetch(mode_of(:#{name}, operand)))
+              end
+            RUBY
           end
 
-          OPERATED.each do |name, modes|
-            define_method(name) do |operand = :a|
-              emit_operated(name, operand, modes.fetch(mode_of(name, operand)) { refuse_mode!(name, operand) })
-            end
+          OPERATED.each_key do |name|
+            class_eval <<~RUBY, __FILE__, __LINE__ + 1
+              def #{name}(operand = :a)
+                opcode = OPERATED.fetch(:#{name}).fetch(mode_of(:#{name}, operand)) { refuse_mode!(:#{name}, operand) }
+                emit_operated(:#{name}, operand, opcode)
+              end
+            RUBY
           end
 
-          SINGLES.each { |name, opcode| define_method(name) { emit(opcode) } }
+          SINGLES.each { |name, opcode| class_eval("def #{name} = emit(#{opcode})", __FILE__, __LINE__) }
 
           BRANCHES.each do |name, opcode|
-            define_method(name) do |target|
-              emit(opcode)
-              fixup(:relative, target)
-              emit(0)
-            end
+            class_eval <<~RUBY, __FILE__, __LINE__ + 1
+              def #{name}(target)
+                emit(#{opcode})
+                fixup(:relative, target)
+                emit(0)
+              end
+            RUBY
           end
 
           # BRL: anywhere in the bank, two signed bytes from the next instruction.

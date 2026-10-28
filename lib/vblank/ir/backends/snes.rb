@@ -17,6 +17,8 @@ require_relative "snes/w65816"
 require_relative "snes/linker"
 require_relative "snes/memory"
 require_relative "snes/runtime"
+require_relative "snes/art"
+require_relative "snes/lowering/picture"
 require_relative "snes/lowering"
 require_relative "snes/headless_run"
 require_relative "snes/checked_run"
@@ -56,7 +58,7 @@ module VBlank
           memory = Memory.new
           Runtime.reserve(memory)
           lowering = Lowering.new(program, memory: memory)
-          game = lowering.sections
+          game = lowering.sections + lowering.art_sections
           runtime = Runtime.sections(memory, main: Lowering::MAIN, frame_begins: lowering.frame_begins)
           linked = Linker.new(runtime + game).link
           routines = lowering.section_routines.map do |label, routine|

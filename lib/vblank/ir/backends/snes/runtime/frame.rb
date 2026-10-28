@@ -35,6 +35,7 @@ module VBlank
             LIST_EMPTY = 3
             SAVE_READ_OUTSIDE = 7
             SAVE_WRITE_OUTSIDE = 8
+            CELLS_FULL = 11 # more cells of a background changed in one pass than the queue holds
 
             # FAULT: what went wrong (a word), the list's place (three bytes and a spare), and two
             # numbers that say how (four bytes each).

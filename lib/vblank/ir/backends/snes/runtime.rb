@@ -41,7 +41,7 @@ module VBlank
             Int32.emit(asm, Int32.scratch(memory))
             Frame.emit(asm, memory, pad: memory.scratch(4))
             Lists.emit(asm, memory, Lists.scratch(memory))
-            Picture.emit(asm, memory)
+            Picture.emit(asm, memory, work: memory.scratch(8))
             emit_start(asm)
             emit_frame_begins(asm, frame_begins)
             [vectors.section, asm.section]

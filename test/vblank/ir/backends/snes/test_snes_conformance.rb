@@ -13,14 +13,32 @@ class TestSNESConformance < Minitest::Test
 
   UNMADE = (SNES::Lowering::NOT_LOWERED_YET.values.flatten + SNES::Lowering::REFUSED).freeze
 
-  # The fixture's top-level parts that reach no kind the build does not make, and that ask nothing
-  # a Super Nintendo's answers refuse (Checks::ConsoleAnswers, which the build asks too).
+  # The fixture's top-level parts that reach no kind the build does not make, that ask nothing a
+  # Super Nintendo's answers refuse (Checks::ConsoleAnswers, which the build asks too), and that the
+  # build does not refuse alone as not made yet (a painted screen, say).
   private def made_parts
-    ConformanceFixture.program.children.reject do |part|
+    kept = ConformanceFixture.program.children.reject do |part|
       alone = Build.program(part).tap { |program| program.console = :snes }
       refused = VBlank::IR::Guardrails::Checks::ConsoleAnswers.new.detect(alone).any? { |found| found.severity == :error }
-      refused || part.walk.any? { |node| UNMADE.include?(node.kind) }
+      refused || part.walk.any? { |node| UNMADE.include?(node.kind) } || not_made_yet?(alone)
     end
+    # ...and the parts that change a background or place a sprite whose declaration was left out.
+    declared = kept.flat_map { |part| part.walk.to_a }.select { |node| %i[background object].include?(node.kind) }.map(&:name)
+    kept.reject do |part|
+      part.walk.any? do |node|
+        (%i[scroll_background set_tile show_map].include?(node.kind) && !declared.include?(node.name)) ||
+          (node.kind == :present_objects && !(node.names - declared).empty?)
+      end
+    end
+  end
+
+  private def not_made_yet?(program)
+    SNES.new.build(program)
+    false
+  rescue SNES::Lowering::NotMadeYet
+    true
+  rescue StandardError # a part that cannot be built alone (it calls a routine declared elsewhere)
+    false
   end
 
   def test_the_parts_of_the_fixture_the_build_makes_agree_with_the_interpreter

@@ -57,7 +57,10 @@ module VBlank
                                                # no light can be made on a Super Nintendo (REFUSED), and a game
                                                # without one works nothing out again
                                                show_light_now: :emit_nothing
-                                             }.merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))
+                                             }.merge(Picture::STATEMENTS)
+                                              .merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))
+
+          include Picture
 
           VALUES = Ractor.make_shareable({
                                            int: :value_of_int, var_ref: :value_of_var_ref, binop: :value_of_binop,
@@ -74,15 +77,13 @@ module VBlank
           # day the Super Nintendo does it; test_snes_kind_coverage.rb holds the list and the tables
           # above to every kind there is.
           NOT_LOWERED_YET = Ractor.make_shareable({
-                                                    "the picture" => %i[screen clear_screen fill_rect dma_fill_rect
+                                                    "the picture" => %i[clear_screen fill_rect dma_fill_rect
                                                                         draw_rect_at pixel draw_text draw_digit inside
                                                                         blit blit_pose draw_column_at save_region
-                                                                        restore_region background scroll_background
-                                                                        place_bar show_map set_tile background_colors
-                                                                        scroll_rows camera present_objects hide_sprites
-                                                                        show_picture_group color_list_holds fade tint
-                                                                        pixels_overlap copy_tiles copy_owed_tiles
-                                                                        data_byte],
+                                                                        restore_region place_bar background_colors
+                                                                        scroll_rows camera show_picture_group
+                                                                        color_list_holds fade tint pixels_overlap
+                                                                        copy_tiles copy_owed_tiles data_byte],
                                                     "the sound" => %i[enable_sound beep noise wave stop_wave play_song
                                                                       stop_music play_from_list play_sound_effect
                                                                       play_sample stop_sample],
@@ -183,6 +184,7 @@ module VBlank
             @starts = [] # [address, value] for a place that does not start at nought
             @routine_tables = {} # a list of routines a call picks from by number -> its table's label
             @section_routines = {}
+            prepare_picture
           end
 
           # The game's code, as sections for the Linker: its data, every routine a run can reach, and
@@ -191,6 +193,7 @@ module VBlank
             refuse_unlowered_kinds!
             refuse_what_snes_lacks!
             refuse_routines_that_call_themselves!
+            refuse_unmade_picture!
             Reach.variables(@program).each { |name| @variables[name] = @memory.reserve("the variable #{name.inspect}", 4) }
             @declared_lists.each_value do |node|
               width = SLOT_BYTES.fetch(node.width)
