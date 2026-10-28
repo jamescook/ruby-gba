@@ -1,0 +1,130 @@
+diff --git a/bsnes/sfc/ppu/ppu.cpp b/bsnes/sfc/ppu/ppu.cpp
+index dc8d135..5bfd380 100644
+--- a/bsnes/sfc/ppu/ppu.cpp
++++ b/bsnes/sfc/ppu/ppu.cpp
+@@ -13,6 +13,59 @@ PPU ppu;
+ #include "serialization.cpp"
+ #include "counter/serialization.cpp"
+ 
++//VBLANK PROBE: the console's memories, copied out for a test harness that compares a running
++//cartridge with an interpreter (see target-libretro's retro_get_memory_data). Laid out as the
++//console's own ports read them: video RAM as 64K bytes, low byte of each word first; the colour
++//memory as 256 little-endian words; the sprite table as its 544 bytes, encoded back from the
++//decoded objects bsnes keeps. The 65816's registers are a sixteen-byte record: PC (3 bytes),
++//A, X, Y, S, D (2 bytes each), DB, P, and the emulation flag. Only the accurate PPU is read.
++//+id+ is 1 video RAM, 2 colour memory, 3 sprite table, 4 registers. Gives the bytes written.
++auto PPU::probe(uint id, uint8* out) -> uint {
++  switch(id) {
++  case 1:
++    for(uint i : range(32 * 1024)) {
++      out[i * 2 + 0] = vram.data[i] >> 0;
++      out[i * 2 + 1] = vram.data[i] >> 8;
++    }
++    return 64 * 1024;
++  case 2:
++    for(uint i : range(256)) {
++      out[i * 2 + 0] = screen.cgram[i] >> 0;
++      out[i * 2 + 1] = screen.cgram[i] >> 8;
++    }
++    return 512;
++  case 3:
++    for(uint i : range(544)) out[i] = obj.oam.read(i);
++    return 544;
++  case 4: {
++    uint values[] = {cpu.r.a.w, cpu.r.x.w, cpu.r.y.w, cpu.r.s.w, cpu.r.d.w};
++    out[0] = cpu.r.pc.d >> 0;
++    out[1] = cpu.r.pc.d >> 8;
++    out[2] = cpu.r.pc.d >> 16;
++    for(uint i : range(5)) {
++      out[3 + i * 2] = values[i] >> 0;
++      out[4 + i * 2] = values[i] >> 8;
++    }
++    out[13] = cpu.r.b;
++    out[14] = (uint)cpu.r.p;
++    out[15] = cpu.r.e;
++    return 16;
++  }
++  }
++  return 0;
++}
++
++//The probe's front door, for a translation unit that cannot see the PPU's insides: +id+ 0 is
++//work RAM (handed over live, 128K), 5 the cartridge's battery-backed RAM (live), and the rest
++//PPU::probe's copies. Gives where the bytes are, or nullptr, and their count in +size+.
++auto vblankProbe(uint id, uint8* out, uint& size) -> uint8* {
++  if(id == 0) { size = sizeof(cpu.wram); return cpu.wram; }
++  if(id == 5) { size = cartridge.ram.size(); return size ? cartridge.ram.data() : nullptr; }
++  if(system.fastPPU() && id != 4) { size = 0; return nullptr; }
++  size = ppu.probe(id, out);
++  return size ? out : nullptr;
++}
++
+ PPU::PPU() :
+ bg1(Background::ID::BG1),
+ bg2(Background::ID::BG2),
+diff --git a/bsnes/sfc/ppu/ppu.hpp b/bsnes/sfc/ppu/ppu.hpp
+index 353acf2..b1e0025 100644
+--- a/bsnes/sfc/ppu/ppu.hpp
++++ b/bsnes/sfc/ppu/ppu.hpp
+@@ -29,6 +29,9 @@ struct PPU : Thread, PPUcounter {
+   //serialization.cpp
+   auto serialize(serializer&) -> void;
+ 
++  //ppu.cpp: VBlank probe, see vblankProbe
++  auto probe(uint id, uint8* out) -> uint;
++
+ private:
+   //ppu.cpp
+   alwaysinline auto step() -> void;
+diff --git a/bsnes/target-libretro/libretro.cpp b/bsnes/target-libretro/libretro.cpp
+index fc7f321..e87fb84 100644
+--- a/bsnes/target-libretro/libretro.cpp
++++ b/bsnes/target-libretro/libretro.cpp
+@@ -769,14 +769,43 @@ RETRO_API unsigned retro_get_region()
+ 	return program->superFamicom.region == "NTSC" ? RETRO_REGION_NTSC : RETRO_REGION_PAL;
+ }
+ 
+-// Currently, there is no safe/sensible way to use the memory interface without severe hackery.
+-// Rely on higan to load and save SRAM until there is really compelling reason not to.
+-RETRO_API void *retro_get_memory_data(unsigned id)
++// VBLANK PROBE: the console's memories for a test harness that compares a running cartridge with
++// an interpreter (SuperFamicom::vblankProbe in sfc/ppu/ppu.cpp says how each is laid out). Work
++// RAM and the cartridge's RAM are the standard ids; the colour memory, the sprite table and the
++// 65816's registers are ids of their own. The PPU's are read from the accurate PPU, so the core
++// must be told bsnes_ppu_fast=OFF.
++#define RETRO_MEMORY_VBLANK_CGRAM     0x8001
++#define RETRO_MEMORY_VBLANK_OAM       0x8002
++#define RETRO_MEMORY_VBLANK_REGISTERS 0x8003
++
++namespace SuperFamicom { auto vblankProbe(uint id, uint8* out, uint& size) -> uint8*; }
++
++static uint8 vblank_copy[64 * 1024];
++
++static uint8 *vblank_memory(unsigned id, uint &size)
+ {
++	switch(id)
++	{
++		case RETRO_MEMORY_SYSTEM_RAM:       return SuperFamicom::vblankProbe(0, vblank_copy, size);
++		case RETRO_MEMORY_VIDEO_RAM:        return SuperFamicom::vblankProbe(1, vblank_copy, size);
++		case RETRO_MEMORY_VBLANK_CGRAM:     return SuperFamicom::vblankProbe(2, vblank_copy, size);
++		case RETRO_MEMORY_VBLANK_OAM:       return SuperFamicom::vblankProbe(3, vblank_copy, size);
++		case RETRO_MEMORY_VBLANK_REGISTERS: return SuperFamicom::vblankProbe(4, vblank_copy, size);
++		case RETRO_MEMORY_SAVE_RAM:         return SuperFamicom::vblankProbe(5, vblank_copy, size);
++	}
++	size = 0;
+ 	return nullptr;
+ }
+ 
++RETRO_API void *retro_get_memory_data(unsigned id)
++{
++	uint size;
++	return vblank_memory(id, size);
++}
++
+ RETRO_API size_t retro_get_memory_size(unsigned id)
+ {
+-	return 0;
++	uint size;
++	vblank_memory(id, size);
++	return size;
+ }

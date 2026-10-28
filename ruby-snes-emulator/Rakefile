@@ -1,0 +1,61 @@
+# frozen_string_literal: true
+
+require "etc"
+require "rake/testtask"
+require "tmpdir"
+
+# THE CORE: bsnes, at the revision below, with core/bsnes-vblank-probe.patch, built as a libretro
+# core into core/build/bsnes_libretro.so.
+#
+# Why bsnes, and why patched. bsnes is the most accurate Super Nintendo emulator there is, which
+# is what a check of a cartridge wants. Its libretro front end hands over no memory at all
+# (retro_get_memory_data gives nothing for every id), and snes9x's hands over work RAM and video
+# RAM but not the colour memory or the sprite table — so neither does, out of the box, what this
+# gem is for. The patch is small: a member of the accurate PPU that copies out its video RAM,
+# colour memory and sprite table (and the 65816's registers), and retro_get_memory_data handing
+# those over beside work RAM and the cartridge's RAM.
+#
+# The steps, which are all this task does, so a machine without rake can repeat them:
+#
+#   git clone https://github.com/bsnes-emu/bsnes.git
+#   git -C bsnes checkout BSNES_REVISION
+#   git -C bsnes apply ruby-snes-emulator/core/bsnes-vblank-probe.patch
+#   make -C bsnes/bsnes target=libretro binary=library build=performance -j4
+#   cp bsnes/bsnes/out/bsnes_libretro.so ruby-snes-emulator/core/build/
+#
+# It needs git, make and a C++ compiler (g++ 13 builds it). VBLANK_SNES_CORE points the gem at a
+# core built some other way.
+BSNES_URL = "https://github.com/bsnes-emu/bsnes.git"
+BSNES_REVISION = "78474e5d39f58872dc21aca18cf9eb583b147fe7"
+CORE_DIR = File.expand_path("core", __dir__)
+PATCH = File.join(CORE_DIR, "bsnes-vblank-probe.patch")
+BUILT = File.join(CORE_DIR, "build", "bsnes_libretro.so")
+
+desc "Build bsnes as a libretro core, with the probe patch, into core/build/"
+task :compile_core do
+  next if File.file?(BUILT) && File.mtime(BUILT) > File.mtime(PATCH)
+
+  Dir.mktmpdir("bsnes") do |dir|
+    source = File.join(dir, "bsnes")
+    sh "git", "clone", "--quiet", BSNES_URL, source
+    sh "git", "-C", source, "checkout", "--quiet", BSNES_REVISION
+    sh "git", "-C", source, "apply", PATCH
+    sh "make", "-C", File.join(source, "bsnes"), "target=libretro", "binary=library", "build=performance",
+       "-j#{Etc.nprocessors}"
+    mkdir_p File.dirname(BUILT)
+    cp File.join(source, "bsnes", "out", "bsnes_libretro.so"), BUILT
+  end
+end
+
+desc "Remove the built core"
+task :clean do
+  rm_rf File.dirname(BUILT)
+end
+
+Rake::TestTask.new(test: :compile_core) do |t|
+  t.libs << "test" << "lib"
+  t.test_files = FileList["test/**/test_*.rb"]
+  t.warning = false
+end
+
+task default: :test

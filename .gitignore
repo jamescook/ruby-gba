@@ -1,5 +1,7 @@
 *.gba
 *.gbc
+*.sfc
+*.srm
 # Cartridge save memory, written by the emulator beside the ROM it belongs to
 *.sav
 .DS_Store

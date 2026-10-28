@@ -36,6 +36,11 @@ gemspec
 #   end
 gem "ruby-gba-emulator", path: "ruby-gba-emulator"
 
+# THE SUPER NINTENDO'S EMULATOR, for the same reason and in the same way: bsnes, driven through
+# Fiddle, so there is no extension to build here. What it needs built is the bsnes core itself,
+# which `rake compile_core` in ruby-snes-emulator/ does (see its Rakefile).
+gem "ruby-snes-emulator", path: "ruby-snes-emulator"
+
 # Reaches SDL3 for a game played live in a window (VBlank::Live::SDL). It comes with Ruby, and
 # under bundler a gem the Gemfile does not name cannot be loaded, so a game that plays live names
 # it in its own Gemfile too. Not in the gemspec: building a cartridge never needs it.
