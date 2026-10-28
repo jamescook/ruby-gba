@@ -233,6 +233,48 @@ class TestSNESPaint < Minitest::Test
     assert_match(/scroll_to/, error.message)
   end
 
+  # A PAINTED SPRITE moving every pass costs the patch under it put back, the patch at its new place
+  # kept, and its picture painted there: a 16×16 picture at a place off the tile edges touches nine
+  # tiles. That all fits one frame, as on the interpreter.
+  def test_a_painted_sprite_moving_every_pass_keeps_up_with_the_screen
+    program = program_of do
+      screen :bitmap
+      clear_screen rgb(0, 0, 8)
+      2.times do |k|
+        image(:"coin#{k}", "." => :transparent, "Y" => :yellow, "o" => :orange) do
+          Array.new(16) { |row| Array.new(16) { |col| (row + col + k).even? ? "Y" : (col > 2 && col < 13 ? "o" : ".") }.join }.join("\n")
+        end
+      end
+      coin = sprite :coin, at: [37, 41], frames: %i[coin0 coin1], rate: 2
+      game_loop { coin.move :right, by: 3 }
+    end
+    SNES::CheckedRun.new.run(program, frames: 10)
+    run = SNES::HeadlessRun.new.run(program, frames: 10)
+
+    assert_equal [1] * 9, (2..10).map { |pass| run.frames_took(pass) }
+  end
+
+  # Which pixels of each tile column a painting may touch is worked out once a picture or a patch,
+  # and a picture painted inside a narrow area holds its columns to that area. The sprite's patch put
+  # back after it, in the same columns, is held to the whole screen again: every pixel it covered.
+  def test_a_patch_put_back_after_a_picture_held_to_an_area_puts_back_every_pixel
+    run = checked(frames: 12) do
+      screen :bitmap
+      clear_screen :cyan
+      image(:dot, "o" => :red) { "oooooooooooooooo\n" * 4 }
+      image(:ball, "." => :transparent, "o" => :white) { "oooooooooooo\n" * 6 }
+      ball = sprite :ball, at: [0, 2]
+      x = var :x, 0
+      game_loop do
+        inside(0, 0, 12, 12) { blit :dot, 0, 0 }
+        x.add! 2
+        ball.move_to x, 2
+      end
+    end
+
+    assert_equal Color.resolve(:cyan), run.screen.pixel(1, 7)
+  end
+
   private def clear_and_draw_program
     program_of do
       screen :bitmap

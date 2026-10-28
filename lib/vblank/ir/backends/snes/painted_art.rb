@@ -15,28 +15,32 @@ module VBlank
         # Place 0 is black: a pixel of place 0 is see-through on the console, and shows the colour
         # behind every layer, which is set to black too, the colour the screen starts in.
         #
-        # A PICTURE is kept row by row, and each row as nine rows of bytes, a byte for every eight
-        # pixels across: which of them the picture draws (its MASK), then each of the eight bits of
-        # their colours' places (its PLANES), leftmost pixel in the top bit — the way a tile of the
-        # console's keeps its pixels. Painted at a place across that is a multiple of eight, a byte of
-        # the picture is a byte of a tile; anywhere else it falls across two, and Runtime::Paint
-        # shifts it there as it paints. So each row of bytes is stored right to left, with an empty
-        # byte at each end: the 16-bit number read at any byte then holds the picture's byte and the
-        # one left of it, in the order a shift right moves the left one's pixels into it.
+        # A PICTURE is kept row by row, and each row as the tiles' rows it paints: a COLUMN of ten
+        # bytes for every tile across it reaches — which of the tile's eight pixels the picture
+        # draws (its MASK), twice, then the eight bits of their colours' places (its PLANES) in the
+        # pairs a tile keeps them in (planes 0 and 1, 2 and 3...), leftmost pixel in the top bit, as
+        # a tile of the console's keeps its pixels. So Runtime::Paint reads each 16-bit word ready to
+        # write into a tile's row: the mask, then each pair of planes. A picture painted at a place
+        # across that is not a multiple of eight falls across one tile more than its width, its
+        # pixels shifted along; each row is kept for all eight places across modulo eight, one after
+        # the other, so the painting never shifts anything.
         class PaintedArt
           COLORS = 256
           BLACK = 0
-          # Mask and the eight planes.
+          # The mask and the eight planes.
           ROWS_A_ROW = 9
+          # A column's bytes: the mask twice, then the planes; and the places across modulo eight.
+          COLUMN_BYTES = 10
+          SHIFTS = 8
 
           # Raised when the game paints more colours than the console's colour memory holds.
           class TooMuch < LoweringError; end
 
-          # One picture as Runtime::Paint reads it: its number, its size, how many bytes each of its
-          # rows of bytes holds (the bytes across, and the two empty ends), and its rows, each a
-          # string of ROWS_A_ROW rows of bytes.
+          # One picture as Runtime::Paint reads it: its number, its size, how many tiles across a row
+          # of it reaches (its bytes across, and one for a place off the tile edges), and its rows,
+          # each SHIFTS runs of that many columns.
           Picture = Data.define(:number, :width, :height, :across, :rows) do
-            def row_bytes = across * ROWS_A_ROW
+            def row_bytes = SHIFTS * across * COLUMN_BYTES
           end
 
           attr_reader :pictures
@@ -79,22 +83,29 @@ module VBlank
           private
 
           def make_picture(number, width, height, drawn)
-            bytes_across = (width + 7) / 8
-            across = bytes_across + 2
+            across = ((width + 7) / 8) + 1
             rows = Array.new(height) do |y|
-              planes = Array.new(ROWS_A_ROW) { Array.new(bytes_across, 0) }
-              width.times do |x|
-                color = drawn[[x, y]]
-                next if color.nil?
-
-                bit = 0x80 >> (x % 8)
-                planes[0][x / 8] |= bit
-                place = place_of(color)
-                8.times { |plane| planes[plane + 1][x / 8] |= bit if place[plane] == 1 }
-              end
-              planes.map { |row| [0, *row.reverse, 0].pack("C*") }.join
+              (0...SHIFTS).map do |shift|
+                (0...across).map { |column| column_bytes(drawn, width, y, (column * 8) - shift) }.join
+              end.join
             end
             Picture.new(number: number, width: width, height: height, across: across, rows: rows)
+          end
+
+          # The column of a picture's row +y+ whose eight pixels start at its pixel +left+ (which may
+          # be off its left or right edge): the mask twice, then planes 0 to 7.
+          def column_bytes(drawn, width, y, left)
+            planes = Array.new(ROWS_A_ROW, 0)
+            8.times do |bit|
+              x = left + bit
+              color = drawn[[x, y]] if x.between?(0, width - 1)
+              next if color.nil?
+
+              planes[0] |= 0x80 >> bit
+              place = place_of(color)
+              8.times { |plane| planes[plane + 1] |= 0x80 >> bit if place[plane] == 1 }
+            end
+            [planes[0], *planes].pack("C*")
           end
         end
       end

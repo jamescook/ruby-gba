@@ -129,6 +129,9 @@ module VBlank
             # word each. A row with none has its leftmost past its rightmost (NONE_LEFT, 0).
             DIRTY = "rt paint dirty"
             NONE_LEFT = COLUMNS
+            # For each tile column, which of its pixels the painting at hand may touch: worked out
+            # once a picture or a patch (rt_paint_column_masks), not for every row of it.
+            COLUMN_MASKS = "rt paint column masks"
             # The screen's generation, from 0 to one short of NO_GENERATION, and each tile's, a byte
             # each: the generation the tile was made ready in. Coming round, every tile is put in
             # NO_GENERATION, which the screen is never in, so no tile is taken for the new one.
@@ -178,6 +181,7 @@ module VBlank
               far.call(RUNS, MOST_RUNS * 4)
               memory.reserve(AREA, 8)
               memory.reserve(DIRTY, ROWS * 4)
+              memory.reserve(COLUMN_MASKS, COLUMNS * 2)
               memory.reserve(GENERATION, 2)
               memory.reserve(CLEAR_PLACE, 2)
               memory.reserve(CLEAR_PLANES, 8)
@@ -623,6 +627,24 @@ module VBlank
               asm.label("rt_paint_column_mask_none")
               asm.lda(0)
               asm.rts
+
+              # rt_paint_column_masks (JSR): each column +tile+ to +mark_count+ (0 to 31, the first no
+              # further on than the last) its rt_paint_column_mask, into COLUMN_MASKS.
+              asm.label("rt_paint_column_masks")
+              asm.lda(asm.direct(s.tile))
+              3.times { asm.asl }
+              asm.jsr(asm.abs("rt_paint_column_mask"))
+              asm.pha
+              asm.lda(asm.direct(s.tile))
+              asm.asl
+              asm.tax
+              asm.pla
+              asm.sta(asm.long_x(memory[COLUMN_MASKS]))
+              asm.lda(asm.direct(s.tile))
+              asm.cmp(asm.direct(s.mark_count))
+              asm.inc(asm.direct(s.tile)) # INC leaves the carry as the comparison set it
+              asm.bcc("rt_paint_column_masks")
+              asm.rts
             end
 
             # --- clearing ---
@@ -880,7 +902,7 @@ module VBlank
                 asm.cpx(2048 + edge)
                 asm.branch_long(:bcs, "rt_paint_blit_none")
               end
-              # The picture: where its rows' places are, its bytes across and its height.
+              # The picture: where its rows' places are, its columns and its height.
               asm.lda(asm.direct(R.call(0)))
               3.times { asm.asl }
               asm.tax
@@ -918,14 +940,8 @@ module VBlank
               asm.rtl
               asm.label("rt_paint_blit_some")
               # The tiles across: the picture's first, at its place across divided by eight (rounded
-              # down, so -3 is the tile left of the screen), and one for each byte across, held to the
+              # down, so -3 is the tile left of the screen), and its columns from there, held to the
               # area's.
-              asm.lda(asm.direct(R.call(1)))
-              asm.and_a(7)
-              asm.asl
-              asm.tax
-              asm.lda(asm.long_x("rt_paint_shifts"))
-              asm.sta(asm.direct(s.shift))
               asm.lda(asm.direct(R.call(1)))
               3.times do
                 asm.cmp(0x8000)
@@ -934,8 +950,7 @@ module VBlank
               asm.sta(asm.direct(s.first_x))
               asm.clc
               asm.adc(asm.direct(s.across))
-              asm.sec
-              asm.sbc(2) # past the last: the bytes across and one, from the first
+              asm.dec # the last: the columns, from the first
               asm.sta(asm.direct(s.last))
               asm.lda(asm.direct(s.area_right))
               asm.dec
@@ -955,16 +970,44 @@ module VBlank
               asm.beq("rt_paint_blit_across")
               asm.branch_long(:bpl, "rt_paint_blit_none")
               asm.label("rt_paint_blit_across")
+              # Which of each row's eight runs of columns: the one for the place across modulo eight,
+              # the columns × ten bytes on for each (SNES::PaintedArt), in +shift+.
+              asm.lda(asm.direct(s.across))
+              asm.asl
+              asm.sta(asm.direct(s.shift))
+              asm.asl
+              asm.asl
+              asm.clc
+              asm.adc(asm.direct(s.shift))
+              asm.sta(asm.direct(s.shift)) # a run's bytes
+              asm.lda(asm.direct(R.call(1)))
+              asm.and_a(7)
+              asm.tax
+              asm.lda(0)
+              asm.label("rt_paint_blit_run")
+              asm.cpx(0)
+              asm.beq("rt_paint_blit_run_found")
+              asm.clc
+              asm.adc(asm.direct(s.shift))
+              asm.dex
+              asm.bra("rt_paint_blit_run")
+              asm.label("rt_paint_blit_run_found")
+              asm.sta(asm.direct(s.shift))
               [[s.area_left, s.left], [s.area_right, s.right]].each do |from, to|
                 asm.lda(asm.direct(from))
                 asm.sta(asm.direct(to))
               end
               asm.jsr(asm.abs("rt_paint_mark"))
+              asm.lda(asm.direct(s.chunk))
+              asm.sta(asm.direct(s.tile))
+              asm.lda(asm.direct(s.last))
+              asm.sta(asm.direct(s.mark_count))
+              asm.jsr(asm.abs("rt_paint_column_masks"))
               emit_into_copy(asm, bank)
               asm.lda(asm.direct(s.top))
               asm.sta(asm.direct(s.y))
               asm.label("rt_paint_blit_row")
-              # The row of the picture: its place, from the picture's table of rows.
+              # The row of the picture: its place, from the picture's table of rows, and its run.
               asm.lda(asm.direct(s.y))
               asm.sec
               asm.sbc(asm.direct(R.call(2)))
@@ -972,6 +1015,8 @@ module VBlank
               asm.asl
               asm.tay
               asm.lda(asm.ind_long_y(s.pointer))
+              asm.clc
+              asm.adc(asm.direct(s.shift)) # a row is in one bank, so this never carries
               asm.sta(asm.direct(s.temp))
               asm.iny
               asm.iny
@@ -981,50 +1026,45 @@ module VBlank
               asm.lda(asm.direct(s.chunk))
               asm.sta(asm.direct(s.count))
               asm.label("rt_paint_blit_tile")
-              # The tile's eight pixels the area allows, and of them the ones the picture draws.
+              # The tile's eight pixels the area allows, and of them the ones the picture draws: its
+              # column, ten bytes for each tile from the picture's first.
               asm.lda(asm.direct(s.count))
-              3.times { asm.asl }
-              asm.jsr(asm.abs("rt_paint_column_mask"))
+              asm.asl
+              asm.tax
+              asm.lda(asm.long_x(memory[COLUMN_MASKS]))
               asm.sta(asm.direct(s.not_mask))
-              # Its byte of the picture: the bytes across, less two, less how far this tile is from
-              # the picture's first, into each row of bytes (see SNES::PaintedArt).
-              asm.lda(asm.direct(s.across))
+              asm.lda(asm.direct(s.count))
               asm.sec
-              asm.sbc(2)
+              asm.sbc(asm.direct(s.first_x))
+              asm.asl
+              asm.sta(asm.direct(s.right_planes))
+              asm.asl
+              asm.asl
               asm.clc
-              asm.adc(asm.direct(s.first_x))
-              asm.sec
-              asm.sbc(asm.direct(s.count))
+              asm.adc(asm.direct(s.right_planes))
               asm.tay
               asm.lda(asm.ind_long_y(s.temp))
-              asm.jsr(asm.abs("rt_paint_shift"))
               asm.and_a(asm.direct(s.not_mask))
-              asm.and_a(0x00FF)
-              asm.branch_long(:beq, "rt_paint_blit_next_tile")
+              asm.beq("rt_paint_blit_next_tile")
               asm.sta(asm.direct(s.mask))
-              asm.eor(0x00FF)
+              asm.eor(0xFFFF)
               asm.sta(asm.direct(s.not_mask))
               asm.lda(asm.direct(s.count))
               6.times { asm.asl }
               asm.clc
               asm.adc(asm.direct(s.row))
               asm.tax
-              8.times do |plane|
-                at = ((plane / 2) * 16) + (plane % 2)
-                asm.tya
-                asm.clc
-                asm.adc(asm.direct(s.across))
-                asm.tay
+              # Each pair of planes into the tile's row: a word of the column, held to the mask.
+              4.times do |pair|
+                asm.iny
+                asm.iny
                 asm.lda(asm.ind_long_y(s.temp))
-                asm.jsr(asm.abs("rt_paint_shift"))
                 asm.and_a(asm.direct(s.mask))
                 asm.sta(asm.direct(s.left_planes))
-                asm.sep(0x20)
-                asm.lda(asm.abs_x(at))
+                asm.lda(asm.abs_x(pair * 16))
                 asm.and_a(asm.direct(s.not_mask))
                 asm.ora(asm.direct(s.left_planes))
-                asm.sta(asm.abs_x(at))
-                asm.rep(0x20)
+                asm.sta(asm.abs_x(pair * 16))
               end
               asm.label("rt_paint_blit_next_tile")
               asm.lda(asm.direct(s.count))
@@ -1041,18 +1081,6 @@ module VBlank
               asm.label("rt_paint_blit_done")
               asm.plb
               asm.rtl
-
-              # rt_paint_shift (JSR): A shifted right by the picture's place across, modulo eight —
-              # straight into the run of shifts at the place for that many (rt_paint_shifts).
-              asm.label("rt_paint_shift")
-              asm.jmp(asm.ind_abs(s.shift))
-              asm.label("rt_paint_shift_7")
-              7.downto(1) do |n|
-                asm.label("rt_paint_shift_#{n}") unless n == 7
-                asm.lsr
-              end
-              asm.label("rt_paint_shift_0")
-              asm.rts
             end
 
             # --- a sprite's patch ---
@@ -1220,6 +1248,22 @@ module VBlank
               asm.jsr(asm.abs("rt_paint_mark"))
               asm.pla
               asm.sta(asm.direct(s.first_x))
+              # The masks of the patch's columns on the screen, from its first (or the screen's)
+              # to its last (or the screen's).
+              asm.bpl("rt_paint_restore_masks_from")
+              asm.lda(0)
+              asm.label("rt_paint_restore_masks_from")
+              asm.sta(asm.direct(s.tile))
+              asm.lda(asm.direct(s.first_x))
+              asm.clc
+              asm.adc(asm.direct(s.across))
+              asm.dec
+              asm.cmp(COLUMNS)
+              asm.bcc("rt_paint_restore_masks_to")
+              asm.lda(COLUMNS - 1)
+              asm.label("rt_paint_restore_masks_to")
+              asm.sta(asm.direct(s.mark_count))
+              asm.jsr(asm.abs("rt_paint_column_masks"))
               emit_into_copy(asm, bank)
               # Each row of the patch, from its first; the ones outside the area are passed over.
               asm.ldy(2)
@@ -1238,10 +1282,9 @@ module VBlank
               asm.lda(asm.direct(s.chunk))
               asm.cmp(COLUMNS)
               asm.branch_long(:bcs, "rt_paint_restore_tile_off")
-              3.times { asm.asl }
-              asm.phy
-              asm.jsr(asm.abs("rt_paint_column_mask"))
-              asm.ply
+              asm.asl
+              asm.tax
+              asm.lda(asm.long_x(memory[COLUMN_MASKS]))
               asm.sta(asm.direct(s.mask))
               asm.eor(0xFFFF)
               asm.sta(asm.direct(s.not_mask))
@@ -1532,17 +1575,14 @@ module VBlank
             end
 
             # The masks of a tile's row from a pixel to its right end (rt_paint_from_left, nine: from
-            # pixel 0 to past pixel 7) and from its left end up to a pixel (rt_paint_up_to, nine), and
-            # where in the run of shifts each place across modulo eight starts; and the bytes the
-            # copying engine fills work RAM with: a generation no tile is in, and either byte of a
-            # cell showing the clear tile.
+            # pixel 0 to past pixel 7) and from its left end up to a pixel (rt_paint_up_to, nine); and
+            # the bytes the copying engine fills work RAM with: a generation no tile is in, and either
+            # byte of a cell showing the clear tile.
             def emit_tables(asm)
               asm.label("rt_paint_from_left")
               asm.data_words(*(0..8).map { |from| (0xFF >> from) * 0x0101 })
               asm.label("rt_paint_up_to")
               asm.data_words(*(0..8).map { |to| ((0xFF00 >> to) & 0xFF) * 0x0101 })
-              asm.label("rt_paint_shifts")
-              asm.data_words(*(0..7).map { |n| "rt_paint_shift_#{n}" })
               asm.label("rt_paint_no_generation")
               asm.data_bytes(NO_GENERATION)
               asm.label("rt_paint_clear_cell")
