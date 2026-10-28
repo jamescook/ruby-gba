@@ -76,8 +76,8 @@ module VBlank
 
           # The kinds the Color's hardware cannot do at all, refused in the words its answers have
           # (#refuse_what_color_lacks!): a layer seen through another, a light, a mosaic, a turned
-          # or resized background, a recording.
-          REFUSED = %i[see_through shade_outside pixelate affine_background play_sample stop_sample].freeze
+          # or resized background.
+          REFUSED = %i[see_through shade_outside pixelate affine_background].freeze
 
           # How many bytes of save memory a read or a write moves, by the width it names.
           SAVE_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4 })

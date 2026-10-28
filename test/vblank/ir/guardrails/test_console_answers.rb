@@ -52,7 +52,58 @@ class TestConsoleAnswers < Minitest::Test
     game_loop { wait_vblank }
   end
 
+  # A voice clip played once, as it was recorded: the Color plays that.
+  CLIP = VBlank.game("CLIP", consoles: %i[gba gbc]) do
+    hello = sample :hello, pcm: [60, -60] * 200
+    hello.play
+    game_loop { wait_vblank }
+  end
+
+  # ...and each part of playing a recording that a clip player has no way to do, a game apiece.
+  CLIP_PARTS = {
+    loop: VBlank.game("CLIPLOOP", consoles: %i[gba gbc]) do
+      sample(:hum, pcm: [60, -60] * 200).play(loop: true)
+      game_loop { wait_vblank }
+    end,
+    pitch: VBlank.game("CLIPNOTE", consoles: %i[gba gbc]) do
+      sample(:hum, pcm: [60, -60] * 200).play(pitch: :E4)
+      game_loop { wait_vblank }
+    end,
+    volume: VBlank.game("CLIPVOL", consoles: %i[gba gbc]) do
+      sample(:hum, pcm: [60, -60] * 200).play(volume: :three_quarter)
+      game_loop { wait_vblank }
+    end,
+    envelope: VBlank.game("CLIPSHAPE", consoles: %i[gba gbc]) do
+      sample(:hum, pcm: [60, -60] * 200, envelope: { release: 0.2 }).play
+      game_loop { wait_vblank }
+    end,
+    wave: VBlank.game("CLIPWAVE", consoles: %i[gba gbc]) do
+      enable_sound
+      sample(:hum, pcm: [60, -60] * 200).play
+      wave :triangle, 440
+      game_loop { wait_vblank }
+    end
+  }.freeze
+
   private def findings(game, console) = CHECK.detect(game.program(console: console))
+
+  def test_a_recording_played_once_as_recorded_works_on_the_color
+    assert_empty findings(CLIP, :gbc)
+  end
+
+  # Each is one error, naming what the line asks for; the Advance's build hears none of them.
+  def test_what_a_clip_player_cannot_do_is_refused_on_the_color
+    said = { loop: /`loop: true`/, pitch: /`pitch:`/, volume: /three quarters/, envelope: /`envelope:`/,
+             wave: /wave voice/ }
+    CLIP_PARTS.each do |part, game|
+      found = findings(game, :gbc)
+
+      assert_equal [:error], found.map(&:severity), part.to_s
+      assert_match said.fetch(part), found.first.message
+      assert_match(/one recording at a time/, found.first.message)
+      assert_empty findings(game, :gba), part.to_s
+    end
+  end
 
   def test_a_layer_seen_through_by_a_fixed_amount_is_refused_in_plain_words
     found = findings(GHOST, :gbc)

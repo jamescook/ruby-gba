@@ -50,6 +50,26 @@ module VBlank
         [(step * (1 << VBlank::Audio::Sound::STEP_SHIFT)).round, 1].max
       end
 
+      # THE SAMPLES A VOICE READS of +data+ (signed samples) at +step+, one for each sample of the
+      # mix, in order, until it runs out: the walk Reference::Mixer#mix_voice takes a frame at a
+      # time, the part of a sample that does not make a whole one carried on. For a backend that
+      # plays a recording as it will be heard rather than mixing it as it plays (GBC::Clips).
+      def samples_read(data, step)
+        shift = VBlank::Audio::Sound::STEP_SHIFT
+        whole = step >> shift
+        part = step & ((1 << shift) - 1)
+        position = 0
+        fraction = 0
+        samples = []
+        while position < data.length
+          samples << data[position]
+          fraction += part
+          position += whole + (fraction >> shift)
+          fraction &= (1 << shift) - 1
+        end
+        samples
+      end
+
       # ONE SAMPLE'S SHARE OF A FRAME, out of 1 << (2 * Sound::RAMP_SPLIT): what a shaped note's
       # distance to its next gain is multiplied by to slide it there over +samples_a_frame+
       # samples. A multiply by a number worked out ahead of time, rather than a divide each

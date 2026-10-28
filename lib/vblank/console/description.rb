@@ -38,8 +38,15 @@ module VBlank
     # which anything that keeps real seconds by counting frames needs. Neither console shows
     # exactly sixty a second. +samples_a_copy+ is how many samples of mixed sound one copy hands
     # the console's sound hardware, which decides the rates a mix can run at
-    # (Console::SampleClock), or nil where it mixes no recordings. +voice_output_hz+ is how often
-    # it hands its sound chip's voices on to the speaker, which matters to the noise voice alone:
+    # (Console::SampleClock), or nil where it plays no recordings. The timer that says when the next
+    # sample is due counts in +sample_timer_step+ of those cycles at a time, and at most
+    # +sample_timer_counts+ of them, so it can only wait a whole number of steps up to that many.
+    # +recordings_at_once+ is how many recordings sound together; a play past that is dropped.
+    # +mixes_recordings+ says whether its processor adds recordings up into a stream of its own,
+    # which can loop one, read it faster for a higher note, scale it and shape it; one that does
+    # not plays a recording as it was recorded, a sample at a time, on a voice of the sound chip.
+    # +voice_output_hz+ is how often it hands its sound chip's voices on to the speaker, which
+    # matters to the noise voice alone:
     # a hiss can step faster than that, and what is heard of one that does is whichever way it
     # stood at each of those moments, a hiss of its own and a lower one. A backend that makes the
     # sound itself looks at the hiss at the same moments to make the same one. +largest_memory_bytes+ is how
@@ -55,6 +62,7 @@ module VBlank
                               :sprites_a_row, :turning_sprites, :backgrounds, :turning_backgrounds,
                               :backgrounds_beside_turning, :bar_is_a_background, :blends, :list_colors, :painted_pages,
                               :clock_keeps_date, :cycles_a_second, :cycles_a_frame, :samples_a_copy,
+                              :sample_timer_step, :sample_timer_counts, :recordings_at_once, :mixes_recordings,
                               :voice_output_hz, :largest_memory_bytes, :work_memory_bytes, :work_memory_kept_bytes,
                               :roomier_memory_bytes, :extension) do
       def screen_size = [screen_width, screen_height]
@@ -100,6 +108,10 @@ module VBlank
                               cycles_a_second: 16_777_216, cycles_a_frame: 280_896,
                               # The sound copy moves four 32-bit words at a time: sixteen 8-bit samples.
                               samples_a_copy: 16,
+                              # ...on a timer counting every cycle, up to its 16 bits.
+                              sample_timer_step: 1, sample_timer_counts: 65_536,
+                              # The framework's number, not the hardware's (Audio::Sound::MIXER_VOICES).
+                              recordings_at_once: 16, mixes_recordings: true,
                               # The voices are mixed into the speaker's output at the rate the
                               # sound's bias register starts at, which no cartridge built here changes.
                               voice_output_hz: 32_768,
@@ -121,7 +133,13 @@ module VBlank
                             blends: false, list_colors: 4, painted_pages: 1, clock_keeps_date: false,
                             # 154 lines of 456 cycles: the Advance's frame exactly, on a clock a
                             # quarter as fast. Double speed doubles the cycles, not the frames.
-                            cycles_a_second: 4_194_304, cycles_a_frame: 70_224, samples_a_copy: nil,
+                            cycles_a_second: 4_194_304, cycles_a_frame: 70_224,
+                            # One recording at a time, a sample each time the timer runs out,
+                            # handed to the sound chip by the processor itself. The timer counts
+                            # every sixteenth cycle of the processor, which runs at double speed:
+                            # every eighth of these. It holds a byte, so it waits 256 counts at most.
+                            samples_a_copy: 1, sample_timer_step: 8, sample_timer_counts: 256,
+                            recordings_at_once: 1, mixes_recordings: false,
                             # Nothing stands between the voices and the speaker: every step of the
                             # hiss is heard, which is every tick of the noise voice's own clock
                             # (Audio::Sound::NOISE_CLOCK_HZ) at the most. The emulator the tests

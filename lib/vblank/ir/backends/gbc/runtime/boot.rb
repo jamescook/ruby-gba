@@ -28,8 +28,9 @@ module VBlank
             module_function
 
             # The processor's fixed entry points: the eight one-byte calls (unused, so each goes
-            # nowhere harmful), the five interrupts, and the jump from the header.
-            def vector_sections
+            # nowhere harmful), the five interrupts, and the jump from the header. The timer's
+            # plays a sample of a recording in a game that plays one (+clips+, Runtime::Clips).
+            def vector_sections(clips: false)
               vectors = SM83.new("vectors", home: 0)
               8.times { vectors.bytes_of([0xC9] + ([0x00] * 7)) } # each RST: a return
               vectors.label("rt_vblank_vector") # 0x40
@@ -38,6 +39,8 @@ module VBlank
               vectors.jump("rt_hblank_interrupt") # 0x48: the display's, raised as a line ends
               [0x50, 0x58, 0x60].each do |at|
                 vectors.bytes_of(Array.new(at - vectors.here, 0x00))
+                next vectors.jump("rt_clip_tick") if clips && at == Console::GBCHardware::TIMER_VECTOR
+
                 vectors.reti
               end
               entry = SM83.new("entry", home: Console::GBCHardware::ENTRY)
@@ -46,8 +49,9 @@ module VBlank
               [vectors.section, entry.section]
             end
 
-            # The start-up routine, ending in a call to +main+.
-            def emit(asm, main:)
+            # The start-up routine, ending in a call to +main+. In a game that plays a recording
+            # (+clips+), the timer is stopped and its interrupt switched on, for a clip to start.
+            def emit(asm, main:, clips: false)
               h = Console::GBCHardware
               asm.label("rt_boot")
               asm.di
@@ -112,8 +116,9 @@ module VBlank
               asm.load(:a, 0xFF)
               asm.load_high(h::NR51, :a)
               asm.xor_a(:a)
+              asm.load_high(h::TAC, :a) if clips
               asm.load_high(h::IF, :a)
-              asm.load(:a, h::INT_VBLANK)
+              asm.load(:a, clips ? h::INT_VBLANK | h::INT_TIMER : h::INT_VBLANK)
               asm.load_high(h::IE, :a)
               asm.ei
               asm.call("rt_start")

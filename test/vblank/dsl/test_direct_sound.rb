@@ -28,6 +28,28 @@ class TestDirectSound < Minitest::Test
     assert_includes i.audio, [:sample, :boom], "play put the sample on the audio channel"
   end
 
+  # A recording started on one pass and stopped on a later one is heard on every lowering, and
+  # stopping it with nothing playing still says so: the play and both stops, on their passes.
+  def test_a_recording_started_and_stopped_is_logged_on_its_passes
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      hello = sample :hello, pcm: ([80] * 16 + [-80] * 16) * 100
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 3).then { hello.play }
+        (count == 9).then { hello.stop }
+        (count == 12).then { hello.stop }
+      end
+    end
+    b.finalize_program
+    i = game_player.run(b.program, frames: 14)
+
+    assert_equal [[:sample, :hello], [:stop_sample], [:stop_sample]],
+                 i.audio.select { |event| %i[sample stop_sample].include?(event.first) }
+  end
+
   # --- friendly errors ---
 
   def test_a_bad_pcm_value_is_a_friendly_error

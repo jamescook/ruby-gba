@@ -48,16 +48,19 @@ module VBlank
         new(period: period, rate: cycles / period, samples_a_frame: console.cycles_a_frame / period)
       end
 
-      # The periods that meet both conditions, and that a 16-bit counter can reach with no
-      # prescaler (past 65536 cycles it cannot, which puts a floor of 256Hz on all this).
+      # The periods that meet both conditions, and that the console's timer can wait: a whole
+      # number of its steps, and no more of them than it counts. The Advance's counts every cycle
+      # up to 65536 with no prescaler, which puts a floor of 256Hz on all this; the Color's counts
+      # in eights up to 256 of them.
       def self.periods(console)
         unless console.samples_a_copy
           raise ArgumentError, "A #{console.title} mixes no recordings. It has no sample clock."
         end
 
         whole = console.cycles_a_frame / console.samples_a_copy
+        step = console.sample_timer_step
         (1..Integer.sqrt(whole)).flat_map { |d| (whole % d).zero? ? [d, whole / d] : [] }
-                                .select { |d| d <= 65_536 }.sort
+                                .select { |d| (d % step).zero? && d / step <= console.sample_timer_counts }.sort
       end
     end
   end

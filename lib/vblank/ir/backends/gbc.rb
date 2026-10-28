@@ -20,6 +20,7 @@ require_relative "gbc/runtime"
 require_relative "gbc/art"
 require_relative "gbc/square_colors"
 require_relative "gbc/music"
+require_relative "gbc/clips"
 require_relative "gbc/sound_registers"
 require_relative "gbc/lowering/picture"
 require_relative "gbc/lowering/paint_reach"
@@ -146,15 +147,16 @@ module VBlank
           Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?,
                                   bar_rows: lowering.bar_rows, slides: lowering.music.slides?,
                                   wobbles: lowering.music.wobbles?, shapes: lowering.music.shapes?,
-                                  banked_songs: lowering.music.banked?)
+                                  banked_songs: lowering.music.banked?, clips: lowering.clips.any?)
           game = lowering.sections
           runs = lowering.run_uploads
+          clips = lowering.clips if lowering.clips.any?
           runtime = Runtime.sections(memory, main: Lowering::MAIN, art: lowering.art, frame_begins: lowering.frame_begins,
                                              music_level: lowering.music_level, songs: lowering.music.any?,
                                              music: lowering.music, runs: runs, drawn_palettes: lowering.drawn_palettes,
                                              big_maps: lowering.big_map_places, together: lowering.groups_up_together?,
-                                             bar_rows: lowering.bar_rows)
-          data = [*lowering.art.sections, *(lowering.music.any? ? lowering.music.sections : [])]
+                                             bar_rows: lowering.bar_rows, clips: clips)
+          data = [*lowering.art.sections, *(lowering.music.any? ? lowering.music.sections : []), *clips&.sections]
           begin
             linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END,
                                                        clock: lowering.clock?).link

@@ -86,6 +86,10 @@ module VBlank
             @next_quick.tap { @next_quick += bytes }
           end
 
+          # +bytes+ of quick memory for +name+, kept among the names as work memory's places are: for
+          # what an interrupt reads thousands of times a second, where the shorter reach counts.
+          def reserve_quick(name, bytes) = @places.fetch(name) { @places[name] = quick(bytes) }
+
           # The address +name+ was given.
           def [](name) = @places.fetch(name)
 

@@ -32,7 +32,8 @@ module VBlank
             console = program.described_console
             answers = Console.for(console.name).answers
             nodes = program.walk.to_a
-            refused(nodes, console, answers) + crowded_rows(program, nodes, console)
+            refused(nodes, console, answers) + wave_beside_recordings(nodes, console, answers) +
+              crowded_rows(program, nodes, console)
           end
 
           private
@@ -56,7 +57,7 @@ module VBlank
             case node.kind
             when :raw then Question.new(:entry, "This line hands the Advance's processor raw instructions (`entry`)", nil)
             when :shade_outside then Question.new(:spotlight, "This game has a light (`spotlight`)", nil)
-            when :sample, :play_sample then Question.new(:sample, "This game plays a recording", nil)
+            when :sample, :play_sample then recording_question(node, console)
             when :pixelate then Question.new(:pixelate, "This line shows the screen in blocks (`pixelate`)", nil)
             # The layers' declaration, which every see-through layer is in: one whose amounts are
             # written in the program is told to the console once and has no step of its own.
@@ -79,6 +80,40 @@ module VBlank
                 Question.new(:sprite, "This sprite turns or resizes (`scale`, `face_angle`, `turn`, `pulse`)",
                              console.turning_sprites)
               end
+            end
+          end
+
+          # A recording, and the parts of playing one that only a console that mixes them can do
+          # (Console::Description#mixes_recordings): one that plays them as recorded, a sample at a
+          # time, has no way to loop one, read it at another note, scale it by three quarters or
+          # shape it. Half, a quarter and nothing a sound chip's voice does itself.
+          def recording_question(node, console)
+            mixes = console.mixes_recordings
+            asked = if node.kind == :sample
+                      "This recording has a shape (`envelope:`)" if node.envelope && !node.envelope.plain?
+                    elsif node.loop
+                      "This line plays a recording over and over (`loop: true`)"
+                    elsif node.pitch
+                      "This line plays a recording at another note (`pitch:`)"
+                    elsif node.volume == :three_quarter
+                      "This line plays a recording at three quarters of its volume"
+                    end
+            asked ? Question.new(:sample, asked, mixes) : Question.new(:sample, "This game plays a recording", nil)
+          end
+
+          # THE WAVE VOICE IN A GAME THAT PLAYS A RECORDING, on a console that plays recordings on
+          # it: each line that sounds or stops the wave voice (`wave`, `stop_wave`) and each song
+          # with a wave part would take the voice from under the recording.
+          def wave_beside_recordings(nodes, console, answers)
+            return [] if console.mixes_recordings || nodes.none? { |node| node.kind == :play_sample }
+
+            nodes.filter_map do |node|
+              next unless %i[wave stop_wave].include?(node.kind) ||
+                          (node.kind == :song && node.voices.any? { |part| IR::Tunes.part_kind(part) == :wave })
+
+              Finding.new(check: NAME, severity: :error, node: node,
+                          message: "This line uses the wave voice in a game that plays a recording, and a " \
+                                   "#{console.title} cannot: #{answers.answer(:sample).words}")
             end
           end
 

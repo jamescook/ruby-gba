@@ -148,7 +148,7 @@ and a test fails when the two differ. The Advance's answers are in
 - `noise` — works: the same as on the Advance.
 - `wave` — works: the same as on the Advance.
 - `stop_wave` — works: the same as on the Advance.
-- `song` — works: on the square, wave and noise voices. A part played on a recording (`voice ..., plays:`) is refused: a Game Boy Color cannot play recorded sound.
+- `song` — works: on the square, wave and noise voices. A part played on a recording (`voice ..., plays:`) is refused. A Game Boy Color plays a recording only at its own note (see `sample`).
 - `play_song` — works: the same as on the Advance.
 - `stop_music` — works: the same as on the Advance.
 - `music_volume` — works: the same as on the Advance.
@@ -156,8 +156,8 @@ and a test fails when the two differ. The Advance's answers are in
 - `fade_music_out` — works: the same as on the Advance.
 - `songs` — works: see `song` for recordings.
 - `sound_effects` — works: see `song` for recordings.
-- `sample` — **refused**: a Game Boy Color has no way to play recorded sound. Use `song`, `beep`, `wave` or `noise`.
-- `instrument` — **refused**: an instrument plays a recording, which a Game Boy Color cannot (see `sample`). Write the part for the square or wave voice.
+- `sample` — works: it plays one recording at a time, as it was recorded, on the wave voice. Each sample turns the voice full on or off, so the sound is rough, as a Color game's voice clips are. A play while a recording sounds is not heard. A recording cannot loop, play at another note (`pitch:`), play at three quarters of its volume, or have a shape (`envelope:`). A game that plays a recording cannot use the wave voice for other sound.
+- `instrument` — **refused**: an instrument plays a recording at many notes. A Game Boy Color plays a recording only at its own note (see `sample`). Write the part for the square or wave voice.
 
 ## Not made yet
 

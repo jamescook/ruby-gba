@@ -41,12 +41,6 @@ module VBlank
         # {Framebuffer} makes. What both mixers have to work out alike, such as how fast a note
         # reads its recording, is asked of IR::Mixing, so neither is the only one that knows.
         class Mixer
-          # The most samples that sound at once — read from {Sound}, where the two backends keep
-          # the promises they make to each other, rather than written down again here. A new
-          # play past this is dropped rather than stealing one already sounding (safe and quiet
-          # — a game rarely needs more).
-          MAX_VOICES = Audio::Sound::MIXER_VOICES
-
           # THE MIX'S OWN NUMBERS, the ones the cartridge's mixer uses too, which is what this one
           # has to agree with byte for byte (see Sound::MIX_LEVELS for what each is).
           LOUDNESS = Audio::Sound::MIX_LEVELS
@@ -112,7 +106,7 @@ module VBlank
           # than owned, so everything a run made a noise about stays in one place and in order.
           def initialize(log:)
             @log = log
-            @slots = Array.new(MAX_VOICES)
+            @slots = Array.new(Audio::Sound::MIXER_VOICES) # until the clock says the console's own (#start_clock)
             @samples = {}   # name -> Assets::Sample
             @data = {}      # name -> the recording, as signed samples
             @tickets = 0    # how many sounds the game has started, for the next ticket
@@ -129,10 +123,13 @@ module VBlank
           # any note in the program has a shape. That second one changes what the mix reads for a
           # note WITHOUT one: in a program that shapes nothing, its loudness; in one that shapes
           # something, its gain, which is set as the note starts and again whenever the music
-          # volume moves (see #rescale_music). Until this is said there is no mix.
-          def start_clock(clock:, shapes:)
+          # volume moves (see #rescale_music). Until this is said there is no mix. +voices+ is how
+          # many recordings the console sounds together (Console::Description#recordings_at_once):
+          # a play past that is dropped rather than stealing one already sounding.
+          def start_clock(clock:, shapes:, voices:)
             @clock = clock
             @shapes = shapes
+            @slots = Array.new(voices)
           end
 
           # A `sample` declaration was reached. Gathered up front, like a func body, so playing
@@ -171,7 +168,7 @@ module VBlank
           # them. The same shape the console's own count is read back in
           # (Verifier#sound_drops), so the two backends' answers meet in one equality.
           def drops
-            Diagnostics::SoundDrops::Reading.new(dropped: @drops, music_held: @drops_music, voices: MAX_VOICES)
+            Diagnostics::SoundDrops::Reading.new(dropped: @drops, music_held: @drops_music, voices: @slots.length)
           end
 
           # --- the game's own sounds ---

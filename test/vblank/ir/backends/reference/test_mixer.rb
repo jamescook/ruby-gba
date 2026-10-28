@@ -109,6 +109,25 @@ class TestMixer < Minitest::Test
                  "the mix is capped at the shared limit, extra plays dropped"
   end
 
+  # A COLOR PLAYS ONE RECORDING AT A TIME, so the interpreter, playing a game as a Color, sounds
+  # the first and drops the rest, as it drops plays past the Advance's sixteen.
+  def test_a_color_game_sounds_one_recording_at_a_time
+    b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
+    b.instance_eval do
+      screen :tiled
+      first = sample :first, pcm: [25, -25] * 2000, rate: 8192
+      second = sample :second, pcm: [25, -25] * 2000, rate: 8192
+      first.play
+      second.play
+      game_loop { wait_vblank }
+    end
+    b.finalize_program
+    i = Reference.new.run(b.program, frames: 3)
+
+    assert_equal [:first], i.active_samples
+    assert_equal [[:sample, :first], [:sample, :second]], i.audio.select { |event| event.first == :sample }
+  end
+
   # THE VOICE TABLE DECODES WHATEVER MEMORY IT IS HANDED. The reader is passed in rather than
   # owned, so the decoding — which slot is sounding, which sample it is, whether it loops — is
   # checked here against a plain Hash, with no emulator anywhere. This is the one test that

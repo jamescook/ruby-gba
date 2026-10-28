@@ -730,12 +730,15 @@ module VBlank
               asm.ret
 
               # Every voice the tune plays on, quiet, and holding nothing. A voice a sound effect holds
-              # is the effect's, and is left alone (Reference::Player#silence_song).
+              # is the effect's, and is left alone (Reference::Player#silence_song). In a game that plays
+              # a recording the wave voice is the recording's (Runtime::Clips), and no tune plays on it.
               asm.label("rt_music_quiet")
               return emit_quiet_beside_effects(asm, memory) if sharing
 
               asm.xor_a(:a)
-              [h::NR12, h::NR22, h::NR30, h::NR42].each { |register| asm.load_high(register, :a) }
+              ([h::NR12, h::NR22, h::NR30, h::NR42] - (Clips.any?(memory) ? [h::NR30] : [])).each do |register|
+                asm.load_high(register, :a)
+              end
               HELD_VOICES.times { |i| asm.load([memory[HELD] + i], :a) }
               if wobbles?(memory)
                 WOBBLE_VOICES.times { |i| asm.load([memory[WOBBLES] + (i * WOBBLE_BYTES)], :a) }
@@ -749,7 +752,7 @@ module VBlank
             end
 
             def emit_quiet_beside_effects(asm, memory)
-              (1..4).each do |voice|
+              ((1..4).to_a - (Clips.any?(memory) ? [GBC::Music::WAVE_VOICE] : [])).each do |voice|
                 holder = memory[Effects::HOLDERS] + voice - 1
                 asm.load(:a, [holder])
                 asm.load(:e, :a)

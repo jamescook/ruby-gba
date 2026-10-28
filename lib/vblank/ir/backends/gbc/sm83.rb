@@ -85,12 +85,14 @@ module VBlank
           attr_reader :bytes
 
           # +bank_noted_at+ is where #select_rom_bank notes the bank it puts in view, or nil for code
-          # that need not note it (see #select_rom_bank).
-          def initialize(name, home: :banked, holds: nil, bank_noted_at: nil)
+          # that need not note it (see #select_rom_bank); +bank_shown_at+ where every bank switch
+          # writes the bank down, or nil (see #select_rom_bank_unnoted).
+          def initialize(name, home: :banked, holds: nil, bank_noted_at: nil, bank_shown_at: nil)
             @name = name
             @home = home
             @holds = holds
             @bank_noted_at = bank_noted_at
+            @bank_shown_at = bank_shown_at
             @bytes = +"".b
             @labels = {}
             @fixups = []
@@ -126,8 +128,13 @@ module VBlank
           end
 
           # ...without noting it: the music player's own bank, for the length of its reading, and
-          # the noted one put back after it.
-          def select_rom_bank_unnoted = load([Console::GBCHardware::MBC_ROM_BANK_LOW], :a)
+          # the noted one put back after it. Where a recording is played (Runtime::Clips), whatever
+          # bank is put in view is written down at +bank_shown_at+ first, for the timer's interrupt
+          # to put back after it reads the recording's bank: the same order, for the same reason.
+          def select_rom_bank_unnoted
+            load([@bank_shown_at], :a) if @bank_shown_at
+            load([Console::GBCHardware::MBC_ROM_BANK_LOW], :a)
+          end
 
           # --- data ---
 

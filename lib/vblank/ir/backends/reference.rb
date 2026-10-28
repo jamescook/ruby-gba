@@ -1077,7 +1077,7 @@ module VBlank
           return unless IR::Mixing.mixes?(program)
 
           @mixer.start_clock(clock: @console.sample_clock(IR::Mixing.requested_rate(program)),
-                             shapes: IR::Mixing.shapes_any_note?(program))
+                             shapes: IR::Mixing.shapes_any_note?(program), voices: @console.recordings_at_once)
         end
 
         # One vblank: snapshot the current buttons as "previous" (so an edge can

@@ -606,7 +606,7 @@ module VBlank
               asm.label(label)
               asm.load(:a, [memory[Paint::SCREEN_KIND]])
               asm.cp_a(Paint::PAINTED)
-              asm.call(:nz, Memory::OAM_DMA)
+              asm.call(:nz, Clips.any?(memory) ? "rt_clip_oam_dma" : Memory::OAM_DMA)
               asm.load(:a, [memory[PALETTES_CHANGED]])
               asm.and_a(:a)
               asm.call(:nz, "rt_picture_write_palettes")

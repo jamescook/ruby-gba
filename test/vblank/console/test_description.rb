@@ -24,9 +24,14 @@ class TestDescription < Minitest::Test
     assert_equal 0, clock.samples_a_frame % 16
   end
 
-  def test_a_console_that_mixes_no_recordings_has_no_sample_clock
-    error = assert_raises(ArgumentError) { VBlank::Console::COLOR.sample_clock(8000) }
+  # The Color plays a recording a sample at a time from its timer, which counts in eights of the
+  # frame's cycles and at most 256 of them: the nearest it keeps to 8192 a second is a tick every
+  # 528 cycles, 133 to a frame.
+  def test_the_colors_sample_clock_is_a_timer_it_can_set
+    clock = VBlank::Console::COLOR.sample_clock(8192)
 
-    assert_match(/Game Boy Color mixes no recordings/, error.message)
+    assert_equal 528, clock.period
+    assert_equal 133, clock.samples_a_frame
+    assert_equal 7943, clock.rate
   end
 end

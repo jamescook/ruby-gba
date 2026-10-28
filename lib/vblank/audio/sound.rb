@@ -54,8 +54,9 @@ module VBlank
       # stream. What a voice costs is the mixing, and only while it sounds — an idle slot is a
       # check a frame — so the number is room, and sixteen is what the music being asked of the
       # framework needs: songs of up to twelve recorded parts, with sounds of the game's own
-      # beside them.
-      MIXER_VOICES = 16
+      # beside them. Written once, in the Advance's description, which the interpreter reads for
+      # whichever console it plays a game as.
+      MIXER_VOICES = Console::ADVANCE.recordings_at_once
 
       # THE NUMBERS THE MIX ADDS RECORDINGS TOGETHER WITH, kept here for the same reason: the
       # cartridge's mixer and the interpreter's work out the same bytes of sound, and a number

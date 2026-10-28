@@ -15,11 +15,12 @@ module VBlank
                                                  noise: :emit_noise, wave: :emit_wave, stop_wave: :emit_stop_wave,
                                                  play_song: :emit_play_song, stop_music: :emit_stop_music,
                                                  play_from_list: :emit_play_from_list,
-                                                 play_sound_effect: :emit_play_sound_effect
+                                                 play_sound_effect: :emit_play_sound_effect,
+                                                 play_sample: :emit_play_sample, stop_sample: :emit_stop_sample
                                                })
 
-            # The game's songs, as the player reads them.
-            attr_reader :music
+            # The game's songs, as the player reads them; and its recordings, as a bit a sample.
+            attr_reader :music, :clips
 
             # What each table of writes plays, by its label, as the interpreter logs it
             # (Reference#audio): what a run of the cartridge reads back its sounds by (GBC::SoundLog).
@@ -33,7 +34,29 @@ module VBlank
             def prepare_sound
               @defined_sounds = @program.walk.select { |node| node.kind == :define_sound }.to_h { |node| [node.name, node.effect] }
               @music = Music.new(@program, banked: @banked_songs)
+              @clips = Clips.new(@program)
               @sound_tables = {}
+            end
+
+            # Reference::Mixer#start: the recording from its start, unless one is playing
+            # (Runtime::Clips), at the wave voice's level for the volume named. Logged either way, as
+            # the interpreter logs a play it drops; the log goes through a table of no writes, which is
+            # how every sound the game makes reaches the run's log (GBC::SoundLog).
+            def emit_play_sample(node)
+              sound_writes([], [:sample, node.name])
+              @asm.load(:a, @clips.number(node.name))
+              @asm.load(:b, Runtime::Clips::LEVELS.fetch(node.volume))
+              @asm.call("rt_clip_play")
+            end
+
+            # Reference::Mixer#stop: the recording named, or whichever is playing for none, stopped.
+            # One the game never plays is never playing, so nothing is stopped for it.
+            def emit_stop_sample(node)
+              sound_writes([], [:stop_sample])
+              return if node.name && !@clips.plays?(node.name)
+
+              @asm.load(:a, node.name ? @clips.number(node.name) : Runtime::Clips::ALL)
+              @asm.call("rt_clip_stop")
             end
 
             # Reference#exec_play_song: the tune named, from the next frame, unless it is the one

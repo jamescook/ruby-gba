@@ -118,6 +118,7 @@ module VBlank
             # +together+ says the game has picture groups with more than one slot, which
             # rt_groups_together asks of.
             def emit(asm, memory, together: false)
+              clips = Clips.any?(memory)
               h = Console::GBCHardware
               vblank = memory.quick(1)
 
@@ -133,8 +134,21 @@ module VBlank
               # the middle of a pass is owed (MUSIC_OWED), and the owed frames are played as the pass
               # ends (rt_wait_vblank) — a game that keeps up is always waiting by then, and owes
               # nothing.
+              #
+              # A RECORDING PLAYING (Runtime::Clips) WANTS A SAMPLE EVERY FEW HUNDRED CYCLES,
+              # and the processor takes no interrupt while it is in one, so the music and the buttons
+              # would hold a clip's samples back until they were done, every frame: a buzz at the
+              # frame's own rate. So in a game that plays one, the timer's interrupt alone is let in
+              # while this one runs, and the switches are put back as it ends.
               asm.label("rt_vblank_interrupt")
               %i[af bc de hl].each { |pair| asm.push(pair) }
+              if clips
+                asm.load_high(:a, h::IE)
+                asm.push(:af)
+                asm.load(:a, h::INT_TIMER)
+                asm.load_high(h::IE, :a)
+                asm.ei
+              end
               asm.load(:a, [memory[WAITING]])
               asm.and_a(:a)
               asm.jump_relative(:nz, "rt_vblank_music")
@@ -149,6 +163,11 @@ module VBlank
               asm.call("rt_increment32")
               asm.load(:a, 1)
               asm.load_high(vblank, :a)
+              if clips
+                asm.di
+                asm.pop(:af)
+                asm.load_high(h::IE, :a)
+              end
               %i[hl de bc af].each { |pair| asm.pop(pair) }
               asm.reti
 
@@ -173,8 +192,17 @@ module VBlank
               asm.call("rt_frame_begins_unless_last")
               asm.call("rt_paint_scan")
               # Waiting from here, and the music owed by the frames the pass spanned played first,
-              # with the interrupt held off so a frame drawn now is played after them.
-              asm.di
+              # with the interrupt held off so a frame drawn now is played after them. In a game that
+              # plays a recording, only the screen's is held off: a frame behind can owe several, and
+              # the timer's samples go on between them, as they do in the screen's interrupt.
+              if clips
+                asm.load_high(:a, h::IE)
+                asm.push(:af)
+                asm.load(:a, h::INT_TIMER)
+                asm.load_high(h::IE, :a)
+              else
+                asm.di
+              end
               asm.load(:a, 1)
               asm.load([memory[WAITING]], :a)
               asm.label("rt_wait_vblank_owed")
@@ -186,7 +214,12 @@ module VBlank
               asm.call("rt_music_tick")
               asm.jump_relative("rt_wait_vblank_owed")
               asm.label("rt_wait_vblank_paid")
-              asm.ei
+              if clips
+                asm.pop(:af)
+                asm.load_high(h::IE, :a)
+              else
+                asm.ei
+              end
               asm.load_high(:a, h::LCDC)
               asm.bit(7, :a)
               asm.jump_relative(:nz, "rt_wait_vblank_sleep")
