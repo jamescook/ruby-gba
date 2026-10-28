@@ -21,12 +21,10 @@
 require_relative "../lib/vblank"
 
 module BufferedBounce
-  SCREEN_W = 240
-  SCREEN_H = 160
   BALL = 8
   SPEED = 2
 
-  GAME = VBlank.game("BOUNCE", consoles: %i[gba]) do
+  GAME = VBlank.game("BOUNCE", consoles: %i[gba snes]) do
     screen :bitmap, tear_free: true # the tear-proof screen — try flipping this to false
 
     # Each ball is a position (x, y) and a velocity (dx, dy).
@@ -46,10 +44,10 @@ module BufferedBounce
         b[:x].add! b[:dx]
         b[:y].add! b[:dy]
         # Bounce: at a wall, point the velocity back toward the middle.
-        (b[:x] <= 0).then              { b[:dx].set! SPEED }
-        (b[:x] >= SCREEN_W - BALL).then { b[:dx].set!(-SPEED) }
-        (b[:y] <= 0).then              { b[:dy].set! SPEED }
-        (b[:y] >= SCREEN_H - BALL).then { b[:dy].set!(-SPEED) }
+        (b[:x] <= 0).then                    { b[:dx].set! SPEED }
+        (b[:x] >= screen_width - BALL).then  { b[:dx].set!(-SPEED) }
+        (b[:y] <= 0).then                    { b[:dy].set! SPEED }
+        (b[:y] >= screen_height - BALL).then { b[:dy].set!(-SPEED) }
       end
     end
   end
