@@ -14,29 +14,25 @@ module VBlank
                                                  save_write: :emit_save_write, save_erase: :emit_save_erase })
             VALUES = Ractor.make_shareable({ save_read: :value_of_save_read, save_sum: :value_of_save_sum })
 
-            # How many bytes of save memory a read or a write moves, by the width it names.
-            SAVE_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4 })
+            # How many bytes of save memory a read or a write moves, by the width it names: the
+            # interpreter's own table, so the two cannot count a width differently.
+            SAVE_BYTES = Reference::SAVE_WIDTHS
 
             private
 
             # A Super Nintendo cartridge saves in 32K of battery-backed RAM (Runtime::Saving). A game
             # that names flash or an EEPROM lays its save memory out for that chip — its blocks, and
-            # its save_vars kept in a record — which this RAM does not have. A Super FX cartridge's
-            # RAM is the chip's own, and the build does not keep a save there yet.
+            # its save_vars kept in a record — which this RAM does not have. (Which board can keep a
+            # save at all is the build's to say: SNES#refuse_save_on_chip_board!.)
             def refuse_unsupported_save_memory!
               return unless SaveLayout.named_by?(@program)
 
               memory = SaveLayout.memory_of(@program)
-              unless memory.battery?
-                raise LoweringError, "This game saves in #{memory.kilobytes}K of #{memory.kind_words}, and a Super " \
-                                     "Nintendo cartridge saves in 32K of battery-backed RAM. To fix this, leave " \
-                                     "`save_memory:` out of the game."
-              end
-              return unless @program.variant == :superfx
+              return if memory.battery?
 
-              raise LoweringError, "This game saves, and it is for a Super Nintendo with a Super FX chip. The build " \
-                                   "cannot keep a save on a Super FX cartridge yet. To fix this, remove the chip from " \
-                                   "variants: or from --variant, or build the game without saves for that console."
+              raise LoweringError, "This game saves in #{memory.kilobytes}K of #{memory.kind_words}, and a Super " \
+                                   "Nintendo cartridge saves in 32K of battery-backed RAM. To fix this, leave " \
+                                   "`save_memory:` out of the game."
             end
 
             # Reference#exec_save_init: every `save_var` takes its saved number when save memory

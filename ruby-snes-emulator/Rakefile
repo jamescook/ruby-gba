@@ -45,7 +45,9 @@ task :compile_core do
     mkdir_p File.dirname(BUILT)
     # bsnes names the library for the platform: .so on Linux, .dylib on macOS. It is kept as .so
     # here whatever it was built as, since dlopen reads the file and never its name.
-    cp Dir[File.join(source, "bsnes", "out", "bsnes_libretro.{so,dylib}")].fetch(0), BUILT
+    built = Dir[File.join(source, "bsnes", "out", "bsnes_libretro.{so,dylib}")].first
+    abort "bsnes built, but left no bsnes_libretro.so or .dylib in bsnes/out/ to copy" unless built
+    cp built, BUILT
   end
 end
 

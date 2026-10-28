@@ -65,6 +65,7 @@ module VBlank
           memory = Memory.new
           painted = Lowering::Paint.painted?(program)
           saves = SaveLayout.named_by?(program)
+          refuse_save_on_chip_board!(board) if saves
           Runtime.reserve(memory, painted: painted, chip: board.name == :super_fx)
           lowering = Lowering.new(program, memory: memory)
           game = lowering.sections + lowering.art_sections
@@ -87,6 +88,16 @@ module VBlank
         end
 
         private
+
+        # A board with a chip on it (a Super FX) has RAM that is the chip's: bsnes keeps all of it as
+        # the save, and the painted screen takes most of it. The build does not keep a save there yet.
+        def refuse_save_on_chip_board!(board)
+          return if board.chip_ram_bytes.zero?
+
+          raise LoweringError, "This game saves, and it is for a #{Console::SUPER_NINTENDO.title} with a chip on its " \
+                               "cartridge. The build cannot keep a save on that cartridge yet. To fix this, remove the " \
+                               "chip from variants: or from --variant, or build the game without saves for that console."
+        end
 
         # The board +program+'s cartridge is laid out for (Cartridge::SNESROM::BOARDS): the one its
         # variant names (Console::Variant#build), or a plain one. A variant whose board is not made

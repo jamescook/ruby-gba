@@ -105,12 +105,15 @@ class TestSNESSaves < Minitest::Test
     build = VBlank::IR::Build
     sums = build.program(build.save_write(build.int(0x7FFC), build.int(0x0102_03FF)),
                          build.set(:whole, build.save_sum(build.int(0x7FFC), build.int(4))),
-                         build.set(:none, build.save_sum(build.int(0x7FFC), build.int(-5))), build.halt)
+                         build.set(:none, build.save_sum(build.int(0x7FFC), build.int(-5))),
+                         # From far past the 32K, back to its end: no bytes, so nothing to stop for.
+                         build.set(:from_far, build.save_sum(build.int(0x10000), build.int(-0x8000))), build.halt)
 
     run = SNES::CheckedRun.new.run(sums, frames: 1)
 
     assert_equal VBlank::IR::SaveLayout.checksum([0xFF, 0x03, 0x02, 0x01]), run[:whole]
     assert_equal 0, run[:none]
+    assert_equal 0, run[:from_far]
   end
 
   def test_save_memory_other_than_32k_of_battery_is_refused_in_plain_words
@@ -134,6 +137,6 @@ class TestSNESSaves < Minitest::Test
 
     error = assert_raises(SNES::LoweringError) { SNES.new.build(game.program(console: :snes)) }
 
-    assert_match(/Super FX/, error.message)
+    assert_match(/chip on its cartridge/, error.message)
   end
 end

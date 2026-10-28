@@ -41,7 +41,7 @@ module VBlank
               emit_sum(asm, s)
               asm.label("rt_save_erase")
               asm.rtl
-              emit_place(asm, memory, s)
+              emit_point_or_stop(asm, memory, s)
             end
 
             # rt_save_read: R0 = the +width+ (R1) bytes at +at+ (R0), lowest first, the rest nought.
@@ -49,7 +49,7 @@ module VBlank
               asm.label("rt_save_read")
               asm.lda(Frame::SAVE_READ_OUTSIDE)
               asm.ldx(R1)
-              asm.jsr(asm.abs("rt_save_place"))
+              asm.jsr(asm.abs("rt_save_point_or_stop"))
               asm.stz(asm.direct(R0))
               asm.stz(asm.direct(R0 + 2))
               asm.ldx(0)
@@ -70,7 +70,7 @@ module VBlank
               asm.label("rt_save_write")
               asm.lda(Frame::SAVE_WRITE_OUTSIDE)
               asm.ldx(R2)
-              asm.jsr(asm.abs("rt_save_place"))
+              asm.jsr(asm.abs("rt_save_point_or_stop"))
               asm.ldx(0)
               asm.sep(0x20)
               asm.label("rt_save_write_byte")
@@ -91,7 +91,7 @@ module VBlank
               asm.label("rt_save_sum")
               asm.lda(Frame::SAVE_READ_OUTSIDE)
               asm.ldx(R1)
-              asm.jsr(asm.abs("rt_save_place"))
+              asm.jsr(asm.abs("rt_save_point_or_stop"))
               asm.stz(asm.direct(R0))
               asm.stz(asm.direct(R0 + 2))
               asm.lda(asm.direct(R1 + 2))
@@ -116,22 +116,24 @@ module VBlank
               asm.rtl
             end
 
-            # rt_save_place (JSR): +at+ in R0 and a count of bytes in the working number X names, both
-            # 32 bits; A the fault to stop with when they do not fit. They fit, as SaveImage has it,
-            # when +at+ is nought or more and +at+ + count is no more than the 32K. Then the pointer
-            # holds $70:0000 and Y is +at+. Otherwise the game stops, the place and the size as the
-            # fault's two numbers.
-            def emit_place(asm, memory, s)
-              asm.label("rt_save_place")
+            # rt_save_point_or_stop (JSR): +at+ in R0 and a count of bytes in the working number X
+            # names, both 32 bits; A the fault to stop with when they do not fit. They fit, as
+            # SaveImage has it, when +at+ is nought or more and +at+ + count is no more than the 32K.
+            # Then the pointer holds $70:0000 and Y is +at+. Otherwise the game stops, the place and
+            # the size as the fault's two numbers. A count below nought (only a sum's length can be)
+            # fits wherever it ends up no further than the 32K, even from a place far past it, and
+            # reads no bytes, so Y need not hold all of such a place.
+            def emit_point_or_stop(asm, memory, s)
+              asm.label("rt_save_point_or_stop")
               asm.sta(asm.direct(s.fault))
               asm.lda(asm.direct(R0 + 2))
-              asm.bne("rt_save_outside") # below nought, or 64K and more: never inside
+              asm.bmi("rt_save_outside") # below nought: never inside
               asm.lda(asm.direct(R0))
               asm.clc
               asm.adc(asm.direct_x(0))
               asm.tay # the end's low half, kept while its high half is worked out
-              asm.lda(asm.direct_x(2))
-              asm.adc(0)
+              asm.lda(asm.direct(R0 + 2))
+              asm.adc(asm.direct_x(2))
               asm.bvs("rt_save_outside") # a count so big the end came round past the top
               asm.bmi("rt_save_inside") # a count below nought ends before the place: no bytes
               asm.bne("rt_save_outside")
