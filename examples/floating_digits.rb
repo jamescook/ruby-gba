@@ -20,8 +20,6 @@
 require_relative "../lib/vblank"
 
 module FloatingDigits
-  SCREEN_W = 240
-  SCREEN_H = 160
   W = VBlank::Graphics::Fonts.default.width  # 5px wide glyph
   H = VBlank::Graphics::Fonts.default.height # 7px tall glyph
 
@@ -41,7 +39,7 @@ module FloatingDigits
 
   # The game as a block the builder runs (so a test can drive the exact program
   # that ships — the interpreter runs THIS, the console runs the ROM built from it).
-  GAME = VBlank.game("FLOATNUM", consoles: %i[gba]) do
+  GAME = VBlank.game("FLOATNUM", consoles: %i[gba snes]) do
     screen :bitmap
 
     # A colored glyph image per digit. '.' is transparent, so only the digit's lit
@@ -62,8 +60,8 @@ module FloatingDigits
       }
     end
 
-    max_x = SCREEN_W - W # rightmost x that keeps the whole glyph on screen
-    max_y = SCREEN_H - H
+    max_x = screen_width - W # rightmost x that keeps the whole glyph on screen
+    max_y = screen_height - H
 
     game_loop do
       # The simple, unclever way: wipe the screen and redraw every digit. It's a

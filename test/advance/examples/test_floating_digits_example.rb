@@ -10,8 +10,8 @@ require VBlank.root.join("examples/floating_digits").to_s
 # These assert BEHAVIOR — the digits render in their colors and actually move — on
 # the interpreter, with an emulator check that it renders on the console.
 class TestFloatingDigitsExample < Minitest::Test
-  SW = FloatingDigits::SCREEN_W
-  SH = FloatingDigits::SCREEN_H
+  SW = VBlank::Console::ADVANCE.screen_width
+  SH = VBlank::Console::ADVANCE.screen_height
 
   # Run the program on the interpreter for a fixed budget (deterministic — there's
   # no input), enough for every digit to have been drawn a few frames in.
