@@ -182,9 +182,9 @@ module VBlank
         fade_music_out: works,
         songs: works("see `song`."),
         sound_effects: works("see `song`."),
-        sample: works("played on the sound chip, a recording on a voice of its own. The sound chip has four voices " \
-                      "for recordings, so four sound at once; a recording played while four sound is counted as on " \
-                      "the Advance, and not heard."),
+        sample: works("each recording plays on a voice of the sound chip. The sound chip has four voices for " \
+                      "recordings. If four recordings play, a fifth recording is not heard. It still ends or loops " \
+                      "as on the Advance."),
         instrument: works("see `sample`.")
       })
 

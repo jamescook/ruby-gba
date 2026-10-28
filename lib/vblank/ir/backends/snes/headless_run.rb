@@ -139,9 +139,15 @@ module VBlank
           attr_reader :apu_ram
 
           # The rest of what the interpreter answers, each refused by name.
-          %i[mixed_sound peak_voices sound_drops sound_owners frame log screen_mode
-             buffered].each do |name|
+          %i[peak_voices sound_drops sound_owners frame log screen_mode buffered].each do |name|
             define_method(name) { |*| refuse_unanswered!(name) }
+          end
+
+          # The Advance's mix, a stream of sound its processor makes from every recording: a Super
+          # Nintendo plays each recording on a voice of its sound chip, and makes no such stream.
+          def mixed_sound
+            raise CannotAnswer, "a Super Nintendo plays each recording on a voice of its own sound chip, so it has no " \
+                                "mixed sound to read. Say `skip_on_snes` in this one test."
           end
           def volume_of(*) = refuse_unanswered!(:volume_of)
           def level_of(*) = refuse_unanswered!(:level_of)
@@ -251,9 +257,9 @@ module VBlank
             @sounds = frame == :end || !sound? ? sounds : logged_by_pass(frame)
             read_sound_entries(@sounds) if sound?
             @apu_ram = @core.apu_ram if frame == :end && sound?
-            @active_samples = read_recordings if frame == :end
+            @active_samples = recordings_at(frame)
             @moments << Moment.new(frame: frame, variables: variables, picture: RunComparison.picture_check(picture.shown),
-                                   sounds: @sounds, sprites: @sprites, collections: game_state.except(:vars), sounding: [])
+                                   sounds: @sounds, sprites: @sprites, collections: game_state.except(:vars), sounding: @active_samples)
             @on_vblank&.call(frame) unless frame == :end
           end
 
@@ -271,13 +277,23 @@ module VBlank
 
           def sound? = @places.runtime.key?(Runtime::Sound::LOGGED)
 
-          # The recordings the cartridge's places hold now, by name; none for a game that plays none.
-          def read_recordings
-            return [] unless @places.runtime.key?(Runtime::Recordings::PLACES_STATE)
+          # The recordings the cartridge's places held at the moment of +frame+, by name, in the order
+          # of their places: as the pass's wait ended (Runtime::Recordings::KEPT_BY_PASS), the
+          # interpreter's mix at that frame boundary, or as they are now for the moment the run ended.
+          # None for a game that plays none.
+          def recordings_at(frame)
+            recordings = Runtime::Recordings
+            return [] unless @places.runtime.key?(recordings::PLACES_STATE)
 
-            state = runtime_place(Runtime::Recordings::PLACES_STATE)
-            Array.new(Runtime::Recordings::PLACES) { |place| half(state + (place * Runtime::Recordings::PLACE_BYTES)) }
-                 .reject(&:zero?).map { |held| @places.recording_names.fetch(held - 1) }
+            held = if frame == :end
+                     state = runtime_place(recordings::PLACES_STATE)
+                     Array.new(recordings::PLACES) { |place| half(state + (place * recordings::PLACE_BYTES)) }
+                   else
+                     kept = wram_offset(runtime_place(recordings::KEPT_BY_PASS)) +
+                            ((frame % Runtime::Frame::STEPS_KEPT) * recordings::PLACES)
+                     Array.new(recordings::PLACES) { |place| @core.wram_read8(kept + place) }
+                   end
+            held.reject(&:zero?).map { |number| @places.recording_names.fetch(number - 1) }
           end
 
           # How many entries the sound log held as pass +pass+'s wait ended.

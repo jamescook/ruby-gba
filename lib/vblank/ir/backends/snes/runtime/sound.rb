@@ -142,9 +142,11 @@ module VBlank
 
               table = Samples.image(TABLE_AT, waves, recordings)
               if TABLE_AT + table.size > MEMORY_END
-                raise LoweringError, "This game's recordings need #{TABLE_AT + table.size} bytes of the Super Nintendo's " \
-                                     "sound memory, and it holds #{MEMORY_END}. To fix this, use shorter recordings, " \
-                                     "or record them at a lower rate."
+                raise LoweringError, "This game's sounds take #{table.size} bytes of the Super Nintendo's sound memory. " \
+                                     "There is room for #{MEMORY_END - TABLE_AT} bytes. A recording that holds from a " \
+                                     "point keeps its held part up to 16 times over. To fix this, use shorter " \
+                                     "recordings, record them at a lower rate, or make each held part a multiple of " \
+                                     "16 samples long."
               end
               program + Array.new(room - program.size, 0) + table
             end
@@ -212,7 +214,8 @@ module VBlank
 
             # rt_sound_frame, where a pass's wait ends: for every frame the pass took, the recordings'
             # count moved on and then the music played (Reference#advance_frame's order: the mix, then
-            # the player); and how many entries the log holds then, kept for the pass (LOGGED_BY_PASS).
+            # the player); and, kept for the pass, which recordings sound then (Recordings) and how many
+            # entries the log holds, with the pass's number written last (LOGGED_BY_PASS).
             def emit_frame(asm, memory, songs, samples)
               asm.label("rt_sound_frame")
               if songs || samples
@@ -224,6 +227,7 @@ module VBlank
                 asm.dec(asm.abs(memory[TICKS_LEFT]))
                 asm.bne("rt_sound_frame_tick")
               end
+              asm.jsr(asm.abs("rt_recordings_kept_for_pass")) if samples
               asm.lda(asm.abs(memory[Frame::PASSES]))
               asm.and_a(Frame::STEPS_KEPT - 1)
               asm.asl

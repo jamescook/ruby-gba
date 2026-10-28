@@ -70,6 +70,65 @@ class TestSNESSamples < Minitest::Test
     assert_operator run.audio.count([:sample, :clip]), :>, 10
   end
 
+  # A recording that holds from a point not on a block, round a held part of 37 samples, a length no
+  # block divides: the cartridge's count logs it coming round as the interpreter's mix does, frame by
+  # frame (the checked run holds both), and the voice sounds on, the held part laid out on whole
+  # blocks (Samples.recording).
+  def test_a_recording_held_from_a_point_off_a_block_comes_round_with_the_interpreter
+    program = Build.program(Build.enable_sound, Build.sample(:held, CLIP.byteslice(0, 40), 32_000, holds_from: 3),
+                            Build.play_sample(:held, loop: true), Build.loop_(Build.wait_vblank))
+    program.console = :snes
+    run = SNES::CheckedRun.new.run(program, frames: 6)
+
+    assert_equal 0x7F, run.dsp_registers.getbyte(VOICE + ENVX)
+    assert_equal [:held], run.active_samples
+  end
+
+  # At :half the mix takes 256 of 512, which is 127 * 256 / 512 = 63.5 of the DSP's volume, 64 ($40);
+  # an octave up, C5 against the C4 it was recorded at, reads 523 / 262 of a sample each of the
+  # DSP's: 65536 * 523 / 262 = 130824 (IR::Mixing.step, rounded), over 16, $1FF0.
+  def test_volume_and_pitch_reach_the_voice
+    dsp = game(Build.play_sample(:clip, loop: true, volume: :half, pitch: :C5), frames: 2).dsp_registers
+
+    assert_equal 0x40, dsp.getbyte(VOICE), "the volume"
+    assert_equal [0xF0, 0x1F], [dsp.getbyte(VOICE + 2), dsp.getbyte(VOICE + 3)], "the pitch"
+  end
+
+  # Five recordings at once: the first four on voices 4 to 7, the fifth counted and not heard.
+  def test_a_fifth_recording_is_counted_and_not_heard
+    run = game(*Array.new(5) { Build.play_sample(:clip, loop: true) }, frames: 2)
+    sounding = (4..7).map { |voice| run.dsp_registers.getbyte((voice << 4) + ENVX) }
+
+    assert_equal [:clip] * 5, run.active_samples
+    assert_equal [0x7F] * 4, sounding
+  end
+
+  # stop_sample with no name stops every recording.
+  def test_stop_sample_with_no_name_stops_them_all
+    n = Build.var_ref(:n)
+    program = Build.program(Build.enable_sound, Build.sample(:clip, CLIP, 32_000), Build.play_sample(:clip, loop: true),
+                            Build.play_sample(:clip, loop: true),
+                            Build.loop_(Build.add(:n, 1), Build.if_(Build.binop(:==, n, Build.int(2)), Build.stop_sample),
+                                        Build.wait_vblank))
+    program.console = :snes
+    run = SNES::CheckedRun.new.run(program, frames: 5)
+
+    assert_equal [0, 0], [run.dsp_registers.getbyte(VOICE + ENVX), run.dsp_registers.getbyte((5 << 4) + ENVX)]
+    assert_empty run.active_samples
+  end
+
+  # A recording beside a song: each frame moves the recordings on before the music plays, as the
+  # interpreter's does, and the checked run holds the log's order to it.
+  def test_a_recording_beside_a_song_logs_in_the_interpreters_order
+    program = Build.program(Build.enable_sound, Build.sample(:clip, CLIP, 32_000),
+                            Build.song(:tune, events: [[0, 440], [2, 494]], total_frames: 4),
+                            Build.play_sample(:clip, loop: true), Build.play_song(:tune), Build.loop_(Build.wait_vblank))
+    program.console = :snes
+    run = SNES::CheckedRun.new.run(program, frames: 5)
+
+    assert_includes run.audio, [:note, :tune, 494]
+  end
+
   # stop_sample lets its voice go.
   def test_stop_sample_silences_it
     n = Build.var_ref(:n)

@@ -27,7 +27,7 @@ module VBlank
           module Recordings
             PLACES = Audio::Sound::MIXER_VOICES
             VOICES_HEARD = 4
-            FIRST_VOICE = 4
+            FIRST_VOICE = DSPWrites::FIRST_RECORDING_VOICE
 
             # A play's row in the table, in bytes.
             SOURCE = 0
@@ -54,6 +54,9 @@ module VBlank
             PLACE_ADVANCE_FRACTION = 20
             PLACE_LOGGED = 22
             PLACE_BYTES = 32
+            # ...and, for each of the last Frame::STEPS_KEPT passes, by the pass's number less its
+            # multiples of STEPS_KEPT, each place's recording as its wait ended: a byte a place.
+            KEPT_BY_PASS = "rt recordings kept by pass"
 
             # Where the row being played is, the place it takes, that place's voice's first register,
             # and which recording a stop names (or ALL) and its entry in the log.
@@ -66,9 +69,23 @@ module VBlank
 
             module_function
 
+            # A play's row of "recording_plays", as words: its voice's +source+, +pitch+ and +volume+;
+            # the recording's +length+ and the +back+ it reads at its end (32 bits each); the +advance+
+            # a frame, in samples and 65536ths (48 bits, of which the whole samples take 32); the
+            # number of its +logged+ entry; and the +name+'s number.
+            def row(source:, pitch:, volume:, length:, back:, advance:, logged:, name:)
+              words = Array.new(ROW_BYTES / 2, 0)
+              { SOURCE => source, PITCH => pitch, VOLUME => volume, LENGTH => length & 0xFFFF, LENGTH + 2 => length >> 16,
+                BACK => back & 0xFFFF, BACK + 2 => back >> 16, ADVANCE => (advance >> 16) & 0xFFFF,
+                ADVANCE + 2 => advance >> 32, ADVANCE_FRACTION => advance & 0xFFFF, LOGGED => logged,
+                NAME => name }.each { |at, value| words[at / 2] = value }
+              words
+            end
+
             def reserve(memory)
               [ROW, PLACE, REGISTERS, STOP_NAME, STOP_LOGGED].each { |name| memory.reserve(name, 2) }
               memory.reserve(PLACES_STATE, PLACES * PLACE_BYTES)
+              memory.reserve(KEPT_BY_PASS, Frame::STEPS_KEPT * PLACES)
             end
 
             def emit(asm, memory)
@@ -76,13 +93,32 @@ module VBlank
               emit_play(asm, at, memory)
               emit_stop(asm, at, memory)
               emit_frame(asm, at, memory)
+              emit_kept_for_pass(asm, memory)
+            end
+
+            # rt_recordings_kept_for_pass: which recording each place holds (its byte of HELD) copied
+            # into KEPT_BY_PASS for the pass whose wait is ending, for a reader of the run to hold to
+            # the interpreter's mix at that pass's frame boundary (Sound's rt_sound_frame).
+            def emit_kept_for_pass(asm, memory)
+              asm.label("rt_recordings_kept_for_pass")
+              asm.lda(asm.abs(memory[Frame::PASSES]))
+              asm.and_a(Frame::STEPS_KEPT - 1)
+              Music.emit_times(asm, PLACES)
+              asm.tax
+              asm.sep(0x20)
+              PLACES.times do |place|
+                asm.lda(asm.abs(memory[PLACES_STATE], (place * PLACE_BYTES) + HELD))
+                asm.sta(asm.abs_x(memory[KEPT_BY_PASS], place))
+              end
+              asm.rep(0x20)
+              asm.rts
             end
 
             # rt_recordings_play(row): the play's entry logged, and the recording in the first free
             # place from its start (Reference::Mixer#start); with none free, nothing more. In one of
             # the first four places it starts on that place's voice.
             def emit_play(asm, at, memory)
-              place = ->(field) { asm.abs_y(memory[PLACES_STATE], field) }
+              place = place_field(asm, memory)
               row = ->(field) { asm.long_x("recording_plays", field) }
               asm.label("rt_recordings_play")
               asm.lda(asm.direct(Sound::R0))
@@ -124,29 +160,28 @@ module VBlank
               asm.rtl
               asm.label("rt_recordings_play_heard")
               emit_registers(asm, at)
-              voice = DSPWrites
-              { voice::VOLUME_LEFT => VOLUME, voice::VOLUME_RIGHT => VOLUME, voice::PITCH_LOW => PITCH,
-                voice::SOURCE => SOURCE }.each do |register, field|
+              dsp = DSPWrites
+              { dsp::VOLUME_LEFT => VOLUME, dsp::VOLUME_RIGHT => VOLUME, dsp::PITCH_LOW => PITCH,
+                dsp::SOURCE => SOURCE }.each do |register, field|
                 emit_voice_write(asm, at, register) do
                   asm.ldx(at.call(ROW))
                   asm.lda(row.call(field))
                 end
               end
-              emit_voice_write(asm, at, voice::PITCH_HIGH) do
+              emit_voice_write(asm, at, dsp::PITCH_HIGH) do
                 asm.ldx(at.call(ROW))
                 asm.lda(row.call(PITCH))
                 asm.xba
-                asm.and_a(0xFF)
               end
-              emit_voice_write(asm, at, voice::ADSR1) { asm.lda(voice::ADSR_OFF) }
-              emit_voice_write(asm, at, voice::GAIN) { asm.lda(voice::FIXED_TOP) }
+              emit_voice_write(asm, at, dsp::ADSR1) { asm.lda(dsp::ADSR_OFF) }
+              emit_voice_write(asm, at, dsp::GAIN) { asm.lda(dsp::FIXED_TOP) }
               emit_voice_bit(asm, at)
               asm.sta(asm.direct(Sound::R0))
               asm.stz(asm.direct(Sound::R1))
               asm.jsl(asm.long("rt_sound_key_off_bits")) # its key-off cleared...
               emit_voice_bit(asm, at)
               asm.sta(asm.direct(Sound::R1))
-              asm.lda(voice::KEY_ON)
+              asm.lda(dsp::KEY_ON)
               asm.sta(asm.direct(Sound::R0))
               asm.jsl(asm.long("rt_sound_write")) # ...then key-on
               asm.rtl
@@ -155,7 +190,7 @@ module VBlank
             # rt_recordings_stop(name, logged): every place playing recording +name+ (or every place,
             # for ALL) freed, a heard one's voice let go, and [:stop_sample] logged (Reference::Mixer#stop).
             def emit_stop(asm, at, memory)
-              place = ->(field) { asm.abs_y(memory[PLACES_STATE], field) }
+              place = place_field(asm, memory)
               asm.label("rt_recordings_stop")
               asm.lda(asm.direct(Sound::R0))
               asm.sta(at.call(STOP_NAME))
@@ -178,7 +213,6 @@ module VBlank
               asm.tya
               asm.cmp(VOICES_HEARD * PLACE_BYTES)
               asm.bcs("rt_recordings_stop_walk")
-              emit_registers(asm, at)
               emit_voice_bit(asm, at)
               asm.sta(asm.direct(Sound::R0))
               asm.sta(asm.direct(Sound::R1))
@@ -200,7 +234,7 @@ module VBlank
             # end, back by its read-back as many times as it takes, logging each time round — or, for one
             # played once, the place freed.
             def emit_frame(asm, at, memory)
-              place = ->(field) { asm.abs_y(memory[PLACES_STATE], field) }
+              place = place_field(asm, memory)
               asm.label("rt_recordings_frame")
               asm.ldy(0)
               asm.label("rt_recordings_frame_place")
@@ -253,6 +287,9 @@ module VBlank
               asm.branch_long(:bcc, "rt_recordings_frame_place")
               asm.rts
             end
+
+            # A field of the place whose offset Y holds, as an operand.
+            def place_field(asm, memory) = ->(field) { asm.abs_y(memory[PLACES_STATE], field) }
 
             # REGISTERS = the first register of the voice of the place at PLACE (one of the first four).
             def emit_registers(asm, at)

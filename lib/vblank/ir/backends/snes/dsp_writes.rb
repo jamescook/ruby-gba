@@ -410,9 +410,11 @@ module VBlank
           # The wave or noise voice's own entry, which a song's note there logs after its loudness.
           def voice_own_entry?(entry) = !entry.nil? && %i[wave stop_wave noise].include?(entry.first)
 
-          # The bits of KON and KOFF that are the Advance's own four voices', which the game's
-          # recordings (on voices 4 to 7, Runtime::Recordings) leave alone.
-          CONSOLE_VOICE_BITS = 0x0F
+          # The first of the voices a game's own recordings play on (Runtime::Recordings), past the
+          # Advance's four; and the bits of KON and KOFF that are those four's, which the recordings
+          # leave alone.
+          FIRST_RECORDING_VOICE = 4
+          CONSOLE_VOICE_BITS = (1 << FIRST_RECORDING_VOICE) - 1
 
           # +held+ (#after's registers) without what a recording the game plays shares: KON, which
           # holds whichever voice was keyed on last, and KOFF's bits past the console voices'.

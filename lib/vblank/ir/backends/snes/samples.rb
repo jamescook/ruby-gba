@@ -136,7 +136,8 @@ module VBlank
           # ONE THAT GOES ON reads back +back+ samples at its end (Assets::Sample#loop_length). The
           # DSP loops only by whole blocks from a block's start, so the samples after the loop point
           # are moved round until the loop starts on a block, and the loop is repeated until it fills
-          # whole blocks: the same sound, a block or two longer. One played once ends on its last
+          # whole blocks: the same sound, the loop kept as many times over as it takes to be a
+          # multiple of sixteen samples — sixteen times for a loop of an odd length. One played once ends on its last
           # block, the rest of which is silence.
           def recording(bytes, back)
             samples = bytes.unpack("c*")

@@ -53,10 +53,7 @@ module VBlank
             def recordings_section
               asm = W65816.new("recording plays", holds: PLAYS)
               asm.label("recording_plays")
-              @plays.each do |row|
-                asm.data_words(row)
-                asm.data_words(Array.new((Runtime::Recordings::ROW_BYTES / 2) - row.size, 0))
-              end
+              @plays.each { |row| asm.data_words(row) }
               asm.data_words(0) if @plays.empty? # a label has to be somewhere
               asm.section
             end
@@ -96,14 +93,16 @@ module VBlank
               frequency = VBlank::Audio::Music::NOTE_FREQUENCIES.fetch(node.pitch || info.note || :C4)
               back = node.loop ? (info.loop_length.positive? ? info.loop_length : info.length) : 0
               step = IR::Mixing.step(info, frequency, clock.rate)
-              advance = step * clock.samples_a_frame
+              refuse_unreadable_play!(node.name, step, back)
               @recordings << [node.name, back] unless @recordings.include?([node.name, back])
               loudness = VBlank::Audio::Sound::MIX_LEVELS.fetch(node.volume, VBlank::Audio::Sound::MIX_LEVELS[:full])
-              row = [Samples::FIRST_WAVE + @sound_waves.size + @recordings.index([node.name, back]),
-                     (step / RECORDING_STEP_TO_PITCH).clamp(1, DSPWrites::PITCH_TOP),
-                     (loudness * DSPWrites::MAIN_VOLUME / VBlank::Audio::Sound::MIX_LEVELS[:full].to_f).round,
-                     *words_of(info.length), *words_of(back), *words_of(advance >> 16), advance & 0xFFFF,
-                     sound_entry_number([:sample, node.name]), @samples.keys.index(node.name)]
+              row = Runtime::Recordings.row(
+                source: Samples::FIRST_WAVE + @sound_waves.size + @recordings.index([node.name, back]),
+                pitch: [step / RECORDING_STEP_TO_PITCH, 1].max,
+                volume: (loudness * DSPWrites::MAIN_VOLUME / VBlank::Audio::Sound::MIX_LEVELS[:full].to_f).round,
+                length: info.length, back: back, advance: step * clock.samples_a_frame,
+                logged: sound_entry_number([:sample, node.name]), name: @samples.keys.index(node.name)
+              )
               @plays << row unless @plays.include?(row)
               runtime_call("rt_recordings_play", [Build.int(@plays.index(row))])
             end
@@ -124,8 +123,21 @@ module VBlank
                                    "now (`consoles: %i[gba]`).", part: "the sound")
             end
 
-            # A 32-bit number as two words, the low first.
-            def words_of(number) = [number & 0xFFFF, number >> 16]
+            # A play the sound unit cannot keep with the interpreter's count: one read more than four
+            # times as fast as the DSP plays (fullsnes: the pitch register reads at most $3FFF), and
+            # one so fast that a single sample of the mix goes past the whole part a recording holds
+            # (the interpreter logs that once, where the cartridge's count would log each time round).
+            def refuse_unreadable_play!(name, step, back)
+              if step / RECORDING_STEP_TO_PITCH > DSPWrites::PITCH_TOP
+                raise LoweringError, "The sample #{name.inspect} plays more than four times faster than its recording. A " \
+                                     "Super Nintendo cannot read a recording that fast. To fix this, play it at a " \
+                                     "lower note."
+              end
+              return unless back.positive? && step > (back << VBlank::Audio::Sound::STEP_SHIFT)
+
+              raise LoweringError, "The sample #{name.inspect} plays so fast that one step goes past the whole part it " \
+                                   "holds. To fix this, hold it from an earlier point, or play it at a lower note."
+            end
 
             # Reference#exec_play_song: the tune named, from the next frame or from here.
             def emit_play_song(node)

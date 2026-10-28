@@ -66,7 +66,6 @@ module VBlank
             difference = self.class.first_difference(moments, @cartridge.moments)
             difference ||= self.class.sounds_difference(@interpreter_sounds, @cartridge.audio_played)
             difference ||= dsp_difference
-            difference ||= recordings_difference
             difference ||= self.class.save_difference(before, @save) if SaveLayout.named_by?(program)
             raise Disagreement, "the Super Nintendo lowering and the interpreter disagree at #{difference}" if difference
 
@@ -108,14 +107,13 @@ module VBlank
                        .each_vblank { |frame| moments << moment_of(interpreter, frame, width, height) }
                        .run(program, frames: frames)
             @interpreter_sounds = interpreter.audio.dup
-            @interpreter_recordings = interpreter.active_samples
             moments << moment_of(interpreter, :end, width, height)
           end
 
           def moment_of(interpreter, frame, width, height)
             Moment.new(frame: frame, variables: interpreter.vars.dup, picture: picture_check(interpreter.screen, width, height),
                        sounds: interpreter.audio.size, sprites: interpreter.sprites,
-                       collections: interpreter.game_state.except(:vars), sounding: [])
+                       collections: interpreter.game_state.except(:vars), sounding: interpreter.active_samples.dup)
           end
 
           # THE SOUND UNIT ITSELF, held to the sound log: the first time the game was found waiting with
@@ -129,7 +127,7 @@ module VBlank
           # A RECORDING THE GAME PLAYS takes a voice of the four past the Advance's, chosen by where the
           # interpreter's mix puts it (Runtime::Recordings), which the log does not say: those voices'
           # registers are not held to it, nor their bits of the key-on and key-off registers, which
-          # they share. Where each recording has got to is held instead (#recordings_difference).
+          # they share. Which recordings sound is held instead, at every moment (HeadlessRun#active_samples).
           def dsp_difference
             voicing = @cartridge.rom.built.sound_voicing
             recordings = !@cartridge.rom.built.recording_names.empty?
@@ -147,16 +145,6 @@ module VBlank
               return "the wait at the end of pass #{i + 1}: the sound unit's DSP registers: #{wrong.join(', ')}"
             end
             nil
-          end
-
-          # The recordings sounding as the run ended, place by place: the cartridge's count of each
-          # (Runtime::Recordings) against the interpreter's mix.
-          def recordings_difference
-            got = @cartridge.active_samples
-            return nil if got == @interpreter_recordings
-
-            "the end of the run: the recordings sounding are #{got.inspect} on the cartridge and " \
-              "#{@interpreter_recordings.inspect} in Reference"
           end
 
           # The interpreter's picture over the cartridge's screen.
