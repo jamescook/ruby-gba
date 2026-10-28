@@ -203,6 +203,10 @@ module RubySNESEmulator
       retro_get_memory_size: [[Fiddle::TYPE_UINT], Fiddle::TYPE_SIZE_T]
     }.freeze
 
+    # WHERE THE CORE CALLS BACK FROM. bsnes runs each of the console's chips as a cothread, on a
+    # stack of its own, and Ruby must never run on one of those: its garbage collector scans the
+    # stack it believes the thread is on. The probe patch makes the core ask for the buttons, and
+    # hand over the sound and the picture, only from the stack retro_run was called on.
     def load_library
       copy = File.join(@dir, "core.so")
       FileUtils.cp(CoreLibrary.path, copy)
