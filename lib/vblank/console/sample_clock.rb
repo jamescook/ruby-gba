@@ -37,7 +37,16 @@ module VBlank
     #
     # It is the console's, not a lowering's, because the interpreter mixes the very samples the
     # cartridge hands its hardware, and so has to mix them at the same rate.
+    #
+    # A CONSOLE WHOSE SOUND CHIP PLAYS EACH RECORDING ON A VOICE OF ITS OWN (the Super Nintendo's)
+    # has no mix to hand over and no timer to pick: its voices read +hz+ samples a second, on a
+    # clock of their own beside the display's. The interpreter keeps the same count of where each
+    # recording has got to, so it reads at that rate too, a whole number of samples a frame — the
+    # nearest below what a frame holds — and +period+ is nil.
     SampleClock = Data.define(:period, :rate, :samples_a_frame) do
+      # The clock of a console whose voices read +hz+ samples a second (Description#recording_voice_hz).
+      def self.on_voices(hz, console) = new(period: nil, rate: hz, samples_a_frame: (hz * console.frame_seconds).floor)
+
       # The clock nearest +hz+ that +console+ (a Console::Description) can keep.
       def self.nearest(hz, console)
         cycles = console.cycles_a_second

@@ -38,15 +38,17 @@ module VBlank
     # which anything that keeps real seconds by counting frames needs. Neither console shows
     # exactly sixty a second. +samples_a_copy+ is how many samples of mixed sound one copy hands
     # the console's sound hardware, which decides the rates a mix can run at
-    # (Console::SampleClock), or nil where it plays no recordings. The timer that says when the next
-    # sample is due counts in +sample_timer_step+ of those cycles at a time, and at most
+    # (Console::SampleClock), or nil where the processor hands it no samples. The timer that says when
+    # the next sample is due counts in +sample_timer_step+ of those cycles at a time, and at most
     # +sample_timer_counts+ of them, so it can only wait a whole number of steps up to that many.
     # +recordings_at_once+ is how many recordings sound together; a play past that is dropped.
-    # +mixes_recordings+ says whether its processor adds recordings up into a stream of its own,
-    # which can loop one, read it faster for a higher note, scale it and shape it; one that does
-    # not plays a recording as it was recorded, a sample at a time, on a voice of the sound chip.
-    # +voice_output_hz+ is how often it hands its sound chip's voices on to the speaker, which
-    # matters to the noise voice alone:
+    # +mixes_recordings+ says whether a recording can be looped, read faster for a higher note,
+    # scaled and shaped: the processor adds them up into a stream of its own, or the sound chip's
+    # voices do all that themselves. One that does neither plays a recording as it was recorded, a
+    # sample at a time, on a voice of the sound chip. +recording_voice_hz+ is, for a console whose
+    # sound chip plays each recording on a voice of its own rather than having the processor mix
+    # them, how many samples a second those voices read; nil elsewhere. +voice_output_hz+ is how
+    # often it hands its sound chip's voices on to the speaker, which matters to the noise voice alone:
     # a hiss can step faster than that, and what is heard of one that does is whichever way it
     # stood at each of those moments, a hiss of its own and a lower one. A backend that makes the
     # sound itself looks at the hiss at the same moments to make the same one. +largest_memory_bytes+ is how
@@ -72,6 +74,7 @@ module VBlank
                               :backgrounds_beside_turning, :bar_is_a_background, :blends, :list_colors, :painted_pages,
                               :clock_keeps_date, :cycles_a_second, :cycles_a_frame, :samples_a_copy,
                               :sample_timer_step, :sample_timer_counts, :recordings_at_once, :mixes_recordings,
+                              :recording_voice_hz,
                               :voice_output_hz, :largest_memory_bytes, :work_memory_bytes, :work_memory_kept_bytes,
                               :roomier_memory_bytes, :sprites_placed_before_wait, :rumbles, :extension) do
       def screen_size = [screen_width, screen_height]
@@ -86,8 +89,11 @@ module VBlank
       def frame_seconds = Rational(cycles_a_frame, cycles_a_second)
 
       # The clock a mix of recordings runs at, as near +hz+ as this console's sound can keep up
-      # with (see Console::SampleClock).
-      def sample_clock(hz) = SampleClock.nearest(hz, self)
+      # with (see Console::SampleClock) — or, where each recording plays on a voice of the sound
+      # chip, the rate those voices read at, whatever +hz+ is.
+      def sample_clock(hz)
+        recording_voice_hz ? SampleClock.on_voices(recording_voice_hz, self) : SampleClock.nearest(hz, self)
+      end
 
       # Whether any of its backgrounds can turn and resize.
       def turns_backgrounds? = turning_backgrounds.positive?
@@ -123,7 +129,7 @@ module VBlank
                               recordings_at_once: 16, mixes_recordings: true,
                               # The voices are mixed into the speaker's output at the rate the
                               # sound's bias register starts at, which no cartridge built here changes.
-                              voice_output_hz: 32_768,
+                              recording_voice_hz: nil, voice_output_hz: 32_768,
                               # The 256K of roomier memory beside the 32K quick one.
                               largest_memory_bytes: 256 * 1024,
                               # The 32K quick memory, 4K of it the stack and the framework's own.
@@ -159,7 +165,7 @@ module VBlank
                             # (Audio::Sound::NOISE_CLOCK_HZ) at the most. The emulator the tests
                             # play in takes a sample every 32 cycles instead and averages the hiss
                             # over each, which is its own approximation of the same thing.
-                            voice_output_hz: 524_288,
+                            recording_voice_hz: nil, voice_output_hz: 524_288,
                             # The 8K of work memory in view at once (see Backends::GBC::Memory),
                             # and nothing beside. The stack, the copy of the sprite table and the
                             # runtime's own state are in it before any variable, which the Color
@@ -197,8 +203,14 @@ module VBlank
                                      # 262 lines of 1364 cycles of the console's master clock, less
                                      # four cycles every other frame: sixty frames a second and a little.
                                      cycles_a_second: 21_477_270, cycles_a_frame: 357_366, samples_a_copy: nil,
-                                     # The sound chip's voices are mixed 32000 times a second.
-                                     voice_output_hz: 32_000,
+                                     # No timer hands the sound chip samples: its eight voices each
+                                     # read a recording of their own, and loop it, pitch it and
+                                     # scale it themselves.
+                                     sample_timer_step: nil, sample_timer_counts: nil,
+                                     recordings_at_once: 8, mixes_recordings: true,
+                                     # The sound chip's voices are mixed 32000 times a second, and
+                                     # each plays a recording of its own at that rate.
+                                     recording_voice_hz: 32_000, voice_output_hz: 32_000,
                                      # Lists and pools go in the 120K of work RAM past the first 8K,
                                      # 64K of it to one.
                                      largest_memory_bytes: 64 * 1024,
@@ -206,7 +218,13 @@ module VBlank
                                      # every variable is there; the stack and the runtime's own state
                                      # take some of it first (see Backends::SNES::Memory).
                                      work_memory_bytes: 8 * 1024, work_memory_kept_bytes: 2048,
-                                     roomier_memory_bytes: 120 * 1024, extension: ".sfc")
+                                     roomier_memory_bytes: 120 * 1024,
+                                     # The sprite table and the scroll are sent from a copy in the
+                                     # gap after the wait, from the pass just ended, as the Advance's
+                                     # are written.
+                                     sprites_placed_before_wait: false,
+                                     # No cartridge with a motor is made for it.
+                                     rumbles: false, extension: ".sfc")
 
     # Each console's description is reached through its kit (Console::Kit, Console.described).
 

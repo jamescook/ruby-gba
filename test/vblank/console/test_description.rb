@@ -24,6 +24,15 @@ class TestDescription < Minitest::Test
     assert_equal 0, clock.samples_a_frame % 16
   end
 
+  # The Super Nintendo plays each recording on a voice of its sound chip, which reads 32000 samples
+  # a second whatever a game's recordings ask for (fullsnes, "SNES APU DSP"). A frame is 357366 of
+  # 21477270 cycles a second, 532.45 of those samples, and a mix counts whole samples a frame: 532.
+  def test_the_super_nintendos_sample_clock_is_its_sound_chips
+    clock = VBlank::Console::SUPER_NINTENDO.sample_clock(8000)
+
+    assert_equal [32_000, 532], [clock.rate, clock.samples_a_frame]
+  end
+
   # The Color plays a recording a sample at a time from its timer, which counts in eights of the
   # frame's cycles and at most 256 of them: the nearest it keeps to 8192 a second is a tick every
   # 528 cycles, 133 to a frame.
