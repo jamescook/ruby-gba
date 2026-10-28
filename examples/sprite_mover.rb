@@ -25,21 +25,25 @@
 require_relative "../lib/vblank"
 
 module SpriteMover
-  SCREEN_W = 240
-  SCREEN_H = 160
   SPEED    = 2
   SPRITE_W = 5
   SPRITE_H = 5
   HALF_W   = SPRITE_W / 2 # how far the heart may hang off a vertical edge
   HALF_H   = SPRITE_H / 2 # ... and off a horizontal edge
-  POST_Y       = 77       # the two posts sit at the heart's height, either side of it
-  LEFT_POST_X  = 80
-  RIGHT_POST_X = 156
+
+  # Where everything starts on a screen +width+ by +height+: the heart in the middle, and
+  # the two posts at its height, one either side of it.
+  def self.layout(width, height)
+    x = (width - SPRITE_W) / 2
+    y = (height - SPRITE_H) / 2
+    { heart: [x, y], left_post: [x - 37, y], right_post: [x + 39, y] }
+  end
 
   # The game as a block the builder runs, so a test can drive the exact program
   # that ships — the headless interpreter runs THIS, the console runs the ROM.
-  GAME = VBlank.game("SPRITEMV", consoles: %i[gba]) do
+  GAME = VBlank.game("SPRITEMV", consoles: %i[gba snes]) do
     screen :bitmap
+    places = SpriteMover.layout(screen_width, screen_height)
 
     # A little red heart. "." is transparent, so the field shows through its corners
     # — you're steering a heart, not a rectangle.
@@ -80,10 +84,10 @@ module SpriteMover
     # behind the heart, the right post in front. Steer into each and you see both halves
     # of that on one screen.
     hero = layer(:actors) do
-      sprite :heart, at: [(SCREEN_W - SPRITE_W) / 2, (SCREEN_H - SPRITE_H) / 2]
+      sprite :heart, at: places[:heart]
     end
-    layer(:backdrop) { sprite :post, at: [LEFT_POST_X, POST_Y] }
-    layer(:foreground) { sprite :post, at: [RIGHT_POST_X, POST_Y] }
+    layer(:backdrop) { sprite :post, at: places[:left_post] }
+    layer(:foreground) { sprite :post, at: places[:right_post] }
 
     game_loop do
       # Hold a direction to move — say it the way you'd think it: press left, move
@@ -95,8 +99,8 @@ module SpriteMover
 
       # A sprite clips at the screen edges, so let the heart slide half off any side
       # or corner — just not so far it vanishes. It stays put until you steer back.
-      hero.x.clamp!(-HALF_W, SCREEN_W - SPRITE_W + HALF_W)
-      hero.y.clamp!(-HALF_H, SCREEN_H - SPRITE_H + HALF_H)
+      hero.x.clamp!(-HALF_W, screen_width - SPRITE_W + HALF_W)
+      hero.y.clamp!(-HALF_H, screen_height - SPRITE_H + HALF_H)
       # no draw call — moving the heart above is all it takes
     end
   end

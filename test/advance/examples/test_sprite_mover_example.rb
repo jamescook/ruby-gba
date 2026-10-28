@@ -13,12 +13,12 @@ class TestSpriteMoverExample < Minitest::Test
   include VBlank::Console::Hardware
 
   FIELD = VBlank::Graphics::Color.rgb(4, 6, 14)
-  START = [(SpriteMover::SCREEN_W - SpriteMover::SPRITE_W) / 2,
-           (SpriteMover::SCREEN_H - SpriteMover::SPRITE_H) / 2].freeze
+  PLACES = SpriteMover.layout(SCREEN_WIDTH, SCREEN_HEIGHT)
+  START = PLACES[:heart]
 
   # Whether +color+ is painted anywhere on screen.
   private def color_on?(screen, color)
-    (0...SpriteMover::SCREEN_H).any? { |y| (0...SpriteMover::SCREEN_W).any? { |x| screen.pixel(x, y) == color } }
+    (0...SCREEN_HEIGHT).any? { |y| (0...SCREEN_WIDTH).any? { |x| screen.pixel(x, y) == color } }
   end
 
   # ---- the conversion: no per-frame clear or user blit in the loop ----
@@ -56,7 +56,7 @@ class TestSpriteMoverExample < Minitest::Test
   # has gone past (the heart moves two pixels a frame from the middle of the screen).
 
   ON_A_POST = 19
-  POST_ROW = SpriteMover::POST_Y + 2
+  POST_ROW = PLACES[:left_post][1] + 2
 
   private def steered(direction)
     game_player.input_each_frame { |_f| [direction] }
@@ -65,12 +65,12 @@ class TestSpriteMoverExample < Minitest::Test
 
   def test_the_heart_passes_in_front_of_the_post_in_the_back_layer
     assert_equal Color.resolve(:red),
-                 steered(:left).pixel(SpriteMover::LEFT_POST_X + 1, POST_ROW),
+                 steered(:left).pixel(PLACES[:left_post][0] + 1, POST_ROW),
                  "the left post is in :backdrop, so the heart must cover it"
   end
 
   def test_the_heart_passes_behind_the_post_in_the_front_layer
-    shown = steered(:right).pixel(SpriteMover::RIGHT_POST_X + 1, POST_ROW)
+    shown = steered(:right).pixel(PLACES[:right_post][0] + 1, POST_ROW)
 
     refute_equal Color.resolve(:red), shown,
                  "the right post is in :foreground, so it must cover the heart"
@@ -82,9 +82,9 @@ class TestSpriteMoverExample < Minitest::Test
     rom = ROM.assemble(GBA.new.lower(SpriteMover.program), title: "SPRITEMV", code: "BSPM", maker: "01")
     v = assert_emulator_loads_rom(rom, frames: ON_A_POST + 2, keys: KEY_LEFT)
 
-    assert v.pixel_is?(SpriteMover::LEFT_POST_X + 1, POST_ROW, :red),
+    assert v.pixel_is?(PLACES[:left_post][0] + 1, POST_ROW, :red),
            "on hardware the heart did not cover the :backdrop post — got " \
-           "#{format('0x%04x', v.pixel_gba(SpriteMover::LEFT_POST_X + 1, POST_ROW))}"
+           "#{format('0x%04x', v.pixel_gba(PLACES[:left_post][0] + 1, POST_ROW))}"
   end
 
   def test_it_renders_and_steers_on_hardware
