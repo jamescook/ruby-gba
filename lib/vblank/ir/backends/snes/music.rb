@@ -23,8 +23,9 @@ module VBlank
         #                 how many parts, and where its group for stopping is (the voices its parts
         #                 play on let go, and [:stop_music] logged); then for each part where its
         #                 first time round's notes are and how many, and the same for every time
-        #                 after (IR::Tunes.loop_passes)
-        #   a note        its frame, and where its group is
+        #                 after (IR::Tunes.loop_passes), where its loudness groups are and whether
+        #                 its voice holds a note (#part_layout)
+        #   a note        its frame, where its two groups are, and its volume as written
         class Music
           # What the songs are to the author, for a cartridge too full for them.
           SONGS = W65816::Holding.new(what: "the game's songs", fix: "make its songs shorter, or use fewer of them")
@@ -40,10 +41,15 @@ module VBlank
           NOTES_AT = 0
           NOTE_COUNT = 2
           AGAIN = 4 # the same two for every time round after the first
-          PART_BYTES = 8
+          LOUDNESS_LOGS = 8 # where the part's 16 loudness-logging groups' places are, by volume
+          LOUDNESS_WRITES = 10 # ...and its 16 loudness-writing groups'
+          HOLDS = 12 # 1 when its voice holds a note for a new level to reach
+          PART_BYTES = 16
           NOTE_FRAME = 0
-          NOTE_GROUP = 2
-          NOTE_BYTES = 4
+          NOTE_HEAD = 2
+          NOTE_TAIL = 4
+          NOTE_VOLUME = 6
+          NOTE_BYTES = 8
           COMMAND_FIRST = 2
           COMMAND_SECOND = 4
           COMMAND_BYTES = 6
@@ -59,8 +65,13 @@ module VBlank
           # What a tune stopping logs (Reference::Player#silence_song).
           QUIET = [[:stop_music]].freeze
 
+          # Whether +program+ sets how loud its music plays (`music_volume`, or a fade), and so logs and
+          # writes each note's loudness (Reference::Player#play_song_frame with a level).
+          def self.follows_level?(program) = program.walk.any? { |node| node.kind == :set && node.var == IR::Tunes::LEVEL }
+
           def initialize(program)
             @songs = program.walk.select { |node| node.kind == :song }.uniq(&:name)
+            @follows_level = self.class.follows_level?(program)
           end
 
           # The number +name+ is played by, counted from 1: nought is no tune.
@@ -69,10 +80,13 @@ module VBlank
           end
 
           # Each wave part's waveform at each volume its notes play it at, as a `wave` names them
-          # (DSPWrites.wave_steps): a note's own volume, or the part's.
+          # (DSPWrites.wave_steps): a note's own volume, or the part's — and, in a game that follows
+          # the music volume, at every one of the wave voice's loudnesses, which a level can take it to.
           def waves
             @songs.flat_map(&:voices).select { |part| IR::Tunes.part_kind(part) == :wave }.flat_map do |part|
-              part.events.map { |_, _, _, volume| { shape: part.wave, volume: volume || part.volume } }.uniq
+              volumes = part.events.map { |_, _, _, volume| volume || part.volume }
+              volumes += VBlank::Audio::Sound::WAVE_LEVEL_STEPS if follows_level?
+              volumes.uniq.map { |volume| { shape: part.wave, volume: volume } }
             end
           end
 
@@ -85,21 +99,17 @@ module VBlank
 
           # The table, as words. +voicing+ is the game's (DSPWrites::Voicing), and the block gives
           # the number the cartridge's sound log keeps an entry as.
-          def words(voicing)
+          def words(voicing, &number_of)
             @songs.each { |song| refuse_parts!(song) }
-            groups = [] # every group's commands, each once, in the order first met
-            group = lambda do |entries, song = nil|
-              commands = DSPWrites.each_entry_writes(entries, voicing, song: song).flat_map do |entry, writes|
-                writes.map { |write| Runtime::Sound.command_for(write) } + [[GROUP_LOG, yield(entry), 0]]
-              end
-              groups << commands unless groups.include?(commands)
-              commands
+            @groups = [] # every group's commands, each once, in the order first met
+            songs = @songs.map do |song|
+              [song, group_of(entry_commands(QUIET, voicing, song.name, &number_of).flatten(1)),
+               channels_of(song).map { |part, channel| part_layout(song, part, channel, voicing, &number_of) }]
             end
-            songs = @songs.map { |song| [song, group.call(QUIET, song.name), parts_notes(song, group)] }
 
             table = [0]
             places = {}
-            groups.each do |commands|
+            @groups.each do |commands|
               places[commands] = table.size * 2
               table.concat(commands.flatten, [GROUP_END])
             end
@@ -110,16 +120,28 @@ module VBlank
               table[songs_at + i] = table.size * 2
               table.concat([song.total_frames, IR::Tunes.loop_frame(song), IR::Tunes.plays_once?(song) ? 1 : 0, parts.size,
                             places.fetch(quiet)])
-              lists = parts.flatten(1)
-              at = table.size + (parts.size * PART_BYTES / 2)
-              lists.each do |notes|
-                table.concat([at * 2, notes.size])
-                at += notes.size * NOTE_BYTES / 2
+              entries_at = table.size
+              table.concat(Array.new(parts.size * PART_BYTES / 2, 0))
+              parts.each_with_index do |part, p|
+                entry = entries_at + (p * PART_BYTES / 2)
+                part[:lists].each_with_index do |notes, which|
+                  table[entry + (which * 2)] = table.size * 2
+                  table[entry + (which * 2) + 1] = notes.size
+                  notes.each { |frame, head, tail, written| table.concat([frame, places.fetch(head), places.fetch(tail), written]) }
+                end
+                { LOUDNESS_LOGS => part[:logs], LOUDNESS_WRITES => part[:writes] }.each do |field, groups|
+                  next unless groups
+
+                  table[entry + (field / 2)] = table.size * 2
+                  table.concat(groups.map { |commands| places.fetch(commands) })
+                end
+                table[entry + (HOLDS / 2)] = part[:holds] ? 1 : 0
               end
-              lists.each { |notes| notes.each { |frame, commands| table.concat([frame, places.fetch(commands)]) } }
             end
             table
           end
+
+          def follows_level? = @follows_level
 
           # The section the table is kept in, labelled "music_data".
           def section(words)
@@ -131,20 +153,48 @@ module VBlank
 
           private
 
-          # Each part's two lists of notes, the first time round and every time after, each note [its
-          # frame, its group's commands], each group made by +group+.
-          def parts_notes(song, group)
-            passes = IR::Tunes.loop_passes(song)
-            channels_of(song).map do |part, channel|
-              pass = passes.fetch(song.voices.index(part))
-              [pass.first, pass.again].map do |events|
-                events.map do |frame, frequency, _, volume|
-                  [frame, group.call([[:note, song.name, frequency],
-                                      [:voice, channel, song.name, frequency, volume || part.volume],
-                                      *wave_or_noise_entries(part, frequency)])]
-                end
+          # What the table holds for one part: its two lists of notes, the first time round and every
+          # time after, each note [its frame, its head group, its tail group, its volume as written,
+          # nought for a rest]; and, in a game that follows the music volume, the groups that log and
+          # write its loudness at each volume 0..15, and whether its voice holds a note for a new
+          # level to reach (a drum hit on the noise voice rings and fades by itself, and is not held:
+          # Reference::Player#record_note_volume).
+          #
+          # A NOTE'S TWO GROUPS. Its head is its [:note ...] and [:voice ...]; its tail the wave or
+          # noise voice's own entry, if it is on one. The player plays its loudness between the two,
+          # worked out from the level at the time (Runtime::Music), as the interpreter logs it there.
+          def part_layout(song, part, channel, voicing, &number_of)
+            passes = IR::Tunes.loop_passes(song).fetch(song.voices.index(part))
+            lists = [passes.first, passes.again].map do |events|
+              events.map do |frame, frequency, _, volume|
+                head = [[:note, song.name, frequency], [:voice, channel, song.name, frequency, volume || part.volume]]
+                commands = entry_commands(head + wave_or_noise_entries(part, frequency), voicing, song.name, &number_of)
+                [frame, group_of(commands.take(2).flatten(1)), group_of(commands.drop(2).flatten(1)),
+                 frequency.zero? ? 0 : volume || part.volume]
               end
             end
+            layout = { lists: lists, holds: IR::Tunes.part_kind(part) != :noise }
+            return layout unless follows_level?
+
+            levels = (0..15).map { |volume| [:loudness, channel, volume] }
+            layout.merge(logs: levels.map { |entry| group_of([[GROUP_LOG, yield(entry), 0]]) },
+                         writes: levels.map do |entry|
+                           group_of(DSPWrites.for_entry(entry, voicing, song: song.name)
+                                             .map { |write| Runtime::Sound.command_for(write) })
+                         end)
+          end
+
+          # Each of +entries+' commands: its DSP writes, then its entry into the sound log.
+          def entry_commands(entries, voicing, song, &number_of)
+            DSPWrites.each_entry_writes(entries, voicing, song: song).map do |entry, writes|
+              writes.map { |write| Runtime::Sound.command_for(write) } + [[GROUP_LOG, yield(entry), 0]]
+            end
+          end
+
+          # +commands+ kept as a group of the table, once however often it is asked for.
+          def group_of(commands)
+            @groups << commands unless @groups.include?(commands)
+            commands
           end
 
           # What a note on the wave or noise voice also logs, as Reference::Player#log_wave_or_noise

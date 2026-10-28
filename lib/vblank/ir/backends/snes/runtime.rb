@@ -34,15 +34,16 @@ module VBlank
           # The runtime's own places in work RAM, asked for before the game's. A game whose screen is
           # +painted+ (Paint) keeps its copy of the screen in work RAM's last bank. A cartridge with a
           # Super FX (+chip+) keeps the chip's waiting loop and its counts (Chip), after the rest so
-          # a plain cartridge's places do not move.
-          def reserve(memory, painted: false, chip: false, sound: false, songs: false)
+          # a plain cartridge's places do not move. A game with +songs+ keeps their player's places
+          # (Music), and those of the music volume if it sets one (+music_level+).
+          def reserve(memory, painted: false, chip: false, sound: false, songs: false, music_level: false)
             Paint.reserve(memory, chip: chip) if painted
             Frame.reserve(memory)
             Picture.reserve(memory)
             Tint.reserve(memory)
             Chip.reserve(memory) if chip
             Sound.reserve(memory) if sound
-            Music.reserve(memory) if songs
+            Music.reserve(memory, level: music_level) if songs
           end
 
           # The runtime's sections: the entry points in the first bank, and everything else in one.
@@ -53,9 +54,10 @@ module VBlank
           # routines a game that does not is made without, so its cartridge is the same bytes; +sound+
           # for a game that makes sound, which sends the sound unit its program at power-on, with
           # +sound_waves+, the wave voice's waveforms, recorded beside it; +music+ the section of its
-          # songs (SNES::Music#section), for a game with songs, whose player (Music) it then carries.
+          # songs (SNES::Music#section), for a game with songs, whose player (Music) it then carries;
+          # +music_level+ where such a game keeps its music volume, if it sets one.
           def sections(memory, main:, frame_begins: nil, painted: false, board: Cartridge::SNESROM::PLAIN, saves: false,
-                       sound: false, sound_waves: [], music: nil)
+                       sound: false, sound_waves: [], music: nil, music_level: nil)
             chip = board.name == :super_fx
             vectors = W65816.new("runtime vectors", home: :first)
             Boot.emit_vectors(vectors)
@@ -72,7 +74,7 @@ module VBlank
             Chip.emit(asm, memory) if chip
             Saving.emit(asm, memory, Saving.scratch(memory)) if saves
             Sound.emit(asm, memory, sound_waves, songs: !music.nil?) if sound
-            Music.emit(asm, memory) if music
+            Music.emit(asm, memory, level: music_level) if music
             emit_start(asm, chip: chip, sound: sound)
             emit_frame_begins(asm, frame_begins)
             [vectors.section, asm.section] + (chip && painted ? [ChipPaint.gsu_section] : []) +

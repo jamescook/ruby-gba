@@ -48,15 +48,6 @@ module VBlank
               @sound_waves = (verb_waves + @music.waves).map { |params| DSPWrites.wave_steps(params) }.uniq
             end
 
-            # What the build does not make of a game's music yet: a music volume, and its fades.
-            def refuse_unmade_music!
-              return unless Reach.variables(@program).include?(IR::Tunes::LEVEL)
-
-              raise NotMadeYet.new("This game uses `music_volume` or a music fade. The Super Nintendo build does not " \
-                                   "make that yet. To fix this, build the game for the Game Boy Advance alone for now " \
-                                   "(`consoles: %i[gba]`).", part: "the sound")
-            end
-
             # Reference#exec_play_song: the tune named, from the next frame or from here.
             def emit_play_song(node)
               routine = node.this_frame ? "rt_music_play_now" : "rt_music_play"

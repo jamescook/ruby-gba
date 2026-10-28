@@ -187,8 +187,28 @@ module VBlank
             when :note then []
             when :voice then song_note(*entry.drop(1), voicing.parts)
             when :stop_music then key_off(voicing.song_voices(song))
+            when :loudness then loudness_at(entry[1], entry[2], voicing, song)
             else raise ArgumentError, "the Super Nintendo build does not play #{entry.first.inspect} yet"
             end
+          end
+
+          # THE MUSIC VOLUME reaching +song+'s note on channel +channel+, now at +volume+ (0..15): a
+          # square or noise voice's volume registers, as its note's are worked out; the wave voice,
+          # whose loudness is in its recording, changed to the part's waveform at the nearest of the
+          # Advance's five loudnesses to +volume+, as the Advance plays it.
+          def loudness_at(channel, volume, voicing, song)
+            part = voicing.parts.fetch([song, channel]) { raise ArgumentError, "no part of #{song.inspect} on #{channel}" }
+            voice = CHANNEL_VOICES.fetch(channel)
+            base = voice << 4
+            if voice == WAVE_VOICE
+              steps = wave_steps({ shape: part.wave, volume: volume })
+              index = voicing.waves.index(steps) or raise ArgumentError, "the waveform #{steps.inspect} was not recorded"
+              return [[base + SOURCE, Samples::FIRST_WAVE + index]]
+            end
+
+            level = volume * VOLUME_STEP
+            level = (level * HISS_SCALE).round if voice == NOISE_VOICE && !part.metallic
+            [[base + VOLUME_LEFT, level], [base + VOLUME_RIGHT, level]]
           end
 
           # A song's note on channel +channel+: on a square voice, the note held at a fixed gain, or
@@ -327,7 +347,10 @@ module VBlank
           #   any), since a tune plays its first frame's notes, rests included, as it starts;
           # - a song's note on the wave or noise voice plays at the note's own volume, which its
           #   [:voice ...] entry carries, where the [:wave ...] or [:noise ...] entry after it carries
-          #   the part's (Reference::Player#log_wave_or_noise), as the Color's player plays it.
+          #   the part's (Reference::Player#log_wave_or_noise), as the Color's player plays it;
+          # - that note's [:loudness ...], logged before the voice's own entry, is written after it,
+          #   since the voice's entry starts the note at its own volume and the loudness then takes
+          #   it to the music volume.
           def writes(entries, voicing = NO_VOICING, song: nil)
             each_entry_writes(entries, voicing, song: song).flat_map { |_, writes| writes }
           end
@@ -337,16 +360,27 @@ module VBlank
             return enum_for(:each_entry_writes, entries, voicing, song: song) unless block_given?
 
             note_volume = nil
-            entries.each do |entry|
+            held = [] # a new note's loudness on the wave or noise voice, written after the note
+            entries.each_with_index do |entry, i|
               song = entry[1] if entry.first == :note
               played = note_volume && wave_or_noise_note?(entry) ? [entry.first, entry.last.merge(volume: note_volume)] : entry
-              note_volume = entry.first == :voice && !SQUARE_VOICES.key?(entry[1]) ? entry[4] : nil
-              yield entry, for_entry(played, voicing, song: song)
+              note_volume = entry[4] if entry.first == :voice && !SQUARE_VOICES.key?(entry[1])
+              note_volume = nil unless %i[voice loudness].include?(entry.first)
+              writes = for_entry(played, voicing, song: song) + held
+              held = []
+              if entry.first == :loudness && voice_own_entry?(entries[i + 1])
+                held = writes
+                writes = []
+              end
+              yield entry, writes
             end
           end
 
           # A [:wave ...] or [:noise ...] entry that plays a note, not a rest.
           def wave_or_noise_note?(entry) = %i[wave noise].include?(entry.first) && entry.last.is_a?(Hash)
+
+          # The wave or noise voice's own entry, which a song's note there logs after its loudness.
+          def voice_own_entry?(entry) = !entry.nil? && %i[wave stop_wave noise].include?(entry.first)
 
           # What the registers hold after the sound log +entries+, by register, for each one written,
           # and FLG and KOFF, which the sound unit starts as at_power_on says and whose bits an entry

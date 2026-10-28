@@ -223,6 +223,47 @@ class TestSNESSongs < Minitest::Test
     assert_equal [0, 0], [stopped.getbyte(FIRST + ENVX), stopped.getbyte(WAVE + ENVX)], "both let go"
   end
 
+  # THE MUSIC VOLUME. At music_volume 50 the level is 8 of 16, so a square note at 12 sounds at
+  # 12 * 8 / 16 = 6, volume 48 ($30); and a wave part at 15 at 7, which the Advance plays at the
+  # nearest of its wave voice's five loudnesses, :half (7 * 4 / 15 rounds to 2), so the voice
+  # changes to its recording at :half, a quarter of the way down the ladder from the note's own.
+  def test_music_volume_reaches_the_notes_sounding
+    full = volume_played(frames: 3)
+    half = volume_played(frames: 8)
+
+    assert_equal [0x60, 0x30], [full.getbyte(FIRST), half.getbyte(FIRST)], "the square part, then at half"
+    refute_equal full.getbyte(WAVE + 4), half.getbyte(WAVE + 4), "the wave part's recording at :half"
+    assert_equal 0x7F, half.getbyte(WAVE + ENVX), "still sounding"
+  end
+
+  # A fade out takes the level to nought over its frames, and every part with it.
+  def test_fade_music_out_quiets_the_song
+    dsp = volume_played(frames: 24)
+
+    assert_equal [0, 0], [dsp.getbyte(FIRST), dsp.getbyte(FIRST + 1)]
+  end
+
+  private def volume_played(frames:)
+    game = VBlank.game("VOLUME", consoles: %i[gba snes]) do
+      enable_sound
+      song :tune do
+        voice(:lead) { note :A4, :whole }
+        voice(:hum, plays: :wave) do
+          volume 15
+          note :A3, :whole
+        end
+      end
+      n = var :n, 0
+      game_loop do
+        n.add! 1
+        (n == 1).then { play_song :tune }
+        (n == 5).then { music_volume 50 }
+        (n == 10).then { fade_music_out frames: 6 }
+      end
+    end
+    SNES::CheckedRun.new.run(game.program(console: :snes), frames: frames).dsp_registers
+  end
+
   private def parts_played(frames:)
     build = VBlank::IR::Build
     part = VBlank::Audio::Music::Part

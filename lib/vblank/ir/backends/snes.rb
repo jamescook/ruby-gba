@@ -76,13 +76,15 @@ module VBlank
           refuse_save_on_chip_board!(board) if saves
           sound = Lowering::Sound.sounds?(program)
           songs = Lowering::Sound.songs?(program)
-          Runtime.reserve(memory, painted: painted, chip: board.name == :super_fx, sound: sound, songs: songs)
+          Runtime.reserve(memory, painted: painted, chip: board.name == :super_fx, sound: sound, songs: songs,
+                          music_level: songs && Music.follows_level?(program))
           lowering = Lowering.new(program, memory: memory)
           game = lowering.sections + lowering.art_sections
           runtime = Runtime.sections(memory, main: Lowering::MAIN, frame_begins: lowering.frame_begins, painted: painted,
                                              board: board, saves: saves, sound: sound,
                                              sound_waves: lowering.sound_waves,
-                                             music: (lowering.music_section if songs))
+                                             music: (lowering.music_section if songs),
+                                             music_level: lowering.variables[IR::Tunes::LEVEL])
           linked = Linker.new(runtime + game, most_banks: board.most_banks).link
           routines = lowering.section_routines.map do |label, routine|
             placed = linked.sections.fetch(label)

@@ -197,7 +197,6 @@ module VBlank
             refuse_routines_that_call_themselves!
             refuse_unmade_picture!
             refuse_unsupported_save_memory!
-            refuse_unmade_music!
             assign_background_layers unless painted?
             make_sprite_art
             reserve_patches

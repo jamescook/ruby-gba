@@ -38,21 +38,39 @@ module VBlank
             COUNT = "rt music count" # how many notes the part has this time round...
             LIST = "rt music list" # ...and where they are
             LEFT = "rt music left" # frames still to play where a wait ends
+            ENTRY = "rt music entry" # where the part being played's entry is in the table
+            NOTE = "rt music note" # ...and its note being played
+            # THE MUSIC VOLUME, in a game that sets it (SNES::Music#follows_level?): the level the
+            # notes sounding were set at, kept with its FULL_LEVEL bit turned over so the nought
+            # memory starts at says full; each part's note's volume as written, while its voice holds
+            # it (nought for a rest, or none); and a note's loudness at the level, worked out.
+            LEVEL_SET = "rt music level set"
+            HELD = "rt music held"
+            LOUDNESS = "rt music loudness"
+            SCALE = "rt music scale"
 
             module_function
 
-            def reserve(memory)
+            # +level+ for a game that sets the music volume (SNES::Music#follows_level?).
+            def reserve(memory, level: false)
               [NAMED, PLAYING, STOPS, STOPS_SEEN, ENDED, FRAME, AGAIN, SONG, PART, PARTS_IN, COUNT, LIST,
-               LEFT].each { |name| memory.reserve(name, 2) }
+               LEFT, ENTRY, NOTE].each { |name| memory.reserve(name, 2) }
               memory.reserve(CURSORS, SNES::Music::PARTS * 2)
+              return unless level
+
+              [LEVEL_SET, LOUDNESS, SCALE].each { |name| memory.reserve(name, 2) }
+              memory.reserve(HELD, SNES::Music::PARTS * 2)
             end
 
-            def emit(asm, memory)
+            # +level+ is where the game keeps its music volume (IR::Tunes::LEVEL), or nil for a game
+            # that never sets it.
+            def emit(asm, memory, level: nil)
               at = ->(name, plus = 0) { asm.abs(memory[name], plus) }
               emit_game_side(asm, at)
               emit_frames(asm, at)
-              emit_switch(asm, at)
-              emit_song_frame(asm, at, memory)
+              emit_switch(asm, at, memory, level)
+              emit_song_frame(asm, at, memory, level)
+              emit_level(asm, at, memory, level) if level
               emit_group(asm)
             end
 
@@ -100,7 +118,7 @@ module VBlank
 
             # rt_music_switch: caught up with the tune the game names (Reference::Player#switch_to_wanted_song).
             # A is 1 when that changed what is playing, nought when not.
-            def emit_switch(asm, at)
+            def emit_switch(asm, at, memory, level)
               asm.label("rt_music_switch")
               asm.lda(at.call(ENDED))
               asm.beq("rt_music_switch_live")
@@ -156,8 +174,9 @@ module VBlank
               SNES::Music::PARTS.times { |p| asm.stz(at.call(CURSORS, p * 2)) }
               asm.rts
 
-              # The playing tune's group for stopping (SONG is still the tune's).
+              # The playing tune's group for stopping (SONG is still the tune's), and no note held.
               asm.label("rt_music_quiet")
+              SNES::Music::PARTS.times { |p| asm.stz(asm.abs(memory[HELD], p * 2)) } if level
               asm.ldx(at.call(SONG))
               asm.lda(asm.long_x("music_data", SNES::Music::QUIET_GROUP))
               asm.tax
@@ -166,23 +185,19 @@ module VBlank
 
             # rt_music_song_frame: each part's note whose frame has come, then the frame on
             # (Reference::Player#play_song_frame and #advance_song_frame).
-            def emit_song_frame(asm, at, memory)
+            def emit_song_frame(asm, at, memory, level)
               m = SNES::Music
               asm.label("rt_music_song_frame")
               asm.ldx(at.call(SONG))
               asm.lda(asm.long_x("music_data", m::PART_COUNT))
               asm.sta(at.call(PARTS_IN))
+              asm.jsr(asm.abs("rt_music_relevel")) if level
               asm.stz(at.call(PART))
               asm.label("rt_music_part")
               asm.lda(at.call(PART))
               asm.cmp(at.call(PARTS_IN))
-              asm.bcs("rt_music_parts_done")
-              emit_times(asm, m::PART_BYTES) # the part's entry: where its notes are, and how many
-              asm.clc
-              asm.adc(at.call(SONG))
-              asm.clc
-              asm.adc(m::RECORD_BYTES)
-              asm.tax
+              asm.branch_long(:bcs, "rt_music_parts_done")
+              asm.jsr(asm.abs("rt_music_entry"))
               asm.lda(at.call(AGAIN))
               asm.beq("rt_music_part_pass")
               m::AGAIN.times { asm.inx }
@@ -204,16 +219,38 @@ module VBlank
               asm.lda(asm.long_x("music_data", m::NOTE_FRAME))
               asm.cmp(at.call(FRAME))
               asm.bne("rt_music_part_next")
-              asm.lda(asm.long_x("music_data", m::NOTE_GROUP))
+              asm.stx(at.call(NOTE))
+              asm.lda(asm.long_x("music_data", m::NOTE_HEAD))
               asm.tax
               asm.jsr(asm.abs("rt_sound_group"))
+              emit_note_loudness(asm, at, memory) if level
+              asm.ldx(at.call(NOTE))
+              asm.lda(asm.long_x("music_data", m::NOTE_TAIL))
+              asm.tax
+              asm.jsr(asm.abs("rt_sound_group"))
+              if level
+                asm.ldx(m::LOUDNESS_WRITES)
+                asm.jsr(asm.abs("rt_music_loudness_group"))
+              end
               asm.lda(at.call(PART))
               asm.asl
               asm.tax
               asm.inc(asm.abs_x(memory[CURSORS]))
               asm.label("rt_music_part_next")
               asm.inc(at.call(PART))
-              asm.bra("rt_music_part")
+              asm.brl("rt_music_part")
+
+              # rt_music_entry: ENTRY and X = where part PART's entry is.
+              asm.label("rt_music_entry")
+              asm.lda(at.call(PART))
+              emit_times(asm, m::PART_BYTES)
+              asm.clc
+              asm.adc(at.call(SONG))
+              asm.clc
+              asm.adc(m::RECORD_BYTES)
+              asm.sta(at.call(ENTRY))
+              asm.tax
+              asm.rts
 
               asm.label("rt_music_parts_done")
               asm.inc(at.call(FRAME))
@@ -234,6 +271,106 @@ module VBlank
               asm.jsr(asm.abs("rt_music_from_the_top"))
               asm.label("rt_music_song_frame_done")
               asm.rts
+            end
+
+            # A NOTE'S LOUDNESS, between its head and its tail (SNES::Music#part_layout): its volume as
+            # written held for a new level to reach, if its voice holds one, and its loudness at the
+            # level logged. Its writes come after the tail.
+            def emit_note_loudness(asm, at, memory)
+              m = SNES::Music
+              asm.ldx(at.call(NOTE))
+              asm.lda(asm.long_x("music_data", m::NOTE_VOLUME))
+              asm.pha
+              asm.ldx(at.call(ENTRY))
+              asm.lda(asm.long_x("music_data", m::HOLDS))
+              asm.beq("rt_music_note_not_held")
+              asm.lda(at.call(PART))
+              asm.asl
+              asm.tay
+              asm.lda(asm.stack(1))
+              asm.sta(asm.abs_y(memory[HELD]))
+              asm.label("rt_music_note_not_held")
+              asm.pla
+              asm.jsr(asm.abs("rt_music_scaled"))
+              asm.sta(at.call(LOUDNESS))
+              asm.ldx(m::LOUDNESS_LOGS)
+              asm.jsr(asm.abs("rt_music_loudness_group"))
+            end
+
+            # THE MUSIC VOLUME MOVED (Reference::Player#apply_music_volume): at the start of a frame
+            # of the tune, before any note, every part whose voice holds a note logs and writes its
+            # loudness at the new level, in the order of the parts.
+            #
+            # rt_music_scaled: A = the volume in A at the level (IR::Tunes.scaled_volume), the level
+            # times the volume by adding, and a shift.
+            #
+            # rt_music_loudness_group: the part at ENTRY's group (X = which of its two tables) for
+            # LOUDNESS.
+            def emit_level(asm, at, memory, level)
+              m = SNES::Music
+              full = IR::Tunes::FULL_LEVEL
+              asm.label("rt_music_relevel")
+              asm.lda(asm.abs(level))
+              asm.eor(full)
+              asm.cmp(at.call(LEVEL_SET))
+              asm.bne("rt_music_relevel_moved")
+              asm.rts
+              asm.label("rt_music_relevel_moved")
+              asm.sta(at.call(LEVEL_SET))
+              asm.stz(at.call(PART))
+              asm.label("rt_music_relevel_part")
+              asm.lda(at.call(PART))
+              asm.cmp(at.call(PARTS_IN))
+              asm.bcs("rt_music_relevel_done")
+              asm.asl
+              asm.tay
+              asm.lda(asm.abs_y(memory[HELD]))
+              asm.beq("rt_music_relevel_next")
+              asm.jsr(asm.abs("rt_music_scaled"))
+              asm.sta(at.call(LOUDNESS))
+              asm.jsr(asm.abs("rt_music_entry"))
+              asm.ldx(m::LOUDNESS_LOGS)
+              asm.jsr(asm.abs("rt_music_loudness_group"))
+              asm.ldx(m::LOUDNESS_WRITES)
+              asm.jsr(asm.abs("rt_music_loudness_group"))
+              asm.label("rt_music_relevel_next")
+              asm.inc(at.call(PART))
+              asm.bra("rt_music_relevel_part")
+              asm.label("rt_music_relevel_done")
+              asm.rts
+
+              asm.label("rt_music_scaled")
+              asm.tax
+              asm.lda(at.call(LEVEL_SET))
+              asm.eor(full)
+              asm.sta(at.call(SCALE))
+              asm.lda(0)
+              asm.cpx(0)
+              asm.beq("rt_music_scaled_summed")
+              asm.label("rt_music_scaled_add")
+              asm.clc
+              asm.adc(at.call(SCALE))
+              asm.dex
+              asm.bne("rt_music_scaled_add")
+              asm.label("rt_music_scaled_summed")
+              IR::Tunes::LEVEL_SHIFT.times { asm.lsr }
+              asm.rts
+
+              asm.label("rt_music_loudness_group")
+              asm.txa
+              asm.clc
+              asm.adc(at.call(ENTRY))
+              asm.tax
+              asm.lda(asm.long_x("music_data"))
+              asm.sta(at.call(SCALE)) # where the table is
+              asm.lda(at.call(LOUDNESS))
+              asm.asl
+              asm.clc
+              asm.adc(at.call(SCALE))
+              asm.tax
+              asm.lda(asm.long_x("music_data"))
+              asm.tax
+              asm.jmp(asm.abs("rt_sound_group"))
             end
 
             # rt_sound_group (X = where a group is in the table): each of its commands sent to the sound
