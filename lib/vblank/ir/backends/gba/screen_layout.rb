@@ -103,12 +103,7 @@ module VBlank
           def declarations_of(name)
             return {} unless @declared_in_several.include?(name)
 
-            @declarations.filter_map { |(each, scene), place| [scene, place] if each == name }.to_h
-          end
-
-          # The names of +backgrounds+ (their declarations) declared in more than one scene.
-          def self.names_in_several_scenes(backgrounds)
-            backgrounds.group_by(&:name).filter_map { |name, nodes| name if nodes.filter_map(&:scene).uniq.size > 1 }
+            @declarations.filter_map { |(declared, scene), place| [scene, place] if declared == name }.to_h
           end
 
           # THE OTHER LISTS OF COLOURS A LAYER CAN BE DRAWN FROM, for a background that was
@@ -308,7 +303,7 @@ module VBlank
             @codecs = {}          # names of the data that must stay unpacked in the cartridge
             @backgrounds = {}     # name -> where a background landed (see #prepare_one_background)
             @declarations = {}    # [name, scene] -> where one declaration landed (see #declared_background)
-            @declared_in_several = ScreenLayout.names_in_several_scenes(@picture.scenery)
+            @declared_in_several = IR::Stacking.names_in_several_scenes(@picture.scenery)
             @hardware_layers = {} # name -> which of the console's layers it uses
             @bg_shared = nil      # the one colour table and tile run every layer shares
             @objects = {}         # name -> where a sprite landed (see #object_record)
@@ -863,9 +858,9 @@ module VBlank
 
             raise LoweringError,
                   "background :#{everywhere.name} walks between areas on every screen, and background :#{other.name} " \
-                  "walks between areas in the scene :#{IR::Modes.strip_scene_prefix(other.scene)}. The two cannot " \
-                  "both keep the colors of their areas. To fix this, declare :#{everywhere.name} in each scene " \
-                  "that shows it."
+                  "walks between areas in the scene :#{IR::Modes.strip_scene_prefix(other.scene)}. On the Advance, " \
+                  "the colors of their areas cannot be kept at the same time. To fix this, declare " \
+                  ":#{everywhere.name} in each scene that shows it."
           end
 
           # How a message names +scene+: "the scene :title", or +otherwise+ for the scenery every

@@ -986,11 +986,10 @@ module VBlank
           # declaration, and the scene up is the one whose view comes along.
           def emit_view_along_map(node)
             several = @layout.screen.declarations_of(node.name)
-            unless several.empty?
-              return several.each do |scene, bg|
-                @scene_entry.emit_if_scene_up(:scenery, scene) { emit_stream_view(bg.stream, node.x, node.y) } if bg.stream
-              end
+            several.each do |scene, bg|
+              @scene_entry.emit_if_scene_up(:scenery, scene) { emit_stream_view(bg.stream, node.x, node.y) } if bg.stream
             end
+            return unless several.empty?
 
             stream = @layout.screen.backgrounds[node.name]&.stream or return
             declared = @layout.screen.picture.scenery.find { |scenery| scenery.name == node.name }

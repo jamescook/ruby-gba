@@ -969,13 +969,14 @@ static void stamp_in_stack_order(int32_t over) {
   }
 }
 
+/* The start of Reference#take_over (see rg_screen.h). */
+void rg_background_forget_cells(int32_t background) { forget_own_cells(background); }
+
 /* Reference#put_up_background. A stamp only covers where it has solid pixels, so a background a
  * named layer puts BEHIND one already up would land in front of it; the ones it belongs behind
  * are stamped again over it. A turned background is painted through its turn at the next rebuild,
  * and a status bar from its own top,
  * rather than stamped as drawn. */
-void rg_background_forget_cells(int32_t background) { forget_own_cells(background); }
-
 void rg_background_put_up(int32_t background) {
   if (background_field(background, RG_BG_ON_ARRIVAL)) forget_own_cells(background);
   remember_put_up(background);

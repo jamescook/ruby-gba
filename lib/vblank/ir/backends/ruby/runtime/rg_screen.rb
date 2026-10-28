@@ -224,9 +224,11 @@ def rg_screen_setup
   # background is put up, even one already up, exactly as the interpreter keeps it.
   @rg_shown_backgrounds = []
   # What the game does to a background, kept by the entry that keeps its NAME (rg_keeper_of): the
-  # map its cells hold now and the run's own copy of them (Reference @bg_maps), its scroll
-  # (@bg_scroll), whether it is shown from its corner this pass (@bg_from_corner), which set of
-  # its tiles it is drawn from (@bg_colors) and its turn (@bg_affine).
+  # map its cells hold now, the run's own copy of them and the entry whose map that is (Reference
+  # @bg_maps, kept as [which, cells, of]), its scroll (@bg_scroll), whether it is shown from its
+  # corner this pass (@bg_from_corner), the step of colors the game last named for it, from which
+  # each entry works out the set of its tiles it is drawn from (@bg_colors), and its turn
+  # (@bg_affine).
   @rg_cells_now = Array.new(RG_MAX_BACKGROUNDS) { [0, nil, 0] }
   @rg_scrolls = Array.new(RG_MAX_BACKGROUNDS) { [0, 0] }
   @rg_from_corner = Array.new(RG_MAX_BACKGROUNDS, false)

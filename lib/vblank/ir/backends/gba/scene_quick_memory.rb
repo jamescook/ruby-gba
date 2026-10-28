@@ -235,7 +235,7 @@ module VBlank
           # background was declared in (nil for one declared outside every scene).
           def scene_of_map_views(program)
             backgrounds = program.walk.select { |node| node.kind == :background }
-            several = ScreenLayout.names_in_several_scenes(backgrounds)
+            several = IR::Stacking.names_in_several_scenes(backgrounds)
             declared = backgrounds.to_h do |node|
               [MapStreaming.view_routine(node.name, scene: (node.scene if several.include?(node.name))), node.scene]
             end

@@ -185,6 +185,12 @@ module VBlank
       # What +Depths+ keeps one background declaration's level under.
       Declaration = Data.define(:name, :scene)
 
+      # The names of +backgrounds+ (their declarations) declared in more than one scene: the
+      # names a lowering lays out once for each scene's declaration.
+      def names_in_several_scenes(backgrounds)
+        backgrounds.group_by(&:name).filter_map { |name, nodes| name if nodes.filter_map(&:scene).uniq.size > 1 }
+      end
+
       # Work out the levels for a picture made of +scenery+ (background nodes) and
       # +objects+ (object nodes), each list already in its own drawing order, given the
       # declared +stack+.

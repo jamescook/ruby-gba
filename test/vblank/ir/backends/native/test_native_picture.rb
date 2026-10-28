@@ -921,9 +921,9 @@ class TestNativePicture < Minitest::Test
   end
 
   # Two scenes each declare a background called :room, with maps of different sizes. Each is
-  # drawn from its own map, and the two share what the game does to the name: the scroll the
-  # second scene gives it, and a changed cell, which is a copy of the second's map that the first
-  # scene draws too once a cell is changed while it is up, until it takes over again.
+  # drawn from its own map, and the two share what the game does to the name — the scroll the
+  # second scene gives it — while a cell changed in one scene is a cell of that scene's own map,
+  # and is forgotten as the other takes over.
   def test_two_backgrounds_with_one_name_share_what_the_game_does_to_it
     program = program_of do
       screen :tiled
@@ -936,7 +936,7 @@ class TestNativePicture < Minitest::Test
       order = table :order, [0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0]
       scene(:first) do
         room = background :room, tiles: :rooms, map: ["##..", "#..."]
-        (ticks == 10).then { room.set_tile 0, 1, "#" }
+        (ticks == 10).then { room.set_tile 1, 1, "#" }
       end
       scene(:second) do
         room = background :room, tiles: :rooms, map: ["..~~~~", "~~..~~", "......"]
