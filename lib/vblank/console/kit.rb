@@ -48,6 +48,9 @@ module VBlank
     #   drawn_by_runtimes?      whether the desktop program and the web page can be made from its
     #                           build: the C and JavaScript runtimes draw one screen size, fixed
     #                           when they are compiled, and it is the Advance's
+    #   open_core(path, save_dir:)
+    #                           the emulator its cartridges play in, opened on a cartridge file
+    #   save_file_extension     how that emulator names the file it keeps battery-backed RAM in
     #
     # What every console's cartridge answers, whichever kind it is, and all a caller that has not
     # asked which console it is for can ask of one:
@@ -78,6 +81,12 @@ module VBlank
       def measured_builds? = false
       def compared_side_by_side? = false
       def drawn_by_runtimes? = false
+
+      # The emulator core its cartridges play in, opened on a cartridge file
+      # (Diagnostics::Emulator), and how the file the core keeps battery-backed RAM in is named
+      # beside the cartridge's own.
+      def open_core(path, save_dir:) = Diagnostics::Emulator.open(path, save_dir: save_dir)
+      def save_file_extension = ".sav"
 
       # The console settings its build reads, by name, and whether +setting+ is one of them.
       def console_settings = builder.console_settings

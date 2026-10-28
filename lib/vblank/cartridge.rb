@@ -12,6 +12,7 @@ require_relative "cartridge/build_record" # what the build worked out, for the c
 require_relative "cartridge/game_code" # the four characters an emulator tells one cartridge from another by
 require_relative "cartridge/rom"
 require_relative "cartridge/gbc_rom" # a Game Boy Color cartridge: its header and checksums
+require_relative "cartridge/snes_rom" # a Super Nintendo cartridge: its header, vectors and checksum
 require_relative "cartridge/options" # how a game is built, as one value
 require_relative "cartridge/evaluated_game" # the one place a game's block becomes a program
 require_relative "cartridge/build_request" # what a console's build is handed, once the game is checked

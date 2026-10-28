@@ -136,6 +136,34 @@ module VBlank
         RubyGBAEmulator::Core
       end
 
+      # THE SUPER NINTENDO'S EMULATOR is a gem of its own too, ruby-snes-emulator: bsnes, built as a
+      # libretro core with a patch that hands over the console's memories, driven through Fiddle.
+      # It is loaded the same way, the gem first and this repository's checkout second, and when
+      # it is missing it says how to get it.
+      def load_snes!
+        return true if snes_loaded?
+
+        require "ruby_snes_emulator"
+        true
+      rescue LoadError
+        lib = VBlank.root.join("ruby-snes-emulator", "lib").to_s
+        raise LoadError, "An emulator is required to run a Super Nintendo cartridge, and ruby-snes-emulator will " \
+                         "not load. Put it in your Gemfile beside ruby-gba-emulator." unless File.directory?(lib)
+
+        $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
+        require "ruby_snes_emulator"
+        true
+      end
+
+      def snes_loaded? = !defined?(::RubySNESEmulator::Core).nil?
+
+      # A Super Nintendo core on a cartridge file (see RubySNESEmulator::Core). Its battery-backed
+      # RAM is kept in a .srm file in +save_dir+.
+      def open_snes(rom_path, save_dir: nil)
+        load_snes!
+        RubySNESEmulator::Core.new(rom_path, save_dir: save_dir)
+      end
+
       # Open an emulator core on a ROM file path.
       #
       # +save_dir+ says where the cartridge's battery-backed save memory is kept. The core
@@ -155,12 +183,13 @@ module VBlank
       # play left there comes back into the same image once the core is shut — the emulator writes
       # the file as it shuts — so one image handed to two plays is a power cycle.
       def with_cartridge(rom, file_name:, save: nil)
+        kit = Console.for(rom.console)
         Dir.mktmpdir("vblank-play") do |dir|
           path = File.join(dir, file_name)
-          sav = path.sub(/\.\w+\z/, "") + ".sav"
+          sav = path.sub(/\.\w+\z/, "") + kit.save_file_extension
           rom.write(path)
           File.binwrite(sav, save.to_sav) if save
-          core = open(path, save_dir: dir)
+          core = kit.open_core(path, save_dir: dir)
           begin
             yield core
           ensure
