@@ -6,8 +6,9 @@ require VBlank.root.join("examples/chip_band").to_s
 # The chip band example (examples/chip_band.rb): a list of tunes on the console's own voices, the
 # one the cursor is on playing. HELD NOTES holds every note; FADING NOTES is the same notes,
 # faded and swelled by the voices; SLIDING NOTES slides the lead's pitch, WOBBLING NOTES wobbles
-# it, and LEFT AND RIGHT spreads the parts across the two speakers. Played on every lowering, on
-# the console each run plays a game as.
+# it, LEFT AND RIGHT spreads the parts across the two speakers, SHIMMERING NOTES steps the lead's
+# shapes, and DETUNED NOTES plays the lead sharp beside itself and an octave down. Played on every
+# lowering, on the console each run plays a game as.
 class TestChipBandExample < Minitest::Test
   NoteFade = VBlank::Audio::NoteFade
 
@@ -86,5 +87,14 @@ class TestChipBandExample < Minitest::Test
     assert_equal [duty.said(%i[eighth quarter half quarter], where: "the lead")], shapes[1], "the lead's four shapes"
     assert_equal duty.said(:eighth, where: "a chord"), shapes[2].first, "the first chord's own"
     assert(log.any? { |entry| entry.first == :duty && entry[1] == 1 }, "and the lead steps them")
+  end
+
+  def test_the_seventh_tune_plays_its_lead_sharp_and_an_octave_down
+    first = log_after(6).select { |entry| entry.first == :voice && entry[2] == :detuned && entry[3].positive? }
+                        .group_by { |entry| entry[1] }.transform_values { |entries| entries.first[3] }
+    sound = VBlank::Audio::Sound
+
+    assert_equal sound.square_wave_ticks(first[1]) - 2, sound.square_wave_ticks(first[2]), "the chorus two steps sharp"
+    assert_in_delta first[1] / 2.0, first[3], 0.01, "the bass an octave down"
   end
 end

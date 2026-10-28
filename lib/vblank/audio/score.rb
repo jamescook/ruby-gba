@@ -100,7 +100,7 @@ module VBlank
       end
 
       Part = Data.define(:notes, :plays, :volume, :duty, :decay, :swell, :metallic, :envelope, :slide_up,
-                         :slide_down, :vibrato, :pan)
+                         :slide_down, :vibrato, :pan, :transpose, :pitch_offset)
 
       class Part
         # +decay+ is how fast each note fades out, and +swell+ how fast it swells in, as a `song`
@@ -115,13 +115,17 @@ module VBlank
         # wait in frames (Audio::Vibrato.said), and the square parts and the wave part can. +pan+ is
         # the speaker each note plays from, :left, :right or :center (Audio::Pan.said), and every
         # part but one that plays a recording can. +duty+ is a square part's shape, or a list of two
-        # or four that each note steps through a frame at a time (Audio::Duty.said).
+        # or four that each note steps through a frame at a time (Audio::Duty.said). +transpose+
+        # moves every note by whole semitones and +pitch_offset+ by the voice's own pitch steps after
+        # that (Audio::PitchShift); any part can be transposed, and a square part or the wave part
+        # offset.
         #
         # +envelope+ shapes how each of this part's notes starts and ends — read only by a part
         # that plays a recording, since the console's own voices shape their own. A part that says
         # nothing takes whatever the instrument it plays was declared with.
         def initialize(notes:, plays: nil, volume: 12, duty: :half, decay: nil, swell: nil, metallic: false,
-                       envelope: nil, slide_up: nil, slide_down: nil, vibrato: nil, pan: nil)
+                       envelope: nil, slide_up: nil, slide_down: nil, vibrato: nil, pan: nil, transpose: nil,
+                       pitch_offset: nil)
           super
         end
 
@@ -135,6 +139,7 @@ module VBlank
           drum = plays == :noise
           one, duties = Duty.of_part(duty, where: who)
           Music::Part.playing(plays, who: who, events: Events.of(self, frames, total, who), duty: one, duties: duties,
+                                     shift: PitchShift.said(transpose: transpose, pitch_offset: pitch_offset, where: who),
                                      volume: volume, decay: (drum && decay) || :fast, metallic: metallic,
                                      envelope: Envelope.of(envelope, "a part"),
                                      fade: NoteFade.for_part(NoteFade.said(decay: decay, swell: swell, where: who),

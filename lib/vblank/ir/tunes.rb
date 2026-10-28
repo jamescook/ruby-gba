@@ -89,13 +89,7 @@ module VBlank
       # A part names its voice by what it SOUNDS LIKE: an instrument it plays, a waveform, or
       # the hiss. Naming none of those is the square wave, which is what a part was before any
       # of the others existed and is still what most parts are.
-      def part_kind(part)
-        return :recorded if part.instrument
-        return :wave if part.wave
-        return :noise if part.noise
-
-        :square
-      end
+      def part_kind(part) = Audio::Music.kind_played({ instrument: part.instrument, wave: part.wave, noise: part.noise })
 
       # HOW A NOTE FADES OR SWELLS, as a part or the note itself SAID it (an Audio::NoteFade), or
       # nil when neither did. A note's own comes first. What was said is what the log names, so

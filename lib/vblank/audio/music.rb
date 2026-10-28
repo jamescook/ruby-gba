@@ -144,7 +144,18 @@ module VBlank
 
       # Whether what a part PLAYS (.resolve_plays, or a Part's own fields) is the square wave: no
       # recording, no waveform and no hiss.
-      def self.plays_square?(plays) = !(plays[:wave] || plays[:instrument] || plays[:noise])
+      def self.plays_square?(plays) = kind_played(plays) == :square
+
+      # WHICH KIND OF VOICE A PART PLAYS ON, from what it PLAYS (.resolve_plays, or a Part's own
+      # fields): :recorded, :wave, :noise, or :square for none of those. IR::Tunes.part_kind reads a
+      # finished part the same way.
+      def self.kind_played(plays)
+        return :recorded if plays[:instrument]
+        return :wave if plays[:wave]
+        return :noise if plays[:noise]
+
+        :square
+      end
 
       # Whether a part's own slide, or one of its events' (the seventh place), moves the pitch
       # (PitchSlide#moves?).
@@ -224,9 +235,14 @@ module VBlank
         # off the square voices (Duty.refuse_off_square!), and a note that both slides and wobbles.
         # +who+ names
         # the part, as the start of a sentence — a Score says its own, which is its place.
-        def initialize(events:, who: nil, **said)
-          super(events: events, **DEFAULTS.merge(said))
-          refuse_unplayable_shapes!(who || (name ? "The part #{name.inspect}" : "A part"))
+        #
+        # +shift+ moves every note's pitch higher or lower (a PitchShift), worked into the events
+        # here, so the part carries the pitches it plays and nothing that says how they were moved.
+        def initialize(events:, who: nil, shift: PitchShift::NONE, **said)
+          fields = DEFAULTS.merge(said)
+          label = who || (fields[:name] ? "The part #{fields[:name].inspect}" : "A part")
+          super(events: shift.applied(events, kind: Music.kind_played(fields), who: label), **fields)
+          refuse_unplayable_shapes!(label)
         end
 
         # Where an event keeps what a note says of its own, after its frame, pitch, instrument,
@@ -293,6 +309,8 @@ module VBlank
           @vibrato = nil     # how every note wobbles its pitch, when the part says (a Vibrato)
           @pan = nil         # the speaker every note plays from, when the part says (a Pan)
           @duties = nil      # the shapes every note steps through, when the part gives a list (a Duty)
+          @transpose = nil   # the semitones every note moves, when the part says (see PitchShift)
+          @pitch_offset = nil # ...and the voice's pitch steps it moves after that
           @events = []       # [[frame_offset, freq_hz], ...]
           @current_frame = 0
         end
@@ -340,6 +358,18 @@ module VBlank
         def vibrato(said = nil, **wobble)
           @vibrato = Vibrato.said(said || wobble, where: "The part #{part_label.inspect}",
                                                   frames: ->(length) { duration_frames(length) })
+        end
+
+        # EVERY NOTE MOVED BY WHOLE SEMITONES, up or down: `transpose 12` plays the part an octave
+        # higher than it is written. Any part can (see PitchShift).
+        def transpose(semitones)
+          @transpose = semitones
+        end
+
+        # ...or by the voice's own pitch steps, a part a little sharp or flat: `pitch_offset 2`. A
+        # square part or the wave part can.
+        def pitch_offset(steps)
+          @pitch_offset = steps
         end
 
         # WHICH SPEAKER EACH NOTE PLAYS FROM — :left, :right, or :center for both, which is what a
@@ -416,6 +446,8 @@ module VBlank
           Part.new(events: @events, duty: @duty, volume: @volume, decay: @decay, metallic: @metallic, name: @name,
                    envelope: @envelope, fade: NoteFade.for_part(@fade, drum: @plays[:noise]), slide: @slide,
                    vibrato: @vibrato, pan: @pan, duties: @duties,
+                   shift: PitchShift.said(transpose: @transpose, pitch_offset: @pitch_offset,
+                                          where: "The part #{part_label.inspect}"),
                    **@plays)
         end
 

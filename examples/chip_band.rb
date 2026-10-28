@@ -49,6 +49,12 @@
 #   2. The chords play each bar in a shape of its own, thin, then hollow, then thin and thick
 #      (`duty:` on a note of their own).
 #
+# DETUNED NOTES is the tune played twice at once, the way a chorus thickens one voice:
+#   1. The lead, as written.
+#   2. The same notes on the second square voice, two of the voice's own pitch steps sharp
+#      (`pitch_offset 2`), so the two beat against each other — a slow wobble neither has alone.
+#   3. The same notes again an octave down on the wave voice (`transpose(-12)`), a soft bass.
+#
 # Run it to build examples/chip_band.gba and examples/chip_band.gbc:
 #   ruby examples/chip_band.rb
 
@@ -62,6 +68,7 @@ module ChipBand
     { name: :wobbling, label: "WOBBLING NOTES" },
     { name: :spread, label: "LEFT AND RIGHT" },
     { name: :shimmering, label: "SHIMMERING NOTES" },
+    { name: :detuned, label: "DETUNED NOTES" },
   ])
 
   # The tune, as four bars of notes every version plays: the lead's [note, length] and the
@@ -215,6 +222,25 @@ module ChipBand
       voice :drums, plays: :noise do |v|
         v.volume 9
         4.times { DRUMS.each { |pitch, length, fade| v.note pitch, length, **fade } }
+      end
+    end
+
+    song :detuned do
+      tempo 132
+      voice :lead do |v|
+        v.duty :half
+        LEAD.each { |pitch, length| v.note pitch, length }
+      end
+      voice :chorus do |v|
+        v.duty :half
+        v.volume 9
+        v.pitch_offset 2
+        LEAD.each { |pitch, length| v.note pitch, length }
+      end
+      voice :bass, plays: :wave do |v|
+        v.volume 9
+        v.transpose(-12)
+        LEAD.each { |pitch, length| v.note pitch, length }
       end
     end
 
