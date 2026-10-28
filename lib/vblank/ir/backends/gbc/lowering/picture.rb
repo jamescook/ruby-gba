@@ -1696,12 +1696,20 @@ module VBlank
                               attributes: said_attributes(obj, name, @art.lends? ? 0 : palette, level))
                 end
               end
-              pictures = drawing_table("pose_pictures", 2, rows.map(&:picture))
-              palettes = drawing_table("pose_attributes", 4, rows.map(&:attributes))
+              # A row for every pose under every list is poses times lists, which a sprite of a few poses
+              # walking a fade of many lists makes thousands of bytes of. A game whose part of the
+              # cartridge always in view cannot hold them keeps them in its banks (GBC#build), read with
+              # their bank put in view.
+              banked = @bank_pose_tables
+              pictures = drawing_table("pose_pictures", 2, rows.map(&:picture), banked: banked)
+              palettes = drawing_table("pose_attributes", 4, rows.map(&:attributes), banked: banked)
               @art.note_lists_worn(obj.name, rows.map(&:palette).uniq) if @art.lends?
               at = lists.empty? ? pose : Sum.new(:+, Sum.new(:*, row_drawn_with(obj, lists, sets), Build.int(obj.poses.length)), pose)
-              lent = @art.lends? ? Entry.new(drawing_table("pose_lent_palettes", 1, rows.map(&:palette)), 1, false, at) : nil
-              [Entry.new(pictures, 2, true, at), Entry.new(palettes, 4, true, at), lent]
+              if @art.lends?
+                lent = Entry.new(drawing_table("pose_lent_palettes", 1, rows.map(&:palette), banked: banked), 1, false, at,
+                                 banked)
+              end
+              [Entry.new(pictures, 2, true, at, banked), Entry.new(palettes, 4, true, at, banked), lent]
             end
 
             # One row of a sprite's tables: the picture a pose is drawn from in one list of colours,

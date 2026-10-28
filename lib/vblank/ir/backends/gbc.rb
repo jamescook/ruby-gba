@@ -118,7 +118,8 @@ module VBlank
         # backgrounds draw from more lists of colours than it holds at once with each screen bringing
         # its own colours in as well (Art::TooManyBackgroundLists). And one whose part of the
         # cartridge always in view is too full is built again with its songs' notes kept in the
-        # banks (Linker::TooBigForView, GBC::Music#sections).
+        # banks (Linker::TooBigForView, GBC::Music#sections), and then, if it is still too full, with
+        # its sprites' tables of poses in each list kept there as well (Lowering::Picture).
         def build(program, title: "RUBYGBA")
           build_with_rooms_if_needed(program, title)
         rescue Art::TooManyBackgroundLists
@@ -139,10 +140,10 @@ module VBlank
           build_cartridge(program, title, lends: true, tile_rooms: tile_rooms, room_colors: room_colors)
         end
 
-        def build_cartridge(program, title, lends:, tile_rooms:, room_colors:, banked_songs: false)
+        def build_cartridge(program, title, lends:, tile_rooms:, room_colors:, banked_songs: false, bank_pose_tables: false)
           memory = Memory.new
           lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends, tile_rooms: tile_rooms,
-                                           room_colors: room_colors, banked_songs: banked_songs)
+                                           room_colors: room_colors, banked_songs: banked_songs, bank_pose_tables: bank_pose_tables)
           # The runtime's places first, so they are in the half of work memory always in view.
           Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?,
                                   bar_rows: lowering.bar_rows, slides: lowering.music.slides?,
@@ -161,10 +162,11 @@ module VBlank
             linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END,
                                                        clock: lowering.clock?).link
           rescue Linker::TooBigForView
-            raise if banked_songs || !lowering.music.any?
-
+            # Its songs' notes into the banks first, and then its sprites' pose tables too.
+            raise if bank_pose_tables
+            songs = lowering.music.any? && !banked_songs
             return build_cartridge(program, title, lends: lends, tile_rooms: tile_rooms, room_colors: room_colors,
-                                                   banked_songs: true)
+                                                   banked_songs: banked_songs || songs, bank_pose_tables: !songs)
           end
           routines = lowering.section_routines.map do |label, routine|
             placed = linked.sections.fetch(label)

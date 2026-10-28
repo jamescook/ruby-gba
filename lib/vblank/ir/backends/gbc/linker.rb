@@ -45,8 +45,8 @@ module VBlank
           # and it names the game's parts by what they are, never by the sections they went in.
           class TooBig < LoweringError; end
 
-          # ...the part always in view too full, which a game with songs can mend by keeping its
-          # songs' notes in the banks (GBC#build).
+          # ...the part always in view too full, which a game can mend by keeping its songs' notes in
+          # the banks, and then its sprites' tables of poses in each list (GBC#build).
           class TooBigForView < TooBig; end
 
           # Where each section went: its bank and the address of its first byte.

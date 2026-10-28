@@ -146,7 +146,10 @@ module VBlank
           # any of these, as a binop of the IR's is worked out.
           Address = Data.define(:label)
           BankedAddress = Data.define(:label)
-          Entry = Data.define(:label, :bytes, :signed, :index)
+          # An Entry of a +banked+ table is read with the table's bank put in view (rt_far_read).
+          Entry = Data.define(:label, :bytes, :signed, :index, :banked) do
+            def initialize(label:, bytes:, signed:, index:, banked: false) = super
+          end
           RuntimeValue = Data.define(:routine, :args)
           Sum = Data.define(:op, :lhs, :rhs)
 
@@ -162,13 +165,15 @@ module VBlank
           # console's eight as it runs (Art::TooManySpriteLists). +tile_rooms+ builds it with each screen
           # bringing its own background tiles in (Art::TooManyBackgroundTiles, Picture#plan_tile_rooms),
           # and +room_colors+ with its own background colours too (Art::TooManyBackgroundLists).
-          # +banked_songs+ keeps its songs' notes in the cartridge's banks (GBC::Music#sections).
+          # +banked_songs+ keeps its songs' notes in the cartridge's banks (GBC::Music#sections), and
+          # +bank_pose_tables+ the tables of its sprites' poses in each list (Picture#picture_and_attributes_drawn).
           def initialize(program, memory:, lends_sprite_colors: false, tile_rooms: false, room_colors: false,
-                         banked_songs: false)
+                         banked_songs: false, bank_pose_tables: false)
             @program = program
             @memory = memory
             @lends_sprite_colors = lends_sprite_colors
             @banked_songs = banked_songs
+            @bank_pose_tables = bank_pose_tables
             @plans_tile_rooms = tile_rooms # each screen brings its own tiles in (Picture#plan_tile_rooms)
             @plans_room_colors = room_colors
             @funcs = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
@@ -1271,7 +1276,12 @@ module VBlank
             end
             @asm.load(:hl, entry.label)
             @asm.add_hl(:de)
-            @asm.call(TABLE_KEPT.fetch([entry.bytes, entry.signed]).last)
+            reader = TABLE_KEPT.fetch([entry.bytes, entry.signed]).last
+            return @asm.call(reader) unless entry.banked
+
+            @asm.load_bank_of(:a, entry.label)
+            @asm.load(:de, reader)
+            @asm.call("rt_far_read")
           end
 
           def value_of_int(node) = load_constant(node.value)
