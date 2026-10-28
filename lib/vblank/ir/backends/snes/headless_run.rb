@@ -88,6 +88,7 @@ module VBlank
             @dsp_reads = []
             @apu_ram = nil
             @active_samples = nil
+            @loudest_each_frame = []
             play(frames || Reference::DEFAULT_FRAMES)
             self
           end
@@ -137,6 +138,12 @@ module VBlank
           # The sound unit's 64K of memory as the run ended — its program, the sample table and the
           # recordings — for a test to read a recording the DSP plays. Nil for a game with no sound.
           attr_reader :apu_ram
+
+          # WHAT WAS HEARD: the loudest sample bsnes played in each screen frame from power-on, left
+          # or right, as a number from 0 to 32768. The registers say what the sound unit was told
+          # at the end of each pass; this says what came out between, so a test can measure a
+          # sound's shape — a rest's silence, a fade's length — where the registers cannot see it.
+          attr_reader :loudest_each_frame
 
           # The rest of what the interpreter answers, each refused by name.
           %i[peak_voices sound_drops sound_owners frame log screen_mode buffered].each do |name|
@@ -338,6 +345,7 @@ module VBlank
           def play_frame
             decide_buttons
             @core.run_frame
+            @loudest_each_frame << (@core.take_audio.map(&:abs).max || 0)
           end
 
           # The emulator's picture, each pixel the 15-bit colour the console holds.
