@@ -93,8 +93,12 @@ module VBlank
       STAT77 = 0x213E
       STAT78 = 0x213F
 
-      # The sound processor's four ports (APUIO0-3).
+      # The sound processor's four ports (APUIO0-3), the mailboxes between the console and the
+      # sound unit.
       APUIO0 = 0x2140
+      APUIO1 = 0x2141
+      APUIO2 = 0x2142
+      APUIO3 = 0x2143
 
       # Work RAM through a port, for the copying engine.
       WMDATA = 0x2180

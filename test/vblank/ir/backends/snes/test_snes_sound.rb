@@ -6,7 +6,7 @@ require "test_helper"
 # console telling it what to write into the S-DSP's registers (rt_sound_write). What the DSP holds
 # is read straight from the emulator, so these are the sound unit's own registers, not anything the
 # runtime says about them.
-class TestSNESSoundDriver < Minitest::Test
+class TestSNESSound < Minitest::Test
   SNES = VBlank::IR::Backends::SNES
   Sound = SNES::Runtime::Sound
   DONE = 0x1F00 # where the console marks that it got to the end
@@ -76,7 +76,6 @@ class TestSNESSoundDriver < Minitest::Test
   private def cartridge(memory, writes, send_program: true)
     runtime = SNES::W65816.new("runtime")
     Sound.emit(runtime, memory)
-    test = self
     boot = SNES::W65816.new("boot", home: :first)
     boot.instance_eval do
       label "reset"
@@ -110,7 +109,7 @@ class TestSNESSoundDriver < Minitest::Test
       end
       sep 0x20
       lda 0xC3
-      sta abs(test.class::DONE)
+      sta abs(DONE)
       label "forever"
       bra "forever"
       label "interrupted"
