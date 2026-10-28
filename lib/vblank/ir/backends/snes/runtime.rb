@@ -9,6 +9,7 @@ require_relative "runtime/paint"
 require_relative "runtime/tint"
 require_relative "runtime/collide"
 require_relative "runtime/chip"
+require_relative "runtime/chip_paint"
 
 module VBlank
   module IR
@@ -32,7 +33,7 @@ module VBlank
           # Super FX (+chip+) keeps the chip's waiting loop and its counts (Chip), after the rest so
           # a plain cartridge's places do not move.
           def reserve(memory, painted: false, chip: false)
-            Paint.reserve(memory) if painted
+            Paint.reserve(memory, chip: chip) if painted
             Frame.reserve(memory)
             Picture.reserve(memory)
             Tint.reserve(memory)
@@ -54,14 +55,14 @@ module VBlank
             Int32.emit(asm, Int32.scratch(memory))
             Frame.emit(asm, memory, pad: memory.scratch(4))
             Lists.emit(asm, memory, Lists.scratch(memory))
-            Picture.emit(asm, memory, work: memory.scratch(8), painted: painted)
-            Paint.emit(asm, memory, Paint.scratch(memory)) if painted
+            Picture.emit(asm, memory, work: memory.scratch(8), painted: painted, chip: chip)
+            Paint.emit(asm, memory, Paint.scratch(memory), chip: chip) if painted
             Tint.emit(asm, memory, Tint.scratch(memory))
             Collide.emit(asm, memory, Collide.scratch(memory))
             Chip.emit(asm, memory) if chip
             emit_start(asm, chip: chip)
             emit_frame_begins(asm, frame_begins)
-            [vectors.section, asm.section]
+            [vectors.section, asm.section] + (chip && painted ? [ChipPaint.gsu_section] : [])
           end
 
           # What a game needs before its first line: its variables that do not start at nought (the

@@ -78,8 +78,9 @@ module VBlank
 
             module_function
 
-            def reserve(memory)
-              memory.reserve_last_bank("rt paint copy", COPY_BYTES)
+            # On a cartridge with a Super FX (+chip+) the copy is the chip's RAM, so work RAM keeps none.
+            def reserve(memory, chip: false)
+              memory.reserve_last_bank("rt paint copy", COPY_BYTES) unless chip
               memory.reserve(AREA, 8)
               memory.reserve(DIRTY, ROWS * 4)
             end
@@ -95,15 +96,17 @@ module VBlank
                           column: memory.scratch(2))
             end
 
-            def emit(asm, memory, s)
+            # +chip+ for a cartridge with a Super FX: see ChipPaint, which says what changes there.
+            def emit(asm, memory, s, chip: false)
+              bank = chip ? ChipPaint::COPY >> 16 : COPY >> 16
               emit_start(asm, memory)
               emit_area(asm, memory, s)
               emit_helpers(asm, memory, s)
-              emit_clear(asm, memory, s)
-              emit_fill(asm, memory, s)
-              emit_blit(asm, memory, s)
-              emit_patches(asm, memory, s)
-              emit_upload(asm, memory, s)
+              emit_clear(asm, memory, s, chip)
+              emit_fill(asm, memory, s, bank)
+              emit_blit(asm, memory, s, bank)
+              emit_patches(asm, memory, s, bank)
+              chip ? ChipPaint.emit_upload(asm, memory, s) : emit_upload(asm, memory, s)
               emit_tables(asm)
             end
 
@@ -329,7 +332,7 @@ module VBlank
             # rt_paint_clear(place, rows): the screen in the colour at +place+, from the cleared row of
             # tiles numbered +rows+ (the table "paint clear rows"). Held to an area, the area alone,
             # painted as a rectangle.
-            def emit_clear(asm, memory, s)
+            def emit_clear(asm, memory, s, chip)
               h = Console::SNESHardware
               dirty = memory[DIRTY]
               asm.label("rt_paint_clear")
@@ -358,43 +361,48 @@ module VBlank
               end
               asm.brl("rt_paint_fill")
 
-              # The whole screen: each row of tiles copied from the cartridge into the copy through
-              # the work RAM port, which moves on by itself.
+              # The whole screen: on a Super FX cartridge, painted by the chip (ChipPaint); on a plain
+              # one, each row of tiles copied from the cartridge into the copy through the work RAM
+              # port, which moves on by itself.
               asm.label("rt_paint_clear_whole")
-              asm.lda(asm.direct(R.call(1)))
-              asm.asl
-              asm.asl
-              asm.tax
-              asm.lda(asm.long_x("paint clear rows"))
-              asm.sta(asm.direct(s.pointer))
-              asm.lda(asm.long_x("paint clear rows", 2))
-              asm.sta(asm.direct(s.pointer + 2))
-              asm.sep(0x20)
-              asm.stz(asm.abs(h::WMADDL))
-              asm.stz(asm.abs(h::WMADDL + 1))
-              asm.lda(COPY_IN_WORK_RAM >> 16)
-              asm.sta(asm.abs(h::WMADDL + 2))
-              asm.rep(0x20)
-              asm.ldx(ROWS)
-              asm.label("rt_paint_clear_row")
-              asm.phx
-              asm.lda(COLUMNS * TILE_BYTES)
-              asm.sta(asm.abs(h::DMA_BASE + h::DASL))
-              asm.lda(asm.direct(s.pointer))
-              asm.sta(asm.abs(h::DMA_BASE + h::A1TL))
-              asm.sep(0x20)
-              asm.lda(asm.direct(s.pointer + 2))
-              asm.sta(asm.abs(h::DMA_BASE + h::A1B))
-              asm.lda(h::DMA_TO_ONE_PORT)
-              asm.sta(asm.abs(h::DMA_BASE + h::DMAP))
-              asm.lda(h::WMDATA & 0xFF)
-              asm.sta(asm.abs(h::DMA_BASE + h::BBAD))
-              asm.lda(1)
-              asm.sta(asm.abs(h::MDMAEN))
-              asm.rep(0x20)
-              asm.plx
-              asm.dex
-              asm.bne("rt_paint_clear_row")
+              if chip
+                ChipPaint.emit_clear_whole(asm)
+              else
+                asm.lda(asm.direct(R.call(1)))
+                asm.asl
+                asm.asl
+                asm.tax
+                asm.lda(asm.long_x("paint clear rows"))
+                asm.sta(asm.direct(s.pointer))
+                asm.lda(asm.long_x("paint clear rows", 2))
+                asm.sta(asm.direct(s.pointer + 2))
+                asm.sep(0x20)
+                asm.stz(asm.abs(h::WMADDL))
+                asm.stz(asm.abs(h::WMADDL + 1))
+                asm.lda(COPY_IN_WORK_RAM >> 16)
+                asm.sta(asm.abs(h::WMADDL + 2))
+                asm.rep(0x20)
+                asm.ldx(ROWS)
+                asm.label("rt_paint_clear_row")
+                asm.phx
+                asm.lda(COLUMNS * TILE_BYTES)
+                asm.sta(asm.abs(h::DMA_BASE + h::DASL))
+                asm.lda(asm.direct(s.pointer))
+                asm.sta(asm.abs(h::DMA_BASE + h::A1TL))
+                asm.sep(0x20)
+                asm.lda(asm.direct(s.pointer + 2))
+                asm.sta(asm.abs(h::DMA_BASE + h::A1B))
+                asm.lda(h::DMA_TO_ONE_PORT)
+                asm.sta(asm.abs(h::DMA_BASE + h::DMAP))
+                asm.lda(h::WMDATA & 0xFF)
+                asm.sta(asm.abs(h::DMA_BASE + h::BBAD))
+                asm.lda(1)
+                asm.sta(asm.abs(h::MDMAEN))
+                asm.rep(0x20)
+                asm.plx
+                asm.dex
+                asm.bne("rt_paint_clear_row")
+              end
               # Every tile changed.
               asm.ldx(0)
               asm.label("rt_paint_clear_mark")
@@ -415,7 +423,7 @@ module VBlank
             # rt_paint_fill(x, y, w, h, place): the rectangle, as far as it is inside the area, in
             # the colour at +place+. Each row of it is a tile's row at the left edge (some of its
             # pixels), the tiles' rows between (all eight), and a tile's row at the right edge.
-            def emit_fill(asm, memory, s)
+            def emit_fill(asm, memory, s, bank)
               asm.label("rt_paint_fill")
               asm.jsr(asm.abs("rt_paint_take_area"))
               [[R.call(0), R.call(2), R.call(5)], [R.call(1), R.call(3), R.call(6)]].each do |at, size, out|
@@ -470,7 +478,7 @@ module VBlank
               asm.jsr(asm.abs("rt_paint_column_mask"))
               emit_masked_planes(asm, s, s.right_planes)
               asm.jsr(asm.abs("rt_paint_mark"))
-              emit_into_copy(asm)
+              emit_into_copy(asm, bank)
               asm.lda(asm.direct(s.top))
               asm.sta(asm.direct(s.y))
               asm.label("rt_paint_fill_row")
@@ -540,13 +548,13 @@ module VBlank
               end
             end
 
-            # The data bank switched to the copy's, $7F, the one it was kept on the stack: from here an
+            # The data bank switched to the copy's, +bank+, the one it was kept on the stack: from here an
             # address of 16 bits is a byte of the copy. The direct page is in bank 0 whatever the data
             # bank, so the routines' numbers are where they were.
-            def emit_into_copy(asm)
+            def emit_into_copy(asm, bank)
               asm.phb
               asm.sep(0x20)
-              asm.lda(COPY >> 16)
+              asm.lda(bank)
               asm.pha
               asm.plb
               asm.rep(0x20)
@@ -560,7 +568,7 @@ module VBlank
             #
             # A picture placed more than 2048 pixels off the screen's left or top, or past its right
             # or bottom, paints nothing, so everything below works in 16 bits; no picture is that big.
-            def emit_blit(asm, memory, s)
+            def emit_blit(asm, memory, s, bank)
               asm.label("rt_paint_blit_one_of")
               asm.lda(asm.direct(R.call(0)))
               asm.asl
@@ -680,7 +688,7 @@ module VBlank
                 asm.sta(asm.direct(to))
               end
               asm.jsr(asm.abs("rt_paint_mark"))
-              emit_into_copy(asm)
+              emit_into_copy(asm, bank)
               asm.lda(asm.direct(s.top))
               asm.sta(asm.direct(s.y))
               asm.label("rt_paint_blit_row")
@@ -783,7 +791,7 @@ module VBlank
             # off the screen is not kept, and is off the screen again when the patch is put back.
             # rt_paint_restore(buffer, x, y, w, h): the patch put back at the place it was kept from,
             # inside the area, its own pixels alone — nothing if none was kept.
-            def emit_patches(asm, memory, s)
+            def emit_patches(asm, memory, s, bank)
               asm.label("rt_paint_save")
               asm.jsr(asm.abs("rt_paint_patch_start"))
               asm.branch_long(:bcc, "rt_paint_save_some")
@@ -791,7 +799,7 @@ module VBlank
               asm.label("rt_paint_save_some")
               asm.lda(1)
               asm.sta(asm.ind_long(s.pointer))
-              emit_into_copy(asm)
+              emit_into_copy(asm, bank)
               asm.ldy(2)
               asm.label("rt_paint_save_row")
               asm.lda(asm.direct(s.y))
@@ -902,7 +910,7 @@ module VBlank
               asm.jsr(asm.abs("rt_paint_mark"))
               asm.pla
               asm.sta(asm.direct(s.first_x))
-              emit_into_copy(asm)
+              emit_into_copy(asm, bank)
               # Each row of the patch, from its first; the ones outside the area are passed over.
               asm.ldy(2)
               asm.label("rt_paint_restore_row")

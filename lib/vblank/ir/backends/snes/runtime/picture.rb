@@ -83,11 +83,11 @@ module VBlank
             end
 
             # +work+ is four words of the direct page the routines use.
-            def emit(asm, memory, work:, painted: false)
+            def emit(asm, memory, work:, painted: false, chip: false)
               emit_start(asm, memory, painted)
               emit_sprites(asm, memory, work)
               emit_backgrounds(asm, memory, work)
-              emit_upload(asm, memory, painted)
+              emit_upload(asm, memory, painted, chip)
               asm.label("rt_picture_prepare")
               asm.rtl
             end
@@ -478,7 +478,7 @@ module VBlank
 
             # THE COPY IN THE BLANK. The screen is switched off first, so nothing below needs to fit
             # in the blank; then on again — straight away while the blank lasts, or in the next one.
-            def emit_upload(asm, memory, painted)
+            def emit_upload(asm, memory, painted, chip)
               h = Console::SNESHardware
               layers = memory[LAYERS]
               # The first pass's: the screen is off already, and Frame switches it on.
@@ -487,6 +487,12 @@ module VBlank
               asm.rtl
 
               asm.label("rt_upload")
+              if painted && chip
+                # A Super FX cartridge's painted screen is copied with the screen on, a blank at a
+                # time (ChipPaint), so nothing is switched off.
+                asm.jsr(asm.abs("rt_upload_copy"))
+                asm.rtl
+              end
               asm.sep(0x20)
               asm.lda(h::FORCED_BLANK)
               asm.sta(asm.abs(h::INIDISP))
