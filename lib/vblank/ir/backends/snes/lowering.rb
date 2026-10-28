@@ -107,6 +107,10 @@ module VBlank
           TABLE_KEPT = Ractor.make_shareable({ [1, true] => :signed_byte, [1, false] => :byte, [2, true] => :signed_half,
                                                [2, false] => :half, [4, true] => :word })
 
+          # The bytes a part of a table bigger than a bank holds of its own entries (#table_sections):
+          # half a bank, so a part and the entries it holds of the next together still fit in one.
+          PART_BYTES = 0x4000
+
           # How many bytes a slot of a list takes, by the width it was declared with.
           SLOT_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4, nil => 4 })
 
@@ -308,14 +312,56 @@ module VBlank
           end
 
           # Each table a run reads, in a section of its own, so a long one gets a bank to itself.
+          #
+          # A table bigger than a bank is cut into parts (#split?), each a section of its own in
+          # whatever bank it fits, and its label is then a list of where each part went, three bytes
+          # a part. The bank a byte of the cartridge is in is the top of its address, and a LoROM
+          # cartridge is only seen in the upper half of each bank, so the byte after a bank's last
+          # is not the next bank's first: a read cannot simply run on from one part into the next.
+          # So each part also holds, after its own entries, the first entries of the part after —
+          # as many as the game ever copies into a list from the table at once — and a run copied
+          # from anywhere in a part is all in that part.
           def table_sections
-            tables_read.map do |table|
-              asm = W65816.new(table_label(table.name), holds: DATA)
-              asm.label(table_label(table.name))
+            tables_read.flat_map do |table|
               bytes, = table_keeping(table)
-              asm.data_bytes(table.values.flat_map { |entry| little_endian(Int32.wrap(entry), bytes) })
-              asm.section
+              next [table_section(table_label(table.name), table.values, bytes)] unless split?(table)
+
+              per = part_entries(table)
+              tail = most_copied(table)
+              parts = (0...table.values.length).step(per).each_with_index.map do |from, part|
+                table_section(part_label(table.name, part), table.values[from, per + tail], bytes)
+              end
+              places = W65816.new(table_label(table.name), holds: DATA)
+              places.label(table_label(table.name))
+              places.data_longs(parts.each_index.map { |part| part_label(table.name, part) })
+              [places.section, *parts]
             end
+          end
+
+          def table_section(label, values, bytes)
+            asm = W65816.new(label, holds: DATA)
+            asm.label(label)
+            asm.data_bytes(values.flat_map { |entry| little_endian(Int32.wrap(entry), bytes) })
+            asm.section
+          end
+
+          def split?(table) = table.values.length * table_keeping(table).first > Linker::BANK_SIZE
+
+          # How many of +table+'s entries a part holds of its own: a power of two, so which part an
+          # entry is in is the top of its index, and where in the part the rest.
+          def part_entries(table) = PART_BYTES / table_keeping(table).first
+
+          def part_label(name, part) = "table #{name} part #{part + 1}"
+
+          # The most entries a run reaches copies from +table+ at once, refused when that is more
+          # than a part holds of its own.
+          def most_copied(table)
+            most = @reachable.select { |node| node.kind == :list_copy && node.table == table.name }.map(&:count).max || 0
+            return most if most <= part_entries(table)
+
+            raise LoweringError, "The game copies #{most} entries of the table #{table.name.inspect} into a list at " \
+                                 "one time. The Super Nintendo build can copy #{part_entries(table)} entries of this " \
+                                 "table at one time. To fix this, copy fewer entries at one time."
           end
 
           def tables_read
@@ -796,8 +842,29 @@ module VBlank
           def emit_list_copy(node)
             table = @tables.fetch(node.table) { raise LoweringError, "the table #{node.table.inspect} is copied and never declared" }
             kept = Runtime::Lists::KEPT.fetch(TABLE_KEPT.fetch(table_keeping(table)))
+            return emit_list_copy_from_parts(node, table, kept) if split?(table)
+
             list_call("rt_list_copy", node, LongAddress.new(table_label(table.name)), Build.int(kept),
                       Build.int(table.values.length), node.at, Build.int(node.count))
+          end
+
+          # A run copied from a table cut into parts: its start held inside the table here, as the
+          # runtime would, and the runtime handed the part the start is in, which holds the whole
+          # run (#table_sections), and where in that part it starts.
+          def emit_list_copy_from_parts(node, table, kept)
+            last_start = [table.values.length - node.count, 0].max
+            value(Build.clamped(node.at, Build.int(0), Build.int(last_start)))
+            emit_part_place(table)
+            @asm.sta(@asm.direct(Memory.register(4)))
+            @asm.stz(@asm.direct(Memory.register(4) + 2))
+            place, = @lists.fetch(node.name) { raise LoweringError, "the list #{node.name.inspect} is used and never declared" }
+            { 0 => place, 2 => kept, 3 => part_entries(table) + node.count, 5 => node.count }.each do |register, number|
+              @asm.lda(number & 0xFFFF)
+              @asm.sta(@asm.direct(Memory.register(register)))
+              @asm.lda(number >> 16)
+              @asm.sta(@asm.direct(Memory.register(register) + 2))
+            end
+            call_routine("rt_list_copy")
           end
 
           # The runtime's list routine +routine+ on the list +node+ names, the list's place first.
@@ -819,6 +886,8 @@ module VBlank
                    end
             bytes, signed = table_keeping(table)
             value(safe)
+            return emit_read_split_entry(table, bytes, signed) if split?(table)
+
             @asm.lda(@asm.direct(R0))
             (bytes / 2).times { @asm.asl }
             @asm.tax
@@ -831,6 +900,54 @@ module VBlank
             else
               emit_widen_r0(bytes, signed)
             end
+          end
+
+          # The entry at the index in R0 of a table cut into parts, read through the part's place.
+          def emit_read_split_entry(table, bytes, signed)
+            emit_part_place(table)
+            (bytes / 2).times { @asm.asl }
+            @asm.tay
+            @asm.lda(@asm.ind_long_y(R1))
+            @asm.sta(@asm.direct(R0))
+            if bytes == 4
+              @asm.iny
+              @asm.iny
+              @asm.lda(@asm.ind_long_y(R1))
+              @asm.sta(@asm.direct(R0 + 2))
+            else
+              emit_widen_r0(bytes, signed)
+            end
+          end
+
+          # For the index in R0 of a table cut into parts: the place of the part it is in into R1
+          # (three bytes, for an instruction to read through), and A the entry's number in that part.
+          # A part holds a power of two of the table's own entries, so the part is the top bits of
+          # the index and the number in it the rest. The index is short of 22 bits, as a cartridge is
+          # at most four megabytes, so the part is the low half's top bits beside the high half's
+          # bottom ones.
+          def emit_part_place(table)
+            per = part_entries(table)
+            high = 16 - per.bit_length + 1 # the low half's bits that are the part's
+            @asm.lda(@asm.direct(R0 + 2))
+            high.times { @asm.asl }
+            @asm.sta(@asm.direct(R1))
+            @asm.lda(@asm.direct(R0))
+            @asm.asl # the top bit into the carry, and round in from the bottom
+            high.times { @asm.rol }
+            @asm.and_a((1 << high) - 1)
+            @asm.ora(@asm.direct(R1))
+            @asm.sta(@asm.direct(R1)) # three bytes a part's place: the part times three
+            @asm.asl
+            @asm.clc
+            @asm.adc(@asm.direct(R1))
+            @asm.tax
+            label = table_label(table.name)
+            @asm.lda(@asm.long_x(label))
+            @asm.sta(@asm.direct(R1))
+            @asm.lda(@asm.long_x(label, 1))
+            @asm.sta(@asm.direct(R1 + 1))
+            @asm.lda(@asm.direct(R0))
+            @asm.and_a(per - 1)
           end
 
           # The low +bytes+ (1 or 2) of R0 made a whole number, with its sign or not.
