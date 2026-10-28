@@ -14,7 +14,8 @@ class TestSNESGSU < Minitest::Test
   end
 
   def test_the_one_byte_instructions
-    assert_equal [0x00, 0x01, 0x02, 0x03, 0x04, 0x3C, 0x4C, 0x4D, 0x4E, 0x4F, 0x70, 0x90, 0x95, 0x96, 0x97, 0x9E,
+    # STOP is followed by a NOP: the chip has fetched the byte after it, and runs it first next time.
+    assert_equal [0x00, 0x01, 0x01, 0x02, 0x03, 0x04, 0x3C, 0x4C, 0x4D, 0x4E, 0x4F, 0x70, 0x90, 0x95, 0x96, 0x97, 0x9E,
                   0x9F, 0xC0, 0xDF, 0xEF],
                  bytes_of { stop; nop; cache; lsr; rol; loop; plot; swap; color; not_; merge; sbk; sex; asr; ror; lob; fmult; hib; getc; getb }
   end
@@ -76,5 +77,8 @@ class TestSNESGSU < Minitest::Test
     assert_raises(GSU::Error) { bytes_of { inc 15 } }
     assert_raises(GSU::Error) { bytes_of { and_ 0 } }
     assert_raises(GSU::Error) { bytes_of { sbc imm(1) } }
+    assert_raises(GSU::Error) { bytes_of { and_ imm(0) } }
+    assert_raises(GSU::Error) { bytes_of { xor imm(0) } }
+    assert_raises(GSU::Error) { bytes_of { ibt 0, 200 } }
   end
 end

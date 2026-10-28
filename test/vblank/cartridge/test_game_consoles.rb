@@ -60,4 +60,33 @@ class TestGameConsoles < Minitest::Test
 
     assert_match(/no console named :nes/, error.message)
   end
+
+  def test_a_chip_is_named_beside_the_consoles
+    game = VBlank.game("CHIPPED", consoles: %i[gba snes], variants: { snes: :superfx }) { var :x, 1 }
+
+    assert_equal :superfx, game.variant_for(:snes)
+    assert_nil game.variant_for(:gba)
+    assert_equal :superfx, game.program(console: :snes).variant
+    assert_nil game.program(console: :snes, variant: nil).variant
+  end
+
+  def test_a_variant_the_console_does_not_have_is_refused_naming_the_ones_it_has
+    error = assert_raises(ArgumentError) { VBlank.game("X", consoles: %i[snes], variants: { snes: :dsp1 }) { var :x, 1 } }
+
+    assert_match(/has no variant named :dsp1/, error.message)
+    assert_match(/:superfx/, error.message)
+  end
+
+  def test_a_variant_for_a_console_the_game_is_not_for_is_refused
+    error = assert_raises(ArgumentError) { VBlank.game("X", consoles: %i[gba], variants: { snes: :superfx }) { var :x, 1 } }
+
+    assert_match(/not for it/, error.message)
+    assert_match(/add :snes to consoles:/, error.message)
+  end
+
+  def test_variants_that_are_not_a_hash_are_refused
+    error = assert_raises(ArgumentError) { VBlank.game("X", consoles: %i[snes], variants: :superfx) { var :x, 1 } }
+
+    assert_match(/variants: \{ snes: :superfx \}/, error.message)
+  end
 end

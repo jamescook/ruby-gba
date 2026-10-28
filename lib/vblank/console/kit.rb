@@ -155,14 +155,13 @@ module VBlank
       #
       # Each chip's cartridge is a board of its own, not a plain cartridge with a different header
       # (Cartridge::SNESROM says what a Super FX board's header holds). +build+ names the board the
-      # build lays the cartridge out for; a variant with none is refused by the build until it has
-      # one, checked in bsnes, which plays those boards as the hardware does.
+      # build lays the cartridge out for, and the build refuses a variant whose +build+ names none.
       SNES_VARIANTS = Ractor.make_shareable({
         superfx: Variant.new(name: :superfx, title: "a Super FX 2 chip",
-                             # Its 64K of RAM is where it draws; the console's processor can use it
-                             # while the chip is not drawing, and two pictures fit in it, so a
-                             # painted screen keeps two pages.
-                             changes: { roomier_memory_bytes: (120 + 64) * 1024, painted_pages: 2 },
+                             # Its 64K of RAM is where it draws, and where the console's processor
+                             # keeps a painted screen's picture: one page of 56K, so a painted screen
+                             # keeps one page there as on a plain cartridge.
+                             changes: { roomier_memory_bytes: (120 + 64) * 1024 },
                              build: { board: :super_fx },
                              note: "the Super FX 2 (GSU-2), a 21 MHz processor of its own that draws into " \
                                    "the cartridge's RAM: Yoshi's Island, Doom, Star Fox 2"),

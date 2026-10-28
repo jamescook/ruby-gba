@@ -16,8 +16,9 @@ class TestSNESSuperFXBoard < Minitest::Test
   SNESROM = VBlank::Cartridge::SNESROM
   H = VBlank::Console::SNESHardware
 
-  # The SHA-256 of each example's plain cartridge, built from the commit before the Super FX board
-  # was made. A plain build that changes by a byte fails here.
+  # The SHA-256 of each example's plain cartridge. A plain cartridge must not change by a byte
+  # because another board exists; a change to the SNES lowering that is meant to change plain
+  # cartridges records new digests here, in the same commit.
   PLAIN_DIGESTS = {
     Tiles => "b6dcf57ffaa67ca11ba5f8fbe133594ba8e8bbb18d40e86e1d1fa2e6007ee3e3",
     BufferedBounce => "aeb2a62d4ede790a018c85b2aa420a56fb8e13c38821ce1ccd88ad7debd4e2c0",
@@ -52,13 +53,6 @@ class TestSNESSuperFXBoard < Minitest::Test
     run = game_player.run(Sparks::GAME.program(console: :snes, variant: :superfx), frames: 60)
 
     refute_empty run.pool(:spark, :y), "sparks are falling"
-  end
-
-  def test_a_variant_the_console_does_not_have_is_refused
-    error = assert_raises(ArgumentError) do
-      VBlank.game("NOCHIP", consoles: %i[snes], variants: { snes: :dsp1 }) { halt }
-    end
-    assert_match(/has no variant named :dsp1/, error.message)
   end
 
   # What the console sees in the chip's RAM after a tiny cartridge stores +byte+ at $70:0000, read

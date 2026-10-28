@@ -24,4 +24,16 @@ class TestOptions < Minitest::Test
       assert_instance_of kind, rom, name
     end
   end
+
+  def test_a_variant_without_a_console_is_refused
+    error = assert_raises(ArgumentError) { VBlank::Cartridge::Options.new(variant: :superfx) }
+
+    assert_match(/A variant needs a console/, error.message)
+  end
+
+  # "none" is the console as it is, so the variant is nil.
+  def test_a_variant_named_none_is_the_plain_console
+    assert_nil VBlank::Cartridge::Options.new(console: :snes, variant: "none").variant
+    assert_equal :superfx, VBlank::Cartridge::Options.new(console: :snes, variant: "superfx").variant
+  end
 end

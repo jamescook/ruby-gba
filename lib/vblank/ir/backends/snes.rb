@@ -94,8 +94,8 @@ module VBlank
 
           Cartridge::SNESROM::BOARDS.fetch(variant.build[:board]) do
             raise LoweringError, "This game is for a #{Console::SUPER_NINTENDO.title} with #{variant.title}. The " \
-                                 "build cannot make a cartridge with that chip yet. To fix this, leave the chip out " \
-                                 "of variants:."
+                                 "build cannot make a cartridge with that chip yet. To fix this, remove the chip " \
+                                 "from variants: or from --variant."
           end
         end
       end

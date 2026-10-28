@@ -18,12 +18,67 @@ class TestSNESChip < Minitest::Test
     assert_equal 0xC3, wram.getbyte(DONE), "the console came back to the cartridge after the chip stopped"
   end
 
-  # A cartridge whose reset sets the console up as the runtime's boot does, runs the chip once and
-  # marks DONE.
-  private def cartridge
+  # While the chip runs the vertical blank's interrupt is off, and the waiting loop counts the blanks
+  # instead: once each, however many go by.
+  def test_the_frames_the_chip_took_are_counted_once_each
+    memory = new_memory
+    rom = cartridge(memory) do
+      iwt 4, 8
+      label "outer"
+      iwt 12, 0xFFFF
+      iwt 13, "inner"
+      label "inner"
+      loop              # round 65535 times, from the ROM
+      nop
+      dec 4
+      bne "outer"
+      nop
+      stop
+    end
+    frames, counted = frames_until_done(rom, memory)
+
+    assert_operator frames, :>, 5, "the chip ran for several frames"
+    assert_in_delta frames, counted, 2, "the frames the runtime counted"
+  end
+
+  private def new_memory
     memory = SNES::Memory.new
     SNES::Runtime::Frame.reserve(memory)
     SNES::Runtime::Chip.reserve(memory)
+    memory
+  end
+
+  # The frames played until the console marked DONE, and the frame count the runtime kept.
+  private def frames_until_done(rom, memory)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "chip.sfc")
+      rom.write(path)
+      core = VBlank::Diagnostics::Emulator.open_snes(path)
+      frames = (1..120).find do
+        core.run_frame
+        core.wram.getbyte(DONE) == 0xC3
+      end
+      [frames, core.wram_read32(memory[SNES::Runtime::Frame::FRAMES])]
+    ensure
+      core&.destroy
+    end
+  end
+
+  # A cartridge whose reset sets the console up as the runtime's boot does, runs the chip once and
+  # marks DONE. The chip's program is the block, or one that writes two numbers into its RAM.
+  private def cartridge(memory = new_memory, &program)
+    program ||= proc do
+      ibt 0, 0x5A
+      iwt 1, 0x0000
+      stb 1             # RAM $0000 = $5A
+      iwt 3, 0x1234
+      iwt 0, 0x1234
+      add 3
+      add 3             # R0 = 3 × $1234
+      iwt 1, 0x0002
+      stw 1             # RAM $0002 = R0, low byte first
+      stop
+    end
     runtime = SNES::W65816.new("runtime")
     SNES::Runtime::Chip.emit(runtime, memory)
 
@@ -59,20 +114,8 @@ class TestSNESChip < Minitest::Test
     end
 
     gsu = SNES::GSU.new("chip")
-    gsu.instance_eval do
-      label "chip program"
-      ibt 0, 0x5A
-      iwt 1, 0x0000
-      stb 1             # RAM $0000 = $5A
-      iwt 3, 0x1234
-      iwt 0, 0x1234
-      add 3
-      add 3             # R0 = 3 × $1234
-      iwt 1, 0x0002
-      stw 1             # RAM $0002 = R0, low byte first
-      stop
-      nop
-    end
+    gsu.label "chip program"
+    gsu.instance_eval(&program)
 
     linked = SNES::Linker.new([boot.section, runtime.section, gsu.section]).link
     vectors = { reset: linked.address_of("reset"), nmi: linked.address_of("interrupted"),

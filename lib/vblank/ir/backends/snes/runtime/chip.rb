@@ -144,6 +144,7 @@ module VBlank
               asm.cmp(asm.abs(memory[SEEN]))
               asm.beq("wait")
               asm.sta(asm.abs(memory[SEEN]))
+              asm.and_a(0x80) # a store leaves the flags as the comparison set them; this sets them anew
               asm.beq("wait") # the blank ended
               asm.inc(asm.abs(memory[MISSED])) # a blank began
               asm.bra("wait")

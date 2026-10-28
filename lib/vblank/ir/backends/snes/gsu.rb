@@ -32,8 +32,7 @@ module VBlank
         #   gsu.ibt 0, 0x5A        # IBT R0,#$5A
         #   gsu.iwt 1, 0x0000      # IWT R1,#$0000
         #   gsu.stb 1              # STB (R1): the low byte of R0 into RAM at R1
-        #   gsu.stop
-        #   gsu.nop
+        #   gsu.stop               # STOP, and the NOP the chip has already fetched after it
         #
         # Opcodes: fullsnes, "SNES Cart GSU-n CPU Opcodes" (https://problemkaputt.de/fullsnes.htm),
         # checked against bsnes's processor/gsu/instruction.cpp.
@@ -50,7 +49,7 @@ module VBlank
           BRANCHES = { bra: 0x05, bge: 0x06, blt: 0x07, bne: 0x08, beq: 0x09, bpl: 0x0A, bmi: 0x0B, bcc: 0x0C,
                        bcs: 0x0D, bvc: 0x0E, bvs: 0x0F }.freeze
 
-          SINGLES = { stop: [0x00], nop: [0x01], cache: [0x02], lsr: [0x03], rol: [0x04], loop: [0x3C],
+          SINGLES = { stop: [0x00, 0x01], nop: [0x01], cache: [0x02], lsr: [0x03], rol: [0x04], loop: [0x3C],
                       alt1: [ALT1], alt2: [ALT2], alt3: [ALT3], plot: [0x4C], rpix: [ALT1, 0x4C], swap: [0x4D],
                       color: [0x4E], cmode: [ALT1, 0x4E], not_: [0x4F], merge: [0x70], sbk: [0x90], sex: [0x95],
                       asr: [0x96], div2: [ALT1, 0x96], ror: [0x97], lob: [0x9E], fmult: [0x9F],
@@ -105,10 +104,14 @@ module VBlank
             define_method(name) do |operand|
               if operand.is_a?(Imm)
                 raise Error, "#{name} has no number form" unless number_prefix
+                # $70 and $C0 are MERGE and HIB whatever prefix comes before them.
+                if operand.value.zero? && %i[and_ bic or_ xor].include?(name)
+                  raise Error, "#{name} cannot take #0"
+                end
 
-                emit(number_prefix, base | nibble(operand.value, name))
+                emit(number_prefix, base | checked_nibble(operand.value, name))
               else
-                register = register(operand)
+                register = checked_register(operand)
                 # MERGE, HIB and the like sit where register 0 of AND and OR would.
                 raise Error, "#{name} cannot name R0" if register.zero? && %i[and_ bic or_ xor].include?(name)
 
@@ -118,20 +121,20 @@ module VBlank
           end
 
           # The prefixes that choose the registers of the next instruction.
-          def to(register) = emit(0x10 | register(register))
-          def with(register) = emit(0x20 | register(register))
-          def from(register) = emit(0xB0 | register(register))
+          def to(register) = emit(0x10 | checked_register(register))
+          def with(register) = emit(0x20 | checked_register(register))
+          def from(register) = emit(0xB0 | checked_register(register))
 
           # Rd = Rs, and Rd = Rs with the flags set by it.
           def move(destination, source) = with(source) && to(destination)
           def moves(destination, source) = with(destination) && from(source)
 
           # 16 bits of the source into RAM at the address in +register+ (0..11), or its low 8 (STB).
-          def stw(register) = emit(0x30 | pointer(register))
-          def stb(register) = emit(ALT1, 0x30 | pointer(register))
+          def stw(register) = emit(0x30 | checked_pointer(register))
+          def stb(register) = emit(ALT1, 0x30 | checked_pointer(register))
           # 16 bits from RAM at the address in +register+ into the destination, or 8 (LDB).
-          def ldw(register) = emit(0x40 | pointer(register))
-          def ldb(register) = emit(ALT1, 0x40 | pointer(register))
+          def ldw(register) = emit(0x40 | checked_pointer(register))
+          def ldb(register) = emit(ALT1, 0x40 | checked_pointer(register))
 
           # R11 = the address of the instruction +count+ (1..4) bytes after this one, a return address.
           def link(count)
@@ -140,66 +143,67 @@ module VBlank
             emit(0x90 | count)
           end
 
-          # R15 = +register+ (8..13): a jump. LJMP also takes the bank from the source.
-          def jmp(register) = emit(0x90 | jump_register(register))
-          def ljmp(register) = emit(ALT1, 0x90 | jump_register(register))
+          # R15 = +register+ (8..13): a jump. LJMP is a jump to another bank: the bank from +register+
+          # and the address from the source (bsnes, processor/gsu/instructions.cpp, LJMP).
+          def jmp(register) = emit(0x90 | checked_jump_register(register))
+          def ljmp(register) = emit(ALT1, 0x90 | checked_jump_register(register))
 
-          def inc(register) = emit(0xD0 | counted(register, :inc))
-          def dec(register) = emit(0xE0 | counted(register, :dec))
+          def inc(register) = emit(0xD0 | checked_counter(register, :inc))
+          def dec(register) = emit(0xE0 | checked_counter(register, :dec))
 
           # +register+ = a signed byte, sign-extended to 16 bits.
           def ibt(register, value)
-            raise Error, "IBT takes -128..255, not #{value}" unless value.between?(-128, 255)
+            raise Error, "IBT takes -128..127, not #{value}" unless value.between?(-128, 127)
 
-            emit(0xA0 | register(register), value & 0xFF)
+            emit(0xA0 | checked_register(register), value & 0xFF)
           end
 
           # +register+ = 16 bits: a number, or the low 16 bits of a label's address.
           def iwt(register, value)
-            emit(0xF0 | register(register))
+            emit(0xF0 | checked_register(register))
             word(value)
           end
 
           # +register+ = the 16 bits in RAM at +address+, or the other way round (SM). LMS and SMS
           # reach the first 512 bytes in one byte less, at an even address.
-          def lm(register, address) = emit(ALT1, 0xF0 | register(register)) && word(address)
-          def sm(address, register) = emit(ALT2, 0xF0 | register(register)) && word(address)
-          def lms(register, address) = emit(ALT1, 0xA0 | register(register), short_address(address))
-          def sms(address, register) = emit(ALT2, 0xA0 | register(register), short_address(address))
+          def lm(register, address) = emit(ALT1, 0xF0 | checked_register(register)) && word(address)
+          def sm(address, register) = emit(ALT2, 0xF0 | checked_register(register)) && word(address)
+          def lms(register, address) = emit(ALT1, 0xA0 | checked_register(register), checked_short_address(address))
+          def sms(address, register) = emit(ALT2, 0xA0 | checked_register(register), checked_short_address(address))
 
           private
 
-          def register(value)
+          def checked_register(value)
             raise Error, "a GSU register is 0..15, not #{value.inspect}" unless value.is_a?(Integer) && value.between?(0, 15)
 
             value
           end
 
-          def nibble(value, name)
+          def checked_nibble(value, name)
             raise Error, "#{name} #n takes 0..15, not #{value}" unless value.between?(0, 15)
 
             value
           end
 
-          def pointer(value)
-            raise Error, "a load or store names R0..R11, not R#{value}" unless register(value) <= 11
+          def checked_pointer(value)
+            raise Error, "a load or store names R0..R11, not R#{value}" unless checked_register(value) <= 11
 
             value
           end
 
-          def jump_register(value)
-            raise Error, "a jump names R8..R13, not R#{value}" unless (8..13).cover?(register(value))
+          def checked_jump_register(value)
+            raise Error, "a jump names R8..R13, not R#{value}" unless (8..13).cover?(checked_register(value))
 
             value
           end
 
-          def counted(value, name)
-            raise Error, "#{name.upcase} names R0..R14, not R#{value}" unless register(value) <= 14
+          def checked_counter(value, name)
+            raise Error, "#{name.upcase} names R0..R14, not R#{value}" unless checked_register(value) <= 14
 
             value
           end
 
-          def short_address(address)
+          def checked_short_address(address)
             raise Error, "LMS and SMS reach an even address below 512, not #{address}" unless address.even? && address < 512
 
             address >> 1

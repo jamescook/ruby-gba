@@ -915,7 +915,7 @@ module VBlank
       consoles = options[:console] ? [options[:console].to_sym] : game.consoles
       refuse_one_output_for_two_consoles!(game) if options[:output] && consoles.size > 1
       if options[:variant] && consoles.size > 1
-        raise Thor::Error, "--variant names the chip on one console's cartridge, and " \
+        raise Thor::Error, "--variant names the chip for one console. " \
                            "#{consoles_choice_message(game, 'build', game.consoles)}"
       end
       built = {}
