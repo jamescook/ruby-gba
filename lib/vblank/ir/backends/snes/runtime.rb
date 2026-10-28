@@ -120,11 +120,22 @@ module VBlank
             asm.label("rt_start_lists")
             asm.jsl(asm.long("rt_lists_start"))
             asm.jsl(asm.long("rt_picture_start"))
+            emit_interrupt_on(asm)
+            asm.jml(asm.long("rt_buttons_from_power_on"))
+          end
+
+          # The screen's interrupt switched on, once, as setting up ends (A 16 bits wide, and so
+          # again after). A blank already under way is not a frame the game showed: a blank sets
+          # a flag as it begins, and switching the interrupt on while it is set calls the
+          # interrupt at once, so a setting up that happened to end inside a blank would count one
+          # frame more from power-on. Reading RDNMI clears the flag first, as Runtime::Chip does
+          # when it switches the interrupt on again.
+          def emit_interrupt_on(asm)
             asm.sep(0x20)
+            asm.lda(asm.abs(Console::SNESHardware::RDNMI))
             asm.lda(Console::SNESHardware::NMI_ON)
             asm.sta(asm.abs(Console::SNESHardware::NMITIMEN))
             asm.rep(0x20)
-            asm.jml(asm.long("rt_buttons_from_power_on"))
           end
 
           # What moves on at each frame boundary, once the buttons are read (Reference#advance_frame's

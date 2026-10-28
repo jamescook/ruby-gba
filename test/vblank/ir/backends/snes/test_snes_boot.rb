@@ -54,4 +54,73 @@ class TestSNESBoot < Minitest::Test
     assert_equal [green], colours
     assert_equal 0x80, bank, "the processor runs from the fast copy of the cartridge"
   end
+
+  # A vertical blank sets a flag as it begins (RDNMI's top bit), and switching the blank's
+  # interrupt on while that flag is set calls the interrupt at once (fullsnes, "SNES I/O Map",
+  # NMITIMEN). So a setting up that ends inside a blank would count that blank, half gone, as a
+  # frame shown. The cartridge switches the interrupt on the runtime's way from inside a blank
+  # and counts the interrupts until that blank is over: none.
+  def test_the_interrupt_switched_on_inside_a_blank_waits_for_the_next
+    calls = Dir.mktmpdir do |dir|
+      path = File.join(dir, "blank.sfc")
+      interrupt_counting_cartridge.write(path)
+      core = VBlank::Diagnostics::Emulator.open_snes(path)
+      3.times { core.run_frame }
+      core.wram_read8(SEEN_INSIDE)
+    ensure
+      core&.destroy
+    end
+
+    assert_equal 0, calls
+  end
+
+  COUNT = 0x0010 # the interrupts so far
+  SEEN_INSIDE = 0x0012 # the count as the blank the interrupt was switched on in ended
+
+  private def interrupt_counting_cartridge
+    asm = W65816.new("blank", home: :first)
+    asm.instance_eval do
+      label "reset"
+      sei
+      clc
+      xce
+      jml long("fast")
+      label "fast"
+      rep 0x30
+      lda 0x1FFF
+      tcs
+      sep 0x20
+      stz abs(COUNT)
+      lda 0xFF
+      sta abs(SEEN_INSIDE)
+      # Into the next blank's middle: out of any blank, then in one.
+      label "out_of_blank"
+      lda abs(H::HVBJOY)
+      bmi "out_of_blank"
+      label "into_blank"
+      lda abs(H::HVBJOY)
+      bpl "into_blank"
+      rep 0x20
+    end
+    VBlank::IR::Backends::SNES::Runtime.emit_interrupt_on(asm)
+    asm.instance_eval do
+      sep 0x20
+      label "inside_blank"
+      lda abs(H::HVBJOY)
+      bmi "inside_blank"
+      lda abs(COUNT)
+      sta abs(SEEN_INSIDE)
+      label "forever"
+      bra "forever"
+      label "interrupt"
+      sep 0x20
+      inc abs(COUNT)
+      lda abs(H::RDNMI)
+      rti
+    end
+    linked = Linker.new([asm.section]).link
+    VBlank::Cartridge::SNESROM.new(linked.banks, title: "BLANK",
+                                                 vectors: { reset: linked.address_of("reset") & 0xFFFF,
+                                                            nmi: linked.address_of("interrupt") & 0xFFFF })
+  end
 end
