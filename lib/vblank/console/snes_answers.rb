@@ -171,8 +171,8 @@ module VBlank
         noise: works("a hiss is played on the sound chip's own noise. The sound chip has no metallic noise, " \
                      "so a metallic hit is played as a recording of one. The sound chip's noise is at most " \
                      "32000 steps a second, so a :high hiss is lower than on the Game Boy Advance."),
-        wave: works("a Super Nintendo has no wave voice: its sound chip plays recordings, so each waveform is " \
-                    "played as a recording of it. A note above 4000 Hz plays at 4000 Hz."),
+        wave: works("a Super Nintendo has no wave voice: its sound chip plays recordings, so it plays each " \
+                    "waveform as a recording. A note above 4000 Hz plays at 4000 Hz."),
         stop_wave: works,
         song: works("see `define_sound` for the square and wave voices."),
         play_song: works,

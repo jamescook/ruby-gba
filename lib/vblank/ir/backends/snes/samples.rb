@@ -40,6 +40,7 @@ module VBlank
           SHIFT = 11
           HIGH = 7
           LOW = -7
+          LOWEST = -8 # the lowest a sample's nibble holds
           LOOP = 3 # the end of a recording, looped back to its loop point
           ROW = 4  # a table row: start, loop
 
@@ -60,11 +61,13 @@ module VBlank
 
           # THE WAVE VOICE'S WAVEFORMS, which are the game's own: 32 steps of 0 to 15 each (Audio::
           # Sound.wavetable), at the loudness the game plays it (each step already cut down as the
-          # Advance cuts it). Each is recorded as it is, a step a sample, less eight so the middle
-          # sits near nought, in two blocks looping back to the first, and they come after every
-          # recording above, in the order the game's build lists them (DSPWrites.wave_steps).
+          # Advance cuts it). Each is recorded as it is, a step a sample, less its own average (to the
+          # nearest whole step), so the wave swings about nought at every loudness — a quiet wave's
+          # steps are small, and taking a fixed eight off them would hold it far under nought, and a
+          # muted one would be a flat level that clicks as it starts and stops. Two blocks, looping
+          # back to the first, after every recording above, in the order the game's build lists them
+          # (DSPWrites.wave_steps).
           FIRST_WAVE = METALLIC + 1
-          WAVE_MIDDLE = 8
 
           # The source number of the recording of +width+, a wave of +wave+ samples: the long waves
           # first, then the short ones.
@@ -97,8 +100,14 @@ module VBlank
             looped(steps * BLOCK_SAMPLES)
           end
 
-          # One of the game's waveforms, +steps+ (32 of 0 to 15), as a looped recording.
-          def wave(steps) = looped(steps.map { |step| step - WAVE_MIDDLE })
+          # One of the game's waveforms, +steps+ (32 of 0 to 15), as a looped recording about nought:
+          # less its average, or as near it as keeps every step inside what a sample holds (-8..7),
+          # which a lopsided waveform at full, a narrow pulse, cannot be centred and still fit. Its
+          # steps are never more than 15 apart, so some offset always fits.
+          def wave(steps)
+            middle = Rational(steps.sum, steps.size).round.clamp(steps.max - HIGH, steps.min - LOWEST)
+            looped(steps.map { |step| step - middle })
+          end
 
           # +samples+ (a whole number of blocks' worth, each -8..7) as BRR blocks, the last looping
           # back to the first.

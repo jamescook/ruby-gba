@@ -46,9 +46,8 @@ module VBlank
           # and GAIN $7F) until stop_wave keys it off. A key-off holds until it is cleared, and a
           # key-on under it plays nothing (fullsnes, "KON/KOFF Notes"), so each wave clears it first.
           WAVE_VOICE = 2
-          GAIN = 0x7
-          GAIN_MODE = 0x00
-          FIXED_TOP = 0x7F
+          ADSR_OFF = 0x00 # ADSR1 with bit 7 nought: the envelope is GAIN's
+          FIXED_TOP = 0x7F # GAIN with bit 7 nought: a fixed level, the most there is
 
           # NOISE. A hiss is the S-DSP's own noise generator, a register of fifteen random bits, as
           # the Advance's is: the noise voice's bit in NON switches it from its recording to the
@@ -84,6 +83,7 @@ module VBlank
           SOURCE = 0x4
           ADSR1 = 0x5
           ADSR2 = 0x6
+          GAIN = 0x7
 
           # The registers for every voice at once (fullsnes, "SNES APU DSP Control Registers" and
           # "Volume Registers").
@@ -163,7 +163,7 @@ module VBlank
             pitch = pitch_for(params[:frequency], Samples::LONG_WAVE)
             level = VBlank::Audio::Sound::WAVE_STEP_MAX * VOLUME_STEP
             [[base + VOLUME_LEFT, level], [base + VOLUME_RIGHT, level], [base + PITCH_LOW, pitch & 0xFF],
-             [base + PITCH_HIGH, pitch >> 8], [base + SOURCE, Samples::FIRST_WAVE + index], [base + ADSR1, GAIN_MODE],
+             [base + PITCH_HIGH, pitch >> 8], [base + SOURCE, Samples::FIRST_WAVE + index], [base + ADSR1, ADSR_OFF],
              [base + GAIN, FIXED_TOP], [KEY_OFF, 0], [KEY_ON, 1 << WAVE_VOICE]]
           end
 

@@ -100,8 +100,9 @@ module VBlank
             end
 
             # Everything sent across at power-on, from DRIVER_AT: the program, then from TABLE_AT the
-            # sample table and the recordings, the game's +waves+ last (Samples.image).
-            def image(waves = [])
+            # sample table and the recordings, the game's +waves+ last (Samples.image). #sections and
+            # #emit are each handed the same list, since rt_sound_start sends as many bytes as it says.
+            def image(waves)
               program = driver.assembled.bytes
               room = TABLE_AT - DRIVER_AT
               raise ArgumentError, "the sound program is #{program.size} bytes, more than #{room}" if program.size > room
@@ -148,14 +149,14 @@ module VBlank
             end
 
             # What is sent across, in the cartridge, for rt_sound_start to send.
-            def sections(waves = [])
+            def sections(waves)
               asm = W65816.new("sound driver")
               asm.label("sound driver")
               asm.data_bytes(image(waves))
               [asm.section]
             end
 
-            def emit(asm, memory, waves = [])
+            def emit(asm, memory, waves)
               emit_start(asm, memory, image(waves).size)
               emit_write(asm, memory)
               emit_log(asm, memory)

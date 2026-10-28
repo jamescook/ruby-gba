@@ -75,7 +75,7 @@ class TestSNESSound < Minitest::Test
   # answers), makes each of +writes+ ([register, value]) and marks DONE.
   private def cartridge(memory, writes, send_program: true)
     runtime = SNES::W65816.new("runtime")
-    Sound.emit(runtime, memory)
+    Sound.emit(runtime, memory, [])
     boot = SNES::W65816.new("boot", home: :first)
     boot.instance_eval do
       label "reset"
@@ -116,7 +116,7 @@ class TestSNESSound < Minitest::Test
       rti
     end
 
-    linked = SNES::Linker.new([boot.section, runtime.section, *Sound.sections]).link
+    linked = SNES::Linker.new([boot.section, runtime.section, *Sound.sections([])]).link
     vectors = { reset: linked.address_of("reset"), nmi: linked.address_of("interrupted"),
                 irq: linked.address_of("interrupted") }
     VBlank::Cartridge::SNESROM.new(linked.banks, title: "SOUND", vectors: vectors.transform_values { |at| at & 0xFFFF })

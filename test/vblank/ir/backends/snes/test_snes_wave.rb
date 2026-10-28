@@ -10,7 +10,7 @@ require "test_helper"
 # the interpreter's, as for a beep (test_snes_beep.rb).
 class TestSNESWave < Minitest::Test
   SNES = VBlank::IR::Backends::SNES
-  WAVE_VOICE = 2 << 4 # the Advance's third voice
+  WAVE_REGISTERS = 2 << 4 # the first register of voice 2, the Advance's third
   KEY_ON = 0x4C
   KEY_OFF = 0x5C
 
@@ -39,23 +39,23 @@ class TestSNESWave < Minitest::Test
   def test_a_wave_holds_its_voice_at_a_fixed_level
     dsp = played(:square, 1000)
 
-    assert_equal [0x00, 0x10], [dsp.getbyte(WAVE_VOICE + 2), dsp.getbyte(WAVE_VOICE + 3)], "the pitch"
-    assert_equal 0x00, dsp.getbyte(WAVE_VOICE + 5) & 0x80, "the gain, not the ADSR"
-    assert_equal 0x7F, dsp.getbyte(WAVE_VOICE + 7), "a fixed gain at the top"
-    assert_equal [120, 120], [dsp.getbyte(WAVE_VOICE), dsp.getbyte(WAVE_VOICE + 1)], "as loud as a beep at 15"
+    assert_equal [0x00, 0x10], [dsp.getbyte(WAVE_REGISTERS + 2), dsp.getbyte(WAVE_REGISTERS + 3)], "the pitch"
+    assert_equal 0x00, dsp.getbyte(WAVE_REGISTERS + 5) & 0x80, "the gain, not the ADSR"
+    assert_equal 0x7F, dsp.getbyte(WAVE_REGISTERS + 7), "a fixed gain at the top"
+    assert_equal [120, 120], [dsp.getbyte(WAVE_REGISTERS), dsp.getbyte(WAVE_REGISTERS + 1)], "as loud as a beep at 15"
     assert_equal 1 << 2, dsp.getbyte(KEY_ON)
     assert_equal 0, dsp.getbyte(KEY_OFF) & (1 << 2), "not let go"
-    assert_equal 0x7F, dsp.getbyte(WAVE_VOICE + 8), "the envelope held at the gain"
+    assert_equal 0x7F, dsp.getbyte(WAVE_REGISTERS + 8), "the envelope held at the gain"
   end
 
   # stop_wave lets the voice go: its key-off bit, and the envelope falling to nought (fullsnes: "the
-  # envelope will decrease by 8 every sample", a few dozen samples from the top).
+  # envelope will decrease by 8 every sample", some 250 samples from the gain at the top).
   def test_stop_wave_lets_the_voice_go
     run = SNES::CheckedRun.new.run(TUNE.program(console: :snes), frames: 8)
     dsp = run.dsp_registers
 
     assert_equal 1 << 2, dsp.getbyte(KEY_OFF) & (1 << 2)
-    assert_equal 0, dsp.getbyte(WAVE_VOICE + 8), "silent"
+    assert_equal 0, dsp.getbyte(WAVE_REGISTERS + 8), "silent"
   end
 
   # A wave after stop_wave sounds again: a key-off holds until something clears it, and a key-on
@@ -73,17 +73,35 @@ class TestSNESWave < Minitest::Test
     end
     dsp = SNES::CheckedRun.new.run(again.program(console: :snes), frames: 9).dsp_registers
 
-    assert_equal 0x7F, dsp.getbyte(WAVE_VOICE + 8), "sounding again, held at the gain"
+    assert_equal 0x7F, dsp.getbyte(WAVE_REGISTERS + 8), "sounding again, held at the gain"
   end
 
   # A triangle at :quarter, worked by hand: its steps climb 0..15 and back (Audio::Sound.wavetable),
   # and a quarter keeps one quarter of each, dropping the rest: 0 to 3 is nought, 4 to 7 is one,
-  # 8 to 11 two, 12 to 15 three. The recording holds those steps, a nibble each, less eight.
-  def test_a_quiet_wave_is_recorded_as_the_advances_staircase
-    quarter = [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]
-    recording = SNES::Samples.wave(VBlank::Audio::Sound.wavetable(:triangle).map { |step| step / 4 })
+  # 8 to 11 two, 12 to 15 three. Those average 1.5, so the recording holds each less 2 (to the
+  # nearest whole step), its middle near nought as a full wave's is.
+  def test_a_quiet_wave_is_recorded_as_the_advances_staircase_about_nought
+    quarter = [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3].map { |step| step - 2 }
 
-    assert_equal quarter + quarter.reverse, nibbles(recording).map { |nibble| nibble + 8 }
+    assert_equal quarter + quarter.reverse, nibbles(recorded(:triangle, :quarter))
+  end
+
+  # A narrow pulse at full swings 0 to 15 with an average near 4, and a sample holds -8..7 (fullsnes:
+  # a nibble), so it is recorded as far about nought as it fits: less 8, 7 and -8.
+  def test_a_full_pulse_is_recorded_inside_what_a_sample_holds
+    pulse = ([15] * 8) + ([0] * 24)
+
+    assert_equal ([7] * 8) + ([-8] * 24), nibbles(recorded(pulse, :full))
+  end
+
+  # A muted wave is silence, not a level held off nought: every sample nought.
+  def test_a_muted_wave_is_recorded_as_silence
+    assert_equal [0] * 32, nibbles(recorded(:sine, :mute))
+  end
+
+  # The recording the build makes for +shape+ at +volume+.
+  private def recorded(shape, volume)
+    SNES::Samples.wave(SNES::DSPWrites.wave_steps({ shape: shape, frequency: 440, volume: volume }))
   end
 
   private def played(shape, frequency)
