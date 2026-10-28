@@ -196,11 +196,12 @@ module VBlank
             @on_vblank&.call(frame) unless frame == :end
           end
 
-          # The game halted: its picture shown once more; the moment is the end of the run.
+          # The game halted: its picture shown once more (copied over several blanks on a Super FX
+          # cartridge, ChipPaint); the moment is the end of the run.
           def finish_after_halt
             (1..passes).last(Runtime::Frame::STEPS_KEPT).each { |pass| note_frames_took(pass) unless @frames_took.key?(pass) }
             frames = 0
-            until shown_pass == Runtime::Frame::END_SHOWN || frames > 3
+            until shown_pass == Runtime::Frame::END_SHOWN || frames > LONGEST_PASS_FRAMES
               play_frame
               frames += 1
             end
