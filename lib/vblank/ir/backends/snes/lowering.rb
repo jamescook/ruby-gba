@@ -84,6 +84,10 @@ module VBlank
           # over the sprites, a turned or resized background, and a clock chip.
           REFUSED = %i[see_through shade_outside pixelate affine_background set_clock clock].freeze
 
+          # The verb whose answer (Console::SNESAnswers) says why, for each refused kind.
+          REFUSED_VERBS = Ractor.make_shareable({ see_through: :layers, shade_outside: :spotlight, pixelate: :pixelate,
+                                                  affine_background: :background, set_clock: :clock, clock: :clock })
+
           # How a table keeps its entries, by the width the game declared and whether they are
           # signed: bytes an entry, and the range that holds. Any other table keeps whole words.
           TABLE_WIDTHS = Ractor.make_shareable({ [:byte, true] => [1, -128..127], [:byte, false] => [1, 0..255],
@@ -228,7 +232,9 @@ module VBlank
             lacking = REFUSED & @reachable.map(&:kind)
             return if lacking.empty?
 
-            raise LoweringError, "this program uses #{lacking.map(&:inspect).join(', ')}, which a Super Nintendo cannot do."
+            verb = REFUSED_VERBS.fetch(lacking.first)
+            raise LoweringError, "This game uses `#{verb}`, and a Super Nintendo cannot: " \
+                                 "#{Console::SNESAnswers.answer(verb).words}"
           end
 
           # A routine's own numbers are kept at fixed places, so a routine that can come round to

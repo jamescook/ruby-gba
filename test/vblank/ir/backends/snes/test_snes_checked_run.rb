@@ -77,6 +77,26 @@ class TestSNESCheckedRun < Minitest::Test
     assert_equal 5 - 1, run.list(:trail).length
   end
 
+  # A run of a table copied into a list lands in the list's own slots: the list declared before it
+  # in work RAM keeps what it holds.
+  def test_a_table_copied_into_a_list_agrees_and_leaves_the_list_before_it_alone
+    run = checked(frames: 6) do
+      lut = table :lut, [10, 20, 30, 40, 50], width: :byte, signed: false
+      first = list :first, capacity: 3
+      narrow = list :narrow, capacity: 4, width: :byte
+      at = var :at, 0
+      got = var :got, 0
+      first.push 5
+      game_loop do
+        narrow.copy_from lut, at: at, count: 3
+        got.set! narrow[2] + lut[at]
+        at.set! (at + 1) % 4
+      end
+    end
+
+    assert_equal [5], run.list(:first)
+  end
+
   def test_a_list_read_out_of_range_stops_the_game_in_the_interpreters_words
     error = assert_raises(VBlank::IR::ProgramError) do
       checked(frames: 5) do
@@ -104,6 +124,39 @@ class TestSNESCheckedRun < Minitest::Test
     end, frames: 12)
 
     assert_equal 4, run[:presses]
+  end
+
+  # Each of the ten buttons pressed in turn, alone, a frame apart: each is counted under its own
+  # name, so one wired to another's bit shows as a count in the wrong place.
+  BUTTONS = %i[a b select start right left up down r l].freeze
+
+  def test_every_button_reaches_the_game_under_its_own_name
+    run = SNES::CheckedRun.new
+    run.input_each_frame { |frame| frame.even? ? [BUTTONS[(frame / 2) % BUTTONS.size]] : [] }
+    run.run(program_of do
+      BUTTONS.each do |button|
+        count = var :"#{button}_count", 0
+        game_loop_part = -> { pressed(button).then { count.add! 1 } }
+        once_a_frame(&game_loop_part)
+      end
+      game_loop {}
+    end, frames: 44)
+
+    counts = BUTTONS.map { |button| run[:"#{button}_count"] }
+    assert(counts.all? { |count| count >= 2 }, counts.inspect)
+  end
+
+  def test_buttons_held_from_power_on_are_pressed_at_the_first_frame
+    run = SNES::CheckedRun.new.hold(:start, :b)
+    run.run(program_of do
+      started = var :started, 0
+      game_loop do
+        pressed(:start).then { started.add! 1 }
+        held(:b).then { started.add! 10 }
+      end
+    end, frames: 5)
+
+    assert_operator run[:started], :>, 0
   end
 
   def test_scenes_picked_by_a_variable_agree_with_the_interpreter
