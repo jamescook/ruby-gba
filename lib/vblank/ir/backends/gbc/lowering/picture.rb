@@ -1698,6 +1698,7 @@ module VBlank
               end
               pictures = drawing_table("pose_pictures", 2, rows.map(&:picture))
               palettes = drawing_table("pose_attributes", 4, rows.map(&:attributes))
+              @art.note_lists_worn(obj.name, rows.map(&:palette).uniq) if @art.lends?
               at = lists.empty? ? pose : Sum.new(:+, Sum.new(:*, row_drawn_with(obj, lists, sets), Build.int(obj.poses.length)), pose)
               lent = @art.lends? ? Entry.new(drawing_table("pose_lent_palettes", 1, rows.map(&:palette)), 1, false, at) : nil
               [Entry.new(pictures, 2, true, at), Entry.new(palettes, 4, true, at), lent]

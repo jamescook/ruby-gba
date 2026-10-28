@@ -149,6 +149,7 @@ module VBlank
             @lends = lends
             @grouped = grouped
             @room_colors = room_colors
+            @lent_family = nil # a lent list's number -> its family's, once every sprite is known (#lent_family)
             @shared_palettes = nil # how many palettes every screen keeps, once rooms are planned
             @first_free = false # ...and whether the first of them is black alone, a room's to take
             @rooms = [] # the Rooms the runtime brings in, by their number less one
@@ -188,6 +189,35 @@ module VBlank
           # Do the sprites' lists borrow the console's eight as the game runs? Then a sprite
           # palette's number counts into every list the game has (art_lent_palettes), not the eight.
           def lends? = @lends
+
+          # The lists sprite +wearer+ (the object's name) can wear, by their numbers, for #lent_family.
+          def note_lists_worn(wearer, palettes)
+            @lists_worn ||= Hash.new { |all, name| all[name] = [] }
+            @lists_worn[wearer] |= palettes
+          end
+
+          # LISTS ONE SPRITE WEARS BY TURNS, AND NO OTHER SPRITE EVER DOES — the lists of its
+          # `draw_with`, in each of its poses — are a FAMILY, numbered from 1. A sprite stepping
+          # through them a frame at a time (a fade done with lists) takes the one of the eight its
+          # family held the frame before, rather than waiting for a list nothing wore for a whole
+          # frame (Runtime::Picture#emit_lend_colors). Since no other sprite wears the family's lists,
+          # the one it takes was its own, and no sprite placed later in the pass loses its colours.
+          # A list two sprites can wear — a pool's things, two sprites of one picture — is in no
+          # family. Each sprite is a family, so there are never more than MOST_LENT, a byte's worth
+          # with nought left for none. A lent list's number -> its family's.
+          def lent_family
+            @lent_family ||= begin
+              wearers = Hash.new(0)
+              (@lists_worn || {}).each_value { |lists| lists.each { |number| wearers[number] += 1 } }
+              own = (@lists_worn || {}).values.map { |lists| lists.select { |number| wearers[number] == 1 } }
+              own.select { |lists| lists.length > 1 }.each_with_index.each_with_object({}) do |(lists, i), family|
+                lists.each { |number| family[number] = i + 1 }
+              end
+            end
+          end
+
+          # Has any sprite lists of its own to step through (#lent_family)?
+          def lent_families? = lends? && lent_family.any?
 
           # Do the screens bring their own background palettes in with their tiles?
           def room_colors? = @room_colors
@@ -716,6 +746,10 @@ module VBlank
             if lends?
               asm.label("art_lent_palettes")
               @sprite_palettes.each { |colors| asm.data_words(colors) }
+              if lent_families?
+                asm.label("art_lent_families")
+                asm.data_bytes(@sprite_palettes.each_index.map { |number| lent_family.fetch(number, 0) })
+              end
             end
             # Where each sprite picture's pieces and mask are, and the bank each is in (#picture_section).
             pictures = @sprite_pictures.values

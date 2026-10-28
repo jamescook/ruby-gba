@@ -140,6 +140,28 @@ class TestSpriteBorrowedColors < Minitest::Test
     [5, 9, 16, 23].each { |frames| assert_backends_agree(switching, frames: frames) }
   end
 
+  # EIGHT SPRITES EACH STEPPING THROUGH LISTS OF THEIR OWN, a list a frame, the way a fade done with
+  # lists steps: every group is worn on every frame, and each sprite takes the group it wore the
+  # frame before, so each wears its own colours on every frame.
+  def test_eight_sprites_stepping_their_own_lists_every_frame_wear_their_own
+    stepping = built do
+      balls = (0...8).map do |n|
+        8.times do |s|
+          colors :"step#{n}_#{s}", [:transparent, VBlank::Graphics::Color.rgb(n * 3, s * 4, 31 - n), VBlank::Graphics::Color.rgb(s * 3, n * 2, 9)]
+        end
+        image :"ball#{n}", width: 8, height: 8, colors: :"step#{n}_0", places: Array.new(64) { |i| 1 + ((i % 8) / 4) }
+        sprite :"ball#{n}", at: [10 + (n * 18), 60]
+      end
+      step = var :step, 0
+      game_loop do
+        step.set!((step + 1) % 8)
+        balls.each_with_index { |ball, n| ball.draw_with((0...8).map { |s| :"step#{n}_#{s}" }, showing: step) }
+      end
+    end
+
+    [3, 6, 10].each { |frames| assert_backends_agree(stepping, frames: frames) }
+  end
+
   # More lists worn at once than there are groups to lend: the console draws the extra
   # things from a group another list holds, as the console's own games do, and counts it.
   def test_more_lists_worn_at_once_than_groups_are_counted

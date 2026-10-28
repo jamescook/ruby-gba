@@ -134,9 +134,10 @@ module VBlank
             # +bar_rows+ is how many rows of the window's grid a game's status bars fill, the most of
             # any of them, or nil for a game with none.
             # +rooms+ says its screens bring their own tiles in (#emit_rooms), and +room_colors+ their
-            # own colours with them, which needs +drawn_palettes+.
+            # own colours with them, which needs +drawn_palettes+. +lent_families+ says its sprites'
+            # lists that are lent come in families (Art#lent_family).
             def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false,
-                     palettes_in_use:, groups: false, bar_rows: nil, rooms: false, room_colors: false)
+                     palettes_in_use:, groups: false, bar_rows: nil, rooms: false, room_colors: false, lent_families: false)
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
                                       drawn_palettes: drawn_palettes, bar: !bar_rows.nil?)
               emit_rooms(asm, memory, colors: room_colors) if rooms
@@ -144,7 +145,7 @@ module VBlank
               PictureGroups.emit(asm, memory) if groups
               emit_tile_runs(asm, runs)
               emit_sprites(asm, memory, lends: lends)
-              emit_lend_colors(asm, memory, drawn_palettes) if lends
+              emit_lend_colors(asm, memory, drawn_palettes, families: lent_families) if lends
               emit_background(asm, memory, bar: !bar_rows.nil?)
               emit_bar(asm, memory, bar_rows) if bar_rows
               emit_choices(asm, memory)
@@ -188,14 +189,17 @@ module VBlank
             # wears is never taken from under it — and its colours are copied into the colours drawn
             # now. rt_sprites_end moves them through the fade in force into the copy the blank sends,
             # so they reach the screen in the same blank as the sprite table that first reads them.
-            # A list that finds all eight in use is placed in the first, in whatever colours it holds,
-            # and counted (LENT_MISSED), since nothing in the picture tells the author it happened.
+            # A list that finds none free takes one holding a list of its own family that nothing was
+            # placed in this pass (+families+, #emit_lend_family), its colours copied in the same way:
+            # a sprite stepping through its lists a frame at a time keeps the one it wore. A list that
+            # still finds all eight in use is placed in the first, in whatever colours it holds, and
+            # counted (LENT_MISSED), since nothing in the picture tells the author it happened.
             #
             # Like the Advance's lending, a list gives its one back only once a whole pass has gone
             # by without anything placed in it, since nothing says part way through a pass which lists
             # the rest will wear. So with all eight in use, a thing that comes on the pass another
             # goes is drawn for that pass in colours not its own.
-            def emit_lend_colors(asm, memory, drawn_palettes)
+            def emit_lend_colors(asm, memory, drawn_palettes, families: false)
               lent = memory[LENT]
               sprite_colors = drawn_palettes + 64
               asm.label("rt_lend_list")
@@ -224,6 +228,10 @@ module VBlank
               asm.inc(:e)
               asm.sla(:d)
               asm.jump_relative(:nz, "rt_lend_free")
+              if families
+                asm.call("rt_lend_family")
+                asm.jump_relative(:nz, "rt_lend_take")
+              end
               # Every one in use: counted, and placed in the first.
               asm.load(:hl, lent + LENT_MISSED)
               asm.inc([:hl])
@@ -268,6 +276,56 @@ module VBlank
               asm.or_a(:d)
               asm.load([lent + 8], :a)
               asm.label("rt_lend_answer")
+              asm.ret
+              emit_lend_family(asm, lent) if families
+            end
+
+            # rt_lend_family: C = a list, one up, that found none of the eight free. One that holds a
+            # list of its family (Art#lent_family) and that nothing was placed in this pass is
+            # its: NZ, with HL at it, E which it is and D its bit, as rt_lend_take takes them. Z for
+            # none. A sprite stepping through its lists takes the one it wore the frame before.
+            def emit_lend_family(asm, lent)
+              asm.label("rt_lend_family")
+              asm.load(:a, :c)
+              asm.call("rt_lend_family_of")
+              asm.and_a(:a)
+              asm.ret(:z) # a list of no family
+              asm.load(:b, :a)
+              asm.load(:hl, lent)
+              asm.load(:de, 0x0100)
+              asm.label("rt_lend_family_slot")
+              asm.load(:a, [lent + 8])
+              asm.and_a(:d)
+              asm.jump_relative(:nz, "rt_lend_family_next") # worn this pass
+              asm.load(:a, [:hl])
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_lend_family_next")
+              asm.call("rt_lend_family_of")
+              asm.cp_a(:b)
+              asm.jump_relative(:z, "rt_lend_family_found")
+              asm.label("rt_lend_family_next")
+              asm.inc(:hl)
+              asm.inc(:e)
+              asm.sla(:d)
+              asm.jump_relative(:nz, "rt_lend_family_slot")
+              asm.xor_a(:a) # Z: none
+              asm.ret
+              asm.label("rt_lend_family_found")
+              asm.or_a(1) # NZ
+              asm.ret
+
+              # A = a list, one up: A = its family (0 for none). Keeps BC, DE and HL.
+              asm.label("rt_lend_family_of")
+              asm.push(:de)
+              asm.push(:hl)
+              asm.dec(:a)
+              asm.load(:e, :a)
+              asm.load(:d, 0)
+              asm.load(:hl, "art_lent_families")
+              asm.add_hl(:de)
+              asm.load(:a, [:hl])
+              asm.pop(:hl)
+              asm.pop(:de)
               asm.ret
             end
 
