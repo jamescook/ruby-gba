@@ -85,8 +85,7 @@ module VBlank
                                                     "the picture" => %i[draw_column_at place_bar background_colors
                                                                         scroll_rows camera show_picture_group
                                                                         color_list_holds
-                                                                        copy_tiles copy_owed_tiles data_byte],
-                                                    "the sound" => %i[play_sample stop_sample]
+                                                                        copy_tiles copy_owed_tiles data_byte]
                                                   })
 
           # The kinds the Super Nintendo cannot do at all, refused in the words its answers have

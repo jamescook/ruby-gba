@@ -98,6 +98,11 @@ module VBlank
             # leaves it.
             LOGGED_BY_PASS = "rt sound logged by pass"
             LOGGED_SLOT_BYTES = 4
+            # Frames still to move the recordings and the music on by, where a wait ends.
+            TICKS_LEFT = "rt sound ticks left"
+            # Where the sound unit's memory ends for what is sent: its last 64 bytes are where its
+            # built-in program is read from (fullsnes, "SNES APU Memory").
+            MEMORY_END = 0xFFC0
 
             R0 = Memory.register(0)
             R1 = Memory.register(1)
@@ -122,17 +127,26 @@ module VBlank
               memory.reserve(LOGGED, 2)
               memory.reserve(LOG, LOG_LENGTH)
               memory.reserve(LOGGED_BY_PASS, Frame::STEPS_KEPT * LOGGED_SLOT_BYTES)
+              memory.reserve(TICKS_LEFT, 2)
             end
 
             # Everything sent across at power-on, from DRIVER_AT: the program, then from TABLE_AT the
-            # sample table and the recordings, the game's +waves+ last (Samples.image). #sections and
-            # #emit are each handed the same list, since rt_sound_start sends as many bytes as it says.
-            def image(waves)
+            # sample table and the recordings, the game's +waves+ and then its own +recordings+
+            # (Samples.recording's pairs) last (Samples.image). #sections and #emit are each handed the
+            # same lists, since rt_sound_start sends as many bytes as it says. What does not fit in the
+            # sound unit's memory, below the part its built-in program is kept in, is refused.
+            def image(waves, recordings: [])
               program = driver.assembled.bytes
               room = TABLE_AT - DRIVER_AT
               raise ArgumentError, "the sound program is #{program.size} bytes, more than #{room}" if program.size > room
 
-              program + Array.new(room - program.size, 0) + Samples.image(TABLE_AT, waves)
+              table = Samples.image(TABLE_AT, waves, recordings)
+              if TABLE_AT + table.size > MEMORY_END
+                raise LoweringError, "This game's recordings need #{TABLE_AT + table.size} bytes of the Super Nintendo's " \
+                                     "sound memory, and it holds #{MEMORY_END}. To fix this, use shorter recordings, " \
+                                     "or record them at a lower rate."
+              end
+              program + Array.new(room - program.size, 0) + table
             end
 
             # The program the SPC700 runs once it has been sent.
@@ -180,26 +194,36 @@ module VBlank
             end
 
             # What is sent across, in the cartridge, for rt_sound_start to send.
-            def sections(waves)
+            def sections(waves, recordings: [])
               asm = W65816.new("sound driver")
               asm.label("sound driver")
-              asm.data_bytes(image(waves))
+              asm.data_bytes(image(waves, recordings: recordings))
               [asm.section]
             end
 
-            # +songs+ for a game with songs, whose player (Music) runs where each wait ends.
-            def emit(asm, memory, waves, songs: false)
-              emit_start(asm, memory, image(waves).size)
+            # +songs+ for a game with songs, whose player (Music) runs where each wait ends, and
+            # +samples+ for one that plays recordings (Recordings), whose count of each moves on there.
+            def emit(asm, memory, waves, recordings: [], songs: false, samples: false)
+              emit_start(asm, memory, image(waves, recordings: recordings).size)
               emit_write(asm, memory)
               emit_log(asm, memory)
-              emit_frame(asm, memory, songs)
+              emit_frame(asm, memory, songs, samples)
             end
 
-            # rt_sound_frame, where a pass's wait ends: the music of every frame the pass took, and
-            # how many entries the log holds then kept for the pass (LOGGED_BY_PASS).
-            def emit_frame(asm, memory, songs)
+            # rt_sound_frame, where a pass's wait ends: for every frame the pass took, the recordings'
+            # count moved on and then the music played (Reference#advance_frame's order: the mix, then
+            # the player); and how many entries the log holds then, kept for the pass (LOGGED_BY_PASS).
+            def emit_frame(asm, memory, songs, samples)
               asm.label("rt_sound_frame")
-              asm.jsr(asm.abs("rt_music_frames")) if songs
+              if songs || samples
+                asm.lda(asm.abs(memory[Frame::FRAMES_TAKEN]))
+                asm.sta(asm.abs(memory[TICKS_LEFT]))
+                asm.label("rt_sound_frame_tick")
+                asm.jsr(asm.abs("rt_recordings_frame")) if samples
+                asm.jsr(asm.abs("rt_music_frame")) if songs
+                asm.dec(asm.abs(memory[TICKS_LEFT]))
+                asm.bne("rt_sound_frame_tick")
+              end
               asm.lda(asm.abs(memory[Frame::PASSES]))
               asm.and_a(Frame::STEPS_KEPT - 1)
               asm.asl

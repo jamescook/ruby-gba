@@ -14,6 +14,7 @@ require_relative "runtime/saving"
 require_relative "runtime/sound"
 require_relative "runtime/music"
 require_relative "runtime/effects"
+require_relative "runtime/recordings"
 
 module VBlank
   module IR
@@ -37,9 +38,10 @@ module VBlank
           # Super FX (+chip+) keeps the chip's waiting loop and its counts (Chip), after the rest so
           # a plain cartridge's places do not move. A game with +songs+ keeps their player's places
           # (Music), those of the music volume if it sets one (+music_follows_level+), and those of
-          # its +effects+ sound effects (Effects).
+          # its +effects+ sound effects (Effects); one that plays its own recordings (+samples+) keeps
+          # their count (Recordings).
           def reserve(memory, painted: false, chip: false, sound: false, songs: false, music_follows_level: false,
-                      effects: 0)
+                      effects: 0, samples: false)
             Paint.reserve(memory, chip: chip) if painted
             Frame.reserve(memory)
             Picture.reserve(memory)
@@ -47,6 +49,7 @@ module VBlank
             Chip.reserve(memory) if chip
             Sound.reserve(memory) if sound
             Music.reserve(memory, follows_level: music_follows_level, effects: effects) if songs
+            Recordings.reserve(memory) if samples
           end
 
           # The runtime's sections: the entry points in the first bank, and everything else in one.
@@ -59,9 +62,12 @@ module VBlank
           # +sound_waves+, the wave voice's waveforms, recorded beside it; +music+ the section of its
           # songs (SNES::Music#section), for a game with songs, whose player (Music) it then carries;
           # +music_level_at+ where such a game keeps its music volume, if it sets one; +effects+ how many
-          # sound effects it has.
+          # sound effects it has; +recordings+ its own recordings as the sound unit keeps them
+          # (Samples.recording), sent with the rest, and +plays+ the section of its plays of them
+          # (Lowering::Sound#recordings_section), for a game that plays them, which carries their count.
           def sections(memory, main:, frame_begins: nil, painted: false, board: Cartridge::SNESROM::PLAIN, saves: false,
-                       sound: false, sound_waves: [], music: nil, music_level_at: nil, effects: 0)
+                       sound: false, sound_waves: [], music: nil, music_level_at: nil, effects: 0, recordings: [],
+                       plays: nil)
             chip = board.name == :super_fx
             vectors = W65816.new("runtime vectors", home: :first)
             Boot.emit_vectors(vectors)
@@ -77,12 +83,15 @@ module VBlank
             Collide.emit(asm, memory, Collide.scratch(memory))
             Chip.emit(asm, memory) if chip
             Saving.emit(asm, memory, Saving.scratch(memory)) if saves
-            Sound.emit(asm, memory, sound_waves, songs: !music.nil?) if sound
+            if sound
+              Sound.emit(asm, memory, sound_waves, recordings: recordings, songs: !music.nil?, samples: !plays.nil?)
+            end
             Music.emit(asm, memory, level_at: music_level_at, effects: effects) if music
+            Recordings.emit(asm, memory) if plays
             emit_start(asm, chip: chip, sound: sound)
             emit_frame_begins(asm, frame_begins)
             [vectors.section, asm.section] + (chip && painted ? [ChipPaint.gsu_section] : []) +
-              (sound ? Sound.sections(sound_waves) : []) + (music ? [music] : [])
+              (sound ? Sound.sections(sound_waves, recordings: recordings) : []) + [music, plays].compact
           end
 
           # What a game needs before its first line: its variables that do not start at nought (the

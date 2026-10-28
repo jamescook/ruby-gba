@@ -37,7 +37,6 @@ module VBlank
             PARTS_IN = "rt music parts in" # ...of how many
             COUNT = "rt music count" # how many notes the part has this time round...
             LIST = "rt music list" # ...and where they are
-            LEFT = "rt music left" # frames still to play where a wait ends
             ENTRY = "rt music entry" # where the part being played's entry is in the table
             NOTE = "rt music note" # ...and its note being played
             # THE MUSIC VOLUME, in a game that sets it (SNES::Music#follows_level?): the level the
@@ -68,7 +67,7 @@ module VBlank
             # +effects+ how many sound effects the game has (Effects).
             def reserve(memory, follows_level: false, effects: 0)
               [NAMED, PLAYING, STOPS, STOPS_SEEN, ENDED, FRAME, AGAIN, SONG, PART, PARTS_IN, COUNT, LIST,
-               LEFT, ENTRY, NOTE].each { |name| memory.reserve(name, 2) }
+               ENTRY, NOTE].each { |name| memory.reserve(name, 2) }
               memory.reserve(CURSORS, SNES::Music::PARTS * 2)
               Effects.reserve(memory, effects) if effects.positive?
               return unless follows_level
@@ -163,23 +162,19 @@ module VBlank
               asm.rts
             end
 
-            # rt_music_frames: the player, once for each frame the pass just ended took — with sound
-            # effects, Reference::Player#advance's order: the tune caught up with, the effects that
-            # outrank it, its parts, and the other effects (Effects).
+            # rt_music_frame: one frame of the player (Sound's rt_sound_frame plays one for each frame
+            # the pass just ended took) — with sound effects, Reference::Player#advance's order: the
+            # tune caught up with, the effects that outrank it, its parts, and the other effects
+            # (Effects).
             def emit_frames(asm, at, sharing)
-              asm.label("rt_music_frames")
-              asm.lda(at.call(Frame::FRAMES_TAKEN))
-              asm.sta(at.call(LEFT))
-              asm.label("rt_music_frames_next")
+              asm.label("rt_music_frame")
               asm.jsr(asm.abs("rt_music_switch"))
               asm.jsr(asm.abs("rt_sfx_above")) if sharing
               asm.lda(at.call(PLAYING))
-              asm.beq("rt_music_frames_played")
+              asm.beq("rt_music_frame_played")
               asm.jsr(asm.abs("rt_music_song_frame"))
-              asm.label("rt_music_frames_played")
+              asm.label("rt_music_frame_played")
               asm.jsr(asm.abs("rt_sfx_below")) if sharing
-              asm.dec(at.call(LEFT))
-              asm.bne("rt_music_frames_next")
               asm.rts
             end
 

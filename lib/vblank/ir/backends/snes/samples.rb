@@ -37,12 +37,17 @@ module VBlank
           SHORT_WAVE = 8
 
           BLOCK_SAMPLES = 16
+          BLOCK_BYTES = 9
           SHIFT = 11
           HIGH = 7
           LOW = -7
           LOWEST = -8 # the lowest a sample's nibble holds
+          HIGHEST = 7 # ...and the highest
           LOOP = 3 # the end of a recording, looped back to its loop point
+          END_ONLY = 1 # the end of a recording played once
           ROW = 4  # a table row: start, loop
+          MOST_RANGE = 12 # the largest shift a block takes before fullsnes's decoding goes wrong
+          BYTE_TO_SAMPLE = 256 # a byte of a game's recording, as the Advance's mix reads it (see #recording)
 
           module_function
 
@@ -119,18 +124,57 @@ module VBlank
             end
           end
 
+          # A GAME'S OWN RECORDING, +bytes+ (a byte a sample, -128..127), as BRR, and how far into it
+          # its loop point is, in bytes. The Advance's mix reads a recording's byte as a sample of
+          # sixteen bits times 256; here each is kept as that over two, decoding as the byte times 128
+          # (fullsnes: a four-bit sample comes out shifted left by its block's range and right by
+          # one), so a recording at its loudest is as loud as a beep at 15. Each block's range is the
+          # least that keeps its samples inside four bits (four bits a sample is all the filter
+          # nought keeps; fullsnes's other filters, which predict a sample from the two before it,
+          # would keep more and are not used).
+          #
+          # ONE THAT GOES ON reads back +back+ samples at its end (Assets::Sample#loop_length). The
+          # DSP loops only by whole blocks from a block's start, so the samples after the loop point
+          # are moved round until the loop starts on a block, and the loop is repeated until it fills
+          # whole blocks: the same sound, a block or two longer. One played once ends on its last
+          # block, the rest of which is silence.
+          def recording(bytes, back)
+            samples = bytes.unpack("c*")
+            return [brr_blocks(samples, ending: END_ONLY), 0] if back.zero?
+
+            intro = samples[0, samples.size - back]
+            loop = samples.last(back)
+            turn = (BLOCK_SAMPLES - (intro.size % BLOCK_SAMPLES)) % BLOCK_SAMPLES
+            intro += loop.cycle.take(turn)
+            loop = loop.rotate(turn % back) * (BLOCK_SAMPLES / BLOCK_SAMPLES.gcd(back))
+            [brr_blocks(intro, ending: 0) + brr_blocks(loop, ending: LOOP), intro.size / BLOCK_SAMPLES * BLOCK_BYTES]
+          end
+
+          # +samples+ (bytes, padded with silence to whole blocks) as BRR blocks, each at the least range
+          # that keeps it, the last ending with +ending+.
+          def brr_blocks(samples, ending:)
+            blocks = samples.each_slice(BLOCK_SAMPLES).map { |block| block + Array.new(BLOCK_SAMPLES - block.size, 0) }
+            blocks.each_with_index.flat_map do |block, index|
+              wide = block.map { |sample| sample * BYTE_TO_SAMPLE }
+              range = (0..MOST_RANGE).find { |r| wide.all? { |value| (value >> r).between?(LOWEST, HIGHEST) } }
+              nibbles = wide.map { |value| value >> range }
+              [(range << 4) | (index == blocks.size - 1 ? ending : 0)] +
+                nibbles.each_slice(2).map { |first, second| ((first & 0xF) << 4) | (second & 0xF) }
+            end
+          end
+
           # The table and the recordings after it, as bytes for +at+ in the sound unit's memory: a
-          # row for each recording (its start and its loop point, both its first byte) and then the
-          # recordings themselves, the game's +waves+ (each 32 steps) last.
-          def image(at, waves = [])
-            all = recordings + waves.map { |steps| wave(steps) }
+          # row for each recording (its start and its loop point) and then the recordings themselves,
+          # the game's +waves+ (each 32 steps) and then its own +recordings+ (#recording's pairs) last.
+          def image(at, waves = [], recordings = [])
+            all = self.recordings.map { |bytes| [bytes, 0] } + waves.map { |steps| [wave(steps), 0] } + recordings
             start = at + (all.size * ROW)
-            rows = all.map do |bytes|
-              row = [start & 0xFF, start >> 8] * 2
+            rows = all.map do |bytes, loop_at|
+              row = [start & 0xFF, start >> 8, (start + loop_at) & 0xFF, (start + loop_at) >> 8]
               start += bytes.size
               row
             end
-            (rows + all).flatten
+            (rows + all.map(&:first)).flatten
           end
         end
       end

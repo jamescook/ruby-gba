@@ -155,7 +155,7 @@ and a test fails when the two differ. The Advance's answers are in
 - `fade_music_out` — works: the same as on the Advance.
 - `songs` — works: see `song`.
 - `sound_effects` — works: see `song`.
-- `sample` — works: played on the sound chip, which plays recordings.
+- `sample` — works: played on the sound chip, a recording on a voice of its own. The sound chip has four voices for recordings, so four sound at once; a recording played while four sound is counted as on the Advance, and not heard.
 - `instrument` — works: see `sample`.
 
 ## Not made yet
@@ -164,4 +164,3 @@ An answer above is what the Super Nintendo does with a verb. The build for it is
 and a game that reaches one of these steps is refused, naming the step, until it is made:
 
 - the picture: `draw_column_at`, `place_bar`, `background_colors`, `scroll_rows`, `camera`, `show_picture_group`, `color_list_holds`, `copy_tiles`, `copy_owed_tiles`, `data_byte`
-- the sound: `play_sample`, `stop_sample`

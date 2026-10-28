@@ -87,6 +87,7 @@ module VBlank
             @audio_handed = 0
             @dsp_reads = []
             @apu_ram = nil
+            @active_samples = nil
             play(frames || Reference::DEFAULT_FRAMES)
             self
           end
@@ -128,12 +129,17 @@ module VBlank
           # The registers as the run ended.
           def dsp_registers = @dsp_reads.last&.last
 
+          # The recordings sounding as the run ended, in the order of their places, as the
+          # interpreter says them (Reference#active_samples): the cartridge's own count
+          # (Runtime::Recordings), heard or not.
+          def active_samples = @active_samples || []
+
           # The sound unit's 64K of memory as the run ended — its program, the sample table and the
           # recordings — for a test to read a recording the DSP plays. Nil for a game with no sound.
           attr_reader :apu_ram
 
           # The rest of what the interpreter answers, each refused by name.
-          %i[mixed_sound active_samples peak_voices sound_drops sound_owners frame log screen_mode
+          %i[mixed_sound peak_voices sound_drops sound_owners frame log screen_mode
              buffered].each do |name|
             define_method(name) { |*| refuse_unanswered!(name) }
           end
@@ -245,6 +251,7 @@ module VBlank
             @sounds = frame == :end || !sound? ? sounds : logged_by_pass(frame)
             read_sound_entries(@sounds) if sound?
             @apu_ram = @core.apu_ram if frame == :end && sound?
+            @active_samples = read_recordings if frame == :end
             @moments << Moment.new(frame: frame, variables: variables, picture: RunComparison.picture_check(picture.shown),
                                    sounds: @sounds, sprites: @sprites, collections: game_state.except(:vars), sounding: [])
             @on_vblank&.call(frame) unless frame == :end
@@ -263,6 +270,15 @@ module VBlank
           end
 
           def sound? = @places.runtime.key?(Runtime::Sound::LOGGED)
+
+          # The recordings the cartridge's places hold now, by name; none for a game that plays none.
+          def read_recordings
+            return [] unless @places.runtime.key?(Runtime::Recordings::PLACES_STATE)
+
+            state = runtime_place(Runtime::Recordings::PLACES_STATE)
+            Array.new(Runtime::Recordings::PLACES) { |place| half(state + (place * Runtime::Recordings::PLACE_BYTES)) }
+                 .reject(&:zero?).map { |held| @places.recording_names.fetch(held - 1) }
+          end
 
           # How many entries the sound log held as pass +pass+'s wait ended.
           def logged_by_pass(pass) = half(logged_slot(pass) + 2)

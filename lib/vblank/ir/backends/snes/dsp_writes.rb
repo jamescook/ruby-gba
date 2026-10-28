@@ -187,7 +187,7 @@ module VBlank
             when :noise then entry.last ? noise(entry.last) : key_off(1 << NOISE_VOICE)
             when :wave then wave(entry.last, voicing.waves)
             when :stop_wave then key_off(1 << WAVE_VOICE)
-            when :note, :sound_effect then []
+            when :note, :sound_effect, :sample, :stop_sample then [] # a recording's voice is the count's (Runtime::Recordings)
             when :voice then song_note(*entry.drop(1), voicing.parts)
             when :stop_music then key_off(voicing.song_voices(song) & ~effect_voices & 0xFF)
             when :loudness then loudness_at(entry[1], entry[2], voicing, song)
@@ -409,6 +409,16 @@ module VBlank
 
           # The wave or noise voice's own entry, which a song's note there logs after its loudness.
           def voice_own_entry?(entry) = !entry.nil? && %i[wave stop_wave noise].include?(entry.first)
+
+          # The bits of KON and KOFF that are the Advance's own four voices', which the game's
+          # recordings (on voices 4 to 7, Runtime::Recordings) leave alone.
+          CONSOLE_VOICE_BITS = 0x0F
+
+          # +held+ (#after's registers) without what a recording the game plays shares: KON, which
+          # holds whichever voice was keyed on last, and KOFF's bits past the console voices'.
+          def console_voices_only(held)
+            held.except(KEY_ON).tap { |kept| kept[KEY_OFF] &= CONSOLE_VOICE_BITS if kept.key?(KEY_OFF) }
+          end
 
           # What the registers hold after the sound log +entries+, by register, for each one written,
           # and FLG and KOFF, which the sound unit starts as at_power_on says and whose bits an entry

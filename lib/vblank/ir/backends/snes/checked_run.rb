@@ -66,6 +66,7 @@ module VBlank
             difference = self.class.first_difference(moments, @cartridge.moments)
             difference ||= self.class.sounds_difference(@interpreter_sounds, @cartridge.audio_played)
             difference ||= dsp_difference
+            difference ||= recordings_difference
             difference ||= self.class.save_difference(before, @save) if SaveLayout.named_by?(program)
             raise Disagreement, "the Super Nintendo lowering and the interpreter disagree at #{difference}" if difference
 
@@ -107,6 +108,7 @@ module VBlank
                        .each_vblank { |frame| moments << moment_of(interpreter, frame, width, height) }
                        .run(program, frames: frames)
             @interpreter_sounds = interpreter.audio.dup
+            @interpreter_recordings = interpreter.active_samples
             moments << moment_of(interpreter, :end, width, height)
           end
 
@@ -123,12 +125,20 @@ module VBlank
           # enough: a write dropped on the way, sent to the wrong register or never answered would
           # leave the log right and the sound wrong. The logs themselves are held to each other
           # first, so the interpreter's entries as far as that count are the cartridge's.
+          #
+          # A RECORDING THE GAME PLAYS takes a voice of the four past the Advance's, chosen by where the
+          # interpreter's mix puts it (Runtime::Recordings), which the log does not say: those voices'
+          # registers are not held to it, nor their bits of the key-on and key-off registers, which
+          # they share. Where each recording has got to is held instead (#recordings_difference).
           def dsp_difference
             voicing = @cartridge.rom.built.sound_voicing
+            recordings = !@cartridge.rom.built.recording_names.empty?
             @cartridge.dsp_reads.each_with_index do |(logged, held), i|
               expected = DSPWrites.after(@interpreter_sounds.take(logged), voicing)
+              expected = DSPWrites.console_voices_only(expected) if recordings
               wrong = expected.filter_map do |register, value|
                 got = held.getbyte(register)
+                got &= DSPWrites::CONSOLE_VOICE_BITS if recordings && register == DSPWrites::KEY_OFF
                 format("$%<register>02X holds $%<got>02X, the log says $%<value>02X", register: register, got: got,
                                                                                        value: value) if got != value
               end
@@ -137,6 +147,16 @@ module VBlank
               return "the wait at the end of pass #{i + 1}: the sound unit's DSP registers: #{wrong.join(', ')}"
             end
             nil
+          end
+
+          # The recordings sounding as the run ended, place by place: the cartridge's count of each
+          # (Runtime::Recordings) against the interpreter's mix.
+          def recordings_difference
+            got = @cartridge.active_samples
+            return nil if got == @interpreter_recordings
+
+            "the end of the run: the recordings sounding are #{got.inspect} on the cartridge and " \
+              "#{@interpreter_recordings.inspect} in Reference"
           end
 
           # The interpreter's picture over the cartridge's screen.

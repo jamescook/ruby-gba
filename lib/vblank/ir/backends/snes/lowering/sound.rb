@@ -14,10 +14,18 @@ module VBlank
             STATEMENTS = Ractor.make_shareable({ enable_sound: :emit_enable_sound, beep: :emit_beep, noise: :emit_noise,
                                                  wave: :emit_wave, stop_wave: :emit_stop_wave, play_song: :emit_play_song,
                                                  stop_music: :emit_stop_music, play_from_list: :emit_play_from_list,
-                                                 play_sound_effect: :emit_play_sound_effect })
+                                                 play_sound_effect: :emit_play_sound_effect, play_sample: :emit_play_sample,
+                                                 stop_sample: :emit_stop_sample })
 
             # The kinds that reach the sound unit: a program with none of them is built without it.
             KINDS = STATEMENTS.keys.freeze
+
+            # A recording's step (IR::Mixing.step: samples of it a sample of the DSP's, in 65536ths) as
+            # the pitch register (fullsnes: $1000 reads one sample of a recording each of the DSP's).
+            RECORDING_STEP_TO_PITCH = (1 << VBlank::Audio::Sound::STEP_SHIFT) / DSPWrites::PITCH_ONE
+
+            # What the plays are to the author, for a cartridge too full for them.
+            PLAYS = W65816::Holding.new(what: "the game's recordings", fix: "play fewer different recordings")
 
             # Whether +program+ makes any sound.
             def self.sounds?(program) = program.walk.any? { |node| KINDS.include?(node.kind) }
@@ -25,8 +33,33 @@ module VBlank
             # Whether +program+ plays songs, and so carries their player (Runtime::Music).
             def self.songs?(program) = program.walk.any? { |node| %i[song play_song stop_music play_from_list play_sound_effect].include?(node.kind) }
 
+            # Whether +program+ plays recordings of its own, and so carries their count (Runtime::Recordings).
+            def self.samples?(program) = program.walk.any? { |node| node.kind == :play_sample }
+
             # Every entry of the sound log the cartridge can write, by the number it writes.
             def sound_entries = @sound_entries.dup
+
+            # The game's recordings as the sound unit keeps them (Samples.recording), each once for
+            # every way it is played — through to its end, or round from where it holds — in the
+            # order their source numbers follow the waves'.
+            def sound_recordings
+              @recordings.map { |name, back| Samples.recording(@samples.fetch(name).bytes, back) }
+            end
+
+            # The recordings' names, by the number a place playing one keeps (Runtime::Recordings).
+            def recording_names = @samples.keys
+
+            # The table of the game's plays, one row each (Runtime::Recordings), labelled "recording_plays".
+            def recordings_section
+              asm = W65816.new("recording plays", holds: PLAYS)
+              asm.label("recording_plays")
+              @plays.each do |row|
+                asm.data_words(row)
+                asm.data_words(Array.new((Runtime::Recordings::ROW_BYTES / 2) - row.size, 0))
+              end
+              asm.data_words(0) if @plays.empty? # a label has to be somewhere
+              asm.section
+            end
 
             # The wave voice's waveforms this game plays, each at the loudness it plays it, in the
             # order they are recorded beside the sound program (Samples::FIRST_WAVE on).
@@ -47,7 +80,52 @@ module VBlank
               @music = SNES::Music.new(@program)
               verb_waves = @program.walk.select { |node| node.kind == :wave }.map { |node| wave_params(node) }
               @sound_waves = (verb_waves + @music.waves).map { |params| DSPWrites.wave_steps(params) }.uniq
+              @samples = @program.walk.select { |node| node.kind == :sample }.to_h { |node| [node.name, node] }
+              @recordings = [] # [name, read-back] for each way a recording is played
+              @plays = []      # each play's row of "recording_plays"
             end
+
+            # Reference#exec_play_sample (Reference::Mixer#start): a row of the table for the play —
+            # the voice's source, pitch and volume, and the count the interpreter's mix keeps for it —
+            # and the runtime handed its number.
+            def emit_play_sample(node)
+              declared = @samples.fetch(node.name) { raise LoweringError, "the sample #{node.name.inspect} is not declared" }
+              refuse_shaped_sample!(declared)
+              info = Assets::Sample.of(declared)
+              clock = Console::SUPER_NINTENDO.sample_clock(declared.rate)
+              frequency = VBlank::Audio::Music::NOTE_FREQUENCIES.fetch(node.pitch || info.note || :C4)
+              back = node.loop ? (info.loop_length.positive? ? info.loop_length : info.length) : 0
+              step = IR::Mixing.step(info, frequency, clock.rate)
+              advance = step * clock.samples_a_frame
+              @recordings << [node.name, back] unless @recordings.include?([node.name, back])
+              loudness = VBlank::Audio::Sound::MIX_LEVELS.fetch(node.volume, VBlank::Audio::Sound::MIX_LEVELS[:full])
+              row = [Samples::FIRST_WAVE + @sound_waves.size + @recordings.index([node.name, back]),
+                     (step / RECORDING_STEP_TO_PITCH).clamp(1, DSPWrites::PITCH_TOP),
+                     (loudness * DSPWrites::MAIN_VOLUME / VBlank::Audio::Sound::MIX_LEVELS[:full].to_f).round,
+                     *words_of(info.length), *words_of(back), *words_of(advance >> 16), advance & 0xFFFF,
+                     sound_entry_number([:sample, node.name]), @samples.keys.index(node.name)]
+              @plays << row unless @plays.include?(row)
+              runtime_call("rt_recordings_play", [Build.int(@plays.index(row))])
+            end
+
+            # Reference#exec_stop_sample (Reference::Mixer#stop): the recording's places freed, or every place.
+            def emit_stop_sample(node)
+              name = node.name ? @samples.keys.index(node.name) : Runtime::Recordings::ALL
+              runtime_call("rt_recordings_stop", [Build.int(name), Build.int(sound_entry_number([:stop_sample]))])
+            end
+
+            # A recording with a shape of its own (an envelope) climbs and falls by the interpreter's
+            # mix, which the Super Nintendo build does not keep yet.
+            def refuse_shaped_sample!(declared)
+              return unless declared.envelope
+
+              raise NotMadeYet.new("The sample #{declared.name.inspect} has an envelope. The Super Nintendo build does " \
+                                   "not make that yet. To fix this, build the game for the Game Boy Advance alone for " \
+                                   "now (`consoles: %i[gba]`).", part: "the sound")
+            end
+
+            # A 32-bit number as two words, the low first.
+            def words_of(number) = [number & 0xFFFF, number >> 16]
 
             # Reference#exec_play_song: the tune named, from the next frame or from here.
             def emit_play_song(node)

@@ -55,10 +55,11 @@ module VBlank
         # capacity, the bytes a slot, its name]), where the runtime keeps how the run stands
         # (Runtime::Frame's names), where every label of the code went, the program it was built
         # from, each entry of the interpreter's sound log by the number the cartridge's own log keeps
-        # it as (empty for a game that makes no sound), and what the DSP writes for those entries are
-        # worked out with (DSPWrites::Voicing, Lowering::Sound#sound_voicing).
+        # it as (empty for a game that makes no sound), what the DSP writes for those entries are
+        # worked out with (DSPWrites::Voicing, Lowering::Sound#sound_voicing), and the game's
+        # recordings by the number a place playing one keeps (Runtime::Recordings).
         Places = Data.define(:variables, :lists, :runtime, :source_program, :code, :routines, :sound_entries,
-                             :sound_voicing) do
+                             :sound_voicing, :recording_names) do
           # Where the runtime counts the times the game has waited for the screen (32 bits).
           def waits_counted_at = runtime.fetch(Runtime::Frame::PASSES)
         end
@@ -78,8 +79,9 @@ module VBlank
           songs = Lowering::Sound.songs?(program)
           follows_level = songs && Music.follows_level?(program)
           effects = IR::Tunes.effects(program).uniq.size
+          samples = Lowering::Sound.samples?(program)
           Runtime.reserve(memory, painted: painted, chip: board.name == :super_fx, sound: sound, songs: songs,
-                                  music_follows_level: follows_level, effects: effects)
+                                  music_follows_level: follows_level, effects: effects, samples: samples)
           lowering = Lowering.new(program, memory: memory)
           game = lowering.sections + lowering.art_sections
           runtime = Runtime.sections(memory, main: Lowering::MAIN, frame_begins: lowering.frame_begins, painted: painted,
@@ -87,7 +89,8 @@ module VBlank
                                              sound_waves: lowering.sound_waves,
                                              music: (lowering.music_section if songs),
                                              music_level_at: (lowering.variables.fetch(IR::Tunes::LEVEL) if follows_level),
-                                             effects: effects)
+                                             effects: effects, recordings: lowering.sound_recordings,
+                                             plays: (lowering.recordings_section if samples))
           linked = Linker.new(runtime + game, most_banks: board.most_banks).link
           routines = lowering.section_routines.map do |label, routine|
             placed = linked.sections.fetch(label)
@@ -96,7 +99,8 @@ module VBlank
           built = Places.new(variables: lowering.variables, lists: lowering.lists,
                              runtime: memory.places.select { |name, _| name.start_with?("rt ") },
                              source_program: program, code: linked.places, routines: routines,
-                             sound_entries: lowering.sound_entries, sound_voicing: lowering.sound_voicing)
+                             sound_entries: lowering.sound_entries, sound_voicing: lowering.sound_voicing,
+                             recording_names: lowering.recording_names)
           vectors = { reset: linked.address_of("rt_reset"), nmi: linked.address_of("rt_nmi"),
                       irq: linked.address_of("rt_irq"), brk: linked.address_of("rt_irq"),
                       cop: linked.address_of("rt_irq") }
