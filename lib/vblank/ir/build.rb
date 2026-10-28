@@ -37,9 +37,9 @@ module VBlank
       # --- program root ---
 
       # +console+ is the console the program is built for; a tree made by hand for no console in
-      # particular leaves it out (see Nodes::Program).
-      def program(*statements, console: nil)
-        Nodes.build(:program, children: statements, console: console)
+      # particular leaves it out (see Nodes::Program). +variant+ is the console's variant, or nil.
+      def program(*statements, console: nil, variant: nil)
+        Nodes.build(:program, children: statements, console: console, variant: variant)
       end
 
       # A font the program declares for itself. Draws nothing; it is there to be named by

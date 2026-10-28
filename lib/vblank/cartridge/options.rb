@@ -27,10 +27,20 @@ module VBlank
     # take are Cartridge::AdvanceBuild's, and so is refusing a value it cannot use. Each is nil when
     # the game says nothing, so that a build for another console can tell a setting it does not
     # have from one nobody asked for (see Console.refuse_unusable_console_settings!).
-    Options = Data.define(:frame_sync, :fast_cartridge, :fast_code, :save_memory, :stack_room, :console) do
+    #
+    # +variant+ names the hardware this copy of the console has beyond the plain one (a chip on a
+    # Super Nintendo cartridge, Console::Variant), or is nil for the plain console. It is checked
+    # against the console's kit, so a variant the console does not have is refused here.
+    Options = Data.define(:frame_sync, :fast_cartridge, :fast_code, :save_memory, :stack_room, :console,
+                          :variant) do
       def initialize(frame_sync: :auto, fast_cartridge: nil, fast_code: nil, save_memory: nil, stack_room: nil,
-                     console: nil)
+                     console: nil, variant: nil)
         console = Console.named(console) unless console.nil?
+        unless variant.nil?
+          raise ArgumentError, "A variant needs a console. To fix this, name the console too." if console.nil?
+
+          variant = Console.for(console).variant(variant)&.name
+        end
         unless %i[auto manual].include?(frame_sync)
           raise ArgumentError, "frame_sync must be :auto or :manual, got #{frame_sync.inspect}"
         end

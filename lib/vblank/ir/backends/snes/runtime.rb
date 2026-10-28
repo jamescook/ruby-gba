@@ -38,12 +38,13 @@ module VBlank
           # The runtime's sections: the entry points in the first bank, and everything else in one.
           # +main+ is the label of the game's main routine; +frame_begins+ the label of the game's
           # routine run at each frame boundary (its timers moving on), or nil for none; +painted+
-          # for a game whose screen is painted rather than drawn from tiles.
-          def sections(memory, main:, frame_begins: nil, painted: false)
+          # for a game whose screen is painted rather than drawn from tiles; +board+ the cartridge's
+          # board (Cartridge::SNESROM::BOARDS).
+          def sections(memory, main:, frame_begins: nil, painted: false, board: Cartridge::SNESROM::PLAIN)
             vectors = W65816.new("runtime vectors", home: :first)
             Boot.emit_vectors(vectors)
             asm = W65816.new("runtime")
-            Boot.emit(asm, main: main)
+            Boot.emit(asm, main: main, fast: board.fast)
             Boot.emit_zero(asm)
             Int32.emit(asm, Int32.scratch(memory))
             Frame.emit(asm, memory, pad: memory.scratch(4))

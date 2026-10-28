@@ -11,7 +11,10 @@ module VBlank
         # next 32K, and so on. (The lower half of each of those banks is the console's own: work
         # RAM, the picture and sound chips' registers.) Banks $80 and up are the FAST copy of the
         # cartridge — the same bytes as banks $00 and up, read a third faster once the cartridge
-        # says it can keep up (Console::SNESHardware::MEMSEL) — so everything is placed there.
+        # says it can keep up (Console::SNESHardware::MEMSEL) — so everything is placed there. A
+        # Super FX board shows its ROM in banks $80 and up too, so the layout is the same there; that
+        # cartridge never says it can keep up, so those banks are read slowly, and it holds at most 64
+        # banks, the two megabytes the chip itself can read (+most_banks+).
         #
         # Each section goes whole into one bank, since the processor cannot run off the end of a
         # bank into the next: the program counter goes round to the start of the same bank. A call
@@ -47,8 +50,9 @@ module VBlank
 
           DOES_NOT_FIT = "This game does not fit in a Super Nintendo cartridge."
 
-          def initialize(sections)
+          def initialize(sections, most_banks: MOST_BANKS)
             @sections = sections
+            @most_banks = most_banks
           end
 
           def link
@@ -76,7 +80,7 @@ module VBlank
                 used << 0
                 bank = used.size - 1
               end
-              refuse_too_many_banks!(rest) if bank >= MOST_BANKS
+              refuse_too_many_banks!(rest) if bank >= @most_banks
               placed << Placed.new(section: section, bank: bank, offset: used[bank])
               used[bank] += section.size
             end
@@ -98,12 +102,12 @@ module VBlank
           end
 
           def refuse_too_many_banks!(sections)
-            raise Error, "the framework's own code needs more than #{MOST_BANKS} banks" if sections.none?(&:holds)
+            raise Error, "the framework's own code needs more than #{@most_banks} banks" if sections.none?(&:holds)
 
             parts = sections.select(&:holds).group_by(&:holds).transform_values { |s| s.sum(&:size) }
                             .sort_by { |_, bytes| -bytes }
             taken = parts.map { |holding, bytes| "#{holding.what} take #{bytes} bytes" }.join(", ")
-            raise TooBig, "#{DOES_NOT_FIT} A cartridge holds #{MOST_BANKS} banks of #{BANK_SIZE} bytes. Of what " \
+            raise TooBig, "#{DOES_NOT_FIT} A cartridge holds #{@most_banks} banks of #{BANK_SIZE} bytes. Of what " \
                           "goes in them, #{taken}. To fix this, #{parts.first.first.fix}."
           end
 

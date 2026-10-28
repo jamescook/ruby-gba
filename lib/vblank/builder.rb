@@ -189,7 +189,7 @@ module VBlank
       # The program names the console the options name, and a Builder told none makes an unbound
       # program (see IR::Nodes::Program). The game is laid out on the screen
       # the program says it is for.
-      @program = Build.program(console: options.console)
+      @program = Build.program(console: options.console, variant: options.variant)
       @console = @program.described_console
       @container_stack = [@program]
       @shown_while = []        # the conditions open right here, for a declaration that is only presented under them

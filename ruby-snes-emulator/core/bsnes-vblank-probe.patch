@@ -2,7 +2,7 @@ diff --git a/bsnes/sfc/ppu/ppu.cpp b/bsnes/sfc/ppu/ppu.cpp
 index dc8d135..5bfd380 100644
 --- a/bsnes/sfc/ppu/ppu.cpp
 +++ b/bsnes/sfc/ppu/ppu.cpp
-@@ -13,6 +13,59 @@ PPU ppu;
+@@ -13,6 +13,60 @@ PPU ppu;
  #include "serialization.cpp"
  #include "counter/serialization.cpp"
  
@@ -53,6 +53,7 @@ index dc8d135..5bfd380 100644
 +//PPU::probe's copies. Gives where the bytes are, or nullptr, and their count in +size+.
 +auto vblankProbe(uint id, uint8* out, uint& size) -> uint8* {
 +  if(id == 0) { size = sizeof(cpu.wram); return cpu.wram; }
++  if(id == 5 && cartridge.has.SuperFX) { size = superfx.ram.size(); return size ? superfx.ram.data() : nullptr; }
 +  if(id == 5) { size = cartridge.ram.size(); return size ? cartridge.ram.data() : nullptr; }
 +  if(system.fastPPU() && id != 4) { size = 0; return nullptr; }
 +  size = ppu.probe(id, out);

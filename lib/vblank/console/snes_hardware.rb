@@ -189,6 +189,48 @@ module VBlank
       ROM_RAM_BATTERY = 0x02
       # Destination: North America, whose consoles draw sixty frames a second (NTSC).
       NORTH_AMERICA = 0x01
+
+      # --- the extended header, the 16 bytes before the header ---
+      #
+      # A cartridge whose maker byte (MAKER_AT) is $33 has 16 more bytes just before the header: a
+      # maker code and a game code in letters, and the size of any RAM a chip on the board has of its
+      # own (its "expansion RAM", 2^n kilobytes). Emulators and flash carts read that size to give the
+      # chip its RAM; the console itself reads none of it. (fullsnes, "SNES Cartridge ROM Header";
+      # bsnes, heuristics/super-famicom.cpp, expansionRamSize.)
+      EXTENDED_HEADER = 0x33
+      MAKER_CODE_AT = 0x7FB0
+      GAME_CODE_AT = 0x7FB2
+      EXPANSION_RAM_AT = 0x7FBD
+
+      # LoROM read at the slow speed: a board whose ROM cannot keep up with the faster one.
+      LOROM_SLOW = 0x20
+      # The cartridge type of a board with a Super FX: its high four bits $1, its low ones "ROM, the
+      # chip and its RAM" ($4), or that RAM kept by a battery ($5). (fullsnes, "SNES Cartridge ROM
+      # Header"; bsnes, heuristics/super-famicom.cpp, board.)
+      SUPER_FX_RAM = 0x14
+      SUPER_FX_RAM_BATTERY = 0x15
+
+      # --- the Super FX's registers, which the console sees at $3000-$32FF of banks $00-$3F ---
+      #
+      # (fullsnes, "SNES Cart GSU-n I/O Map"; bsnes, sfc/coprocessor/superfx/io.cpp.)
+      GSU_R0 = 0x3000      # its sixteen 16-bit registers, R0 to R15, two bytes each, low byte first.
+      GSU_R15 = 0x301E     # R15 is its program counter: writing the high byte ($301F) starts it.
+      GSU_SFR = 0x3030     # its status: bit 5 (GO) is set while it runs and cleared when it stops.
+      GSU_SFR_HIGH = 0x3031 # reading it clears the chip's interrupt.
+      GSU_PBR = 0x3034     # the bank its program is read from.
+      GSU_CFGR = 0x3037    # bit 7 set: the chip does not interrupt the console when it stops.
+      GSU_SCBR = 0x3038    # where in its RAM the picture it plots starts, in kilobytes.
+      GSU_CLSR = 0x3039    # bit 0 set: run at 21 MHz rather than 10.7.
+      GSU_SCMR = 0x303A    # which of the cartridge's ROM (bit 4) and RAM (bit 3) it may use, and how
+                           # the picture it plots is laid out (its colours and height).
+      GSU_VCR = 0x303B     # the chip's version, read only.
+      GSU_GO = 0x20
+      GSU_IRQ_OFF = 0x80
+      GSU_FAST_CLOCK = 0x01
+      GSU_OWNS_ROM = 0x10
+      GSU_OWNS_RAM = 0x08
+      # Where the console sees the chip's RAM: bank $70.
+      GSU_RAM_BANK = 0x70
     end
   end
 end

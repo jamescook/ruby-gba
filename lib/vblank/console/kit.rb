@@ -150,21 +150,20 @@ module VBlank
 
       # THE CHIPS A CARTRIDGE CAN CARRY that more than a handful of games used. The one-game chips
       # (the Cx4 of Mega Man X2 and X3, the S-DD1, the SPC7110, the ST010 and the rest) are left out
-      # on purpose.
+      # on purpose, and so is the DSP-1: an emulator needs a copy of the program built into that
+      # chip, which is Nintendo's, so a homebrew cartridge has no use for it.
       #
-      # Each chip's cartridge is a board of its own, not a plain cartridge with a different header:
-      # a Super FX board's ROM is read slowly by the console (no FastROM banks), its RAM is at
-      # $70:0000 and its size is in the extended header, and an SA-1 board maps memory its own way.
-      # So +build+ is empty, and the build refuses a chip (Cartridge::SNESBuild) until it lays a
-      # cartridge out for that board and puts the chip to work, checked in bsnes, which plays
-      # those boards as the hardware does.
+      # Each chip's cartridge is a board of its own, not a plain cartridge with a different header
+      # (Cartridge::SNESROM says what a Super FX board's header holds). +build+ names the board the
+      # build lays the cartridge out for; a variant with none is refused by the build until it has
+      # one, checked in bsnes, which plays those boards as the hardware does.
       SNES_VARIANTS = Ractor.make_shareable({
         superfx: Variant.new(name: :superfx, title: "a Super FX 2 chip",
                              # Its 64K of RAM is where it draws; the console's processor can use it
                              # while the chip is not drawing, and two pictures fit in it, so a
                              # painted screen keeps two pages.
                              changes: { roomier_memory_bytes: (120 + 64) * 1024, painted_pages: 2 },
-                             build: {},
+                             build: { board: :super_fx },
                              note: "the Super FX 2 (GSU-2), a 21 MHz processor of its own that draws into " \
                                    "the cartridge's RAM: Yoshi's Island, Doom, Star Fox 2"),
         sa1: Variant.new(name: :sa1, title: "an SA-1 chip",
@@ -172,11 +171,7 @@ module VBlank
                          changes: { roomier_memory_bytes: (120 + 128) * 1024 },
                          build: {},
                          note: "the SA-1, a 65816 at 10.74 MHz with RAM of its own: Super Mario RPG, " \
-                               "Kirby Super Star, about 35 games"),
-        dsp1: Variant.new(name: :dsp1, title: "a DSP-1 chip", changes: {},
-                          build: {},
-                          note: "the DSP-1, a maths chip for turning and projecting: Super Mario Kart, " \
-                                "Pilotwings, about 16 games")
+                               "Kirby Super Star, about 35 games")
       })
     end
 

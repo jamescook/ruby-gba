@@ -113,14 +113,17 @@ module VBlank
   # +code+, +maker+, +fast_cartridge+, +fast_code+, +stack_room+ and a saved +profile+ are the Game
   # Boy Advance's alone (Cartridge::AdvanceBuild::SETTINGS): a build for another console that sets
   # one is refused.
+  # +variant+ names the hardware this copy of +console+ has beyond the plain console (:superfx, a
+  # Super FX 2 chip on a Super Nintendo cartridge; see {Console::Variant}), or is nil.
   def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: nil,
                  fast_code: nil, out: $stdout, err: $stderr, progress: Messages::Progress.silent,
-                 profile: false, settings: {}, save_memory: nil, stack_room: nil, console: nil, &block)
-    # The six that say how the game is built travel as one value from here on (see
+                 profile: false, settings: {}, save_memory: nil, stack_room: nil, console: nil, variant: nil,
+                 &block)
+    # The seven that say how the game is built travel as one value from here on (see
     # {Cartridge::Options}), checked now so a setting that cannot be right stops the build first.
     options = Cartridge::Options.new(frame_sync: frame_sync, fast_cartridge: fast_cartridge,
                                      fast_code: fast_code, save_memory: save_memory, stack_room: stack_room,
-                                     console: console)
+                                     console: console, variant: variant)
     refuse_unnamed_console!(title) if options.console.nil?
     # A measurement taken earlier is a console setting; true and false only say whether to measure.
     said = Console.console_settings_said(code: code, maker: maker, **options.to_h,

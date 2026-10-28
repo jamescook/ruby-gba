@@ -42,7 +42,10 @@ module VBlank
             end
 
             # rt_boot: the console made ready, then the game's main routine, +main+, for good.
-            def emit(asm, main:)
+            # +fast+ is false on a board whose ROM is only read at the slow speed (a Super FX's):
+            # MEMSEL is then left at its power-on nought, and banks $80 and up are read as slowly
+            # as banks $00 and up, which that ROM can keep up with.
+            def emit(asm, main:, fast: true)
               h = Console::SNESHardware
               asm.label("rt_boot")
               asm.rep(0x30)
@@ -54,8 +57,10 @@ module VBlank
               asm.lda(0x80)
               asm.pha
               asm.plb # the data bank: $80
-              asm.lda(1)
-              asm.sta(asm.abs(h::MEMSEL)) # the fast copy, read fast
+              if fast
+                asm.lda(1)
+                asm.sta(asm.abs(h::MEMSEL)) # the fast copy, read fast
+              end
               asm.lda(h::FORCED_BLANK)
               asm.sta(asm.abs(h::INIDISP))
               asm.stz(asm.abs(h::NMITIMEN))

@@ -966,14 +966,17 @@ module VBlank
       # told a console. It is a test's, and each test run plays it as the console that run is for
       # (Testing#program_played). Until then it is laid out and checked on the Advance's screen,
       # the one the hand-built trees were written against.
+      #
+      # +variant+ names the hardware the console's copy has beyond the plain console (a chip on a
+      # Super Nintendo cartridge, Console::Variant), or is nil for the plain console.
       class Program
         include Node
         kind :program
         category :root
-        operands console: :name
+        operands console: :name, variant: :name
 
         # What the console this program was built for can do: its screen, buttons, sprites.
-        def described_console = console ? Console.described(console) : Program.unbound_console
+        def described_console = console ? Console.described(console, variant: variant) : Program.unbound_console
 
         # What an unbound program is laid out and checked on.
         def self.unbound_console = Console::ADVANCE

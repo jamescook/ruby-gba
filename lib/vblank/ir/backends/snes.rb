@@ -37,10 +37,11 @@ module VBlank
       # the IR itself says with the other lowerings. The runtime the code calls is written in
       # 65816 here, in Ruby.
       #
-      # NO CARTRIDGE CHIPS. The cartridge is ROM alone, with battery-backed RAM when the game
-      # saves, and runs on a plain console. The Super FX, the SA-1 and the MSU-1 are not used;
-      # a cartridge that wanted one would say so in its header (Cartridge::SNESROM's map mode and
-      # cartridge type) and be laid out for it in the Linker.
+      # THE BOARD. A plain cartridge is ROM alone, with battery-backed RAM when the game saves, and
+      # runs on a plain console. A game that names the Super FX 2 (`variants: { snes: :superfx }`)
+      # gets that chip's board instead (Cartridge::SNESROM::SUPER_FX): the same 65816 code, read at
+      # the slow speed, with the chip's registers and RAM beside it. The SA-1 and the MSU-1 are
+      # not made.
       class SNES
         # WHERE A RUNNING CARTRIDGE KEEPS WHAT A READER WANTS, which nothing in its bytes says: every
         # variable by the game's name (its address in work RAM), every list ([its 24-bit place, its
@@ -58,13 +59,15 @@ module VBlank
 
         # +program+ as a cartridge (Cartridge::SNESROM), carrying its Places.
         def build(program, title: "VBLANK")
+          board = board_for(program)
           memory = Memory.new
           painted = Lowering::Paint.painted?(program)
           Runtime.reserve(memory, painted: painted)
           lowering = Lowering.new(program, memory: memory)
           game = lowering.sections + lowering.art_sections
-          runtime = Runtime.sections(memory, main: Lowering::MAIN, frame_begins: lowering.frame_begins, painted: painted)
-          linked = Linker.new(runtime + game).link
+          runtime = Runtime.sections(memory, main: Lowering::MAIN, frame_begins: lowering.frame_begins, painted: painted,
+                                             board: board)
+          linked = Linker.new(runtime + game, most_banks: board.most_banks).link
           routines = lowering.section_routines.map do |label, routine|
             placed = linked.sections.fetch(label)
             GameRoutine.new(addresses: placed.address...(placed.address + placed.section.size), routine: routine)
@@ -76,7 +79,23 @@ module VBlank
                       irq: linked.address_of("rt_irq"), brk: linked.address_of("rt_irq"),
                       cop: linked.address_of("rt_irq") }
           Cartridge::SNESROM.new(linked.banks, title: title, vectors: vectors.transform_values { |at| at & 0xFFFF },
-                                               built: built)
+                                               built: built, board: board)
+        end
+
+        private
+
+        # The board +program+'s cartridge is laid out for (Cartridge::SNESROM::BOARDS): the one its
+        # variant names (Console::Variant#build), or a plain one. A variant whose board is not made
+        # yet is refused.
+        def board_for(program)
+          variant = program.variant && Console.for(:snes).variant(program.variant)
+          return Cartridge::SNESROM::PLAIN unless variant
+
+          Cartridge::SNESROM::BOARDS.fetch(variant.build[:board]) do
+            raise LoweringError, "This game is for a #{Console::SUPER_NINTENDO.title} with #{variant.title}. The " \
+                                 "build cannot make a cartridge with that chip yet. To fix this, leave the chip out " \
+                                 "of variants:."
+          end
         end
       end
     end

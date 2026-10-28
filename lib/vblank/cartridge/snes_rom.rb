@@ -20,14 +20,37 @@ module VBlank
     # emulation mode, so reset is the emulation one; the game switches to native mode at once, and
     # the vertical blank's interrupt (NMI) and the rest are the native ones from then on.
     #
-    # No chip of any kind: no Super FX, SA-1, DSP or MSU-1. A cartridge with one would say so in
-    # the cartridge type byte and be laid out for it.
+    # THE BOARD. A plain cartridge is ROM alone (with battery-backed RAM when the game saves). A
+    # cartridge with a Super FX 2 is a board of its own, and its header says so, because an emulator
+    # or a flash cart reads the header to know which board to be:
     #
-    # Reference: https://problemkaputt.de/fullsnes.htm#snescartridgeromheader
+    #   - the map mode is LoROM read SLOWLY ($20): the chip shares the cartridge's ROM with the
+    #     console, and the board's ROM is only ever read at the slow speed. Its ROM is still seen in
+    #     banks $80 and up as well as $00 and up (bsnes's board table, GSU-RAM), so the code sits
+    #     where it does on a plain cartridge; only nothing asks for the faster speed.
+    #   - the cartridge type is $14, "ROM, a Super FX and its RAM" ($15 when a battery keeps that
+    #     RAM): the high four bits $1 say Super FX, which is how bsnes picks the board.
+    #   - the extended header says how much RAM the chip has: 64K, seen by the console at $70:0000.
+    #   - the ROM is at most 2 megabytes, banks $00-$3F, which is all the chip can read.
+    #
+    # Real Super FX games (Star Fox, Yoshi's Island, Doom) carry the same map mode and type.
+    #
+    # References: https://problemkaputt.de/fullsnes.htm#snescartridgeromheader and #snescartgsunsuperfx;
+    # bsnes, heuristics/super-famicom.cpp (how it reads the header) and boards.bml (GSU-RAM).
     class SNESROM
       include Console::SNESHardware
 
       SMALLEST = 0x8000
+
+      # A kind of cartridge board: its +name+, the +map_mode+ its header says, whether the console
+      # may read it at the faster speed (+fast+), the most 32K banks it holds, and how much RAM a
+      # chip on it has of its own (+chip_ram_bytes+, nought for none).
+      Board = Data.define(:name, :map_mode, :fast, :most_banks, :chip_ram_bytes)
+
+      PLAIN = Board.new(name: :plain, map_mode: LOROM_FAST, fast: true, most_banks: 128, chip_ram_bytes: 0)
+      SUPER_FX = Board.new(name: :super_fx, map_mode: LOROM_SLOW, fast: false, most_banks: 64,
+                           chip_ram_bytes: 0x10000)
+      BOARDS = { plain: PLAIN, super_fx: SUPER_FX }.freeze
 
       # The native vectors, and the emulation ones, by the name the lowering gives them.
       VECTORS = { cop: NATIVE_COP_VECTOR, brk: NATIVE_BRK_VECTOR, abort: NATIVE_ABORT_VECTOR, nmi: NATIVE_NMI_VECTOR,
@@ -44,14 +67,20 @@ module VBlank
       # +banks+ is the linked cartridge, its first 32K first. +vectors+ names where each vector
       # points, by VECTORS's names; one not named points where reset does.
       # +save_bytes+ is how much battery-backed RAM it has, a power of two from 2K, or nought.
-      def initialize(banks, title:, vectors:, save_bytes: 0, built: nil)
+      # +board+ is the kind of board (BOARDS), a plain one unless said.
+      def initialize(banks, title:, vectors:, save_bytes: 0, built: nil, board: PLAIN)
         @built = built
+        @board = board
         unless save_bytes.zero? || (save_bytes >= 0x800 && (save_bytes & (save_bytes - 1)).zero?)
           raise ArgumentError, "a Super Nintendo cartridge keeps a power of two from 2K of save RAM, not #{save_bytes} bytes"
+        end
+        if banks.size > board.most_banks
+          raise ArgumentError, "a #{board.name} board holds #{board.most_banks} banks, not #{banks.size}"
         end
 
         @bytes = padded(banks.join.b)
         write_header(title, save_bytes)
+        write_extended_header unless board.chip_ram_bytes.zero?
         write_vectors(vectors)
         write_checksum
       end
@@ -99,13 +128,32 @@ module VBlank
 
       def write_header(title, save_bytes)
         @bytes[TITLE_AT, TITLE_LENGTH] = title_field_for(title)
-        @bytes.setbyte(MAP_MODE_AT, LOROM_FAST)
-        @bytes.setbyte(CARTRIDGE_TYPE_AT, save_bytes.zero? ? ROM_ONLY : ROM_RAM_BATTERY)
+        @bytes.setbyte(MAP_MODE_AT, @board.map_mode)
+        @bytes.setbyte(CARTRIDGE_TYPE_AT, cartridge_type(save_bytes))
         @bytes.setbyte(ROM_SIZE_AT, kilobyte_power(@bytes.bytesize))
-        @bytes.setbyte(RAM_SIZE_AT, save_bytes.zero? ? 0 : kilobyte_power(save_bytes))
+        # A chip's RAM is the cartridge's RAM, and its size is in the extended header instead.
+        saved_here = @board.chip_ram_bytes.zero? && !save_bytes.zero?
+        @bytes.setbyte(RAM_SIZE_AT, saved_here ? kilobyte_power(save_bytes) : 0)
         @bytes.setbyte(DESTINATION_AT, NORTH_AMERICA)
-        @bytes.setbyte(MAKER_AT, 0)
+        @bytes.setbyte(MAKER_AT, @board.chip_ram_bytes.zero? ? 0 : EXTENDED_HEADER)
         @bytes.setbyte(VERSION_AT, 0)
+      end
+
+      def cartridge_type(save_bytes)
+        if @board.name == :super_fx
+          save_bytes.zero? ? SUPER_FX_RAM : SUPER_FX_RAM_BATTERY
+        else
+          save_bytes.zero? ? ROM_ONLY : ROM_RAM_BATTERY
+        end
+      end
+
+      # A maker code of "00" (none) and a game code of four spaces (none), so the cartridge
+      # claims no real game's code, then the chip's RAM size; the rest of the 16 bytes nought.
+      def write_extended_header
+        @bytes[MAKER_CODE_AT, 16] = "\0".b * 16
+        @bytes[MAKER_CODE_AT, 2] = "00"
+        @bytes[GAME_CODE_AT, 4] = "    "
+        @bytes.setbyte(EXPANSION_RAM_AT, kilobyte_power(@board.chip_ram_bytes))
       end
 
       def kilobyte_power(bytes) = Math.log2(bytes / 1024).to_i

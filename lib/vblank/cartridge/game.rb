@@ -26,13 +26,14 @@ module VBlank
       # +options+ is part of what the cartridge is — how much save memory it has, how quickly
       # it reads — so like +code+ it is said where the game is named. +menu+ false is a game whose
       # window, played on a computer, opens no menu over the picture.
-      def initialize(title, consoles:, code: nil, maker: nil, block:, options: Options.new, menu: true)
+      def initialize(title, consoles:, code: nil, maker: nil, block:, options: Options.new, menu: true, variants: {})
         @title = title
         @code = code
         @maker = maker
         @options = options
         @menu = menu
         @consoles = Console.refuse_unknown_consoles!(consoles, setting: "consoles:")
+        @variants = refuse_unusable_variants!(variants)
         Console.refuse_unusable_console_settings!(console_settings_said, consoles: @consoles, title: title,
                                                                          named_in: "consoles:")
         @block = shareable_if_possible(block)
@@ -101,9 +102,15 @@ module VBlank
       # +console+ is the console it is built for, the first the game names unless said: the game
       # reads that console's screen as its block runs (`screen_width`), so the tree is that
       # console's.
-      def program(settings: {}, console: @consoles.first)
-        evaluated(settings, refuse_console_not_for!(console)).program
+      #
+      # +variant+ is the console's variant it is built for (Console::Variant): the one the game
+      # names for +console+ in `variants:` unless said, and nil for the plain console.
+      def program(settings: {}, console: @consoles.first, variant: variant_for(console))
+        evaluated(settings, refuse_console_not_for!(console), variant).program
       end
+
+      # The variant the game names for +console+ in `variants:`, or nil.
+      def variant_for(console) = @variants[console.to_sym]
 
       # The finished ROM. Where the build prints is injectable, so a test (or the CLI) captures
       # it: out:/err: each take an open stream, the name of a file, or nil for a build that
@@ -128,10 +135,12 @@ module VBlank
       # A console setting the game says that +console+ does not have is for another of the game's
       # consoles, and this cartridge is built without it. A saved +profile+ handed here is this
       # build's own, so on a console that cannot use one it is refused.
+      #
+      # +variant+ is as for #program; the command line's `--variant` hands one here.
       def build_rom(out: $stdout, err: $stderr, validate: true, progress: Messages::Progress.silent,
-                    profile: true, settings: {}, console: @consoles.first)
+                    profile: true, settings: {}, console: @consoles.first, variant: variant_for(console))
         console = refuse_console_not_for!(console)
-        options = { code: @code, maker: @maker, **@options.with(console: console).to_h }
+        options = { code: @code, maker: @maker, **@options.with(console: console, variant: variant).to_h }
         options = options.except(*(Console.console_settings - Console.for(console).console_settings))
         VBlank.build(@title, validate: validate, out: out, err: err, progress: progress, profile: profile,
                               settings: settings, **options, &@block)
@@ -182,10 +191,33 @@ module VBlank
       # it can cross to another core at all. Each core that asks runs the block once and
       # keeps the answer; running a block is cheap next to lowering it, and a core that
       # never asks pays nothing.
-      def evaluated(settings, console)
+      def evaluated(settings, console, variant)
         seen = (Ractor.current[:vblank_evaluated_games] ||= {})
-        seen[[self, settings, console]] ||= EvaluatedGame.new(@block, options: @options.with(console: console),
-                                                                      settings: settings)
+        seen[[self, settings, console, variant]] ||=
+          EvaluatedGame.new(@block, options: @options.with(console: console, variant: variant), settings: settings)
+      end
+
+      # A GAME NAMES ITS CHIP WHERE IT NAMES ITS CONSOLES: `consoles: %i[gba snes], variants: {
+      # snes: :superfx }`. A chip is part of what the cartridge is, as much as which console it goes
+      # in, so it is said in the same line and not left to whoever builds it; `vblank build
+      # --variant` still overrides it for one build. +variants+ is keyed by console, since one game
+      # can be for several consoles and only some of them have variants. Each must be one of the
+      # game's consoles and one of that console's variants (Console::Kit#variants).
+      def refuse_unusable_variants!(variants)
+        unless variants.is_a?(Hash)
+          raise ArgumentError, "#{@title} says variants: #{variants.inspect}. variants: names a console and its " \
+                               "variant, like `variants: { snes: :superfx }`."
+        end
+
+        variants.to_h do |console, name|
+          console = Console.named(console)
+          unless @consoles.include?(console)
+            raise ArgumentError, "#{@title} names a variant for the #{Console.described(console).title}, and the " \
+                                 "game is not for it. To fix this, add :#{console} to consoles:, or remove it from " \
+                                 "variants:."
+          end
+          [console, Console.for(console).variant(name)&.name]
+        end.compact.freeze
       end
 
       # +console+, when the game is for it; a plain refusal when it is not.
@@ -254,8 +286,11 @@ module VBlank
     # game's that have it, and a game none of whose consoles has it is refused here.
     #
     # +menu+ false leaves out the menu a window played on a computer opens over the picture.
+    #
+    # +variants+ names a chip on a console's cartridge, by console: `variants: { snes: :superfx }`
+    # for a Super Nintendo cartridge with a Super FX 2 (see Console::Variant).
     def game(title, code: nil, maker: nil, frame_sync: :auto, fast_cartridge: nil, fast_code: nil,
-             save_memory: nil, stack_room: nil, consoles: nil, menu: true, &block)
+             save_memory: nil, stack_room: nil, consoles: nil, menu: true, variants: {}, &block)
       unless block
         raise ArgumentError, %(VBlank.game needs a block: VBlank.game("NAME", consoles: %i[gba]) { ... })
       end
@@ -268,7 +303,7 @@ module VBlank
       options = Cartridge::Options.new(frame_sync: frame_sync, fast_cartridge: fast_cartridge,
                                        fast_code: fast_code, save_memory: save_memory, stack_room: stack_room)
       handle = Cartridge::Game.new(title, code: code, maker: maker, block: block, options: options, consoles: consoles,
-                                          menu: menu)
+                                          menu: menu, variants: variants)
       Ractor.current[:vblank_registered_games] = registered_games + [handle]
       handle
     end

@@ -302,6 +302,11 @@ module VBlank
                                  alone. Default: one for each console the game
                                  names. With --format ruby: the console to
                                  play the game as. Default: the first one.
+        --variant NAME           The chip on the cartridge, such as superfx
+                                 for a Super Nintendo cartridge with a Super
+                                 FX 2, or none. Default: what the game names
+                                 in variants:. A game for more than one
+                                 console needs --console too.
         #{SET}
 
       Measuring (see vblank profile --help):
@@ -346,6 +351,7 @@ module VBlank
     option :output, aliases: "-o", banner: "PATH"
     option :format, banner: "NAME", default: "game"
     option :console, banner: "NAME", enum: CONSOLES
+    option :variant, banner: "NAME"
     option :profile, type: :boolean, default: false
     option :stats, type: :boolean, default: false
     option :scene, banner: "NAME"
@@ -908,6 +914,10 @@ module VBlank
       game = load_game(game_file)
       consoles = options[:console] ? [options[:console].to_sym] : game.consoles
       refuse_one_output_for_two_consoles!(game) if options[:output] && consoles.size > 1
+      if options[:variant] && consoles.size > 1
+        raise Thor::Error, "--variant names the chip on one console's cartridge, and " \
+                           "#{consoles_choice_message(game, 'build', game.consoles)}"
+      end
       built = {}
       failed = {}
       consoles.each do |console|
@@ -924,7 +934,9 @@ module VBlank
     # One console's cartridge, written beside the game file or to --output, and handed back.
     def write_cartridge_for(game, game_file, console)
       # Somebody is sitting there waiting for this, so it says what it is doing.
-      rom = game.build_rom(progress: VBlank::Messages::Progress.to($stderr), settings: given_settings, console: console)
+      variant = options[:variant] || game.variant_for(console)
+      rom = game.build_rom(progress: VBlank::Messages::Progress.to($stderr), settings: given_settings, console: console,
+                           variant: variant)
       path = options[:output] || File.join(File.dirname(File.expand_path(game_file)), game.default_filename(console: console))
       rom.write(path)
       say "Built #{File.basename(path)} (#{rom.size} bytes)"
