@@ -105,6 +105,7 @@ module VBlank
             @audio = []
             @audio_handed = 0
             @frames_took = {}
+            @dark_frames = nil
             @deciding = false
             @decided = nil
             @moments = []
@@ -121,6 +122,11 @@ module VBlank
           # How many frames each pass answered for, by the pass's number, as the interpreter is told
           # it (Reference#frames_each_pass): one, for a game that keeps up.
           def frames_took(pass) = @frames_took.fetch(pass, 1)
+
+          # How many frames the screen was off for before the first, as the runtime counted them
+          # (Runtime::Frame::DARK_FRAMES), as the interpreter is told it (Reference#frames_setting_up):
+          # none, for a game that does not count them.
+          def dark_frames_counted = @dark_frames || 0
 
           # The rest of what the interpreter answers, each refused by name.
           # What it drew at the moment the run ended, as the interpreter says it (Reference#sprites):
@@ -230,6 +236,7 @@ module VBlank
               next unless pending.nil? && waiting? && passes > @moments.size
 
               pending = [passes, read_variables, read_lists, read_sprites, @sound_log.entries.size]
+              note_dark_frames if passes == 1
               note_frames_took(passes - 1) if passes > 1
               mark_last_pass_taken if passes == frames
               hold_after_this_pass if passes > frames
@@ -261,6 +268,12 @@ module VBlank
           def note_frames_took(pass)
             kept = Runtime::Frame::STEPS_KEPT
             @frames_took[pass] = @core.bus_read8(runtime_place(Runtime::Frame::STEPS) + (pass % kept))
+          end
+
+          # Read once the first pass has ended, by when the screen is on and the count is done.
+          def note_dark_frames
+            dark = @places.runtime[Runtime::Frame::DARK_FRAMES]
+            @dark_frames = dark ? half(dark) : 0
           end
 
           # The moment of +frame+ — a pass's number, or :end for the moment the run ended on, which

@@ -135,11 +135,13 @@ module VBlank
             # any of them, or nil for a game with none.
             # +rooms+ says its screens bring their own tiles in (#emit_rooms), and +room_colors+ their
             # own colours with them, which needs +drawn_palettes+. +lent_families+ says its sprites'
-            # lists that are lent come in families (Art#lent_family).
+            # lists that are lent come in families (Art#lent_family). +backdrop+ is the first screen's,
+            # shown until the first frame, or nil where the first list holds it (Art#first_screen_backdrop).
             def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false,
-                     palettes_in_use:, groups: false, bar_rows: nil, rooms: false, room_colors: false, lent_families: false)
+                     palettes_in_use:, groups: false, bar_rows: nil, rooms: false, room_colors: false, lent_families: false,
+                     backdrop: nil)
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
-                                      drawn_palettes: drawn_palettes, bar: !bar_rows.nil?)
+                                      drawn_palettes: drawn_palettes, bar: !bar_rows.nil?, backdrop: backdrop)
               emit_rooms(asm, memory, colors: room_colors) if rooms
               emit_upload(asm, memory, groups: groups, bar: !bar_rows.nil?, label: rooms ? "rt_upload_now" : "rt_upload")
               PictureGroups.emit(asm, memory) if groups
@@ -380,7 +382,7 @@ module VBlank
             # Sprite tiles go 128 to a bank at 0x8000; background tiles 256 to a bank, the first
             # 128 at 0x9000 and the next 128 at 0x8800 — the console's other way of counting
             # tiles, which a background's cells use, so the two kinds never meet.
-            def emit_start(asm, memory, sprite_tiles:, background_tiles:, drawn_palettes: nil, bar: false)
+            def emit_start(asm, memory, sprite_tiles:, background_tiles:, drawn_palettes: nil, bar: false, backdrop: nil)
               h = Console::GBCHardware
               asm.label("rt_picture_start")
               if bar # the window's grid holds no bar yet, and the window starts at the left edge
@@ -423,7 +425,26 @@ module VBlank
               asm.load(:de, memory[SHADOW_PALETTES])
               asm.load(:b, 128)
               asm.call("rt_copy_b")
-              asm.call("rt_picture_write_palettes")
+              if backdrop
+                # The first screen's backdrop, which the screen shows until the first frame, in place
+                # of the first list's first colour as the console is given the lists. The copy then
+                # has its own back, and is sent at the first frame (Art#first_screen_backdrop).
+                shadow = memory[SHADOW_PALETTES]
+                asm.load(:a, backdrop & 0xFF)
+                asm.load([shadow], :a)
+                asm.load(:a, backdrop >> 8)
+                asm.load([shadow + 1], :a)
+                asm.call("rt_picture_write_palettes")
+                asm.load(:hl, "art_palettes")
+                asm.load(:a, [:hli])
+                asm.load([shadow], :a)
+                asm.load(:a, [:hl])
+                asm.load([shadow + 1], :a)
+                asm.load(:a, 1)
+                asm.load([memory[PALETTES_CHANGED]], :a)
+              else
+                asm.call("rt_picture_write_palettes")
+              end
               # The sprite layer starts on; a painted screen turns it off (rt_screen, rt_paint_start)
               # and the next sprite pass on a tiled one turns it on again (rt_sprites_end).
               asm.load(:a, h::LCDC_ON | h::LCDC_SPRITES_ON | h::LCDC_BG_PRIORITY)

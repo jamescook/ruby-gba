@@ -95,7 +95,8 @@ module VBlank
               @square_colors = square_colors
               @picture_sets = by_name(@program.walk, :picture_groups)
               @art = Art.new(square_colors: @square_colors&.refusal ? nil : @square_colors, lends: @lends_sprite_colors,
-                             grouped: grouped_pictures, room_colors: @plans_room_colors)
+                             grouped: grouped_pictures, room_colors: @plans_room_colors,
+                             first_cleared_to: @program.walk.find { |node| node.kind == :clear_screen }&.color)
               @grids = {} # a background declaration -> its grid's number
               @backgrounds = by_name(@program.walk, :background)
               @drawn_sprites = SpriteNames.new(@program) # the numbers a run says its sprites by

@@ -148,7 +148,8 @@ module VBlank
           Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?,
                                   bar_rows: lowering.bar_rows, slides: lowering.music.slides?,
                                   wobbles: lowering.music.wobbles?, shapes: lowering.music.shapes?,
-                                  banked_songs: lowering.music.banked?, clips: lowering.clips.any?)
+                                  banked_songs: lowering.music.banked?, clips: lowering.clips.any?,
+                                  dark: lowering.counts_dark_frames?)
           game = lowering.sections
           runs = lowering.run_uploads
           clips = lowering.clips if lowering.clips.any?
@@ -156,7 +157,8 @@ module VBlank
                                              music_level: lowering.music_level, songs: lowering.music.any?,
                                              music: lowering.music, runs: runs, drawn_palettes: lowering.drawn_palettes,
                                              big_maps: lowering.big_map_places, together: lowering.groups_up_together?,
-                                             bar_rows: lowering.bar_rows, clips: clips)
+                                             bar_rows: lowering.bar_rows, clips: clips,
+                                             count_at: (lowering.variables[Frames::COUNT] if lowering.counts_dark_frames?))
           data = [*lowering.art.sections, *(lowering.music.any? ? lowering.music.sections : []), *clips&.sections]
           begin
             linked = Linker.new(runtime + game + data, fixed_from: Console::GBCHardware::HEADER_END,

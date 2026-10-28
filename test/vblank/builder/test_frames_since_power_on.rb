@@ -33,7 +33,10 @@ class TestFramesSincePowerOn < Minitest::Test
     run.each_vblank { seen << run[:now] }
     run.run(counting_game, frames: 5)
 
-    assert_equal [-1, 1, 2, 3, 4], seen # the first is read before the first pass
+    assert_equal(-1, seen.first) # read before the first pass
+    # The first pass reads the frames setting up took, one or more; each after it one more.
+    assert_operator seen[1], :>=, 1
+    assert_equal (seen[1]..(seen[1] + 3)).to_a, seen.drop(1)
   end
 
   # The interpreter has no clock, so a test says how long a pass took; a pass worth three frames
@@ -44,6 +47,16 @@ class TestFramesSincePowerOn < Minitest::Test
 
     assert_equal 1, run[:first], "the first pass comes after the first frame"
     assert_equal 1 + (3 * 3), run[:now], "and each pass after it took three"
+  end
+
+  # A console whose screen is off while it sets up says how many frames that took, and the
+  # reading counts them at the first frame — nothing else moves on for them.
+  def test_frames_set_up_with_the_screen_off_are_counted_at_the_first_frame
+    run = Reference.new.frames_setting_up(6).run(counting_game, frames: 3)
+
+    assert_equal 7, run[:first], "six frames setting up, then the first frame shown"
+    assert_equal 7 + 2, run[:now], "and each pass after it one more"
+    assert_equal 3, run[:passes]
   end
 
   # THE ONE THAT MATTERS. On the console, setting up takes frames, and the reading counts them:

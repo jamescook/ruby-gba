@@ -26,7 +26,7 @@ and a test fails when the two differ. The Advance's answers are in
 - `debug_halt` — works: the game stops there, as `halt` does; the cartridge is not cut short.
 - `game_loop` — works: the same as on the Advance.
 - `once_a_frame` — works: the same as on the Advance.
-- `frames_since_power_on` — works: the same as on the Advance.
+- `frames_since_power_on` — works: the number includes the frames that the console uses to set up the game. If a game plays a recording (`sample`), the number starts at its first frame shown. The recording uses the timer that measures the frames before it.
 - `each_pass` — works: a step can start its own job again. A step that starts its own job through a routine it calls, or two jobs whose steps start each other, is refused for now: the Game Boy Color build cannot make a routine that calls itself yet.
 - `every` — works: the same as on the Advance.
 - `after` — works: the same as on the Advance.

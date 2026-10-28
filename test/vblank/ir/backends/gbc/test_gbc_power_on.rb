@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "many_tiles"
 
 # WHAT A COLOR CARTRIDGE SHOWS FROM POWER-ON UNTIL THE GAME'S FIRST FRAME. The cartridge copies its
 # art into the console before the game's first line, and a game sets itself up before its first
@@ -37,17 +38,118 @@ class TestGBCPowerOn < Minitest::Test
     b.program
   end
 
+  # A GAME WHOSE SCREENS BRING THEIR OWN COLOURS IN: a white title, and a second screen of eight
+  # lists more, which together are more than the Color's eight at once. Each screen's lists come in
+  # with it, and the title's are not in the console until the game first shows it.
+  private def white_title_among_lists(setting_up:)
+    b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
+    b.instance_eval do
+      screen :tiled
+      colors :pale, LIST
+      image :pale_tile, width: 8, height: 8, colors: :pale, places: ManyTiles::QUARTERS
+      tiles :pale_set, "p" => :pale_tile
+      colors :pale_again, %i[transparent white blue green red]
+      lists = (0...8).map { |n| [:transparent, VBlank::Graphics::Color.rgb(31, n, n), 31 << 5, 31 << 10, 0] }
+      row = ManyTiles.declare_listed(self, :many, lists)
+      scene(:title) do
+        title = background :title, tiles: :pale_set, map: Array.new(18) { "p" * 20 }
+        title.draw_with :pale_again
+      end
+      scene(:busy) { background :busy, tiles: :many, map: [row] }
+      count = var :count, 0
+      repeat(setting_up) { count.add! 1 }
+      var :state, 0
+      game_loop do
+        case_var(:state) do
+          when_val 0, :title
+          when_val 1, :busy
+        end
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  # A GAME WHOSE FIRST SCREEN IS PAINTED white, pixel by pixel, rather than drawn from tiles.
+  private def white_painted_game(setting_up:)
+    b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
+    b.instance_eval do
+      screen :bitmap
+      count = var :count, 0
+      repeat(setting_up) { count.add! 1 }
+      game_loop do
+        clear_screen :white
+        fill_rect 40, 40, 20, 20, :red
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
   # Sixteen places across the screen.
   SPOTS = [20, 60, 100, 140].product([16, 56, 96, 136]).freeze
 
-  def test_a_white_game_never_shows_black_while_it_loads
-    rom = VBlank::Console.for(:gbc).builder.cartridge_for(white_game_with_much_art(setting_up: 20_000), title: "WHITE")
+  # The frames of the first thirty a cartridge of +program+ shows black on at any of SPOTS.
+  private def black_frames(program)
+    rom = VBlank::Console.for(:gbc).builder.cartridge_for(program, title: "WHITE")
     v = VBlank::Diagnostics::Verifier.new(rom, frames: 0)
-    black = (1..30).filter_map do |frame|
+    (1..30).filter_map do |frame|
       v.step
       frame if SPOTS.any? { |x, y| v.pixel_gba(x, y).zero? }
     end
+  end
 
-    assert_empty black, "frames that showed black"
+  def test_a_white_game_never_shows_black_while_it_loads
+    assert_empty black_frames(white_game_with_much_art(setting_up: 20_000)), "frames that showed black"
+  end
+
+  def test_a_white_title_among_screens_with_their_own_colours_never_shows_black_while_it_loads
+    assert_empty black_frames(white_title_among_lists(setting_up: 20_000)), "frames that showed black"
+  end
+
+  def test_a_white_painted_screen_never_shows_black_while_it_loads
+    assert_empty black_frames(white_painted_game(setting_up: 20_000)), "frames that showed black"
+  end
+
+  # THE FRAMES SPENT SETTING UP ARE COUNTED, though the screen is off for all of them: a game that
+  # spins before its loop notes what `frames_since_power_on` read on its first pass, and the frame
+  # that pass's change is first seen on is one after that.
+  private def counting_game(setting_up)
+    b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
+    b.instance_eval do
+      screen :bitmap
+      count = var :count, 0
+      passes = var :passes, 0
+      first = var :first, -1
+      repeat(setting_up) { count.add! 1 }
+      game_loop do
+        (passes == 0).then { first.set! frames_since_power_on }
+        passes.add! 1
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  # [the frame the first pass is first seen on, what it read]
+  private def first_pass_on_color(setting_up)
+    rom = VBlank::Console.for(:gbc).builder.cartridge_for(counting_game(setting_up), title: "POWERON")
+    v = VBlank::Diagnostics::Verifier.new(rom, frames: 1, vars: rom.built.variables)
+    frame = 1
+    until v.var(:passes).positive?
+      flunk "no pass ran in 200 frames" if frame == 200
+      v.step
+      frame += 1
+    end
+    [frame, v.var(:first)]
+  end
+
+  def test_the_frames_spent_setting_up_are_counted
+    quick_frame, quick = first_pass_on_color(0)
+    slow_frame, slow = first_pass_on_color(3_000)
+
+    assert_equal quick_frame - 1, quick, "a game that sets up at once reads the frames before its first pass"
+    assert_operator slow_frame, :>, quick_frame + 3, "spinning first should make setting up take longer"
+    assert_equal slow_frame - 1, slow, "and the frames spent setting up are counted"
   end
 end

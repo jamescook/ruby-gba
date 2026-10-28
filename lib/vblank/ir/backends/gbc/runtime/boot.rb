@@ -21,7 +21,9 @@ module VBlank
           # - the little routine that fills the sprite table is copied into quick memory, since
           #   while that copy runs the processor can read nothing else;
           # - sound is switched on, and the vertical-blank interrupt, which says a frame has been
-          #   drawn, is switched on.
+          #   drawn, is switched on;
+          # - in a game that reads `frames_since_power_on`, the timer counts the frames the screen
+          #   is off for, from the moment the processor is at its speed (Runtime::Frame#emit_dark_start).
           #
           # Then the game's main routine is called. A game whose routine ends stops there.
           module Boot
@@ -29,8 +31,10 @@ module VBlank
 
             # The processor's fixed entry points: the eight one-byte calls (unused, so each goes
             # nowhere harmful), the five interrupts, and the jump from the header. The timer's
-            # plays a sample of a recording in a game that plays one (+clips+, Runtime::Clips).
-            def vector_sections(clips: false)
+            # plays a sample of a recording in a game that plays one (+clips+, Runtime::Clips), and
+            # counts the frames the screen is off for in a game that counts them (+dark+,
+            # Runtime::Frame#emit_dark_tick).
+            def vector_sections(clips: false, dark: false)
               vectors = SM83.new("vectors", home: 0)
               8.times { vectors.bytes_of([0xC9] + ([0x00] * 7)) } # each RST: a return
               vectors.label("rt_vblank_vector") # 0x40
@@ -40,6 +44,7 @@ module VBlank
               [0x50, 0x58, 0x60].each do |at|
                 vectors.bytes_of(Array.new(at - vectors.here, 0x00))
                 next vectors.jump("rt_clip_tick") if clips && at == Console::GBCHardware::TIMER_VECTOR
+                next vectors.jump("rt_dark_tick") if dark && at == Console::GBCHardware::TIMER_VECTOR
 
                 vectors.reti
               end
@@ -52,8 +57,12 @@ module VBlank
             # The start-up routine, ending in a call to +main+. In a game that plays a recording
             # (+clips+), the timer is stopped and its interrupt switched on, for a clip to start.
             # +backdrop+ is the colour the screen shows before the game's first frame (Art#backdrop_at_power_on).
-            def emit(asm, main:, clips: false, backdrop: Art::BACKDROP)
+            # In a game that counts the frames its screen is off for (+memory+ where its count is,
+            # Runtime::Frame#emit_dark_start), the count starts as soon as the processor is at its
+            # speed.
+            def emit(asm, main:, clips: false, backdrop: Art::BACKDROP, memory: nil)
               h = Console::GBCHardware
+              dark = memory && Frame.dark?(memory)
               asm.label("rt_boot")
               asm.di
               asm.load(:sp, Memory::STACK_TOP)
@@ -67,6 +76,7 @@ module VBlank
               asm.load_high(h::KEY1, :a)
               asm.stop
               asm.label("rt_boot_fast")
+              Frame.emit_dark_start(asm, memory) if dark
               asm.call("rt_display_off")
               backdrop_written = backdrop != Art::BACKDROP
               emit_backdrop(asm, backdrop) if backdrop_written
@@ -120,10 +130,17 @@ module VBlank
               asm.load_high(h::NR50, :a)
               asm.load(:a, 0xFF)
               asm.load_high(h::NR51, :a)
-              asm.xor_a(:a)
+              if dark
+                # The timer goes on counting, so a count it has yet to take is left for it.
+                Frame.emit_dark_to_memory(asm, memory)
+                asm.load_high(:a, h::IF)
+                asm.and_a(h::INT_TIMER)
+              else
+                asm.xor_a(:a)
+              end
               asm.load_high(h::TAC, :a) if clips
               asm.load_high(h::IF, :a)
-              asm.load(:a, clips ? h::INT_VBLANK | h::INT_TIMER : h::INT_VBLANK)
+              asm.load(:a, clips || dark ? h::INT_VBLANK | h::INT_TIMER : h::INT_VBLANK)
               asm.load_high(h::IE, :a)
               asm.ei
               asm.call("rt_start")
@@ -140,8 +157,9 @@ module VBlank
             # colour put there as the screen goes off, and the boot's black leaves it alone: a game
             # whose first screen comes in from white shows white from power-on, as the Color's own
             # games do. Black for even an instant between two writes is a black frame wherever a
-            # frame happens to end there. A game whose screens bring their own colours in starts from
-            # a list of black alone (Art#background_palette_number), so its backdrop is black here.
+            # frame happens to end there. Where the first list holds no screen's backdrop — a game
+            # whose screens bring their own colours in, or one that only paints — the first
+            # screen's is put there instead (Art#first_screen_backdrop).
             def emit_backdrop(asm, backdrop)
               h = Console::GBCHardware
               asm.load(:a, 0x80) # the first colour of the first list, moving on after each byte

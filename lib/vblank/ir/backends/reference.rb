@@ -175,6 +175,7 @@ module VBlank
           @screen_frame = 0        # frames the screen has shown, which a pass may span several of
           @input_script = nil      # optional ->(frame) { buttons } to drive input over time
           @frames_script = nil     # optional ->(pass) { frames } to say a pass ran late
+          @frames_setting_up = 0   # frames the screen was off for before the first (see #frames_setting_up)
           @clock_started = nil     # the moment the cartridge's clock read at power-on, or nil for no clock
           @clock_set = true        # ...and whether it was ever set (see #clock_at)
           @clock_keeps_date = nil  # ...and whether it keeps the date, when not the console's chip
@@ -270,6 +271,7 @@ module VBlank
           @stopped_at_budget = false
           @over_budget = false
           @uses_frames = false # set once the program reaches its first vblank (advance_frame)
+          @setting_up_uncounted = @frames_setting_up # counted at the first frame (#store_frame_counters)
           size_screen_for(node)
           collect_definitions(node)
           start_mixer_clock(node)
@@ -411,6 +413,17 @@ module VBlank
         # tells it the truth. Returns self.
         def frames_each_pass(&block)
           @frames_script = block
+          self
+        end
+
+        # SAY THAT SETTING UP TOOK +count+ FRAMES WITH THE SCREEN OFF, before the first frame it
+        # shows. A console whose screen draws nothing while it is off — the Color's — reads its
+        # buttons and plays its music from the screen's interrupt, which those frames never raise,
+        # so they move nothing on but `frames_since_power_on`, which counts them at the first
+        # frame. (A screen that is on while the game sets up is #frames_each_pass's first pass.)
+        # Returns self.
+        def frames_setting_up(count)
+          @frames_setting_up = count
           self
         end
 
@@ -1203,7 +1216,8 @@ module VBlank
         # (IR::Frames::MOST) — so a body asked to catch up can never be asked to catch up further
         # here than it would there — while the count of frames shown takes every one.
         def store_frame_counters(took)
-          @vars[IR::Frames::COUNT] += took
+          @vars[IR::Frames::COUNT] += took + @setting_up_uncounted
+          @setting_up_uncounted = 0 # counted once, at the first frame
           @vars[IR::Frames::SEEN] = @vars[IR::Frames::COUNT]
           @vars[IR::Frames::STEP] = took.clamp(1, IR::Frames::MOST)
         end

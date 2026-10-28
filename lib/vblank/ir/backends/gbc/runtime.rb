@@ -38,12 +38,13 @@ module VBlank
           # bars fill, or nil for a game with none (Picture#emit_bar). +slides+ says a note of its music
           # slides its pitch (GBC::Music#slides?), +wobbles+ that one wobbles (GBC::Music#wobbles?), and
           # +shapes+ that a square note says its shapes (GBC::Music#shapes?). +banked_songs+ says its
-          # songs' notes are kept in the cartridge's banks (GBC::Music#banked?), and +clips+ that it
-          # plays a recording (GBC::Clips#any?).
+          # songs' notes are kept in the cartridge's banks (GBC::Music#banked?), +clips+ that it
+          # plays a recording (GBC::Clips#any?), and +dark+ that it counts the frames its screen is
+          # off for (Lowering#counts_dark_frames?).
           def reserve(memory, art:, effects: [], together: false, bar_rows: nil, slides: false, wobbles: false,
-                      shapes: false, banked_songs: false, clips: false)
+                      shapes: false, banked_songs: false, clips: false, dark: false)
             Clips.reserve(memory) if clips
-            Frame.reserve(memory, together: together)
+            Frame.reserve(memory, together: together, dark: dark)
             Picture.reserve(memory, lends: art.lends?, groups: art.groups?, bar_rows: bar_rows, rooms: art.rooms.any?)
             BigMaps.reserve(memory)
             Paint.reserve(memory, painting: art.painting?)
@@ -62,25 +63,28 @@ module VBlank
           # +big_maps+ is where a game with a map bigger than the grid keeps its copy of the grid and
           # the list of cells for the blank (Runtime::BigMaps), or nil. +together+ is as for #reserve.
           # +clips+ is the game's recordings (GBC::Clips), or nil for a game that plays none.
+          # +count_at+ is where a game that counts the frames its screen is off for keeps
+          # IR::Frames::COUNT (Frame#emit_add_dark_frames).
           def sections(memory, main:, art:, music_level: nil, songs: false, music: nil, frame_begins: nil, runs: [],
-                       drawn_palettes: nil, big_maps: nil, together: false, bar_rows: nil, clips: nil)
+                       drawn_palettes: nil, big_maps: nil, together: false, bar_rows: nil, clips: nil, count_at: nil)
             # A game whose songs are kept in banks notes every bank the runtime puts in view, for the
             # music player to put back (SM83#select_rom_bank, Music::BANK_NOTED); one that plays a
             # recording writes down every bank put in view, for the timer to put back (Runtime::Clips).
             noted = memory[Music::BANK_NOTED] if Music.banked?(memory)
             shown = memory[Clips::SHOWN] if Clips.any?(memory)
             asm = SM83.new("runtime", home: :fixed, bank_noted_at: noted, bank_shown_at: shown)
-            Boot.emit(asm, main: "rt_main", clips: !shown.nil?, backdrop: art.backdrop_at_power_on)
+            Boot.emit(asm, main: "rt_main", clips: !shown.nil?, backdrop: art.backdrop_at_power_on, memory: memory)
             Boot.emit_display_off(asm)
             Boot.emit_clear(asm)
             Int32.emit(asm, memory)
             Calls.emit(asm, memory)
-            Frame.emit(asm, memory, together: together)
+            Frame.emit(asm, memory, together: together, count_at: count_at)
             Lists.emit(asm, memory)
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length,
                                       runs: runs, drawn_palettes: drawn_palettes, lends: art.lends?,
                                       palettes_in_use: art.palettes_in_use, groups: art.groups?, bar_rows: bar_rows,
-                                      rooms: art.rooms.any?, room_colors: art.room_colors?, lent_families: art.lent_families?)
+                                      rooms: art.rooms.any?, room_colors: art.room_colors?, lent_families: art.lent_families?,
+                                      backdrop: art.first_screen_backdrop)
             BigMaps.emit(asm, memory, buffer: big_maps&.first, staged: big_maps&.last)
             Paint.emit(asm, memory, painting: art.painting?, map_count: art.square_maps.length, bar: !bar_rows.nil?)
             Sound.emit(asm)
@@ -92,7 +96,7 @@ module VBlank
             emit_start(asm)
             emit_main(asm, main)
             emit_frame_begins(asm, frame_begins)
-            [*Boot.vector_sections(clips: !shown.nil?), asm.section, *Paint.table_sections(maps: art.square_maps)]
+            [*Boot.vector_sections(clips: !shown.nil?, dark: Frame.dark?(memory)), asm.section, *Paint.table_sections(maps: art.square_maps)]
           end
 
           # What a game needs before its first line: its variables that do not start at nought,

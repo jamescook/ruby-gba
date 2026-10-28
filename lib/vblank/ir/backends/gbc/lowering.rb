@@ -249,6 +249,16 @@ module VBlank
             [data_section, *banked_table_sections, *routines, *timers, *main, *clock_sections, *columns]
           end
 
+          # DOES THE GAME COUNT THE FRAMES ITS SCREEN IS OFF FOR, from power-on to its first frame
+          # (Runtime::Frame#emit_dark_start)? A game that reads `frames_since_power_on` and waits for
+          # the screen does, so that setting up counts as it does on the Advance. The timer counts
+          # them, and in a game that plays a recording the timer is the recording's, so such a game
+          # counts from its first frame.
+          def counts_dark_frames?
+            @program.walk.any? { |node| node.kind == :var_ref && node.name == Frames::COUNT } &&
+              @program.walk.any? { |node| node.kind == :wait_vblank } && !clips.any?
+          end
+
           private
 
           # --- refusals ---

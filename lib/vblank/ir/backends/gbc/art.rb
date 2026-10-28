@@ -143,9 +143,11 @@ module VBlank
           # as the game runs (TooManySpriteLists). +grouped+ is the set of picture groups each grouped
           # picture is copied in by, by the picture's name (Lowering::Picture#grouped_pictures).
           # +room_colors+ says each screen brings its own palettes in with its tiles
-          # (TooManyBackgroundLists).
-          def initialize(square_colors: nil, lends: false, grouped: {}, room_colors: false)
+          # (TooManyBackgroundLists). +first_cleared_to+ is the colour the game's first
+          # `clear_screen` names, nil for none (#first_screen_backdrop).
+          def initialize(square_colors: nil, lends: false, grouped: {}, room_colors: false, first_cleared_to: nil)
             @square_colors = square_colors
+            @first_cleared_to = first_cleared_to
             @lends = lends
             @grouped = grouped
             @room_colors = room_colors
@@ -281,9 +283,32 @@ module VBlank
             backgrounds
           end
 
+          # THE BACKDROP OF THE FIRST SCREEN, where the first list every screen keeps does not hold
+          # it; nil where it does. The screen shows it from power-on until the game's first frame
+          # (Runtime::Boot#emit_backdrop, Runtime::Picture#emit_start), and the first list's own
+          # first colour from then on, which is what the screen shows before a scene comes up:
+          #
+          # - In a game whose screens bring their own colours in and put their own list first, the
+          #   first list is black alone until a screen comes up, and every screen puts a list there
+          #   as it arrives (#emit_room_colors). The first screen is the first room, the room of
+          #   the scene the game names first.
+          # - In a game that only paints, no square is drawn from the first list. Its first screen
+          #   is the colour the game first clears the screen to.
+          def first_screen_backdrop
+            backdrop = if first_palette_per_room?
+                         @rooms.first&.first_palette_in_chain&.colors&.first&.& 0x7FFF
+                       elsif painting? && @background_palettes.empty? && @first_cleared_to
+                         Graphics::Color.resolve(@first_cleared_to) & 0x7FFF
+                       end
+            backdrop unless backdrop == first_list_backdrop
+          end
+
           # The backdrop: the first colour of the first background palette, which every empty cell is
-          # drawn in, and which the screen shows before the game's first frame (Runtime::Boot#emit).
-          def backdrop_at_power_on = (background_colors_at_power_on.first&.first || BACKDROP) & 0x7FFF
+          # drawn in, or the first screen's, which the screen shows before the game's first frame
+          # (Runtime::Boot#emit).
+          def backdrop_at_power_on = first_screen_backdrop || first_list_backdrop
+
+          private def first_list_backdrop = (background_colors_at_power_on.first&.first || BACKDROP) & 0x7FFF
 
           # The place a painted colour is kept at in every one of the painted screen's palettes.
           def paint_place(color) = @square_colors.place(color)

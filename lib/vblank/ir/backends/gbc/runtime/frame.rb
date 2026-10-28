@@ -90,9 +90,31 @@ module VBlank
             TOGETHER_NEXT = 8
             TOGETHER_BYTES = 10
 
+            # THE FRAMES THE SCREEN WAS OFF FOR, from power-on to the game's first frame, in a game that
+            # reads `frames_since_power_on` (#emit_dark_start). The screen's interrupt counts every
+            # frame it draws, and a screen that is off draws none; the timer counts on regardless.
+            # Its counts come TIMER_COUNTS_A_FRAME to a frame — a frame is a whole number of them —
+            # and it interrupts every DARK_COUNTS, which divides that, so DARK_TICKS_A_FRAME of its
+            # interrupts are exactly a frame.
+            DARK_FRAMES = "rt frames dark" # 16 bits, which a reader of the run reads too
+            DARK_TICKS = "rt dark ticks" # the timer's interrupts since the last whole frame
+            DARK_IN_MEMORY = "rt dark in memory" # 1 once the count is kept in memory (#emit_dark_to_memory)
+            TIMER_COUNTS_A_FRAME = Console.described(:gbc).then { |gbc| gbc.cycles_a_frame / gbc.sample_timer_step }
+            DARK_COUNTS = (1..256).select { |counts| (TIMER_COUNTS_A_FRAME % counts).zero? }.max
+            DARK_TICKS_A_FRAME = TIMER_COUNTS_A_FRAME / DARK_COUNTS
+
             module_function
 
-            def reserve(memory, together: false)
+            # Does the game count the frames its screen was off for (#emit_dark_start)?
+            def dark?(memory) = memory.reserved?(DARK_FRAMES)
+
+            # +dark+ says the game counts the frames its screen was off for.
+            def reserve(memory, together: false, dark: false)
+              if dark
+                memory.reserve(DARK_FRAMES, 2)
+                memory.reserve(DARK_TICKS, 1)
+                memory.reserve_quick(DARK_IN_MEMORY, 1)
+              end
               memory.reserve(TOGETHER, TOGETHER_BYTES) if together
               memory.reserve(STATE, 1)
               memory.reserve(WAITING, 1)
@@ -116,8 +138,11 @@ module VBlank
             end
 
             # +together+ says the game has picture groups with more than one slot, which
-            # rt_groups_together asks of.
-            def emit(asm, memory, together: false)
+            # rt_groups_together asks of. +count_at+ is where the game keeps IR::Frames::COUNT, in a
+            # game that counts the frames its screen was off for.
+            def emit(asm, memory, together: false, count_at: nil)
+              raise ArgumentError, "a game that counts its dark frames needs count_at:" if dark?(memory) && count_at.nil?
+
               clips = Clips.any?(memory)
               h = Console::GBCHardware
               vblank = memory.quick(1)
@@ -225,10 +250,12 @@ module VBlank
               asm.jump_relative(:nz, "rt_wait_vblank_sleep")
               # The screen is still off: this is the first frame. Everything set up so far is
               # copied while nothing is being drawn, and the screen comes on showing it.
+              emit_dark_end(asm) if dark?(memory)
               asm.call("rt_upload_whole")
               asm.call("rt_shown_is_passes")
               asm.call("rt_display_on")
               asm.call("rt_sleep_until_vblank")
+              emit_add_dark_frames(asm, memory, count_at) if dark?(memory)
               asm.jump_relative("rt_wait_vblank_buttons")
               asm.label("rt_wait_vblank_sleep")
               asm.call("rt_sleep_until_vblank")
@@ -277,10 +304,124 @@ module VBlank
               asm.load_high(h::LCDC, :a)
               asm.ret
 
+              emit_dark_tick(asm, memory) if dark?(memory)
               emit_increment(asm)
               emit_buttons(asm, memory)
               emit_stopping(asm, memory)
               emit_groups_together(asm, memory) if together
+            end
+
+            # COUNTING THE FRAMES THE SCREEN IS OFF FOR STARTS AS THE BOOT DOES (Runtime::Boot#emit),
+            # before it clears work memory and quick memory, which take frames of their own and would
+            # clear a count kept there. So until they are cleared the count is kept in DE, which
+            # nothing the boot runs touches: E the timer's interrupts since the last whole frame, D
+            # the frames. The timer is told to interrupt every DARK_COUNTS of its counts, and its
+            # interrupt alone is let in.
+            def emit_dark_start(asm, memory)
+              h = Console::GBCHardware
+              asm.xor_a(:a)
+              asm.load([memory[DARK_IN_MEMORY]], :a)
+              asm.load(:de, 0)
+              asm.load(:a, 256 - DARK_COUNTS)
+              asm.load_high(h::TMA, :a)
+              asm.load_high(h::TIMA, :a)
+              asm.load(:a, Clips::TIMER_ON)
+              asm.load_high(h::TAC, :a)
+              asm.xor_a(:a)
+              asm.load_high(h::IF, :a)
+              asm.load(:a, h::INT_TIMER)
+              asm.load_high(h::IE, :a)
+              asm.ei
+            end
+
+            # ...and once memory is cleared, the count goes into it (DARK_FRAMES, DARK_TICKS) and is
+            # kept there from then on. Interrupts are held off while it moves; the boot lets them in
+            # again as it sets them up for the game.
+            def emit_dark_to_memory(asm, memory)
+              asm.di
+              asm.load(:a, :e)
+              asm.load([memory[DARK_TICKS]], :a)
+              asm.load(:a, :d)
+              asm.load([memory[DARK_FRAMES]], :a)
+              asm.xor_a(:a)
+              asm.load([memory[DARK_FRAMES] + 1], :a)
+              asm.inc(:a)
+              asm.load([memory[DARK_IN_MEMORY]], :a)
+            end
+
+            # The timer's interrupt while the screen is off: one more tick, and one more frame every
+            # DARK_TICKS_A_FRAME of them, in DE or in memory (#emit_dark_start).
+            def emit_dark_tick(asm, memory)
+              asm.label("rt_dark_tick")
+              asm.push(:af)
+              asm.load(:a, [memory[DARK_IN_MEMORY]])
+              asm.and_a(:a)
+              asm.jump_relative(:nz, "rt_dark_tick_kept")
+              asm.inc(:e)
+              asm.load(:a, :e)
+              asm.cp_a(DARK_TICKS_A_FRAME)
+              asm.jump_relative(:nz, "rt_dark_tick_done")
+              asm.load(:e, 0)
+              asm.inc(:d)
+              asm.jump_relative("rt_dark_tick_done")
+              asm.label("rt_dark_tick_kept")
+              asm.push(:hl)
+              asm.load(:hl, memory[DARK_TICKS])
+              asm.inc([:hl])
+              asm.load(:a, [:hl])
+              asm.cp_a(DARK_TICKS_A_FRAME)
+              asm.jump_relative(:nz, "rt_dark_tick_kept_done")
+              asm.xor_a(:a)
+              asm.load([:hl], :a)
+              asm.load(:hl, memory[DARK_FRAMES])
+              asm.inc([:hl])
+              asm.jump_relative(:nz, "rt_dark_tick_kept_done")
+              asm.inc(:hl)
+              asm.inc([:hl])
+              asm.label("rt_dark_tick_kept_done")
+              asm.pop(:hl)
+              asm.label("rt_dark_tick_done")
+              asm.pop(:af)
+              asm.reti
+            end
+
+            # As the screen comes on for the first frame: the timer stopped, so the frame that follows
+            # is the screen's interrupt's to count.
+            def emit_dark_end(asm)
+              h = Console::GBCHardware
+              asm.di
+              asm.xor_a(:a)
+              asm.load_high(h::TAC, :a)
+              asm.load(:a, h::INT_VBLANK)
+              asm.load_high(h::IE, :a)
+              asm.load_high(:a, h::IF)
+              asm.and_a(~h::INT_TIMER & 0xFF)
+              asm.load_high(h::IF, :a)
+              asm.ei
+            end
+
+            # ...and once the first frame boundary has come, the frames it was off for added to the
+            # game's count (+count_at+), as setting up that took that long. After the boundary,
+            # where the interpreter adds them (Reference#frames_setting_up), so a reader of the run
+            # at the boundary finds the count as the interpreter has it there.
+            def emit_add_dark_frames(asm, memory, count_at)
+              asm.load(:hl, memory[DARK_FRAMES])
+              asm.load(:a, [:hli])
+              asm.load(:c, :a)
+              asm.load(:b, [:hl])
+              asm.load(:hl, count_at)
+              asm.load(:a, [:hl])
+              asm.add_a(:c)
+              asm.load([:hli], :a)
+              asm.load(:a, [:hl])
+              asm.adc_a(:b)
+              asm.load([:hli], :a)
+              asm.load(:a, [:hl])
+              asm.adc_a(0)
+              asm.load([:hli], :a)
+              asm.load(:a, [:hl])
+              asm.adc_a(0)
+              asm.load([:hl], :a)
             end
 
             # The 32-bit number at HL, one more: each byte goes round to nought only when the one

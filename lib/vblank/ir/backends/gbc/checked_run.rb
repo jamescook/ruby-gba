@@ -122,6 +122,7 @@ module VBlank
             interpreter.clock_at(@clock_started, set: @clock_set, keeps_date: false) if @clock_started
             moments = []
             interpreter.frames_each_pass { |pass| @cartridge.frames_took(pass) }
+            interpreter.frames_setting_up(@cartridge.dark_frames_counted)
             interpreter.input_each_frame { |frame| @played.fetch(frame, []) }
                        .each_vblank { |frame| moments << moment_of(interpreter, frame, width, height) }
                        .run(program, frames: frames)
