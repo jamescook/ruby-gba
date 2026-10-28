@@ -168,7 +168,9 @@ module VBlank
                             "square is played as a recording of one. The sound chip cannot make a note above " \
                             "16000 Hz, so a higher note plays at 16000 Hz."),
         beep: works("see `define_sound`."),
-        noise: works("played on the sound chip's own noise."),
+        noise: works("a hiss is played on the sound chip's own noise. The sound chip has no metallic noise, " \
+                     "so a metallic hit is played as a recording of one. The sound chip's noise is at most " \
+                     "32000 steps a second, so a :high hiss is lower than on the Game Boy Advance."),
         wave: works("see `define_sound`."),
         stop_wave: works,
         song: works("see `define_sound` for the square and wave voices."),

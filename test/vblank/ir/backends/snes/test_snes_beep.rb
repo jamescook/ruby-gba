@@ -22,7 +22,9 @@ class TestSNESBeep < Minitest::Test
     end
   end
 
-  def test_the_sound_log_and_the_dsp_agree_with_the_interpreter
+  # The log agreeing, and every DSP write it means arriving: what each write should be is held by
+  # the tests below, worked out from fullsnes and measured in the DSP.
+  def test_the_sound_log_agrees_and_every_dsp_write_arrives
     run = SNES::CheckedRun.new.run(BEEPING.program(console: :snes), frames: 6)
 
     effects = run.audio.drop(1).map(&:last)

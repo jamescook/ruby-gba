@@ -25,7 +25,9 @@ class TestSNESNoise < Minitest::Test
     end
   end
 
-  def test_the_sound_log_and_the_dsp_agree_with_the_interpreter
+  # The log agreeing, and every DSP write it means arriving: what each write should be is held by
+  # the tests below, worked out from fullsnes and GBATEK.
+  def test_the_sound_log_agrees_and_every_dsp_write_arrives
     run = SNES::CheckedRun.new.run(HITS.program(console: :snes), frames: 6)
 
     assert_equal %i[mid high low], run.audio.drop(1).map { |entry| entry.last[:pitch] }
@@ -38,7 +40,9 @@ class TestSNESNoise < Minitest::Test
 
     assert_equal 1 << 3, dsp.getbyte(NON), "the noise voice plays the noise generator"
     assert_equal 0x20 | 0x1E, dsp.getbyte(FLG), "sound on, and the noise clock at 16000 Hz"
-    assert_equal [80, 80], [dsp.getbyte(NOISE_VOICE), dsp.getbyte(NOISE_VOICE + 1)], "volume 10, left and right"
+    # A beep at volume 10 sets 80. The generator swings $4000 either way (fullsnes, "NON"), a
+    # recording 7 * 2^11 / 2 = $1C00, so a hiss as loud as that beep sets 80 * $1C00 / $4000 = 35.
+    assert_equal [35, 35], [dsp.getbyte(NOISE_VOICE), dsp.getbyte(NOISE_VOICE + 1)], "volume 10, left and right"
     assert_operator dsp.getbyte(NOISE_VOICE + 8), :>=, 0x70, "held at the top: the voice is sounding"
   end
 
@@ -66,6 +70,9 @@ class TestSNESNoise < Minitest::Test
     end
 
     decoded = brr_signs(SNES::Samples.metallic)
+    # The first sixteen steps worked by hand from that rule: $40 shifts down to $01 with six noughts
+    # out, a 1 out turns it to $60, five more noughts, then two 1s and two noughts.
+    assert_equal [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0], decoded.first(16)
     assert_equal 127 * 16, decoded.size, "sixteen times round fills whole blocks"
     assert_equal pattern * 16, decoded
   end

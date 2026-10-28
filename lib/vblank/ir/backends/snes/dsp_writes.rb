@@ -45,17 +45,25 @@ module VBlank
           # steps it 32000 / RATE_SAMPLES[rate] times a second, so 32000 at the most). A metallic
           # rattle is a recording instead (Samples::METALLIC), read one sample for each of the
           # Advance's steps. Both are clocked as the Advance clocks a hit: Audio::Sound's
-          # NOISE_HIT_HALVINGS.
+          # NOISE_HIT_HALVINGS. The Advance clocks a :high hiss eight times as fast as a :mid one,
+          # past the DSP's fastest; there the two come out only twice as far apart.
+          #
+          # THE GENERATOR IS LOUDER than a recording at the same volume: its output swings the whole
+          # of $4000 either way (fullsnes, "NON"), and the recordings Samples makes swing 7 * 2^11 / 2.
+          # The Advance's noise and square voices swing alike, so a hiss's volume registers are scaled
+          # down by the two swings (HISS_SCALE), and a hiss is as loud as a beep at the same volume.
           #
           # FLG IS SHARED. Its top three bits mute the sound unit, hold every voice off and stop the
           # echo writing; its low five are the noise clock. So neither enable_sound nor a noise hit
           # writes all of FLG: each changes only its own bits, which the sound unit's program does
           # with the DSP's register in hand (Runtime::Sound's "set FLG's bits" command), written here
-          # as [:flags, mask, bits]. A hit before enable_sound sets the clock and leaves the sound
-          # unit muted, as the Advance makes no sound before it either.
-          FLAG_BITS = :flags
+          # as [SET_FLG_BITS, mask, bits]. A hit before enable_sound sets the clock and leaves the
+          # sound unit muted, as the Advance makes no sound before it either.
+          SET_FLG_BITS = :set_flg_bits
           SWITCHES = 0xE0
           NOISE_CLOCK = 0x1F
+          GENERATOR_SWING = 0x4000
+          HISS_SCALE = Rational(Samples::HIGH << Samples::SHIFT, 2 * GENERATOR_SWING)
 
           # A voice's registers, counted from its first ($x0).
           VOLUME_LEFT = 0x0
@@ -122,10 +130,10 @@ module VBlank
           end
 
           # The writes one sound-log entry means: [:enabled], [:beep, effect] or [:noise, hit]. Each is
-          # [register, value], or [FLAG_BITS, mask, bits] for FLG's.
+          # [register, value], or [SET_FLG_BITS, mask, bits] for FLG's.
           def for_entry(entry)
             case entry.first
-            when :enabled then [[FLAG_BITS, SWITCHES, SOUND_ON], [MAIN_LEFT, MAIN_VOLUME], [MAIN_RIGHT, MAIN_VOLUME]]
+            when :enabled then [[SET_FLG_BITS, SWITCHES, SOUND_ON], [MAIN_LEFT, MAIN_VOLUME], [MAIN_RIGHT, MAIN_VOLUME]]
             when :beep then beep(entry.last)
             when :noise then noise(entry.last)
             else raise ArgumentError, "the Super Nintendo build does not play #{entry.first.inspect} yet"
@@ -137,10 +145,9 @@ module VBlank
             base = BEEP_VOICE << 4
             wave = wave_for(effect.frequency)
             pitch = pitch_for(effect.frequency, wave)
-            volume = effect.volume * VOLUME_STEP
-            [[base + VOLUME_LEFT, volume], [base + VOLUME_RIGHT, volume], [base + PITCH_LOW, pitch & 0xFF],
-             [base + PITCH_HIGH, pitch >> 8], [base + SOURCE, Samples.source(effect.duty, wave)], [base + ADSR1, ATTACK],
-             [base + ADSR2, SUSTAIN_AT_TOP | fade_rate(effect.volume, effect.decay)], [KEY_ON, 1 << BEEP_VOICE]]
+            loudness(base, effect.volume * VOLUME_STEP, effect.volume, effect.decay) +
+              [[base + PITCH_LOW, pitch & 0xFF], [base + PITCH_HIGH, pitch >> 8],
+               [base + SOURCE, Samples.source(effect.duty, wave)], [KEY_ON, 1 << BEEP_VOICE]]
           end
 
           # A noise hit (Audio::Sound.resolve_noise's hash): the noise voice's loudness and fade, as a
@@ -149,21 +156,26 @@ module VBlank
           def noise(hit)
             base = NOISE_VOICE << 4
             clock = VBlank::Audio::Sound.noise_rung_hz(0, VBlank::Audio::Sound::NOISE_HIT_HALVINGS.fetch(hit[:pitch]))
-            volume = hit[:volume] * VOLUME_STEP
-            shaped = [[base + VOLUME_LEFT, volume], [base + VOLUME_RIGHT, volume], [base + ADSR1, ATTACK],
-                      [base + ADSR2, SUSTAIN_AT_TOP | fade_rate(hit[:volume], hit[:decay])]]
-            source = if hit[:metallic]
-                       pitch = (clock * PITCH_ONE / DSP_RATE.to_f).round.clamp(1, PITCH_TOP)
-                       [[base + PITCH_LOW, pitch & 0xFF], [base + PITCH_HIGH, pitch >> 8],
-                        [base + SOURCE, Samples::METALLIC], [NOISE_ON, 0]]
-                     else
-                       # The generator still reads a recording beside it, and one that ends would end
-                       # the noise (fullsnes, "NON"): a looping one, read at any pitch.
-                       [[base + PITCH_LOW, 0], [base + PITCH_HIGH, PITCH_ONE >> 8],
-                        [base + SOURCE, Samples.source(:half, Samples::LONG_WAVE)],
-                        [FLAG_BITS, NOISE_CLOCK, noise_rate(clock)], [NOISE_ON, 1 << NOISE_VOICE]]
-                     end
-            shaped + source + [[KEY_ON, 1 << NOISE_VOICE]]
+            if hit[:metallic]
+              pitch = (clock * PITCH_ONE / DSP_RATE.to_f).round.clamp(1, PITCH_TOP)
+              loudness(base, hit[:volume] * VOLUME_STEP, hit[:volume], hit[:decay]) +
+                [[base + PITCH_LOW, pitch & 0xFF], [base + PITCH_HIGH, pitch >> 8], [base + SOURCE, Samples::METALLIC],
+                 [NOISE_ON, 0], [KEY_ON, 1 << NOISE_VOICE]]
+            else
+              # The generator still reads a recording beside it, and one that ends would end the
+              # noise (fullsnes, "NON"): a looping one, read at any pitch.
+              loudness(base, (hit[:volume] * VOLUME_STEP * HISS_SCALE).round, hit[:volume], hit[:decay]) +
+                [[base + PITCH_LOW, 0], [base + PITCH_HIGH, PITCH_ONE >> 8],
+                 [base + SOURCE, Samples.source(:half, Samples::LONG_WAVE)],
+                 [SET_FLG_BITS, NOISE_CLOCK, noise_rate(clock)], [NOISE_ON, 1 << NOISE_VOICE], [KEY_ON, 1 << NOISE_VOICE]]
+            end
+          end
+
+          # A voice's volume registers (+level+, left and right) and its envelope: the fastest attack,
+          # and the fade for a note of +volume+ (0..15) at +decay+.
+          def loudness(base, level, volume, decay)
+            [[base + VOLUME_LEFT, level], [base + VOLUME_RIGHT, level], [base + ADSR1, ATTACK],
+             [base + ADSR2, SUSTAIN_AT_TOP | fade_rate(volume, decay)]]
           end
 
           # The noise generator's rate (1..31) nearest to stepping +clock+ times a second.
@@ -210,7 +222,7 @@ module VBlank
             held = { FLAGS => SOUND_OFF }
             entries.each do |entry|
               for_entry(entry).each do |register, *value|
-                if register == FLAG_BITS
+                if register == SET_FLG_BITS
                   mask, bits = value
                   held[FLAGS] = (held[FLAGS] & ~mask & 0xFF) | (bits & mask)
                 else

@@ -49,9 +49,11 @@ module VBlank
             # +entry+'s DSP writes, then its number into the cartridge's sound log.
             def emit_sound_entry(entry)
               DSPWrites.for_entry(entry).each do |register, *values|
-                routine = register == DSPWrites::FLAG_BITS ? "rt_sound_flag_bits" : "rt_sound_write"
-                numbers = register == DSPWrites::FLAG_BITS ? values : [register, *values]
-                runtime_call(routine, numbers.map { |number| Build.int(number) })
+                if register == DSPWrites::SET_FLG_BITS
+                  runtime_call("rt_sound_flag_bits", values.map { |number| Build.int(number) })
+                else
+                  runtime_call("rt_sound_write", [Build.int(register), Build.int(values.first)])
+                end
               end
               number = @sound_entries.index(entry) || (@sound_entries << entry).size - 1
               if number >= Runtime::Sound::LOG_LENGTH
