@@ -10,14 +10,15 @@ require_relative "runtime/tint"
 require_relative "runtime/collide"
 require_relative "runtime/chip"
 require_relative "runtime/chip_paint"
+require_relative "runtime/saving"
 
 module VBlank
   module IR
     module Backends
       class SNES
         # THE RUNTIME every Super Nintendo cartridge carries: from power-on to the game's first line
-        # (Boot), the arithmetic (Int32), the frame and the buttons (Frame), the lists (Lists) and
-        # the picture (Picture).
+        # (Boot), the arithmetic (Int32), the frame and the buttons (Frame), the lists (Lists), the
+        # picture (Picture), and save memory (Saving) for a game that saves.
         #
         # HOW ITS ROUTINES ARE CALLED. With JSL (and they return with RTL), so a routine of the
         # game's in any bank calls them alike; with A, X and Y 16 bits wide, the direct page at
@@ -44,8 +45,9 @@ module VBlank
           # +main+ is the label of the game's main routine; +frame_begins+ the label of the game's
           # routine run at each frame boundary (its timers moving on), or nil for none; +painted+
           # for a game whose screen is painted rather than drawn from tiles; +board+ the cartridge's
-          # board (Cartridge::SNESROM::BOARDS).
-          def sections(memory, main:, frame_begins: nil, painted: false, board: Cartridge::SNESROM::PLAIN)
+          # board (Cartridge::SNESROM::BOARDS); +saves+ for a game that reaches save memory, whose
+          # routines a game that does not is made without, so its cartridge is the same bytes.
+          def sections(memory, main:, frame_begins: nil, painted: false, board: Cartridge::SNESROM::PLAIN, saves: false)
             chip = board.name == :super_fx
             vectors = W65816.new("runtime vectors", home: :first)
             Boot.emit_vectors(vectors)
@@ -60,6 +62,7 @@ module VBlank
             Tint.emit(asm, memory, Tint.scratch(memory))
             Collide.emit(asm, memory, Collide.scratch(memory))
             Chip.emit(asm, memory) if chip
+            Saving.emit(asm, memory, Saving.scratch(memory)) if saves
             emit_start(asm, chip: chip)
             emit_frame_begins(asm, frame_begins)
             [vectors.section, asm.section] + (chip && painted ? [ChipPaint.gsu_section] : [])

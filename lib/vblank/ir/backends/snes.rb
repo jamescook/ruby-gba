@@ -23,6 +23,7 @@ require_relative "snes/painted_art"
 require_relative "snes/lowering/picture"
 require_relative "snes/lowering/paint"
 require_relative "snes/lowering/collision"
+require_relative "snes/lowering/saving"
 require_relative "snes/lowering"
 require_relative "snes/headless_run"
 require_relative "snes/checked_run"
@@ -63,11 +64,12 @@ module VBlank
           board = board_for(program)
           memory = Memory.new
           painted = Lowering::Paint.painted?(program)
+          saves = SaveLayout.named_by?(program)
           Runtime.reserve(memory, painted: painted, chip: board.name == :super_fx)
           lowering = Lowering.new(program, memory: memory)
           game = lowering.sections + lowering.art_sections
           runtime = Runtime.sections(memory, main: Lowering::MAIN, frame_begins: lowering.frame_begins, painted: painted,
-                                             board: board)
+                                             board: board, saves: saves)
           linked = Linker.new(runtime + game, most_banks: board.most_banks).link
           routines = lowering.section_routines.map do |label, routine|
             placed = linked.sections.fetch(label)
@@ -80,7 +82,8 @@ module VBlank
                       irq: linked.address_of("rt_irq"), brk: linked.address_of("rt_irq"),
                       cop: linked.address_of("rt_irq") }
           Cartridge::SNESROM.new(linked.banks, title: title, vectors: vectors.transform_values { |at| at & 0xFFFF },
-                                               built: built, board: board)
+                                               built: built, board: board,
+                                               save_bytes: saves ? Runtime::Saving::SIZE : 0)
         end
 
         private

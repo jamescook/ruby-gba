@@ -58,11 +58,13 @@ module VBlank
                                                # without one works nothing out again
                                                show_light_now: :emit_nothing
                                              }.merge(Picture::STATEMENTS).merge(Paint::STATEMENTS)
+                                              .merge(Saving::STATEMENTS)
                                               .merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))
 
           include Picture
           include Paint
           include Collision
+          include Saving
 
           VALUES = Ractor.make_shareable({
                                            int: :value_of_int, var_ref: :value_of_var_ref, binop: :value_of_binop,
@@ -73,7 +75,7 @@ module VBlank
                                            pressed: :value_of_pressed, list_get: :value_of_list_get,
                                            list_len: :value_of_list_len, table_get: :value_of_table_get,
                                            timer_ticks: :value_of_timer_ticks, chance: :value_of_chance
-                                         }.merge(Collision::VALUES))
+                                         }.merge(Collision::VALUES).merge(Saving::VALUES))
 
           # EVERY KIND THIS LOWERING CANNOT MAKE YET, by what it is part of. A kind leaves the list the
           # day the Super Nintendo does it; test_snes_kind_coverage.rb holds the list and the tables
@@ -85,9 +87,7 @@ module VBlank
                                                                         copy_tiles copy_owed_tiles data_byte],
                                                     "the sound" => %i[enable_sound beep noise wave stop_wave play_song
                                                                       stop_music play_from_list play_sound_effect
-                                                                      play_sample stop_sample],
-                                                    "save memory" => %i[save_init save_store save_write save_erase
-                                                                        save_read save_sum]
+                                                                      play_sample stop_sample]
                                                   })
 
           # The kinds the Super Nintendo cannot do at all, refused in the words its answers have
@@ -195,6 +195,7 @@ module VBlank
             refuse_what_snes_lacks!
             refuse_routines_that_call_themselves!
             refuse_unmade_picture!
+            refuse_unsupported_save_memory!
             assign_background_layers unless painted?
             make_sprite_art
             reserve_patches

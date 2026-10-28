@@ -59,10 +59,12 @@ module VBlank
 
             frames ||= Reference::DEFAULT_FRAMES
             refuse_endless_game_without_frames!(program)
+            before = @save.dup # the interpreter starts from the save memory the cartridge started from
             @cartridge.run(program, frames: frames)
             width, height = @cartridge.screen.then { |picture| [picture.width, picture.height] }
-            moments = play_on_interpreter(program, frames, width, height)
+            moments = play_on_interpreter(program, frames, width, height, before)
             difference = self.class.first_difference(moments, @cartridge.moments)
+            difference ||= self.class.save_difference(before, @save) if SaveLayout.named_by?(program)
             raise Disagreement, "the Super Nintendo lowering and the interpreter disagree at #{difference}" if difference
 
             self
@@ -93,9 +95,10 @@ module VBlank
           end
 
           # The interpreter is told how many frames each pass took on the cartridge, so whatever keeps
-          # real time moves on by the same frames on both.
-          def play_on_interpreter(program, frames, width, height)
-            interpreter = Reference.new(save: @save.dup).hold(*@held)
+          # real time moves on by the same frames on both. It plays on +save+, which it leaves as the
+          # save memory it ended with.
+          def play_on_interpreter(program, frames, width, height, save)
+            interpreter = Reference.new(save: save).hold(*@held)
             moments = []
             interpreter.frames_each_pass { |pass| @cartridge.frames_took(pass) }
             interpreter.input_each_frame { |frame| @played.fetch(frame, []) }

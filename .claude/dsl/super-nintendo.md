@@ -87,8 +87,8 @@ and a test fails when the two differ. The Advance's answers are in
 - `text_height` — works: the same as on the Advance.
 - `menu` — works: see `draw_text` for what its rows are made of.
 - `var` — works: a variable is the same 32-bit whole number as on the Advance.
-- `save_var` — works: kept in the cartridge's battery-backed memory.
-- `save_data` — works: kept in the cartridge's battery-backed memory.
+- `save_var` — works: kept in 32K of battery-backed RAM on the cartridge. A cartridge with a Super FX chip cannot keep a save yet.
+- `save_data` — works: kept in 32K of battery-backed RAM on the cartridge. A cartridge with a Super FX chip cannot keep a save yet.
 - `clock` — **refused**: a Super Nintendo cartridge built here has no clock chip. Ask the player for the time on a screen of the game's own, if the game needs it.
 - `saves_keep_everything` — works: the same as on the Advance.
 - `set` — works: the same as on the Advance.
@@ -165,4 +165,3 @@ and a game that reaches one of these steps is refused, naming the step, until it
 
 - the picture: `draw_column_at`, `place_bar`, `background_colors`, `scroll_rows`, `camera`, `show_picture_group`, `color_list_holds`, `copy_tiles`, `copy_owed_tiles`, `data_byte`
 - the sound: `enable_sound`, `beep`, `noise`, `wave`, `stop_wave`, `play_song`, `stop_music`, `play_from_list`, `play_sound_effect`, `play_sample`, `stop_sample`
-- save memory: `save_init`, `save_store`, `save_write`, `save_erase`, `save_read`, `save_sum`

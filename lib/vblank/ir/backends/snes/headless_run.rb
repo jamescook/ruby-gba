@@ -120,14 +120,26 @@ module VBlank
                                 "interpreter. Say `skip_on_snes` in this one test."
           end
 
+          # THE SAVE MEMORY goes in as the .srm file bsnes keeps a cartridge's battery-backed RAM in,
+          # and what the run left there comes back into the same image when the console is off
+          # again — so one image handed to two runs is a power cycle, as it is for the interpreter.
           def play(frames)
-            Diagnostics::Emulator.with_cartridge(@rom, file_name: "game.sfc") do |core|
+            saves = SaveLayout.named_by?(@rom.built.source_program)
+            refuse_power_cut! if saves
+            Diagnostics::Emulator.with_cartridge(@rom, file_name: "game.sfc", save: (@save if saves)) do |core|
               @core = core
               set_buttons(@held)
               play_passes(frames)
             ensure
               @core = nil
             end
+          end
+
+          def refuse_power_cut!
+            return unless @save.power_left
+
+            raise CannotAnswer, "a Super Nintendo cartridge keeps no count of its steps, so it cannot have its power " \
+                                "cut after #{@save.power_left} of them"
           end
 
           # Pass by pass until +frames+ have ended or the game stops: each pass's numbers when the game
@@ -299,6 +311,8 @@ module VBlank
             when Runtime::Frame::LIST_FULL then Faults.list_full(list, first)
             when Runtime::Frame::LIST_EMPTY then Faults.list_empty(list, first.zero? ? :back : :front)
             when Runtime::Frame::PICTURE_NOT_THERE then Faults.picture_missing(first, second)
+            when Runtime::Frame::SAVE_READ_OUTSIDE then Faults.save_outside("read", first, second)
+            when Runtime::Frame::SAVE_WRITE_OUTSIDE then Faults.save_outside("wrote to", first, second)
             when Runtime::Frame::CELLS_FULL
               raise CannotAnswer, "the Super Nintendo cartridge stopped: the game changed more than " \
                                   "#{Runtime::Picture::MOST_CELLS} cells of its backgrounds in one pass, more than its " \

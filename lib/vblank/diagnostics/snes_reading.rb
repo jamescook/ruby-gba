@@ -14,8 +14,9 @@ module VBlank
       # Eight lists of sixteen colours for the backgrounds, then eight for the sprites.
       PALETTE = Verifier::PaletteLayout.new(half: 128, group: 16)
 
-      # bsnes keeps a cartridge's battery-backed RAM in a .srm file of its own, nothing after it.
-      SAVE_FILE = Verifier::SaveFileLayout.new(whole: 0x800, clock_bytes: 0)
+      # bsnes keeps a cartridge's battery-backed RAM in a .srm file of its own, nothing after it,
+      # as big as the header says: 32K, all the save memory a game has (IR::Backends::SNES::Runtime::Saving).
+      SAVE_FILE = Verifier::SaveFileLayout.new(whole: IR::Backends::SNES::Runtime::Saving::SIZE, clock_bytes: 0)
 
       def passes = refuse_snes_reader!(:passes)
       def sprites(_name = nil) = refuse_snes_reader!(:sprites)
