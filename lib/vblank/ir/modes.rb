@@ -63,6 +63,9 @@ module VBlank
         name.to_s.sub(/\A_scene_/, "")
       end
 
+      # Is +name+ a scene's func, by the prefix the builder gives one?
+      def self.scene_func?(name) = name.to_s.start_with?("_scene_")
+
       # The boot screen mode: the mode declared at the top level, or :direct.
       attr_reader :default_mode
 

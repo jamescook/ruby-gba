@@ -31,6 +31,80 @@ module VBlank
       # sixth of a second — long enough that no ordinary pass reaches it.
       MOST = 10
 
+      # WHAT A GAME LOOP PLACES AT THE FRAME BOUNDARY FOR THE DISPLAY, which the builder puts in the
+      # gap after the loop's wait among the rest it does there: where each background it moves
+      # sits, the top of each status bar, the map and the colours each background was handed, how
+      # each turning one is turned, the tiles and sprite lists painted since, and the frame's
+      # sprites — each write held to its scene's turn, or to a change, by an `if`. The builder
+      # moves every such write out of the game's own lines to put it there, so a statement of the
+      # loop holding one of these is one of the boundary's.
+      PLACED_AT_BOUNDARY = %i[scroll_background place_bar show_map background_colors affine_background
+                              copy_owed_tiles color_list_holds present_objects].freeze
+
+      # ...and the routines that put the frame's sprites in order for it (a pool's things, a
+      # `draw_in_order`), by the kind of name the builder makes for each (Messages::MadeNames).
+      ORDERING_SPRITES = %i[pool_stacking draw_order].freeze
+
+      # Is +statement+ one of the boundary's writes for the display (PLACED_AT_BOUNDARY,
+      # ORDERING_SPRITES)?
+      def self.placed_at_boundary?(statement)
+        statement.walk.any? do |node|
+          PLACED_AT_BOUNDARY.include?(node.kind) ||
+            (node.kind == :call && ORDERING_SPRITES.include?(Messages::MadeNames.read(node.target)&.first))
+        end
+      end
+
+      # A game loop as a console runs it: +before+, what runs once before the loop; +each_time+,
+      # what the loop runs each time round; +placed+, the boundary's writes among those, which a
+      # pass that put a background up does not let move that background off its corner
+      # (Reference#put_up_background) — the frame it was put up for shows it from there; and
+      # +variables+, the ones it keeps of its own (#loop_in_console_order).
+      #
+      # +pass_end+ is what ends each pass before its wait, which a pass that halts runs first too:
+      # the game's last picture is placed as any pass's is.
+      ConsoleLoop = Data.define(:before, :each_time, :placed, :variables, :pass_end) do
+        def placed?(node) = placed.any? { |write| write.equal?(node) }
+      end
+
+      # A game loop's +statements+ in the order +console+ (a Console::Description) runs them (see
+      # ConsoleLoop). On a console that sends its sprites and scroll from a copy as the wait ends
+      # (Description#sprites_placed_before_wait), each pass ends by placing what is placed at the
+      # boundary and then waits, so the frame after the wait shows the pass that just ended — as
+      # one that writes them straight in after the wait shows it. The first wait, at power-on,
+      # comes before any pass, so it has nothing to place and runs once before the loop. Every
+      # backend that runs such a console, the interpreter included, takes the loop in this order.
+      #
+      # THE FRAME SHOWS THE SCENE THE PASS RAN. What a scene owns is placed while its scene is up,
+      # which the builder writes as a test of the game's scene number (Builder#scene_up). A scene
+      # that hands over sets that number as it runs, and the next scene comes up in the next pass;
+      # so at the end of the pass the number already names the next scene, while the frame still
+      # shows this one. So each scene dispatch of the loop notes the number it read, and the
+      # boundary's writes are placed with the number put back to that for as long as they run.
+      def self.loop_in_console_order(statements, console)
+        as_written = ConsoleLoop.new(before: [], each_time: statements, placed: [], variables: [], pass_end: [])
+        return as_written unless console.sprites_placed_before_wait && statements.first&.kind == :wait_vblank
+
+        wait = statements.first
+        placed, body = statements.drop(1).partition { |node| placed_at_boundary?(node) }
+        return as_written if placed.empty?
+
+        scene_numbers = body.select { |node| scene_dispatch?(node) }.map(&:var).uniq
+        read = ->(number) { :"__scene_read_#{number}" }
+        held = ->(number) { :"__scene_held_#{number}" }
+        noted = body.flat_map { |node| scene_dispatch?(node) ? [Build.set(read.call(node.var), Build.var_ref(node.var)), node] : [node] }
+        put_back = scene_numbers.flat_map do |number|
+          [Build.set(held.call(number), Build.var_ref(number)), Build.set(number, Build.var_ref(read.call(number)))]
+        end
+        restored = scene_numbers.map { |number| Build.set(number, Build.var_ref(held.call(number))) }
+        pass_end = [*put_back, *placed, *restored]
+        ConsoleLoop.new(before: [wait], each_time: [*noted, *pass_end, wait], placed: placed, pass_end: pass_end,
+                        variables: scene_numbers.flat_map { |number| [read.call(number), held.call(number)] })
+      end
+
+      # A `case` that hands the screen to a scene: one whose clauses call scenes. A game's own
+      # dispatch on a number of its own is left as it is.
+      def self.scene_dispatch?(node) = node.kind == :case && node.clauses.any? { |_, target| Modes.scene_func?(target) }
+
       # THE STATEMENTS A BEAT MEANS — `every` and `after` (Reference#exec_every, #exec_after) —
       # said as the plain ones every lowering already makes, so none of them writes the rule
       # again. The beat's counter moves on by the frames the pass answers for, and at least one:

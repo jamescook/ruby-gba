@@ -91,9 +91,10 @@ class TestFacingSheet < Minitest::Test
 
   # --- a hardware sprite: each row imported to the right direction ---
 
+  # The pose is placed as far behind as the framework draws (Testing#framework_drawing_lag).
   def test_a_hardware_sprite_imports_the_same_way
-    assert_equal color(255, 0, 0),   spot(walker(mode: :tiled, face: :down,  run: 2)), "tiled: down"
-    assert_equal color(255, 255, 0), spot(walker(mode: :tiled, face: :right, run: 2)), "tiled: right"
+    assert_equal color(255, 0, 0),   spot(walker(mode: :tiled, face: :down,  run: 1 + framework_drawing_lag)), "tiled: down"
+    assert_equal color(255, 255, 0), spot(walker(mode: :tiled, face: :right, run: 1 + framework_drawing_lag)), "tiled: right"
   end
 
   # --- real hardware: the imported sheet composites on the console ---

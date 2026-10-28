@@ -84,8 +84,9 @@ class TestSpriteDrawsWith < Minitest::Test
   end
 
   def test_a_painted_picture_draws_with_other_colors_on_both_backends
-    hurt = game_player.run(painted_program, frames: 3)
-    past = game_player.run(painted_program, frames: 4)
+    # As far behind as the framework draws (Testing#framework_drawing_lag).
+    hurt = game_player.run(painted_program, frames: 2 + framework_drawing_lag)
+    past = game_player.run(painted_program, frames: 3 + framework_drawing_lag)
 
     assert_equal Color.resolve(:yellow), hurt.screen.pixel(41, 41), "the first place of :hurt"
     assert_equal Color.resolve(:white), hurt.screen.pixel(45, 41), "and the second"
@@ -157,8 +158,11 @@ class TestSpriteDrawsWith < Minitest::Test
   def test_a_number_picks_one_of_several_lists_and_past_them_is_the_sprites_own
     colors = (1..4).map { |frames| left_edge_color(frames) }
 
-    # The first frame is drawn before the game loop has said anything.
-    assert_equal %i[red yellow orange red].map { |name| Color.resolve(name) }, colors
+    # Where a sprite is drawn from the pass before, the first frame is drawn before the game loop
+    # has said anything (Testing#framework_drawing_lag).
+    shown = %i[red yellow orange red red].drop(1 - framework_drawing_lag).first(4)
+
+    assert_equal shown.map { |name| Color.resolve(name) }, colors
   end
 
   def test_the_console_changes_colors_on_the_frame_the_sprite_moves

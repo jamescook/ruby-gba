@@ -49,6 +49,13 @@ module VBlank
     def self.console = RUN.console
     def game_console = Testing.console
 
+    # HOW MANY PASSES BEHIND THE GAME'S NUMBERS what the framework draws for it is — its sprites,
+    # its tiled text, its scroll — read at a frame boundary on this run's console. One on the
+    # Advance, which places them in the gap after the boundary from the pass before; none on the
+    # Color, which places them before it from the pass just ended
+    # (Console::Description#sprites_placed_before_wait). What the game draws itself is never behind.
+    def framework_drawing_lag = Console.described(game_console).sprites_placed_before_wait ? 0 : 1
+
     # THE EMULATOR, IF THE GAME HAS IT, LOADED NOW rather than by the first test that wants it.
     # A suite may play its tests in Ractors, and loading it writes globals only the main Ractor
     # may touch (see Diagnostics::Emulator.load!). A game without it in its test group loses

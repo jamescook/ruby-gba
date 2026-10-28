@@ -272,6 +272,8 @@ module VBlank
           @over_budget = false
           @uses_frames = false # set once the program reaches its first vblank (advance_frame)
           @setting_up_uncounted = @frames_setting_up # counted at the first frame (#store_frame_counters)
+          @placing_at_pass_end = false # while a boundary write placed at the end of a pass runs (#exec_loop)
+          @loops_running = [] # the game loops running, innermost last (#place_pass_end_before_halt)
           size_screen_for(node)
           collect_definitions(node)
           start_mixer_clock(node)
@@ -819,8 +821,30 @@ module VBlank
           end
         end
 
+        # In the order the console runs a game loop's frame boundary (IR::Frames.loop_in_console_order).
+        # A boundary write placed at the end of a pass leaves a background that pass put up at its
+        # corner (#exec_scroll_background, #exec_place_bar).
         def exec_loop(node)
-          loop { node.children.each { |child| exec(child) } }
+          order = IR::Frames.loop_in_console_order(node.children, @console)
+          order.before.each { |child| exec(child) }
+          @loops_running << order
+          loop { order.each_time.each { |child| exec_in_loop(child, order) } }
+        ensure
+          @loops_running.pop
+        end
+
+        def exec_in_loop(child, order)
+          @placing_at_pass_end = order.placed?(child)
+          exec(child)
+        ensure
+          @placing_at_pass_end = false
+        end
+
+        # A pass that halts ends as every pass does, with its sprites and scroll placed, where its
+        # console places them at the end of a pass (IR::Frames::ConsoleLoop#pass_end).
+        def place_pass_end_before_halt
+          order = @loops_running.last
+          order&.pass_end&.each { |child| exec_in_loop(child, order) }
         end
 
         def exec_inside(node)
@@ -890,6 +914,7 @@ module VBlank
         end
 
         def exec_halt(node)
+          place_pass_end_before_halt
           @log << [:halt]
           throw :halt
         end
@@ -1496,6 +1521,9 @@ module VBlank
         def reset_scenery_state
           @bg_shown = []
           @scene_fb = nil
+          # ...and where each sprite was drawn on the old screen: what was under it went with that
+          # screen, so nothing is put back over the new one.
+          @obj_prev.clear
         end
 
         # The scenery on screen right now: what every screen shows, plus the active scene's
@@ -1692,8 +1720,9 @@ module VBlank
         def exec_scroll_background(node)
           @bg_by_name.fetch(node.name) { raise ProgramError, "scroll of undeclared background #{node.name.inspect}" }
           @bg_scroll[node.name] = [eval_value(node.x), eval_value(node.y)]
-          # ...and a scroll written after it was put up is the place the display reads from.
-          @bg_from_corner.delete(node.name)
+          # ...and a scroll written after it was put up is the place the display reads from, but
+          # one placed at the end of the pass that put it up, which shows it from its corner.
+          @bg_from_corner.delete(node.name) unless @placing_at_pass_end
           request_repaint
         end
 
@@ -1704,8 +1733,9 @@ module VBlank
           return unless bar.bar? # a background that is not a status bar has no top to place
 
           @bar_top[node.name] = eval_value(node.top).clamp(0, @screen.height)
-          # ...and placed after it was put up, this is where the display reads it from.
-          @bg_from_corner.delete(node.name)
+          # ...and placed after it was put up, this is where the display reads it from, but not
+          # placed at the end of the pass that put it up (#exec_scroll_background).
+          @bg_from_corner.delete(node.name) unless @placing_at_pass_end
           request_repaint
         end
 

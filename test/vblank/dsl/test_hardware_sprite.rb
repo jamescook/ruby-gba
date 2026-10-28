@@ -62,7 +62,8 @@ class TestHardwareSprite < Minitest::Test
   # Holding right for 3 frames (step 8): drawn at 40, 48, 56 on successive frames,
   # so it comes to rest with its body over 56..63 while the start column shows floor.
   def test_a_moving_sprite_leaves_no_trail
-    screen = game_player.input_each_frame { [:right] }.run(hero_program(frames: 3)).screen
+    # The third pass's place, as far behind as the framework draws (Testing#framework_drawing_lag).
+    screen = game_player.input_each_frame { [:right] }.run(hero_program(frames: 2 + framework_drawing_lag)).screen
     assert_equal Color.resolve(:red),  screen.pixel(60, 44), "the hero is at its new spot"
     assert_equal Color.resolve(:blue), screen.pixel(44, 44), "the start column shows floor again — no trail"
   end

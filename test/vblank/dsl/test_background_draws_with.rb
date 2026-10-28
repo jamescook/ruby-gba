@@ -225,12 +225,12 @@ class TestBackgroundDrawsWith < Minitest::Test
     prog = a_wall_that_walks_through_its_lists
     left = ->(frames) { game_player.run(prog, frames: frames).screen.pixel(1, 1) }
 
-    # The display is told in the gap before a frame, from the number the pass before settled
-    # on — the same frame behind every picture the framework draws for you.
-    assert_equal Color.resolve(:red), left.call(1), "nothing has been said yet, so it is as drawn"
-    assert_equal Color.resolve(:orange), left.call(2), "the counter said 0"
-    assert_equal Color.resolve(:magenta), left.call(3), "...then 1"
-    assert_equal Color.resolve(:red), left.call(4), "...then 2, which names no list: as drawn again"
+    # The display is told at the frame boundary, from the number the pass settled on — as far
+    # behind as every picture the framework draws for you (Testing#framework_drawing_lag).
+    said = [[:red, "nothing has been said yet, so it is as drawn"], [:orange, "the counter said 0"],
+            [:magenta, "...then 1"], [:red, "...then 2, which names no list: as drawn again"],
+            [:red, "...then 3, which names none either"]].drop(1 - framework_drawing_lag)
+    said.first(4).each.with_index(1) { |(color, why), frames| assert_equal Color.resolve(color), left.call(frames), why }
   end
 
   def test_the_console_walks_the_lists_the_same_way
@@ -409,10 +409,13 @@ class TestBackgroundDrawsWith < Minitest::Test
     prog = a_backdrop_drawn_from_two_lists
     seen = ->(frames) { game_player.run(prog, frames: frames).screen.then { |s| [s.pixel(*SEA_AT), s.pixel(*SKY_AT)] } }
 
-    assert_equal [Color.resolve(:red), Color.resolve(:blue)], seen.call(1), "nothing said yet: as drawn"
-    assert_equal [Color.resolve(:orange), Color.resolve(:yellow)], seen.call(2), "version 0 of both"
-    assert_equal [Color.resolve(:magenta), Color.resolve(:cyan)], seen.call(3), "version 1 of both"
-    assert_equal [Color.resolve(:red), Color.resolve(:blue)], seen.call(4), "past the end: both as drawn"
+    # As far behind as every picture the framework draws for you (Testing#framework_drawing_lag).
+    said = [[%i[red blue], "nothing said yet: as drawn"], [%i[orange yellow], "version 0 of both"],
+            [%i[magenta cyan], "version 1 of both"], [%i[red blue], "past the end: both as drawn"],
+            [%i[red blue], "further past the end: both as drawn"]].drop(1 - framework_drawing_lag)
+    said.first(4).each.with_index(1) do |(colors, why), frames|
+      assert_equal colors.map { |name| Color.resolve(name) }, seen.call(frames), why
+    end
   end
 
   def test_the_console_steps_every_list_together_too
@@ -561,7 +564,8 @@ class TestBackgroundDrawsWith < Minitest::Test
   end
 
   def test_seven_lists_alike_in_colour_each_walk_their_own_steps
-    screen = game_player.run(a_screen_of_seven_lists_brought_in_from_white, frames: 3).screen
+    # The pass whose number is 1, its last step, as far behind as the framework draws (Testing#framework_drawing_lag).
+    screen = game_player.run(a_screen_of_seven_lists_brought_in_from_white, frames: 2 + framework_drawing_lag).screen
 
     ARRIVING.each_with_index do |color, i|
       assert_equal Color.resolve(color), screen.pixel((i * 8) + 1, 1), "list#{i}'s column at its last step"

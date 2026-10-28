@@ -238,10 +238,14 @@ class TestTileRuns < Minitest::Test
     end
     b.finalize_program
     shown = ->(frames) { game_player.hold(:a).run(b.program, frames: frames).screen }
+    # On the Color the sprite is placed at the end of the pass, so it moves on the letter's own
+    # frame (Testing#framework_drawing_lag).
+    lag = framework_drawing_lag
+    stood = lag == 1 ? 40 : 80
 
-    typed = (1..4).find { |frames| shown.call(frames).pixel(40, 20) == WHITE }
+    typed = (1..4).find { |frames| shown.call(frames).pixel(stood, 20) == WHITE }
     refute_nil typed, "the letter shows where the sprite stood"
-    assert_equal WHITE, shown.call(typed + 1).pixel(80, 20), "and the sprite moves on the next frame"
+    assert_equal WHITE, shown.call(typed + lag).pixel(80, 20), "and the sprite moves on the next frame"
     [typed, typed + 1].each { |frames| assert_backends_agree(b.program, frames: frames, keys: [:a]) }
   end
 

@@ -58,13 +58,19 @@ module VBlank
     # of it the build keeps for itself (the stack, the copy of the sprite table), and
     # +roomier_memory_bytes+ the memory beside it that only lists and pools can move to, 0 where
     # there is none.
+    #
+    # +sprites_placed_before_wait+ says where a game loop's pass places the frame's sprites and
+    # scroll (IR::Frames.loop_in_console_order). A console that writes them straight into its display
+    # in the gap between frames places them after the wait, from the pass just ended. One that
+    # sends them from a copy as the wait ends places them before it, or they would show a frame
+    # later than the pass that moved them.
     Description = Data.define(:name, :title, :screen_width, :screen_height, :buttons, :sprites, :sprite_places,
                               :sprites_a_row, :turning_sprites, :backgrounds, :turning_backgrounds,
                               :backgrounds_beside_turning, :bar_is_a_background, :blends, :list_colors, :painted_pages,
                               :clock_keeps_date, :cycles_a_second, :cycles_a_frame, :samples_a_copy,
                               :sample_timer_step, :sample_timer_counts, :recordings_at_once, :mixes_recordings,
                               :voice_output_hz, :largest_memory_bytes, :work_memory_bytes, :work_memory_kept_bytes,
-                              :roomier_memory_bytes, :extension) do
+                              :roomier_memory_bytes, :sprites_placed_before_wait, :extension) do
       def screen_size = [screen_width, screen_height]
 
       # How much of the work memory is free for a game's own variables and lists.
@@ -119,7 +125,10 @@ module VBlank
                               largest_memory_bytes: 256 * 1024,
                               # The 32K quick memory, 4K of it the stack and the framework's own.
                               work_memory_bytes: 32 * 1024, work_memory_kept_bytes: 4 * 1024,
-                              roomier_memory_bytes: 256 * 1024, extension: ".gba")
+                              roomier_memory_bytes: 256 * 1024,
+                              # The sprite table and the scroll are written straight into the
+                              # console in the gap after the wait, and show on the frame after it.
+                              sprites_placed_before_wait: false, extension: ".gba")
 
     # The Game Boy Color: a smaller screen, eight buttons, forty sprites and ten on a row, one
     # background, nothing that turns, lists of four colours, and a clock that counts days. What
@@ -152,7 +161,10 @@ module VBlank
                             # lowering's tests hold this to (test_gbc_memory.rb).
                             largest_memory_bytes: 8 * 1024,
                             work_memory_bytes: 8 * 1024, work_memory_kept_bytes: 1536,
-                            roomier_memory_bytes: 0, extension: ".gbc")
+                            roomier_memory_bytes: 0,
+                            # The sprite table and the scroll are sent from a copy as the wait
+                            # ends, so a pass's are placed before it to show on the frame after.
+                            sprites_placed_before_wait: true, extension: ".gbc")
 
     # Each console's description is reached through its kit (Console::Kit, Console.described).
 

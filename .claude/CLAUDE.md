@@ -219,7 +219,8 @@ Test each layer the way a player experiences it, not by restating the code.
   - **A pixel and a variable read at the same moment are not always the same frame.**
     What the program draws itself is in step with its variables; what the framework
     redraws for you every frame — a sprite, a HUD glyph, a background's scroll — shows
-    the value from the frame before, on both backends and on real hardware. See
+    the value from the frame before on the Advance (on every backend and on real hardware).
+    On the Color it shows the pass just ended (`framework_drawing_lag` in a test). See
     "Which frame's numbers the picture was drawn from" in `.claude/rules/testing.md`.
   - Guardrail tests are behavioral too: assert the *friendly error* a misuse
     raises (a dropped `.then`, an unknown button) — the class and a key phrase,

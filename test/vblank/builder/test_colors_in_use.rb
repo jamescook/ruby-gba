@@ -78,7 +78,9 @@ class TestColorsInUse < Minitest::Test
   end
 
   def test_each_thing_wears_its_own_list_in_the_room_that_uses_it
-    assert_equal (0...4).map { |n| self.class.colors_of_list(n)[1] }, things_drawn(3), "the first room"
+    # The second pass, still in the first room, as far behind as the framework draws
+    # (Testing#framework_drawing_lag).
+    assert_equal (0...4).map { |n| self.class.colors_of_list(n)[1] }, things_drawn(2 + framework_drawing_lag), "the first room"
     assert_equal (4...8).map { |n| self.class.colors_of_list(n)[1] }, things_drawn(6), "the second room"
   end
 

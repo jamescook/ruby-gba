@@ -65,9 +65,11 @@ class TestSpriteAnimation < Minitest::Test
     assert_equal Color.resolve(:blue), spot(blinker(mode: :bitmap, run: 6)), "a few frames on it has flipped"
   end
 
+  # A hardware sprite's pose is placed as far behind as the framework draws, which a game that
+  # halts shows (Testing#framework_drawing_lag).
   def test_a_hardware_sprite_flipbook_cycles
-    assert_equal Color.resolve(:red),  spot(blinker(mode: :tiled, run: 4)), "it starts on the first frame"
-    assert_equal Color.resolve(:blue), spot(blinker(mode: :tiled, run: 6)), "a few frames on it has flipped"
+    assert_equal Color.resolve(:red),  spot(blinker(mode: :tiled, run: 3 + framework_drawing_lag)), "it starts on the first frame"
+    assert_equal Color.resolve(:blue), spot(blinker(mode: :tiled, run: 5 + framework_drawing_lag)), "a few frames on it has flipped"
   end
 
   def test_a_software_sprite_declared_inside_a_scene_cycles
@@ -76,8 +78,8 @@ class TestSpriteAnimation < Minitest::Test
   end
 
   def test_a_hardware_sprite_declared_inside_a_scene_cycles
-    assert_equal Color.resolve(:red),  spot(blinker(mode: :tiled, run: 4, in_scene: true))
-    assert_equal Color.resolve(:blue), spot(blinker(mode: :tiled, run: 6, in_scene: true)), "it has flipped"
+    assert_equal Color.resolve(:red),  spot(blinker(mode: :tiled, run: 3 + framework_drawing_lag, in_scene: true))
+    assert_equal Color.resolve(:blue), spot(blinker(mode: :tiled, run: 5 + framework_drawing_lag, in_scene: true)), "it has flipped"
   end
 
   def test_a_flipbook_declared_inside_a_scene_cycles_on_the_console

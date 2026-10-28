@@ -88,7 +88,8 @@ class TestShowMap < Minitest::Test
       (frames == 4).then { rooms.show_map :hall }
     end
 
-    assert_equal Color.resolve(:blue), cell_of(program, frames: 4), "the cave on the way out"
+    # The third pass's map, as far behind as the framework draws (Testing#framework_drawing_lag).
+    assert_equal Color.resolve(:blue), cell_of(program, frames: 3 + framework_drawing_lag), "the cave on the way out"
     assert_equal Color.resolve(:red), cell_of(program, frames: 8), "and the hall again on the way back"
   end
 

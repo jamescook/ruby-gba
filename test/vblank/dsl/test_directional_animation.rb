@@ -50,11 +50,12 @@ class TestDirectionalAnimation < Minitest::Test
 
   # --- a hardware (tiled) sprite: facing picks the row, the frame animates within it ---
 
-  # The console composites the composed pose.
+  # The console composites the composed pose, placed as far behind as the framework draws
+  # (Testing#framework_drawing_lag).
   def test_a_hardware_sprite_animates_per_direction
-    assert_equal Color.resolve(:red),   spot(walker(mode: :tiled, face: :right, run: 2)), "right, first frame"
-    assert_equal Color.resolve(:green), spot(walker(mode: :tiled, face: :right, run: 4)), "right, next frame"
-    assert_equal Color.resolve(:blue),  spot(walker(mode: :tiled, face: :down,  run: 2)), "down, first frame"
+    assert_equal Color.resolve(:red),   spot(walker(mode: :tiled, face: :right, run: 1 + framework_drawing_lag)), "right, first frame"
+    assert_equal Color.resolve(:green), spot(walker(mode: :tiled, face: :right, run: 3 + framework_drawing_lag)), "right, next frame"
+    assert_equal Color.resolve(:blue),  spot(walker(mode: :tiled, face: :down,  run: 1 + framework_drawing_lag)), "down, first frame"
   end
 
   # --- real hardware: the composed pose renders on the console ---

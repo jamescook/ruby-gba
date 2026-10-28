@@ -72,9 +72,10 @@ class TestHideSprites < Minitest::Test
     Fonts.get(:default).each_pixel("H") { |dx, dy| return [TEXT[0] + dx, TEXT[1] + dy] }
   end
 
-  # The sprites are drawn in the gap after each pass, so the picture seen while +passes+ is n
+  # Where the sprites are drawn in the gap after each pass, the picture seen while +passes+ is n
   # was drawn from pass n - 1: the frame drawn after the pass that says hide_sprites is the one
-  # seen while passes is one past it.
+  # seen while passes is one past it. Where they are placed before the gap, it is the one seen
+  # while passes is the call's own (Testing#framework_drawing_lag).
   def test_the_frame_after_the_call_shows_no_sprite_and_the_next_shows_them_all
     player = game_player
     seen = {}
@@ -87,7 +88,7 @@ class TestHideSprites < Minitest::Test
     red = Color.resolve(:red)
     white = Color.resolve(:white)
     seen.each do |passes, (hero, text)|
-      if passes == CALLED_ON + 1
+      if passes == CALLED_ON + framework_drawing_lag
         refute_equal red, hero, "the hero is off on the frame after the call"
         refute_equal white, text, "the text is off on the frame after the call"
       else
@@ -112,8 +113,9 @@ class TestHideSprites < Minitest::Test
     player.run(program(ARRIVAL), frames: CALLED_ON_ARRIVAL + 4)
 
     red = Color.resolve(:red)
-    assert_equal red, seen.fetch(CALLED_ON_ARRIVAL), "the hero shows on the title"
-    refute_equal red, seen.fetch(CALLED_ON_ARRIVAL + 1), "the hero is off on the frame play comes up"
-    assert_equal red, seen.fetch(CALLED_ON_ARRIVAL + 2), "the hero is back over the scenery"
+    hidden = CALLED_ON_ARRIVAL + framework_drawing_lag
+    assert_equal red, seen.fetch(hidden - 1), "the hero shows on the title"
+    refute_equal red, seen.fetch(hidden), "the hero is off on the frame play comes up"
+    assert_equal red, seen.fetch(hidden + 1), "the hero is back over the scenery"
   end
 end

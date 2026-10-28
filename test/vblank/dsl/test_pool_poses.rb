@@ -98,9 +98,10 @@ class TestPoolPoses < Minitest::Test
     end
 
     # Two pictures at a rate of two: each is shown for two frames, then the cycle wraps.
-    assert_equal RED, game_player.run(prog, frames: 2).screen.pixel(22, 22)
-    assert_equal BLUE, game_player.run(prog, frames: 3).screen.pixel(22, 22)
-    assert_equal RED, game_player.run(prog, frames: 5).screen.pixel(22, 22), "and it wraps"
+    # Its poses are placed as far behind as the framework draws (Testing#framework_drawing_lag).
+    assert_equal RED, game_player.run(prog, frames: 1 + framework_drawing_lag).screen.pixel(22, 22)
+    assert_equal BLUE, game_player.run(prog, frames: 2 + framework_drawing_lag).screen.pixel(22, 22)
+    assert_equal RED, game_player.run(prog, frames: 4 + framework_drawing_lag).screen.pixel(22, 22), "and it wraps"
   end
 
   # A pool declared inside a scene, which is where a game with screens declares its cast. A
@@ -129,7 +130,8 @@ class TestPoolPoses < Minitest::Test
 
   def test_a_pool_declared_inside_a_scene_cycles_its_frames
     prog = scene_pool_program
-    shown = (2..7).map { |frames| game_player.run(prog, frames: frames).sprites(:guard).map(&:picture) }
+    # As far behind as the framework draws (Testing#framework_drawing_lag).
+    shown = ((1 + framework_drawing_lag)..(6 + framework_drawing_lag)).map { |frames| game_player.run(prog, frames: frames).sprites(:guard).map(&:picture) }
 
     assert_equal [[:left1], [:left2], [:left2], [:left1], [:left1], [:left2]], shown
   end
@@ -159,11 +161,12 @@ class TestPoolPoses < Minitest::Test
       end
     end
 
-    early = game_player.run(prog, frames: 2).screen
+    # As far behind as the framework draws (Testing#framework_drawing_lag).
+    early = game_player.run(prog, frames: 1 + framework_drawing_lag).screen
     assert_equal RED, early.pixel(22, 22), "the left one is on its first frame"
     assert_equal GREEN, early.pixel(62, 22), "the right one is on its own first frame"
 
-    later = game_player.run(prog, frames: 3).screen
+    later = game_player.run(prog, frames: 2 + framework_drawing_lag).screen
     assert_equal BLUE, later.pixel(22, 22), "the left one stepped to its second frame"
     assert_equal YELLOW, later.pixel(62, 22), "and the right one to its own"
   end

@@ -219,7 +219,9 @@ module VBlank
             refuse_unfit_paint_squares!
             refuse_lists_in_use_past_eight!
             refuse_routines_that_call_themselves!
-            Reach.variables(@program).each { |name| @variables[name] = @memory.reserve("the variable #{name.inspect}", 4) }
+            # ...and the ones a game loop keeps of its own in the Color's order (IR::Frames::ConsoleLoop).
+            loops = game_loops.flat_map { |node| console_loop(node).variables }
+            (Reach.variables(@program) | loops).each { |name| @variables[name] = @memory.reserve("the variable #{name.inspect}", 4) }
             @declared_lists.each_value do |node|
               width = SLOT_BYTES.fetch(node.width)
               # Named as the game names it, since running out of room says which list asked.
@@ -231,6 +233,8 @@ module VBlank
             keep_held_colors
             keep_group_numbers
             keep_sprites_hidden_flag
+            keep_corner_notes
+            keep_loop_running
             keep_patches
             keep_tile_runs
             keep_drawn_palettes
@@ -590,9 +594,29 @@ module VBlank
 
           # The statements an `if`, a `loop` or a `repeat` holds, and an `if`'s `else`: its own, or
           # those a routine too big for a bank cut them into (#cut_list).
+          # A game loop's are what it runs each time round, in the Color's order: the frame's sprites
+          # and scroll placed before its wait (IR::Frames.loop_in_console_order, #emit_loop).
           def children_of(node)
-            @cut_children.fetch(node.object_id) { [node.children, node.kind == :if ? node.else&.children || [] : []] }
+            @cut_children.fetch(node.object_id) do
+              body = node.kind == :loop ? console_loop(node).each_time : node.children
+              [body, node.kind == :if ? node.else&.children || [] : []]
+            end
           end
+
+          def console_loop(node)
+            (@console_loops ||= {})[node.object_id] ||= Frames.loop_in_console_order(node.children, Console::COLOR)
+          end
+
+          # Is +node+ one of the boundary's writes a game loop places at the end of its pass, or in
+          # one (IR::Frames::ConsoleLoop#placed)?
+          def placed_at_pass_end?(node)
+            @placed_at_pass_end ||= game_loops.flat_map { |loop_node| console_loop(loop_node).placed.flat_map { |write| write.walk.to_a } }
+                                              .to_set(&:object_id)
+            @placed_at_pass_end.include?(node.object_id)
+          end
+
+          # Every game loop of the program.
+          def game_loops = @game_loops ||= @program.walk.select { |node| node.kind == :loop }
 
           def emit_nothing(_node) = nil
           def emit_children(node) = node.children.each { |child| statement(child) }
@@ -680,10 +704,24 @@ module VBlank
           end
 
           def emit_loop(node)
+            console_loop(node).before.each { |child| statement(child) }
+            statement(Build.set(@loop_running, (loops_ending_passes.index(node) || -1) + 1)) if @loop_running
             top = fresh("loop")
             @asm.label(top)
             children_of(node).first.each { |child| statement(child) }
             @asm.jump(top)
+          end
+
+          # The game loops that end each pass by placing the display's writes
+          # (IR::Frames::ConsoleLoop#pass_end), which a halt has to end as the running one does.
+          def loops_ending_passes
+            @loops_ending_passes ||= game_loops.select { |node| console_loop(node).pass_end.any? }
+          end
+
+          # Which of those is running, counted from 1, and nought for none, in a game with any: a
+          # halt can be anywhere, in a routine called from any loop or from none (#emit_halt).
+          def keep_loop_running
+            @loop_running = keep_local(:loop_running) if loops_ending_passes.any?
           end
 
           # Reference#exec_repeat: the count worked out once, before the first pass; the index
@@ -798,8 +836,17 @@ module VBlank
 
           # A game that never waits for the screen has its bend worked out as it stops, for the
           # picture it stops on, as the interpreter works each row out as it paints it.
+          # A pass that halts ends as every pass does, with its sprites and scroll placed
+          # (IR::Frames::ConsoleLoop#pass_end): the running game loop's (#keep_loop_running), as
+          # the interpreter ends it (Reference#place_pass_end_before_halt), and nothing before any runs.
           def emit_halt(_node)
             emit_bends(painting: true) unless @program.walk.any? { |node| node.kind == :wait_vblank }
+            loops_ending_passes.each_with_index do |ending, i|
+              other = fresh("not_this_loop")
+              jump_unless(Build.binop(:==, Build.var_ref(@loop_running), Build.int(i + 1)), other)
+              console_loop(ending).pass_end.each { |child| statement(child) }
+              @asm.label(other)
+            end
             @asm.call("rt_halt")
           end
 
@@ -810,6 +857,7 @@ module VBlank
           # (Runtime::Frame::FRAMES_TAKEN, STEP_TAKEN).
           def emit_wait_vblank(_node)
             @asm.call("rt_wait_vblank")
+            emit_corners_forgotten
             emit_clock_each_pass
             @asm.load(:a, [@memory[Runtime::Frame::FRAMES_TAKEN]])
             @asm.load(:c, :a)

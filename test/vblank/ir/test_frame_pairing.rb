@@ -11,15 +11,17 @@ require "test_helper"
 #   - What the PROGRAM draws (a rectangle, a pixel, a picture blitted somewhere) lands on
 #     the screen in the pass that drew it, so the picture and the variable agree.
 #   - What the FRAMEWORK draws for you every frame — a sprite, a HUD number, a background's
-#     scroll — is painted in the gap before the next frame, from the variables as they stand
-#     then. So the picture shows the value from the pass BEFORE the one whose variables you
-#     are reading.
+#     scroll — is placed at the frame boundary. On the Advance it is painted in the gap before
+#     the next frame, from the variables as they stand then, so the picture shows the value
+#     from the pass BEFORE the one whose variables you are reading. The Color sends it from a
+#     copy as the gap ends, so each pass places it before its wait, and the picture shows the
+#     pass just ended (Testing#framework_drawing_lag).
 #
-# That is not a cost of either backend: a position decided while a frame is being drawn
-# cannot appear in that frame, on a console or anywhere else. Both backends agree, which is
-# what these tests pin — each reads the variable and the picture from the SAME backend at
-# the same moment and asserts how the two line up, so nothing here depends on the two
-# backends counting frames from the same place.
+# That is not a cost of any backend: on the Advance a position decided while a frame is being
+# drawn cannot appear in that frame. The interpreter and the console agree, which is what these
+# tests pin — each reads the variable and the picture from the SAME backend at the same moment
+# and asserts how the two line up, so nothing here depends on two backends counting frames from
+# the same place.
 #
 # It is pinned because getting it wrong costs an afternoon: the test says the game is drawing
 # a frame early and the game is right.
@@ -69,9 +71,9 @@ class TestFramePairing < Minitest::Test
     end
   end
 
-  def test_the_interpreter_draws_a_sprite_from_the_frame_befores_value
+  def test_the_interpreter_draws_a_sprite_from_the_pass_its_console_places_it_from
     interpreter_pairs(A_SPRITE).each do |value, drawn|
-      assert_equal value - 1, drawn,
+      assert_equal value - framework_drawing_lag, drawn,
                    "the variable is #{value} and the picture was drawn from #{drawn.inspect}"
     end
   end

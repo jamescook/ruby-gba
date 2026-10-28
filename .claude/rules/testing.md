@@ -131,15 +131,18 @@ and on real hardware:
 - **What the program draws** (`pixel`, `fill_rect`, `draw_rect_at`, `blit`, bitmap `draw_text`)
   is in the picture for the pass that drew it. Picture and variable agree.
 - **What the framework draws for you** (a sprite, a tiled text glyph, a background's scroll) is
-  painted in the gap before the next frame, from the variables then. So the picture shows the
-  pass before: `v.var(:n)` is 5 while the sprite stands where 4 put it.
+  painted in the gap before the next frame, from the variables then. So on the Advance the
+  picture shows the pass before: `v.var(:n)` is 5 while the sprite stands where 4 put it. The
+  Color sends them from a copy as the gap ends, so each pass places them before its wait and the
+  picture shows the pass just ended (`Console::Description#sprites_placed_before_wait`). A test
+  that plays on both says how far behind with `framework_drawing_lag` (one, or none).
 - **A picture painted from a list and said `changed now: true`** is the exception: it is
   copied where the game said so, during the pass, and its pixels are in that pass's picture
   (the sprite showing it still stands where the pass before put it).
 
-A position decided while a frame is being drawn cannot appear in that frame, so this is not
-something to design away. In a test, run one frame further before reading the picture, or read
-the variable a frame earlier. `test/vblank/ir/test_frame_pairing.rb` pins both halves. It only
+On the Advance a position decided while a frame is being drawn cannot appear in that frame, so
+this is not something to design away. In a test, run `framework_drawing_lag` frames further
+before reading the picture, or read the variable that many frames earlier. `test/vblank/ir/test_frame_pairing.rb` pins both halves. It only
 bites a test that pairs a picture with a variable.
 
 ## Building the program under test

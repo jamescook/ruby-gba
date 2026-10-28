@@ -77,7 +77,8 @@ class TestRecolor < Minitest::Test
   end
 
   def test_a_number_the_game_works_out_picks_which_colors_the_list_holds
-    i = game_player.run(counting_through_the_sets, frames: 3)
+    # The second pass's number, as far behind as the framework draws (Testing#framework_drawing_lag).
+    i = game_player.run(counting_through_the_sets, frames: 2 + framework_drawing_lag)
 
     assert_equal colors_of(:gray, :black), [i.screen.pixel(43, 41), i.screen.pixel(47, 41)]
   end

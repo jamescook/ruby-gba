@@ -946,9 +946,8 @@ module VBlank
               emit_tile_room(tile_room(bg)) if bg.several_sets? # up as declared: its first area
 
               emit_bends_shown(bg)
-              return big_put_up(bg, 0, "rt_big_put_up") if big?(bg)
-
-              runtime_call("rt_background_put_up_unscrolled", [Build.int(grid_of(bg))])
+              big?(bg) ? big_put_up(bg, 0, "rt_big_put_up") : runtime_call("rt_background_put_up_unscrolled", [Build.int(grid_of(bg))])
+              note_put_up(@put_up_this_pass)
             end
 
             # Whether any of a background's maps is bigger than the Color's grid of 32×32 cells.
@@ -977,17 +976,19 @@ module VBlank
             def bar_put_up(bar)
               top = bar.bar_top.clamp(0, Console::GBCHardware::SCREEN_HEIGHT)
               runtime_call("rt_bar_put_up", [Build.int(grid_of(bar)), Build.int(top)])
+              note_put_up(@bar_up_this_pass)
             end
 
             # Reference#exec_place_bar.
             def emit_place_bar(node)
               return unless declared_background!(node).bar? # one that is not a status bar has no top to place
-              runtime_call("rt_place_bar", [node.top])
+
+              emit_unless_put_up(node, @bar_up_this_pass) { runtime_call("rt_place_bar", [node.top]) }
             end
 
             def emit_scroll_background(node)
               declared_background!(node)
-              runtime_call("rt_background_scroll", [node.x, node.y])
+              emit_unless_put_up(node, @put_up_this_pass) { runtime_call("rt_background_scroll", [node.x, node.y]) }
             end
 
             def declared_background!(node)
@@ -1527,6 +1528,40 @@ module VBlank
             # That costs nothing in the picture: the one it was taken from borrows another in turn,
             # and each borrowing copies its colours in, so every sprite is drawn in its own. Only a
             # pass wearing more than eight lists at once misses one, as it would without the gap.
+            # A BACKGROUND PUT UP IN A PASS SHOWS FROM ITS CORNER ON THAT PASS'S FRAME
+            # (Reference#put_up_background), and the place the game keeps for its view — or the top
+            # it keeps for a status bar — is written at the end of the pass (IR::Frames
+            # .loop_in_console_order), after the put-up. So a put-up notes itself for the rest of its
+            # pass, and the write at the end of it leaves the background or bar where it was put up;
+            # the wait forgets the note (#emit_corners_forgotten), and the next pass's write moves it.
+            def keep_corner_notes
+              placed = ->(kind) { @program.walk.any? { |node| node.kind == kind && placed_at_pass_end?(node) } }
+              @put_up_this_pass = keep_local(:put_up_this_pass) if placed.call(:scroll_background)
+              @bar_up_this_pass = keep_local(:bar_up_this_pass) if placed.call(:place_bar)
+            end
+
+            # +note+ (a local of #keep_corner_notes, or nil for none) set: the background or bar was
+            # put up this pass.
+            def note_put_up(note)
+              statement(Build.set(note, 1)) if note
+            end
+
+            # The notes forgotten at a wait: the pass that put a background up has ended.
+            def emit_corners_forgotten
+              [@put_up_this_pass, @bar_up_this_pass].compact.each { |note| statement(Build.set(note, 0)) }
+            end
+
+            # +node+'s write, unless it is written at the end of a pass that put its background or bar
+            # up (+note+, #keep_corner_notes).
+            def emit_unless_put_up(node, note)
+              return yield unless note && placed_at_pass_end?(node)
+
+              held = fresh("held_at_corner")
+              jump_unless(Build.binop(:==, Build.var_ref(note), Build.int(0)), held)
+              yield
+              @asm.label(held)
+            end
+
             def keep_sprites_hidden_flag
               @sprites_hidden = keep_local(:sprites_hidden) if @reachable.any? { |node| node.kind == :hide_sprites }
             end

@@ -43,8 +43,11 @@ class TestFaceShowing < Minitest::Test
   end
 
   def test_the_number_picks_the_pose_and_one_past_the_list_leaves_it
-    # The first frame is drawn before the loop has said anything; each pick shows a frame later.
-    assert_equal %i[pose0 pose3 pose2 pose1 pose0 pose0], (1..6).map { |frames| picture_after(frames) }
+    # Where a sprite is drawn from the pass before, the first frame is drawn before the loop has
+    # said anything and each pick shows a frame later (Testing#framework_drawing_lag).
+    shown = %i[pose0 pose3 pose2 pose1 pose0 pose0 pose0].drop(1 - framework_drawing_lag).first(6)
+
+    assert_equal shown, (1..6).map { |frames| picture_after(frames) }
   end
 
   def test_the_console_shows_the_same_poses

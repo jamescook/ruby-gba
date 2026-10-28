@@ -185,7 +185,7 @@ class TestGBCPictureGroups < Minitest::Test
   # slots: the first room up from power-on, and from CHANGE_PASS +beside+ in the second slot.
   private def rooms_in_a_row(beside:)
     names = TestGBCPictureGroups.names(3)
-    builder = Builder.new
+    builder = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
     builder.instance_eval do
       screen :tiled
       names.each_with_index do |name, n|

@@ -136,9 +136,14 @@ class TestTiledText < Minitest::Test
     b.program
   end
 
+  # The first frame shows `blink` as 1 where the text is drawn from the pass before, and as 0
+  # where it is drawn from the pass just ended (Testing#framework_drawing_lag).
+  private def frames_on_and_off = framework_drawing_lag == 1 ? [1, 2] : [2, 1]
+
   def test_text_under_a_condition_is_shown_only_while_it_holds
-    on = game_player.run(blinking_prompt_program, frames: 1).screen
-    off = game_player.run(blinking_prompt_program, frames: 2).screen
+    on_frames, off_frames = frames_on_and_off
+    on = game_player.run(blinking_prompt_program, frames: on_frames).screen
+    off = game_player.run(blinking_prompt_program, frames: off_frames).screen
 
     assert_glyph(on, "A", 100, 20, WHITE)
     assert_glyph(on, "B", 140, 20, WHITE)
@@ -161,8 +166,9 @@ class TestTiledText < Minitest::Test
     b.finalize_program
     prog = b.program
 
-    first = game_player.run(prog, frames: 1).screen
-    second = game_player.run(prog, frames: 2).screen
+    on_frames, off_frames = frames_on_and_off
+    first = game_player.run(prog, frames: on_frames).screen
+    second = game_player.run(prog, frames: off_frames).screen
 
     assert_glyph(first, "A", 100, 20, WHITE)
     refute_glyph(first, "B", 140, 20, WHITE)
