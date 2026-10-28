@@ -507,6 +507,7 @@ module VBlank
               asm.rtl
 
               asm.label("rt_upload_copy")
+              asm.jsr(asm.abs("rt_tint_upload")) # the colours, if a fade or a tint moved them
               if painted
                 asm.jmp(asm.abs("rt_paint_upload"))
                 return

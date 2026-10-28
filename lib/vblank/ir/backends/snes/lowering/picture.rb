@@ -21,7 +21,7 @@ module VBlank
                                                  scroll_background: :emit_scroll_background,
                                                  set_tile: :emit_set_tile, show_map: :emit_show_map,
                                                  present_objects: :emit_present_objects,
-                                                 hide_sprites: :emit_hide_sprites
+                                                 hide_sprites: :emit_hide_sprites, fade: :emit_fade, tint: :emit_tint
                                                })
 
             # The SNES::Art the game's pictures were made into.
@@ -261,6 +261,29 @@ module VBlank
 
             # Reference#exec_hide_sprites: the next placing of the sprites places none.
             def emit_hide_sprites(_node) = store_number(place_of(sprites_hidden_flag), 1)
+
+            # --- fades and tints ---
+
+            # Reference#exec_fade, as a fade that walks the colours (IR::Fading walks every fade on a
+            # console that cannot blend, Runtime::Tint): toward black or white by the thirty-seconds
+            # the amount comes to. A fade placed under a layer or held to part of the screen needs a
+            # blend the build does not make.
+            def emit_fade(node)
+              refuse_unmade!("a fade held to part of the screen (`#{node.reaches}:`)") if node.reaches
+              refuse_unmade!("a fade under a layer (`under:`)") if node.under
+              toward = node.toward == :white ? Runtime::Tint::TOWARD_WHITE : Runtime::Tint::TOWARD_BLACK
+              runtime_call("rt_tint", [Build.int(toward), Build.int(0), walk_steps(node)])
+            end
+
+            # Reference#exec_tint: toward the colour, in thirty-seconds.
+            def emit_tint(node)
+              runtime_call("rt_tint", [Build.int(Runtime::Tint::TOWARD_COLOR), Build.int(Graphics::Color.resolve(node.color)),
+                                       walk_steps(node)])
+            end
+
+            # FadeSteps' steps for a fade that walks the colours, worked out as the game runs;
+            # Runtime::Tint holds them to 0..32.
+            def walk_steps(node) = FadeSteps.steps_value(node.amount, fraction_bits: node.fraction_bits, walked: true)
 
             def sprites_hidden_flag = @sprites_hidden ||= keep_local(:sprites_hidden)
           end

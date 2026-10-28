@@ -80,7 +80,7 @@ module VBlank
           NOT_LOWERED_YET = Ractor.make_shareable({
                                                     "the picture" => %i[draw_column_at place_bar background_colors
                                                                         scroll_rows camera show_picture_group
-                                                                        color_list_holds fade tint pixels_overlap
+                                                                        color_list_holds pixels_overlap
                                                                         copy_tiles copy_owed_tiles data_byte],
                                                     "the sound" => %i[enable_sound beep noise wave stop_wave play_song
                                                                       stop_music play_from_list play_sound_effect

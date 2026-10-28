@@ -6,6 +6,7 @@ require_relative "runtime/frame"
 require_relative "runtime/lists"
 require_relative "runtime/picture"
 require_relative "runtime/paint"
+require_relative "runtime/tint"
 
 module VBlank
   module IR
@@ -30,6 +31,7 @@ module VBlank
             Paint.reserve(memory) if painted
             Frame.reserve(memory)
             Picture.reserve(memory)
+            Tint.reserve(memory)
           end
 
           # The runtime's sections: the entry points in the first bank, and everything else in one.
@@ -47,6 +49,7 @@ module VBlank
             Lists.emit(asm, memory, Lists.scratch(memory))
             Picture.emit(asm, memory, work: memory.scratch(8), painted: painted)
             Paint.emit(asm, memory, Paint.scratch(memory)) if painted
+            Tint.emit(asm, memory, Tint.scratch(memory))
             emit_start(asm)
             emit_frame_begins(asm, frame_begins)
             [vectors.section, asm.section]
