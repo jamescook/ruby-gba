@@ -64,6 +64,8 @@ module VBlank
             width, height = @cartridge.screen.then { |picture| [picture.width, picture.height] }
             moments = play_on_interpreter(program, frames, width, height, before)
             difference = self.class.first_difference(moments, @cartridge.moments)
+            difference ||= self.class.sounds_difference(@interpreter_sounds, @cartridge.audio_played)
+            difference ||= dsp_difference(moments)
             difference ||= self.class.save_difference(before, @save) if SaveLayout.named_by?(program)
             raise Disagreement, "the Super Nintendo lowering and the interpreter disagree at #{difference}" if difference
 
@@ -100,17 +102,42 @@ module VBlank
           def play_on_interpreter(program, frames, width, height, save)
             interpreter = Reference.new(save: save).hold(*@held)
             moments = []
+            @expected_dsp = []
             interpreter.frames_each_pass { |pass| @cartridge.frames_took(pass) }
             interpreter.input_each_frame { |frame| @played.fetch(frame, []) }
                        .each_vblank { |frame| moments << moment_of(interpreter, frame, width, height) }
                        .run(program, frames: frames)
+            @interpreter_sounds = interpreter.audio.dup
             moments << moment_of(interpreter, :end, width, height)
           end
 
+          # The interpreter's moment, and what its sound log up to then says the S-DSP's registers hold.
           def moment_of(interpreter, frame, width, height)
+            @expected_dsp << DSPWrites.after(interpreter.audio)
             Moment.new(frame: frame, variables: interpreter.vars.dup, picture: picture_check(interpreter.screen, width, height),
-                       sounds: 0, sprites: interpreter.sprites,
+                       sounds: interpreter.audio.size, sprites: interpreter.sprites,
                        collections: interpreter.game_state.except(:vars), sounding: [])
+          end
+
+          # THE SOUND UNIT ITSELF, held to the sound log: at the first moment a register of the S-DSP
+          # holds something other than what the interpreter's log up to then says it must (each
+          # register the log's entries write, DSPWrites.after), the moment and the registers that
+          # differ. The log agreeing is not enough: a write dropped on the way, sent to the wrong
+          # register or never answered would leave the log right and the sound wrong.
+          def dsp_difference(moments)
+            return nil if @cartridge.dsp_moments.empty?
+
+            moments.zip(@expected_dsp, @cartridge.dsp_moments).each do |moment, expected, held|
+              wrong = expected.filter_map do |register, value|
+                got = held.getbyte(register)
+                format("$%<register>02X holds $%<got>02X, the log says $%<value>02X", register: register, got: got,
+                                                                                       value: value) if got != value
+              end
+              next if wrong.empty?
+
+              return "#{self.class.heading(moment.frame)}: the sound unit's DSP registers: #{wrong.join(', ')}"
+            end
+            nil
           end
 
           # The interpreter's picture over the cartridge's screen.

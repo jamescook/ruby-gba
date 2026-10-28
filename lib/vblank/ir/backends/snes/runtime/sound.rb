@@ -44,8 +44,10 @@ module VBlank
           # writes them.
           module Sound
             # Where in the sound unit's memory its program goes: past the direct page, the stack
-            # ($0100-$01FF) and nothing else.
+            # ($0100-$01FF) and nothing else. The sample table and the recordings (Samples) go after
+            # it, from the next page, since the DSP finds the table by its page alone.
             DRIVER_AT = 0x0200
+            TABLE_AT = 0x0300
 
             # What the built-in program puts in mailboxes 0 and 1 when it is ready, and the first
             # number the console answers with.
@@ -71,6 +73,13 @@ module VBlank
             SENT = "rt sound sent" # the number of the last command sent, in mailbox 0
             DROPPED = "rt sound dropped" # writes dropped because the sound unit had not answered
 
+            # THE SOUND LOG, for whoever reads a run back: every sound statement the game ran, as the
+            # number the lowering gave its entry of the interpreter's log (Lowering::Sound), the
+            # last LOG_LENGTH of them in a ring, and how many there have been (16 bits).
+            LOG = "rt sound log"
+            LOGGED = "rt sound logged"
+            LOG_LENGTH = 256
+
             R0 = Memory.register(0)
             R1 = Memory.register(1)
 
@@ -80,6 +89,18 @@ module VBlank
               memory.reserve(LIVE, 2)
               memory.reserve(SENT, 2)
               memory.reserve(DROPPED, 2)
+              memory.reserve(LOGGED, 2)
+              memory.reserve(LOG, LOG_LENGTH)
+            end
+
+            # Everything sent across at power-on, from DRIVER_AT: the program, then from TABLE_AT the
+            # sample table and the recordings.
+            def image
+              program = driver.assembled.bytes
+              room = TABLE_AT - DRIVER_AT
+              raise ArgumentError, "the sound program is #{program.size} bytes, more than #{room}" if program.size > room
+
+              program + Array.new(room - program.size, 0) + Samples.image(TABLE_AT)
             end
 
             # The program the SPC700 runs once it has been sent.
@@ -107,23 +128,39 @@ module VBlank
               spc
             end
 
-            # The program's bytes in the cartridge, for rt_sound_start to send.
+            # What is sent across, in the cartridge, for rt_sound_start to send.
             def sections
               asm = W65816.new("sound driver")
               asm.label("sound driver")
-              asm.data_bytes(driver.assembled.bytes)
+              asm.data_bytes(image)
               [asm.section]
             end
 
             def emit(asm, memory)
               emit_start(asm, memory)
               emit_write(asm, memory)
+              emit_log(asm, memory)
             end
 
-            # rt_sound_start: the program sent, a byte at a time, and started.
+            # rt_sound_log: entry number R0 (one byte) into the ring, and one more counted.
+            def emit_log(asm, memory)
+              asm.label("rt_sound_log")
+              asm.lda(asm.abs(memory[LOGGED]))
+              asm.and_a(LOG_LENGTH - 1)
+              asm.tax
+              asm.sep(0x20)
+              asm.lda(asm.direct(R0))
+              asm.sta(asm.abs_x(memory[LOG]))
+              asm.rep(0x20)
+              asm.inc(asm.abs(memory[LOGGED]))
+              asm.rtl
+            end
+
+            # rt_sound_start: the program sent, a byte at a time, and started; then the DSP told where
+            # the sample table is, with every voice quiet (DSPWrites.at_power_on).
             def emit_start(asm, memory)
               h = Console::SNESHardware
-              length = driver.assembled.bytesize
+              length = image.size
               kick = ((length + 2) & 0xFF) | 1 # past the last byte's number, and never nought
               asm.label("rt_sound_start")
               asm.php
@@ -150,6 +187,13 @@ module VBlank
               asm.sta(asm.abs(memory[SENT]))
               asm.lda(1)
               asm.sta(asm.abs(memory[LIVE]))
+              DSPWrites.at_power_on(TABLE_AT >> 8).each do |register, value|
+                asm.lda(register)
+                asm.sta(asm.direct(R0))
+                asm.lda(value)
+                asm.sta(asm.direct(R1))
+                asm.jsl(asm.long("rt_sound_write"))
+              end
               asm.plp
               asm.rtl
             end

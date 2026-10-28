@@ -34,12 +34,13 @@ module VBlank
           # +painted+ (Paint) keeps its copy of the screen in work RAM's last bank. A cartridge with a
           # Super FX (+chip+) keeps the chip's waiting loop and its counts (Chip), after the rest so
           # a plain cartridge's places do not move.
-          def reserve(memory, painted: false, chip: false)
+          def reserve(memory, painted: false, chip: false, sound: false)
             Paint.reserve(memory, chip: chip) if painted
             Frame.reserve(memory)
             Picture.reserve(memory)
             Tint.reserve(memory)
             Chip.reserve(memory) if chip
+            Sound.reserve(memory) if sound
           end
 
           # The runtime's sections: the entry points in the first bank, and everything else in one.
@@ -47,8 +48,10 @@ module VBlank
           # routine run at each frame boundary (its timers moving on), or nil for none; +painted+
           # for a game whose screen is painted rather than drawn from tiles; +board+ the cartridge's
           # board (Cartridge::SNESROM::BOARDS); +saves+ for a game that reaches save memory, whose
-          # routines a game that does not is made without, so its cartridge is the same bytes.
-          def sections(memory, main:, frame_begins: nil, painted: false, board: Cartridge::SNESROM::PLAIN, saves: false)
+          # routines a game that does not is made without, so its cartridge is the same bytes; +sound+
+          # for a game that makes sound, which sends the sound unit its program at power-on.
+          def sections(memory, main:, frame_begins: nil, painted: false, board: Cartridge::SNESROM::PLAIN, saves: false,
+                       sound: false)
             chip = board.name == :super_fx
             vectors = W65816.new("runtime vectors", home: :first)
             Boot.emit_vectors(vectors)
@@ -64,18 +67,22 @@ module VBlank
             Collide.emit(asm, memory, Collide.scratch(memory))
             Chip.emit(asm, memory) if chip
             Saving.emit(asm, memory, Saving.scratch(memory)) if saves
-            emit_start(asm, chip: chip)
+            Sound.emit(asm, memory) if sound
+            emit_start(asm, chip: chip, sound: sound)
             emit_frame_begins(asm, frame_begins)
-            [vectors.section, asm.section] + (chip && painted ? [ChipPaint.gsu_section] : [])
+            [vectors.section, asm.section] + (chip && painted ? [ChipPaint.gsu_section] : []) +
+              (sound ? Sound.sections : [])
           end
 
           # What a game needs before its first line: its variables that do not start at nought (the
           # table "game_starts": each place as a word and its number as two, and a place of nought
           # after the last), its lists' headers, the picture's start, the screen's interrupt
-          # switched on, and the buttons held from power-on.
-          def emit_start(asm, chip: false)
+          # switched on, and the buttons held from power-on. A game that makes sound sends the sound
+          # unit its program first, while the screen's interrupt is still off (Sound).
+          def emit_start(asm, chip: false, sound: false)
             asm.label("rt_start")
             asm.jsl(asm.long("rt_chip_start")) if chip
+            asm.jsl(asm.long("rt_sound_start")) if sound
             asm.ldx(0)
             asm.label("rt_start_next")
             asm.lda(asm.long_x("game_starts"))

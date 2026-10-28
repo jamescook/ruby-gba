@@ -58,13 +58,14 @@ module VBlank
                                                # without one works nothing out again
                                                show_light_now: :emit_nothing
                                              }.merge(Picture::STATEMENTS).merge(Paint::STATEMENTS)
-                                              .merge(Saving::STATEMENTS)
+                                              .merge(Saving::STATEMENTS).merge(Sound::STATEMENTS)
                                               .merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))
 
           include Picture
           include Paint
           include Collision
           include Saving
+          include Sound
 
           VALUES = Ractor.make_shareable({
                                            int: :value_of_int, var_ref: :value_of_var_ref, binop: :value_of_binop,
@@ -85,7 +86,7 @@ module VBlank
                                                                         scroll_rows camera show_picture_group
                                                                         color_list_holds
                                                                         copy_tiles copy_owed_tiles data_byte],
-                                                    "the sound" => %i[enable_sound beep noise wave stop_wave play_song
+                                                    "the sound" => %i[noise wave stop_wave play_song
                                                                       stop_music play_from_list play_sound_effect
                                                                       play_sample stop_sample]
                                                   })
@@ -186,6 +187,7 @@ module VBlank
             prepare_picture
             prepare_paint
             prepare_collision
+            prepare_sound
           end
 
           # The game's code, as sections for the Linker: its data, every routine a run can reach, and
