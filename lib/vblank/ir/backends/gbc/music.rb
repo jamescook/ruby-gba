@@ -137,7 +137,7 @@ module VBlank
               passes = Tunes.loop_passes(song)
               voices_of(song).each_with_index do |(part, voice), p|
                 pass = passes.fetch(song.voices.index(part))
-                { "first" => pass.first, "again" => pass.again }.each do |which, held|
+                Music.lists_kept(pass).each do |which, held|
                   held_lists["music_notes_#{i}_#{p}_#{which}"] = held.map { |event| note_of(song, part, voice, event) }
                 end
               end
@@ -252,15 +252,26 @@ module VBlank
             parts.each_with_index do |(part, voice), p|
               pass = passes.fetch(song.voices.index(part))
               asm.data_bytes(voice, tone_of(part, voice))
-              asm.data_words(pass.first.length, pass.again.length, "music_notes_#{i}_#{p}_first", "music_notes_#{i}_#{p}_again")
+              again = Music.again_shared?(pass) ? "first" : "again"
+              asm.data_words(pass.first.length, pass.again.length, "music_notes_#{i}_#{p}_first", "music_notes_#{i}_#{p}_#{again}")
             end
             parts.each_with_index do |(part, voice), p|
               pass = passes.fetch(song.voices.index(part))
-              { "first" => pass.first, "again" => pass.again }.each do |which, notes|
+              Music.lists_kept(pass).each do |which, notes|
                 asm.label("music_notes_#{i}_#{p}_#{which}")
                 notes.each { |event| emit_note(asm, voice, part, event) }
               end
             end
+          end
+
+          # A SONG THAT COMES ROUND FROM ITS START plays the same notes every time, so its list for
+          # the times after the first is the first list, kept once (IR::Tunes.loop_passes).
+          def self.again_shared?(pass) = pass.again == pass.first
+
+          # The lists of notes a part's passes keep, by which pass they are: both, or the first alone
+          # when the two are the same.
+          def self.lists_kept(pass)
+            again_shared?(pass) ? { "first" => pass.first } : { "first" => pass.first, "again" => pass.again }
           end
 
           # Each part of the song, with the voice it plays on.
