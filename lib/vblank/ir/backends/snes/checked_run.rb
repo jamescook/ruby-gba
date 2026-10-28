@@ -122,7 +122,9 @@ module VBlank
           # write, DSPWrites.after), the pass and the registers that differ. The log agreeing is not
           # enough: a write dropped on the way, sent to the wrong register or never answered would
           # leave the log right and the sound wrong. The logs themselves are held to each other
-          # first, so the interpreter's entries as far as that count are the cartridge's.
+          # first, so the cartridge's entries as far as that count are the interpreter's — read as
+          # the cartridge logged them, where a stop names the tune it stopped (HeadlessRun#audio_as_logged),
+          # which the interpreter's [:stop_music] does not.
           #
           # A RECORDING THE GAME PLAYS takes a voice of the four past the Advance's, chosen by where the
           # interpreter's mix puts it (Runtime::Recordings), which the log does not say: those voices'
@@ -132,7 +134,7 @@ module VBlank
             voicing = @cartridge.rom.built.sound_voicing
             recordings = !@cartridge.rom.built.recording_names.empty?
             @cartridge.dsp_reads.each_with_index do |(logged, held), i|
-              expected = DSPWrites.after(@interpreter_sounds.take(logged), voicing)
+              expected = DSPWrites.after(@cartridge.audio_as_logged.take(logged), voicing)
               expected = DSPWrites.console_voices_only(expected) if recordings
               wrong = expected.filter_map do |register, value|
                 got = held.getbyte(register)

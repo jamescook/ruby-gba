@@ -117,4 +117,31 @@ class TestSNESSoundEffects < Minitest::Test
     assert_equal 0x7F, dsp.getbyte(FIRST + ENVX)
     assert_equal [0x8B, 0x0A], [dsp.getbyte(FIRST + 2), dsp.getbyte(FIRST + 3)]
   end
+
+  # A tune that never plays a note — its one voice held by an effect from its first frame — still
+  # stops as itself. A hum on the wave voice plays, an effect takes the first square voice, a lead on
+  # that voice takes over from the hum and is silent under the effect, the game's own wave plays,
+  # and stop_music stops the lead, which holds no voice: the game's wave sounds on.
+  def test_stopping_a_tune_that_played_no_note_leaves_the_wave_sounding
+    hum = Score.new(tempo: 150, parts: [Part.new(notes: [Note.new(at: 0, key: :C4, length: 96)], plays: :triangle)])
+    lead = Score.new(tempo: 150, parts: [Part.new(notes: [Note.new(at: 0, key: :C4, length: 96)])])
+    hit = Score.new(tempo: 150, priority: 10, parts: [Part.new(notes: [Note.new(at: 0, key: :E5, length: 60)])])
+    game = VBlank.game("SILENT", consoles: %i[gba snes]) do
+      enable_sound
+      music = songs :music, [hum, lead]
+      sfx = sound_effects :sfx, { hit: hit }
+      pass = var :pass, 0
+      game_loop do
+        pass.add! 1
+        (pass == 1).then { music.play 0 }
+        (pass == 3).then { sfx.play :hit }
+        (pass == 5).then { music.play 1 }
+        (pass == 7).then { wave :sine, :A4 }
+        (pass == 9).then { stop_music }
+      end
+    end
+    dsp = SNES::CheckedRun.new.run(game.program(console: :snes), frames: 12).dsp_registers
+
+    assert_equal 0x7F, dsp.getbyte((SNES::DSPWrites::WAVE_VOICE << 4) + ENVX), "the game's wave"
+  end
 end

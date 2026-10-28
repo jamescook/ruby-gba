@@ -82,6 +82,7 @@ module VBlank
             @lists = {}
             @sprites = []
             @sound_entries = []
+            @logged_entries = []
             @sounds = 0
             @audio = []
             @audio_handed = 0
@@ -119,6 +120,11 @@ module VBlank
 
           # Every entry the cartridge logged, past where the run ended too.
           def whole_audio = @sound_entries.dup
+
+          # Every entry the cartridge logged, as it logged them: the same as #whole_audio but that a
+          # stop names the tune it stopped ([:stop_music, name], Music.stop_entry), which the
+          # interpreter's log does not say and the writes the stop means depend on.
+          def audio_as_logged = @logged_entries.dup
 
           # The S-DSP's 128 registers as the emulator held them each time the game was found waiting
           # at a pass's end, each with how many entries the sound log held then: [entries, registers],
@@ -326,7 +332,9 @@ module VBlank
 
             ring = wram_offset(runtime_place(Runtime::Sound::LOG))
             (@sound_entries.size...logged).each do |count|
-              @sound_entries << @places.sound_entries.fetch(@core.wram_read8(ring + (count % Runtime::Sound::LOG_LENGTH)))
+              entry = @places.sound_entries.fetch(@core.wram_read8(ring + (count % Runtime::Sound::LOG_LENGTH)))
+              @logged_entries << entry
+              @sound_entries << (entry.first == :stop_music ? [:stop_music] : entry)
             end
           end
 

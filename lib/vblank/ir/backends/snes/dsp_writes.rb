@@ -177,7 +177,8 @@ module VBlank
           # The writes one sound-log entry means: [:enabled], [:beep, effect], [:noise, hit], [:wave,
           # params], [:stop_wave], a song's or a sound effect's [:note, ...] (nothing: the [:voice, ...]
           # after it is the note) and [:voice, channel, song, frequency, volume], [:sound_effect, name]
-          # (nothing: its notes are its writes), and [:stop_music] for the tune +song+, which lets go
+          # (nothing: its notes are its writes), and [:stop_music, name] (or [:stop_music] for the tune
+          # +song+), which lets go
           # of its voices but those a sound effect holds (+effect_voices+, a bit each). Each is
           # [register, value], or [SET_BITS, register, mask, bits].
           def for_entry(entry, voicing = NO_VOICING, song: nil, effect_voices: 0)
@@ -189,7 +190,7 @@ module VBlank
             when :stop_wave then key_off(1 << WAVE_VOICE)
             when :note, :sound_effect, :sample, :stop_sample then [] # a recording's voice is the count's (Runtime::Recordings)
             when :voice then song_note(*entry.drop(1), voicing.parts)
-            when :stop_music then key_off(voicing.song_voices(song) & ~effect_voices & 0xFF)
+            when :stop_music then key_off(voicing.song_voices(entry[1] || song) & ~effect_voices & 0xFF)
             when :loudness then loudness_at(entry[1], entry[2], voicing, song)
             else raise ArgumentError, "the Super Nintendo build does not play #{entry.first.inspect} yet"
             end
@@ -355,11 +356,12 @@ module VBlank
 
           # THE WRITES A RUN OF THE LOG MEANS, in order, with what one entry says of the next:
           #
-          # - the tune a [:stop_music] stops is the one whose note was logged last (or +song+ before
-          #   any), since a tune plays its first frame's notes, rests included, as it starts — and a
-          #   sound effect's notes are not a tune's. A tune all of whose voices sound effects hold
-          #   from its first frame logs no note, and is taken for the tune before it: the log does not
-          #   say which tune stops;
+          # - the tune a [:loudness ...] for a held note reaches is the one whose note was logged last
+          #   (or +song+ before any), since a tune plays its first frame's notes, rests included, as
+          #   it starts — and a sound effect's notes are not a tune's. A stop says its tune itself, as
+          #   the cartridge logs it ([:stop_music, name], Music.stop_entry): the interpreter's bare
+          #   [:stop_music] is taken for the last tune's, which a tune whose every voice an effect
+          #   holds, and so logs no note, would get wrong;
           # - a song's note on the wave or noise voice plays at the note's own volume, which its
           #   [:voice ...] entry carries, where the [:wave ...] or [:noise ...] entry after it carries
           #   the part's (Reference::Player#log_wave_or_noise), as the Color's player plays it;

@@ -108,8 +108,13 @@ module VBlank
           GROUP_END = 0
           GROUP_LOG = 4
 
-          # What a tune stopping logs (Reference::Player#silence_song).
-          QUIET = [[:stop_music]].freeze
+          # WHAT A TUNE STOPPING LOGS. The interpreter logs [:stop_music] whichever tune it was
+          # (Reference::Player#silence_song), and which voices the stop lets go of depends on the
+          # tune. A tune whose every voice an effect holds logs no note to tell it by, so the
+          # cartridge logs each tune's stop as an entry of its own, [:stop_music, name], which reads
+          # back as the interpreter's [:stop_music] (HeadlessRun#audio) and tells the checked run
+          # which tune stopped (HeadlessRun#audio_as_logged).
+          def self.stop_entry(name) = [:stop_music, name]
 
           # Whether +program+ sets how loud its music plays (`music_volume`, or a fade), and so logs and
           # writes each note's loudness (Reference::Player#play_song_frame with a level): whether a run
@@ -172,10 +177,10 @@ module VBlank
           def words(voicing, &number_of)
             @songs.each { |song| refuse_parts!(song) }
             @groups = [] # every group's commands, each once, in the order first met
-            # A tune stopping logs [:stop_music]; the voices it lets go of are worked out as it stops,
-            # since a sound effect may hold some of them (Runtime::Music's rt_music_quiet).
-            stop_log = keep_group([[GROUP_LOG, yield(QUIET.first), 0]])
+            # A tune stopping logs its own stop (Music.stop_entry); the voices it lets go of are worked
+            # out as it stops, since a sound effect may hold some of them (Runtime::Music's rt_music_quiet).
             tunes = @songs.map do |song|
+              stop_log = keep_group([[GROUP_LOG, yield(self.class.stop_entry(song.name)), 0]])
               [song, stop_log, channels_of(song).map { |part, channel| part_layout(song, part, channel, voicing, &number_of) }]
             end
             effects = @effect_names.map { |name| effect_layout(song_named(name), voicing, &number_of) }
