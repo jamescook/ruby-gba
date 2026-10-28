@@ -85,7 +85,21 @@ class TestConsoleAnswers < Minitest::Test
     end
   }.freeze
 
+  # A song with a part on the wave voice beside a recording: the part stands aside while the
+  # recording plays, so the Color plays both.
+  CLIP_AND_SONG = VBlank.game("CLIPSONG", consoles: %i[gba gbc]) do
+    enable_sound
+    song(:pad) { voice(:low, plays: :wave) { |v| v.note :A4, :whole } }
+    play_song :pad
+    sample(:hum, pcm: [60, -60] * 200).play
+    game_loop { wait_vblank }
+  end
+
   private def findings(game, console) = CHECK.detect(game.program(console: console))
+
+  def test_a_songs_wave_part_beside_a_recording_works_on_the_color
+    assert_empty findings(CLIP_AND_SONG, :gbc)
+  end
 
   def test_a_recording_played_once_as_recorded_works_on_the_color
     assert_empty findings(CLIP, :gbc)

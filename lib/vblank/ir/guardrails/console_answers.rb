@@ -102,14 +102,13 @@ module VBlank
           end
 
           # THE WAVE VOICE IN A GAME THAT PLAYS A RECORDING, on a console that plays recordings on
-          # it: each line that sounds or stops the wave voice (`wave`, `stop_wave`) and each song
-          # with a wave part would take the voice from under the recording.
+          # it: each line that sounds or stops the wave voice itself (`wave`, `stop_wave`) would take
+          # the voice from under the recording. A song's wave part stands aside while one plays.
           def wave_beside_recordings(nodes, console, answers)
             return [] if console.mixes_recordings || nodes.none? { |node| node.kind == :play_sample }
 
             nodes.filter_map do |node|
-              next unless %i[wave stop_wave].include?(node.kind) ||
-                          (node.kind == :song && node.voices.any? { |part| IR::Tunes.part_kind(part) == :wave })
+              next unless %i[wave stop_wave].include?(node.kind)
 
               Finding.new(check: NAME, severity: :error, node: node,
                           message: "This line uses the wave voice in a game that plays a recording, and a " \

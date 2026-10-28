@@ -50,6 +50,32 @@ class TestDirectSound < Minitest::Test
                  i.audio.select { |event| %i[sample stop_sample].include?(event.first) }
   end
 
+  # A song with a part on the wave voice, and a recording played over it: every note of the song is
+  # still played, by the log, on every lowering, while the recording sounds and after it.
+  def test_a_recording_over_a_songs_wave_part_leaves_the_song_playing
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      enable_sound
+      song :pad do
+        tempo 240
+        voice(:low, plays: :wave) { |v| 8.times { |n| v.note n.even? ? :A4 : :E4, :quarter } }
+      end
+      play_song :pad
+      hello = sample :hello, pcm: ([80] * 16 + [-80] * 16) * 100
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 3).then { hello.play }
+      end
+    end
+    b.finalize_program
+    i = game_player.run(b.program, frames: 130)
+
+    assert_includes i.audio, [:sample, :hello]
+    assert_operator i.audio.count { |event| event.first == :voice }, :>=, 8, "the song's notes, through the recording"
+  end
+
   # --- friendly errors ---
 
   def test_a_bad_pcm_value_is_a_friendly_error

@@ -74,6 +74,23 @@ module VBlank
               emit_oam_dma_held(asm)
             end
 
+            # WHILE A RECORDING PLAYS THE WAVE VOICE IS ITS OWN: the music player's writes to it are
+            # passed over, so a part on the wave voice is not heard until its next note after the
+            # recording (rt_clip_play marks its waveform gone, which that note puts back). The timer
+            # running is what says one is playing. A and the flags are spent.
+            def emit_return_while_recording_plays(asm)
+              asm.load_high(:a, Console::GBCHardware::TAC)
+              asm.bit(2, :a)
+              asm.ret(:nz)
+            end
+
+            # ...and the same, going on at +past+ rather than returning.
+            def emit_skip_while_recording_plays(asm, past)
+              asm.load_high(:a, Console::GBCHardware::TAC)
+              asm.bit(2, :a)
+              asm.jump_relative(:nz, past)
+            end
+
             # THE SPRITE TABLE'S COPY WITH THE TIMER HELD OFF. While the copy runs the processor can
             # read nothing but its quick memory, and the timer's interrupt is in the cartridge: taken
             # then, the processor would read nonsense and run it. So in a game that plays a recording
@@ -88,7 +105,15 @@ module VBlank
 
             def emit_play(asm, memory, counts)
               h = Console::GBCHardware
+              # Held from the screen's interrupt while it is set up: the music player runs there, and
+              # until the timer is on it would not stand aside (#emit_return_while_recording_plays), so
+              # a note could write its own waveform, or turn the voice off, under the one being set up.
               asm.label("rt_clip_play")
+              asm.di
+              asm.call("rt_clip_play_held")
+              asm.ei
+              asm.ret
+              asm.label("rt_clip_play_held")
               asm.load(:c, :a)
               asm.load_high(:a, h::TAC)
               asm.bit(2, :a)
@@ -115,8 +140,10 @@ module VBlank
               asm.load(:a, 0x80)
               asm.load_high(memory[BITS], :a)
               # The wave voice: off while its steps are written, every step full, then on, at nothing,
-              # and started.
+              # and started. Whatever waveform a song or a sound effect had there is gone, so the
+              # next wave note puts its own back (Music.reloads_wave?).
               asm.xor_a(:a)
+              asm.load([memory[Music::WAVE_LOADED]], :a) if Music.reloads_wave?(memory)
               asm.load_high(h::NR30, :a)
               asm.load(:a, 0xFF)
               asm.load(:hl, h::WAVE_RAM)

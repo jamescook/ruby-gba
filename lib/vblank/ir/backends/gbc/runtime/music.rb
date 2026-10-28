@@ -58,10 +58,15 @@ module VBlank
 
             def banked?(memory) = memory.reserved?(BANK_NOTED)
 
+            # WHETHER EACH WAVE NOTE PUTS ITS WAVEFORM IN, rather than the tune at its start: in a game
+            # whose sound effects or recordings can sound on the wave voice with a waveform of their
+            # own (WAVE_LOADED says which is in), so a note after them finds its own gone.
+            def reloads_wave?(memory) = memory.reserved?(WAVE_LOADED)
+
             def reserve(memory, effects: [], slides: false, wobbles: false, shapes: false, banked: false)
               memory.reserve(BANK_NOTED, 1) if banked
               reserve_song_player(memory, banked)
-              memory.reserve(WAVE_LOADED, 1) unless effects.empty?
+              memory.reserve(WAVE_LOADED, 1) unless effects.empty? && !Clips.any?(memory)
               memory.reserve(NOTE_SLIDE, 1) if slides
               memory.reserve(WOBBLES, WOBBLE_BYTES * WOBBLE_VOICES) if wobbles
               memory.reserve(SHAPE_WALKS, SHAPE_BYTES * SHAPE_VOICES) if shapes
@@ -422,6 +427,12 @@ module VBlank
               asm.load(:c, :a) # the speaker
               asm.load(:a, [memory[PART]])
               asm.load(:b, :a)
+              if Clips.any?(memory) # the wave voice's speakers are a playing recording's (Runtime::Clips)
+                asm.cp_a(GBC::Music::WAVE_VOICE)
+                asm.jump_relative(:nz, "rt_set_speakers_free")
+                Clips.emit_skip_while_recording_plays(asm, "rt_set_speakers_kept")
+                asm.label("rt_set_speakers_free")
+              end
               asm.load(:a, 0x11) # the first voice's two switches, moved up to this voice's
               asm.label("rt_set_speakers_shift")
               asm.dec(:b)
@@ -449,6 +460,7 @@ module VBlank
               asm.xor_a(:b) # this voice's switches off
               asm.or_a(:c)
               asm.load_high(Console::GBCHardware::NR51, :a)
+              asm.label("rt_set_speakers_kept") if Clips.any?(memory)
               asm.pop(:bc)
               asm.ret
             end
@@ -464,12 +476,24 @@ module VBlank
               h = Console::GBCHardware
               volume, start = { 1 => [h::NR12, h::NR14], 2 => [h::NR22, h::NR24], 3 => [h::NR30, nil],
                                 4 => [h::NR42, h::NR44] }.fetch(voice)
+              return emit_wave_quiet(asm, memory) if voice == GBC::Music::WAVE_VOICE
+
               asm.xor_a(:a)
               asm.load_high(volume, :a)
               return unless start
 
               asm.load(:a, 0x80)
               asm.load_high(start, :a)
+            end
+
+            # The wave voice off — but not while a recording plays on it (Runtime::Clips), which is
+            # the recording's to end. Keeps every register but A and the flags.
+            def emit_wave_quiet(asm, memory)
+              past = "rt_wave_quiet_past_#{asm.here}" # emitted in several places, each its own
+              Clips.emit_skip_while_recording_plays(asm, past) if Clips.any?(memory)
+              asm.xor_a(:a)
+              asm.load_high(Console::GBCHardware::NR30, :a)
+              asm.label(past)
             end
 
             # rt_music_play(song): start it at the next frame, unless it is the one named
@@ -595,11 +619,11 @@ module VBlank
               asm.call("rt_music_from_the_top")
               asm.load(:a, 0)
               asm.load_high(h::NR10, :a) # no sweep on the first square voice
-              # With sound effects, each wave note puts its own waveform in (rt_music_note_wave_on),
-              # since writing one now would quiet an effect sounding on the wave voice.
+              # With sound effects or recordings, each wave note puts its own waveform in
+              # (rt_music_note_wave_on), since writing one now would quiet what is sounding there.
               if sharing
                 asm.ret
-              else
+              elsif !reloads_wave?(memory)
                 asm.call("rt_music_waveform")
               end
               asm.label("rt_music_tick_playing")
@@ -730,13 +754,14 @@ module VBlank
               asm.ret
 
               # Every voice the tune plays on, quiet, and holding nothing. A voice a sound effect holds
-              # is the effect's, and is left alone (Reference::Player#silence_song). In a game that plays
-              # a recording the wave voice is the recording's (Runtime::Clips), and no tune plays on it.
+              # is the effect's, and is left alone (Reference::Player#silence_song). So is a recording
+              # playing on the wave voice (Runtime::Clips), whose voice is quieted last (#emit_wave_quiet).
               asm.label("rt_music_quiet")
               return emit_quiet_beside_effects(asm, memory) if sharing
 
+              clips = Clips.any?(memory)
               asm.xor_a(:a)
-              ([h::NR12, h::NR22, h::NR30, h::NR42] - (Clips.any?(memory) ? [h::NR30] : [])).each do |register|
+              ([h::NR12, h::NR22, h::NR30, h::NR42] - (clips ? [h::NR30] : [])).each do |register|
                 asm.load_high(register, :a)
               end
               HELD_VOICES.times { |i| asm.load([memory[HELD] + i], :a) }
@@ -748,11 +773,12 @@ module VBlank
               end
               asm.load(:a, 0x80)
               [h::NR14, h::NR24, h::NR44].each { |register| asm.load_high(register, :a) }
+              emit_wave_quiet(asm, memory) if clips
               asm.ret
             end
 
             def emit_quiet_beside_effects(asm, memory)
-              ((1..4).to_a - (Clips.any?(memory) ? [GBC::Music::WAVE_VOICE] : [])).each do |voice|
+              (1..4).each do |voice|
                 holder = memory[Effects::HOLDERS] + voice - 1
                 asm.load(:a, [holder])
                 asm.load(:e, :a)
@@ -929,6 +955,7 @@ module VBlank
               asm.ret
 
               asm.label("rt_music_note_wave")
+              Clips.emit_return_while_recording_plays(asm) if Clips.any?(memory)
               asm.load(:a, :d)
               asm.and_a(:e)
               asm.inc(:a)
@@ -936,7 +963,7 @@ module VBlank
               asm.load_high(h::NR30, :a) # a rest: the voice off
               asm.ret
               asm.label("rt_music_note_wave_on")
-              if sharing
+              if reloads_wave?(memory)
                 asm.load(:a, [part + 1])
                 asm.inc(:a)
                 asm.load(:hl, memory[WAVE_LOADED])
@@ -995,7 +1022,7 @@ module VBlank
               asm.load_high(h::NR44, :a)
               asm.ret
 
-              emit_wave_load(asm, memory) if sharing
+              emit_wave_load(asm, memory) if reloads_wave?(memory)
               emit_hold(asm, memory, part, fades, slides)
               emit_relevel(asm, memory, level, fades) if level
 
@@ -1165,6 +1192,8 @@ module VBlank
                   asm.or_a(0x80)
                   asm.load_high(high, :a)
                 else
+                  # ...but not under a recording, whose voice it is while it plays (Runtime::Clips).
+                  Clips.emit_skip_while_recording_plays(asm, "rt_music_relevel_past_#{voice}") if Clips.any?(memory)
                   asm.load(:a, :b)
                   asm.load(:hl, "rt_music_wave_levels")
                   asm.add_a(:l)

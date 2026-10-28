@@ -55,6 +55,38 @@ class TestGBCClips < Minitest::Test
     assert_in_delta 0.5, half.height(15) / full.height(15), 0.1
   end
 
+  # A SONG WITH A PART ON THE WAVE VOICE, AND A RECORDING OVER IT: the recording has the voice while
+  # it plays, and the part has it back for its next note. A440 a quarter note at a time, so a note
+  # starts every half second, inside the recording and after it.
+  private def clip_over_a_wave_part
+    b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
+    recording = square_recording(200)
+    b.instance_eval do
+      screen :tiled
+      enable_sound
+      song :pad do
+        tempo 120
+        voice(:low, plays: :wave) { |v| 8.times { v.note :A4, :quarter } }
+      end
+      play_song :pad
+      hum = sample :hum, pcm: recording
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 3).then { hum.play }
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_a_recording_over_a_wave_part_keeps_its_own_pitch
+    heard = console_voice(clip_over_a_wave_part, :wave, frames: 80)
+
+    assert_in_delta 256, heard.held_note(40).pitch, 4, "the recording, through the part's next note"
+    assert_in_delta 440, heard.held_note(70).pitch, 6, "the part's own note once the recording is over"
+  end
+
   def test_stopping_a_recording_quiets_the_wave_voice
     heard = console_voice(clip_game(waves: 400, stop_at: 10), :wave, frames: 25)
 
