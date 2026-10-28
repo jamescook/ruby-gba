@@ -327,6 +327,7 @@ module VBlank
               next [table_section(table_label(table.name), table.values, bytes)] unless split?(table)
 
               per = part_entries(table)
+              refuse_copy_longer_than_part!(table)
               tail = most_copied(table)
               parts = (0...table.values.length).step(per).each_with_index.map do |from, part|
                 table_section(part_label(table.name, part), table.values[from, per + tail], bytes)
@@ -353,15 +354,21 @@ module VBlank
 
           def part_label(name, part) = "table #{name} part #{part + 1}"
 
-          # The most entries a run reaches copies from +table+ at once, refused when that is more
-          # than a part holds of its own.
+          # The most entries a run reaches copies from +table+ at once.
           def most_copied(table)
-            most = @reachable.select { |node| node.kind == :list_copy && node.table == table.name }.map(&:count).max || 0
-            return most if most <= part_entries(table)
+            @reachable.select { |node| node.kind == :list_copy && node.table == table.name }.map(&:count).max || 0
+          end
 
-            raise LoweringError, "The game copies #{most} entries of the table #{table.name.inspect} into a list at " \
-                                 "one time. The Super Nintendo build can copy #{part_entries(table)} entries of this " \
-                                 "table at one time. To fix this, copy fewer entries at one time."
+          # A copy from +table+ of more entries than a part holds of its own, refused: the part it
+          # starts in does not hold the rest.
+          def refuse_copy_longer_than_part!(table)
+            most = most_copied(table)
+            return if most <= part_entries(table)
+
+            raise LoweringError, "The game copies #{most} entries of the table #{table.name.inspect} into a list in " \
+                                 "one copy. The table is bigger than a bank of the Super Nintendo cartridge. For " \
+                                 "this table, one copy can take a maximum of #{part_entries(table)} entries. To fix " \
+                                 "this, copy fewer entries in each copy."
           end
 
           def tables_read
@@ -850,15 +857,20 @@ module VBlank
 
           # A run copied from a table cut into parts: its start held inside the table here, as the
           # runtime would, and the runtime handed the part the start is in, which holds the whole
-          # run (#table_sections), and where in that part it starts.
+          # run (#table_sections), and where in that part it starts. rt_list_copy takes the list in
+          # R0, the table's place in R1 (here the part's, which #emit_part_place leaves there), how
+          # it keeps an entry in R2, its length in R3, the start in R4 and the run's length in R5.
+          # The length handed is the part's own entries and the run, so the start in the part is
+          # never moved by the runtime's own holding.
           def emit_list_copy_from_parts(node, table, kept)
             last_start = [table.values.length - node.count, 0].max
             value(Build.clamped(node.at, Build.int(0), Build.int(last_start)))
             emit_part_place(table)
-            @asm.sta(@asm.direct(Memory.register(4)))
-            @asm.stz(@asm.direct(Memory.register(4) + 2))
-            place, = @lists.fetch(node.name) { raise LoweringError, "the list #{node.name.inspect} is used and never declared" }
-            { 0 => place, 2 => kept, 3 => part_entries(table) + node.count, 5 => node.count }.each do |register, number|
+            start = Memory.register(4)
+            @asm.sta(@asm.direct(start))
+            @asm.stz(@asm.direct(start + 2))
+            numbers = { 0 => list_place(node), 2 => kept, 3 => part_entries(table) + node.count, 5 => node.count }
+            numbers.each do |register, number|
               @asm.lda(number & 0xFFFF)
               @asm.sta(@asm.direct(Memory.register(register)))
               @asm.lda(number >> 16)
@@ -868,9 +880,10 @@ module VBlank
           end
 
           # The runtime's list routine +routine+ on the list +node+ names, the list's place first.
-          def list_call(routine, node, *args)
-            place, = @lists.fetch(node.name) { raise LoweringError, "the list #{node.name.inspect} is used and never declared" }
-            runtime_call(routine, [Build.int(place), *args])
+          def list_call(routine, node, *args) = runtime_call(routine, [Build.int(list_place(node)), *args])
+
+          def list_place(node)
+            @lists.fetch(node.name) { raise LoweringError, "the list #{node.name.inspect} is used and never declared" }.first
           end
 
           # Reference#exec_table_get: an index out of range made safe — a table whose length is a
@@ -927,14 +940,14 @@ module VBlank
           # bottom ones.
           def emit_part_place(table)
             per = part_entries(table)
-            high = 16 - per.bit_length + 1 # the low half's bits that are the part's
+            part_bits = 16 - per.bit_length + 1 # how many of the low half's top bits are the part's
             @asm.lda(@asm.direct(R0 + 2))
-            high.times { @asm.asl }
+            part_bits.times { @asm.asl }
             @asm.sta(@asm.direct(R1))
             @asm.lda(@asm.direct(R0))
             @asm.asl # the top bit into the carry, and round in from the bottom
-            high.times { @asm.rol }
-            @asm.and_a((1 << high) - 1)
+            part_bits.times { @asm.rol }
+            @asm.and_a((1 << part_bits) - 1)
             @asm.ora(@asm.direct(R1))
             @asm.sta(@asm.direct(R1)) # three bytes a part's place: the part times three
             @asm.asl

@@ -44,6 +44,24 @@ class TestSNESBigTables < Minitest::Test
     assert_equal picks.map { |at| BYTES[at] }, picks.each_index.map { |i| run[:"b#{i}"] }
   end
 
+  # Signed halves and signed bytes read back with their sign, at an index the game works out as
+  # it runs. The halves are 32768 of them, a power of two, so an index of -1 goes round to the
+  # last; the bytes are not, so 90000 is held to the last.
+  def test_signed_halves_and_bytes_of_split_tables_read_at_an_index_worked_out
+    halves = Array.new(32_768) { |i| ((i * 7) % 65_536) - 32_768 }
+    signed_bytes = Array.new(40_000) { |i| ((i * 13) % 256) - 128 }
+    run = checked(Build.table(:halves, halves, width: :half, signed: true),
+                  Build.table(:signed_bytes, signed_bytes, width: :byte, signed: true),
+                  Build.set(:at, 20_001),
+                  Build.set(:h0, Build.table_get(:halves, Build.var_ref(:at))),
+                  Build.set(:h1, Build.table_get(:halves, Build.binop(:-, Build.int(0), Build.int(1)))),
+                  Build.set(:s0, Build.table_get(:signed_bytes, Build.var_ref(:at))),
+                  Build.set(:s1, Build.table_get(:signed_bytes, Build.binop(:*, Build.var_ref(:at), Build.int(5)))))
+
+    assert_equal [halves[20_001], halves[32_767], signed_bytes[20_001], signed_bytes[39_999]],
+                 [run[:h0], run[:h1], run[:s0], run[:s1]]
+  end
+
   # A run copied into a list that starts in one part and ends in the next.
   def test_a_run_copied_across_the_end_of_a_part_holds_every_entry
     run = checked(Build.table(:numbers, WORDS, width: :word, signed: true),
@@ -73,6 +91,6 @@ class TestSNESBigTables < Minitest::Test
     program.console = :snes
 
     error = assert_raises(SNES::LoweringError) { SNES.new.build(program) }
-    assert_match(/copy 4096 entries of this table at one time/, error.message)
+    assert_match(/a maximum of 4096 entries/, error.message)
   end
 end
