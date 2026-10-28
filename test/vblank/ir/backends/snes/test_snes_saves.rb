@@ -84,6 +84,82 @@ class TestSNESSaves < Minitest::Test
     assert_equal 5, rom.bytes.getbyte(0x7FD8), "2^5 kilobytes"
   end
 
+  # HOW BSNES TAKES THE CARTRIDGE, the ground truth for what the header asks of real hardware: the
+  # board its heuristics pick from the header (type $02, RAM size 5: LoROM with RAM, and for a
+  # cartridge of 2MB or less the "#A" board, whose RAM fills both halves of its banks), the save RAM
+  # it gives the cartridge, and the reader's idea of the save file, all one size, the header's.
+  def test_bsnes_takes_a_saving_cartridge_for_a_lorom_board_with_32k_of_ram
+    rom = SNES.new.build(counting_up)
+    board, save_bytes = with_core(rom) { |core| [core.board, core.save_ram.bytesize] }
+
+    assert_equal "LOROM-RAM#A", board
+    assert_equal 0x8000, save_bytes
+    assert_equal 1024 << rom.bytes.getbyte(0x7FD8), save_bytes, "the size the header says"
+    assert_equal save_bytes, VBlank::Diagnostics::SNESReading::SAVE_FILE.whole
+  end
+
+  # WHERE BSNES PUTS THE RAM: banks $70 to $7D, the same 32K in each. A byte the processor stores at
+  # $70:7FFF is the save RAM's last, and one stored at $7D:0001 its second. On a cartridge of 2MB or
+  # less (LOROM-RAM#A) the banks' upper halves are the same RAM again, so $70:8000 is its first byte;
+  # on a bigger one (LOROM-RAM) they are the cartridge's ROM, and a byte stored there goes nowhere.
+  # The runtime stores only at $70:0000-$7FFF, which is the save RAM on both.
+  def test_bsnes_maps_the_save_ram_at_70_to_7d
+    ram, seen = with_core(save_ram_writer) { |core| [core.save_ram, core.wram_read8(SEEN_AT_8000)] }
+
+    assert_equal [0x5A, 0x3C, 0xA5, 0xA5], [ram.getbyte(0x7FFF), ram.getbyte(1), ram.getbyte(0), seen]
+  end
+
+  def test_bsnes_keeps_rom_over_the_save_ram_banks_upper_half_on_a_big_cartridge
+    board, ram, seen = with_core(save_ram_writer(banks: 128)) { |core| [core.board, core.save_ram, core.wram_read8(SEEN_AT_8000)] }
+
+    assert_equal "LOROM-RAM", board
+    assert_equal [0x5A, 0x3C], [ram.getbyte(0x7FFF), ram.getbyte(1)]
+    assert_equal 0, ram.count(0xA5.chr), "nothing stored at $70:8000 reaches the save RAM"
+    refute_equal 0xA5, seen, "$70:8000 reads the cartridge's ROM back, not what was stored"
+  end
+
+  SEEN_AT_8000 = 0x0010 # where the cartridge below keeps what it read back from $70:8000
+
+  # A cartridge with 32K of battery-backed RAM that stores $5A at $70:7FFF, $3C at $7D:0001 and $A5
+  # at $70:8000, then reads $70:8000 back into work RAM; +banks+ of 32K of ROM, the rest left blank.
+  private def save_ram_writer(banks: nil)
+    asm = SNES::W65816.new("boot", home: :first)
+    asm.instance_eval do
+      label "reset"
+      sei
+      clc
+      xce
+      sep 0x20
+      lda 0x5A
+      sta long(0x707FFF)
+      lda 0x3C
+      sta long(0x7D0001)
+      lda 0xA5
+      sta long(0x708000)
+      lda long(0x708000)
+      sta long(SEEN_AT_8000)
+      label "forever"
+      bra "forever"
+    end
+    linked = SNES::Linker.new([asm.section]).link
+    filled = banks ? linked.banks + Array.new(banks - linked.banks.length) { "\0".b * 0x8000 } : linked.banks
+    VBlank::Cartridge::SNESROM.new(filled, title: "SAVE MAP", vectors: { reset: linked.address_of("reset") & 0xFFFF },
+                                           save_bytes: 0x8000)
+  end
+
+  # +rom+ played for a few frames in bsnes, and what the block makes of the core.
+  private def with_core(rom)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "game.sfc")
+      rom.write(path)
+      core = VBlank::Diagnostics::Emulator.open_snes(path)
+      3.times { core.run_frame }
+      yield core
+    ensure
+      core&.destroy
+    end
+  end
+
   # The last word of the 32K is inside, a word one byte later is not, and neither is a place below
   # nought: the cartridge stops where the interpreter stops, in its words.
   def test_a_place_outside_the_32k_stops_the_game_as_the_interpreter_does

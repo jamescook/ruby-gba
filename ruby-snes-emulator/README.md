@@ -6,7 +6,9 @@ time in [bsnes](https://github.com/bsnes-emu/bsnes) and reads back what a test n
 - the picture of the last frame, at the console's 256×224;
 - work RAM (128K), video RAM (64K), the colour memory (256 colours) and the sprite table (544 bytes);
 - the 65816's registers;
-- the cartridge's battery-backed RAM.
+- the cartridge's battery-backed RAM;
+- the manifest bsnes wrote for the cartridge from its header, and the board it names
+  (`core.board`, such as `"LOROM-RAM#A"`).
 
 ```ruby
 require "ruby_snes_emulator"

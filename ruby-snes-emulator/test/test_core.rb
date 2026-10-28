@@ -51,6 +51,13 @@ class TestCore < Minitest::Test
     assert_equal [0x001F], @core.colors.uniq
   end
 
+  # The manifest bsnes's heuristics wrote from the header names the board: a LoROM cartridge with
+  # no RAM is the plain LOROM board.
+  def test_the_manifest_names_the_board_bsnes_took_the_cartridge_for
+    assert_match(/^\s*board:\s*LOROM$/, @core.manifest)
+    assert_equal "LOROM", @core.board
+  end
+
   # Every one of the fifteen bits reaches the picture: no gamma curve or colour correction stands
   # between the colour memory and what the core hands over.
   def test_a_colour_reaches_the_picture_exactly

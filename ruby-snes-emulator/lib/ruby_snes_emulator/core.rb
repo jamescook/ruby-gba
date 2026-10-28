@@ -37,6 +37,7 @@ module RubySNESEmulator
     REGISTERS = 0x8003
     APU_RAM = 0x8004
     DSP_REGISTERS = 0x8005
+    MANIFEST = 0x8006
 
     # libretro's joypad: the number it asks about each button by.
     BUTTONS = { b: 0, y: 1, select: 2, start: 3, up: 4, down: 5, left: 6, right: 7,
@@ -145,6 +146,12 @@ module RubySNESEmulator
     # each of its eight voices is playing — the sound as it was told to sound, not as it was mixed.
     def apu_ram = memory(APU_RAM)
     def dsp_registers = memory(DSP_REGISTERS)
+
+    # HOW BSNES TOOK THE CARTRIDGE: the manifest its heuristics wrote from the cartridge's header (its
+    # text: the board, the ROM and RAM and where each is mapped), and the board's name from it, such
+    # as "LOROM-RAM" — the ground truth for which hardware the header asks for.
+    def manifest = memory(MANIFEST).force_encoding(Encoding::UTF_8)
+    def board = manifest[/^\s*board:\s*(\S+)/, 1]
 
     # The 65816's registers: pc (bank and address, 24 bits), a, x, y, s, d, db, p, and whether
     # it is in emulation mode.

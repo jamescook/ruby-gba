@@ -66,6 +66,11 @@ module VBlank
 
       # +banks+ is the linked cartridge, its first 32K first. +vectors+ names where each vector
       # points, by VECTORS's names; one not named points where reset does.
+      # A size as the header says it, a byte: the power of two of its kilobytes (32K is 5); and the
+      # bytes a header's byte says. SNESReading's save file is the size the header says.
+      def self.size_byte(bytes) = Math.log2(bytes / 1024).to_i
+      def self.bytes_of_size_byte(byte) = 1024 << byte
+
       # +save_bytes+ is how much battery-backed RAM it has, a power of two from 2K, or nought.
       # +board+ is the kind of board (BOARDS), a plain one unless said.
       def initialize(banks, title:, vectors:, save_bytes: 0, built: nil, board: PLAIN)
@@ -156,7 +161,7 @@ module VBlank
         @bytes.setbyte(EXPANSION_RAM_AT, kilobyte_power(@board.chip_ram_bytes))
       end
 
-      def kilobyte_power(bytes) = Math.log2(bytes / 1024).to_i
+      def kilobyte_power(bytes) = SNESROM.size_byte(bytes)
 
       # Upper-case letters, digits and spaces, padded with spaces, as the cartridges of the day.
       def title_field_for(title)

@@ -81,7 +81,7 @@ index 353acf270..b1e002554 100644
    //ppu.cpp
    alwaysinline auto step() -> void;
 diff --git a/bsnes/target-libretro/libretro.cpp b/bsnes/target-libretro/libretro.cpp
-index fc7f32118..248f4f30a 100644
+index fc7f32118..afb26a717 100644
 --- a/bsnes/target-libretro/libretro.cpp
 +++ b/bsnes/target-libretro/libretro.cpp
 @@ -9,24 +9,31 @@ static retro_input_poll_t input_poll;
@@ -142,31 +142,32 @@ index fc7f32118..248f4f30a 100644
  }
  
  RETRO_API size_t retro_serialize_size()
-@@ -769,14 +780,48 @@ RETRO_API unsigned retro_get_region()
+@@ -769,14 +780,53 @@ RETRO_API unsigned retro_get_region()
  	return program->superFamicom.region == "NTSC" ? RETRO_REGION_NTSC : RETRO_REGION_PAL;
  }
  
 -// Currently, there is no safe/sensible way to use the memory interface without severe hackery.
 -// Rely on higan to load and save SRAM until there is really compelling reason not to.
--RETRO_API void *retro_get_memory_data(unsigned id)
 +// VBLANK PROBE: the console's memories for a test harness that compares a running cartridge with
 +// an interpreter (SuperFamicom::vblankProbe in sfc/ppu/ppu.cpp says how each is laid out). Work
 +// RAM and the cartridge's RAM are the standard ids; the colour memory, the sprite table and the
 +// 65816's registers are ids of their own, and so are the sound unit's 64K (live) and the S-DSP's
-+// 128 registers (copied). The PPU's are read from the accurate PPU, so the core must be told
-+// bsnes_ppu_fast=OFF.
++// 128 registers (copied), and the manifest bsnes's heuristics wrote for the cartridge (its text, which
++// names the board it took the cartridge for). The PPU's are read from the accurate PPU, so the core
++// must be told bsnes_ppu_fast=OFF.
 +#define RETRO_MEMORY_VBLANK_CGRAM     0x8001
 +#define RETRO_MEMORY_VBLANK_OAM       0x8002
 +#define RETRO_MEMORY_VBLANK_REGISTERS 0x8003
 +#define RETRO_MEMORY_VBLANK_APU_RAM   0x8004
 +#define RETRO_MEMORY_VBLANK_DSP       0x8005
++#define RETRO_MEMORY_VBLANK_MANIFEST  0x8006
 +
 +namespace SuperFamicom { auto vblankProbe(uint id, uint8* out, uint& size) -> uint8*; }
 +
 +static uint8 vblank_copy[64 * 1024];
 +
 +static uint8 *vblank_memory(unsigned id, uint &size)
- {
++{
 +	switch(id)
 +	{
 +		case RETRO_MEMORY_SYSTEM_RAM:       return SuperFamicom::vblankProbe(0, vblank_copy, size);
@@ -177,17 +178,21 @@ index fc7f32118..248f4f30a 100644
 +		case RETRO_MEMORY_SAVE_RAM:         return SuperFamicom::vblankProbe(5, vblank_copy, size);
 +		case RETRO_MEMORY_VBLANK_APU_RAM:   return SuperFamicom::vblankProbe(6, vblank_copy, size);
 +		case RETRO_MEMORY_VBLANK_DSP:       return SuperFamicom::vblankProbe(7, vblank_copy, size);
++		case RETRO_MEMORY_VBLANK_MANIFEST:
++			size = program->superFamicom.manifest.size();
++			return (uint8 *)program->superFamicom.manifest.data<uint8_t>();
 +	}
 +	size = 0;
- 	return nullptr;
- }
- 
-+RETRO_API void *retro_get_memory_data(unsigned id)
-+{
-+	uint size;
-+	return vblank_memory(id, size);
++	return nullptr;
 +}
 +
+ RETRO_API void *retro_get_memory_data(unsigned id)
+ {
+-	return nullptr;
++	uint size;
++	return vblank_memory(id, size);
+ }
+ 
  RETRO_API size_t retro_get_memory_size(unsigned id)
  {
 -	return 0;
