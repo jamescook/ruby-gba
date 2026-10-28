@@ -45,6 +45,19 @@ module VBlank
 
           module_function
 
+          # THE METALLIC RATTLE. The Advance's noise voice can step a register of seven bits instead of
+          # fifteen, whose pattern comes round every 127 steps: a tighter, more tonal noise. The S-DSP's
+          # noise generator has no such mode, so the pattern is recorded, a sample a step, high where
+          # a 1 falls out of the register (GBATEK, "GBA Sound Channel 4": X = X SHR 1, and on a 1, X =
+          # X XOR $60, from $40). 127 does not divide into blocks of sixteen, so the recording is the
+          # pattern sixteen times over, 127 whole blocks, the last looping back to the first.
+          METALLIC_STEPS = 127
+          METALLIC_START = 0x40
+          METALLIC_TAP = 0x60
+
+          # Its source number: after the long and the short square recordings.
+          METALLIC = WIDTHS.size * 2
+
           # The source number of the recording of +width+, a wave of +wave+ samples: the long waves
           # first, then the short ones.
           def source(width, wave)
@@ -53,13 +66,32 @@ module VBlank
           end
 
           # The recordings as BRR bytes, in source-number order.
-          def squares = [LONG_WAVE, SHORT_WAVE].flat_map { |wave| WIDTHS.values.map { |eighths| square(wave, eighths) } }
+          def recordings
+            [LONG_WAVE, SHORT_WAVE].flat_map { |wave| WIDTHS.values.map { |eighths| square(wave, eighths) } } + [metallic]
+          end
 
           # Square waves of +wave+ samples, +eighths+ eighths of each high, filling whole BRR blocks
           # (a short wave is repeated to fill one), the last block looping back to the first.
           def square(wave, eighths)
             high = wave * eighths / 8
-            samples = Array.new([wave, BLOCK_SAMPLES].max) { |i| (i % wave) < high ? HIGH : LOW }
+            looped(Array.new([wave, BLOCK_SAMPLES].max) { |i| (i % wave) < high ? HIGH : LOW })
+          end
+
+          # The seven-bit noise pattern, sixteen times round.
+          def metallic
+            x = METALLIC_START
+            steps = Array.new(METALLIC_STEPS) do
+              out = x & 1
+              x >>= 1
+              x ^= METALLIC_TAP if out == 1
+              out == 1 ? HIGH : LOW
+            end
+            looped(steps * BLOCK_SAMPLES)
+          end
+
+          # +samples+ (a whole number of blocks' worth, each -8..7) as BRR blocks, the last looping
+          # back to the first.
+          def looped(samples)
             blocks = samples.each_slice(BLOCK_SAMPLES).to_a
             blocks.each_with_index.flat_map do |block, index|
               flags = index == blocks.size - 1 ? LOOP : 0
@@ -71,14 +103,14 @@ module VBlank
           # row for each recording (its start and its loop point, both its first byte) and then the
           # recordings themselves.
           def image(at)
-            recordings = squares
-            start = at + (recordings.size * ROW)
-            rows = recordings.map do |bytes|
+            all = recordings
+            start = at + (all.size * ROW)
+            rows = all.map do |bytes|
               row = [start & 0xFF, start >> 8] * 2
               start += bytes.size
               row
             end
-            (rows + recordings).flatten
+            (rows + all).flatten
           end
         end
       end

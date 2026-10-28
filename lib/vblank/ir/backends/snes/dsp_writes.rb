@@ -34,8 +34,28 @@ module VBlank
         # nought (#steps_to_silence), come nearest to the Advance's time for that volume and speed.
         # :none holds (rate nought).
         module DSPWrites
-          # The voice beeps play on, as the Advance plays them on its second square voice.
+          # The voice beeps play on, as the Advance plays them on its second square voice, and the one
+          # noise plays on, as the Advance's noise is its fourth voice.
           BEEP_VOICE = 1
+          NOISE_VOICE = 3
+
+          # NOISE. A hiss is the S-DSP's own noise generator, a register of fifteen random bits, as
+          # the Advance's is: the noise voice's bit in NON switches it from its recording to the
+          # generator, and the generator's clock is FLG's low five bits, one of the 32 rates (a rate
+          # steps it 32000 / RATE_SAMPLES[rate] times a second, so 32000 at the most). A metallic
+          # rattle is a recording instead (Samples::METALLIC), read one sample for each of the
+          # Advance's steps. Both are clocked as the Advance clocks a hit: Audio::Sound's
+          # NOISE_HIT_HALVINGS.
+          #
+          # FLG IS SHARED. Its top three bits mute the sound unit, hold every voice off and stop the
+          # echo writing; its low five are the noise clock. So neither enable_sound nor a noise hit
+          # writes all of FLG: each changes only its own bits, which the sound unit's program does
+          # with the DSP's register in hand (Runtime::Sound's "set FLG's bits" command), written here
+          # as [:flags, mask, bits]. A hit before enable_sound sets the clock and leaves the sound
+          # unit muted, as the Advance makes no sound before it either.
+          FLAG_BITS = :flags
+          SWITCHES = 0xE0
+          NOISE_CLOCK = 0x1F
 
           # A voice's registers, counted from its first ($x0).
           VOLUME_LEFT = 0x0
@@ -101,11 +121,13 @@ module VBlank
              [NOISE_ON, 0], [PITCH_MODULATION, 0], [KEY_OFF, 0]]
           end
 
-          # The writes one sound-log entry means: [:enabled] or [:beep, effect].
+          # The writes one sound-log entry means: [:enabled], [:beep, effect] or [:noise, hit]. Each is
+          # [register, value], or [FLAG_BITS, mask, bits] for FLG's.
           def for_entry(entry)
             case entry.first
-            when :enabled then [[FLAGS, SOUND_ON], [MAIN_LEFT, MAIN_VOLUME], [MAIN_RIGHT, MAIN_VOLUME]]
+            when :enabled then [[FLAG_BITS, SWITCHES, SOUND_ON], [MAIN_LEFT, MAIN_VOLUME], [MAIN_RIGHT, MAIN_VOLUME]]
             when :beep then beep(entry.last)
+            when :noise then noise(entry.last)
             else raise ArgumentError, "the Super Nintendo build does not play #{entry.first.inspect} yet"
             end
           end
@@ -119,6 +141,34 @@ module VBlank
             [[base + VOLUME_LEFT, volume], [base + VOLUME_RIGHT, volume], [base + PITCH_LOW, pitch & 0xFF],
              [base + PITCH_HIGH, pitch >> 8], [base + SOURCE, Samples.source(effect.duty, wave)], [base + ADSR1, ATTACK],
              [base + ADSR2, SUSTAIN_AT_TOP | fade_rate(effect.volume, effect.decay)], [KEY_ON, 1 << BEEP_VOICE]]
+          end
+
+          # A noise hit (Audio::Sound.resolve_noise's hash): the noise voice's loudness and fade, as a
+          # beep's; then the generator, its clock set and the voice switched to it, or the metallic
+          # recording read at the clock; and key-on last.
+          def noise(hit)
+            base = NOISE_VOICE << 4
+            clock = VBlank::Audio::Sound.noise_rung_hz(0, VBlank::Audio::Sound::NOISE_HIT_HALVINGS.fetch(hit[:pitch]))
+            volume = hit[:volume] * VOLUME_STEP
+            shaped = [[base + VOLUME_LEFT, volume], [base + VOLUME_RIGHT, volume], [base + ADSR1, ATTACK],
+                      [base + ADSR2, SUSTAIN_AT_TOP | fade_rate(hit[:volume], hit[:decay])]]
+            source = if hit[:metallic]
+                       pitch = (clock * PITCH_ONE / DSP_RATE.to_f).round.clamp(1, PITCH_TOP)
+                       [[base + PITCH_LOW, pitch & 0xFF], [base + PITCH_HIGH, pitch >> 8],
+                        [base + SOURCE, Samples::METALLIC], [NOISE_ON, 0]]
+                     else
+                       # The generator still reads a recording beside it, and one that ends would end
+                       # the noise (fullsnes, "NON"): a looping one, read at any pitch.
+                       [[base + PITCH_LOW, 0], [base + PITCH_HIGH, PITCH_ONE >> 8],
+                        [base + SOURCE, Samples.source(:half, Samples::LONG_WAVE)],
+                        [FLAG_BITS, NOISE_CLOCK, noise_rate(clock)], [NOISE_ON, 1 << NOISE_VOICE]]
+                     end
+            shaped + source + [[KEY_ON, 1 << NOISE_VOICE]]
+          end
+
+          # The noise generator's rate (1..31) nearest to stepping +clock+ times a second.
+          def noise_rate(clock)
+            (1...RATE_SAMPLES.size).min_by { |rate| (Math.log(DSP_RATE.to_f / RATE_SAMPLES[rate]) - Math.log(clock)).abs }
           end
 
           # The length of wave a +frequency+ Hz note is played on: the long one, unless the pitch
@@ -153,9 +203,22 @@ module VBlank
             steps
           end
 
-          # What the registers hold after the sound log +entries+, by register, for each one written.
+          # What the registers hold after the sound log +entries+, by register, for each one written,
+          # and FLG, which the sound unit starts as SOUND_OFF (at_power_on) and whose bits each entry
+          # changes only some of.
           def after(entries)
-            entries.each_with_object({}) { |entry, held| for_entry(entry).each { |register, value| held[register] = value } }
+            held = { FLAGS => SOUND_OFF }
+            entries.each do |entry|
+              for_entry(entry).each do |register, *value|
+                if register == FLAG_BITS
+                  mask, bits = value
+                  held[FLAGS] = (held[FLAGS] & ~mask & 0xFF) | (bits & mask)
+                else
+                  held[register] = value.first
+                end
+              end
+            end
+            held
           end
         end
       end

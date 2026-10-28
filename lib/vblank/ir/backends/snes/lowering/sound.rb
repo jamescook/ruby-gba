@@ -11,7 +11,7 @@ module VBlank
           # to the cartridge's own sound log (rt_sound_log), which a run reads back as the
           # interpreter's words (#sound_entries). Mixed into Lowering.
           module Sound
-            STATEMENTS = Ractor.make_shareable({ enable_sound: :emit_enable_sound, beep: :emit_beep })
+            STATEMENTS = Ractor.make_shareable({ enable_sound: :emit_enable_sound, beep: :emit_beep, noise: :emit_noise })
 
             # The kinds that reach the sound unit: a program with none of them is built without it.
             KINDS = STATEMENTS.keys.freeze
@@ -39,10 +39,19 @@ module VBlank
               emit_sound_entry([:beep, effect])
             end
 
+            # Reference#exec_noise: the hit resolved as the interpreter resolves it.
+            def emit_noise(node)
+              hit = VBlank::Audio::Sound.resolve_noise(node.preset, pitch: node.pitch, decay: node.decay,
+                                                                    volume: node.volume, metallic: node.metallic)
+              emit_sound_entry([:noise, hit])
+            end
+
             # +entry+'s DSP writes, then its number into the cartridge's sound log.
             def emit_sound_entry(entry)
-              DSPWrites.for_entry(entry).each do |register, value|
-                runtime_call("rt_sound_write", [Build.int(register), Build.int(value)])
+              DSPWrites.for_entry(entry).each do |register, *values|
+                routine = register == DSPWrites::FLAG_BITS ? "rt_sound_flag_bits" : "rt_sound_write"
+                numbers = register == DSPWrites::FLAG_BITS ? values : [register, *values]
+                runtime_call(routine, numbers.map { |number| Build.int(number) })
               end
               number = @sound_entries.index(entry) || (@sound_entries << entry).size - 1
               if number >= Runtime::Sound::LOG_LENGTH

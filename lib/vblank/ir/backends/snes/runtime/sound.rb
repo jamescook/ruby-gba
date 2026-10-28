@@ -54,8 +54,11 @@ module VBlank
             READY = 0xBBAA
             FIRST_KICK = 0xCC
 
-            # The commands the program knows, in mailbox 1.
+            # The commands the program knows, in mailbox 1: write a DSP register (mailbox 2 names it,
+            # mailbox 3 is its value), and set some of FLG's bits (mailbox 2 says which, mailbox 3
+            # what they become), leaving the rest as the DSP holds them (DSPWrites, "FLG is shared").
             WRITE_DSP = 1
+            SET_FLAG_BITS = 2
 
             # The SPC700's mailboxes and the DSP's two registers that reach the rest of it: $F2
             # picks a DSP register, and $F3 is its value.
@@ -63,8 +66,10 @@ module VBlank
             DSP_DATA = 0xF3
             PORTS = [0xF4, 0xF5, 0xF6, 0xF7].freeze
 
-            # Where the program keeps the last number it answered, in its direct page.
+            # Where the program keeps the last number it answered, in its direct page, and FLG's bits
+            # that stay while it works out the new ones.
             LAST_ANSWERED = 0x00
+            KEPT_BITS = 0x01
 
             # How many times rt_sound_write reads mailbox 0 for the answer to the write before.
             PATIENCE = 256
@@ -82,6 +87,7 @@ module VBlank
 
             R0 = Memory.register(0)
             R1 = Memory.register(1)
+            R2 = Memory.register(2)
 
             module_function
 
@@ -117,9 +123,22 @@ module VBlank
                 mov direct(LAST_ANSWERED), :a
                 mov :a, direct(ports[1])
                 cmp :a, imm(WRITE_DSP)
-                bne "answer"
+                bne "flag_bits"
                 mov direct(DSP_ADDRESS), direct(ports[2])
                 mov direct(DSP_DATA), direct(ports[3])
+                bra "answer"
+                label "flag_bits"
+                cmp :a, imm(SET_FLAG_BITS)
+                bne "answer"
+                mov direct(DSP_ADDRESS), imm(DSPWrites::FLAGS)
+                mov :a, direct(ports[2]) # which bits change
+                eor :a, imm(0xFF)
+                and_ :a, direct(DSP_DATA) # FLG's other bits, as the DSP holds them
+                mov direct(KEPT_BITS), :a
+                mov :a, direct(ports[3])
+                and_ :a, direct(ports[2]) # the new bits
+                or_ :a, direct(KEPT_BITS)
+                mov direct(DSP_DATA), :a
                 label "answer"
                 mov :a, direct(LAST_ANSWERED)
                 mov direct(ports[0]), :a
@@ -229,9 +248,17 @@ module VBlank
             # rt_sound_write: DSP register R0 = R1, sent once the write before it has been answered,
             # or dropped and counted when it is not answered in time. Nothing at all before the
             # program has been sent.
+            #
+            # rt_sound_flag_bits: FLG's bits R0 set to R1's, the rest as they are, sent the same way.
             def emit_write(asm, memory)
               h = Console::SNESHardware
+              asm.label("rt_sound_flag_bits")
+              asm.lda(SET_FLAG_BITS)
+              asm.bra("rt_sound_command")
               asm.label("rt_sound_write")
+              asm.lda(WRITE_DSP)
+              asm.label("rt_sound_command") # the command in A, its two numbers in R0 and R1
+              asm.sta(asm.direct(R2))
               asm.lda(asm.abs(memory[LIVE]))
               asm.beq("rt_sound_write_done")
               asm.ldx(PATIENCE)
@@ -253,7 +280,7 @@ module VBlank
               asm.sta(asm.abs(h::APUIO2))
               asm.lda(asm.direct(R1))
               asm.sta(asm.abs(h::APUIO3))
-              asm.lda(WRITE_DSP)
+              asm.lda(asm.direct(R2))
               asm.sta(asm.abs(h::APUIO1))
               asm.lda(asm.abs(memory[SENT]))
               asm.inc
