@@ -107,7 +107,7 @@ class TestSNESPaint < Minitest::Test
     assert_equal Color.resolve(:orange), run.screen.pixel(41, 21)
   end
 
-  # A pass that clears the whole screen changes every one of its 896 tiles, 56K, far more than a
+  # A pass that clears the whole screen changes every one of its 896 tiles, 57344 bytes, far more than a
   # blank has time to copy. It reaches the screen over several frames, and none of them is black:
   # the screen is never switched off for it. The checked run holds each pass's picture to the
   # interpreter's; the frames between passes are what only a player sees, read here one by one.
@@ -123,8 +123,8 @@ class TestSNESPaint < Minitest::Test
         x.add! 7
       end
     end
-    SNES::CheckedRun.new.run(program, frames: 4)
-    run = SNES::HeadlessRun.new(watch_picture: true).run(program, frames: 4)
+    SNES::CheckedRun.new.run(program, frames: 4) # raises if a pass's picture differs from the interpreter's
+    run =SNES::HeadlessRun.new(watch_picture: true).run(program, frames: 4)
 
     assert_empty run.black_frames
     assert_operator (2..4).map { |pass| run.frames_took(pass) }.max, :<=, (57_344 / 4096) + 1

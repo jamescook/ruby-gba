@@ -17,8 +17,8 @@ module VBlank
           #                   from a loop it keeps in its own cache (rt_chip_clear), while the console
           #                   waits (Runtime::Chip)
           #
-          # The copy to video RAM goes from the chip's RAM as Paint's rt_upload goes from work RAM,
-          # a blank at a time with the screen on.
+          # The copy to video RAM is Paint's rt_paint_upload, a blank at a time with the screen on,
+          # from the chip's RAM rather than work RAM.
           module ChipPaint
             COPY = Console::SNESHardware::GSU_RAM_BANK << 16
 

@@ -234,7 +234,8 @@ module VBlank
 
             # rt_tint_upload (JSR, in the blank, first of what is copied there): the moved colours, if
             # they changed since the last blank. On a painted screen the screen stays on, and the
-            # 512 bytes go before the picture's tiles, at the start of the blank.
+            # 512 bytes go first, at the start of the blank; the tiles after them are not counted
+            # against them, but the third of the blank Paint's BLANK_BYTES leaves over covers them.
             def emit_upload(asm, memory)
               h = Console::SNESHardware
               state = memory[STATE]

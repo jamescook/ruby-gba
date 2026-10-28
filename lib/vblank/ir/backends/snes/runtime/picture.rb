@@ -477,8 +477,10 @@ module VBlank
               asm.rtl
             end
 
-            # THE COPY IN THE BLANK. The screen is switched off first, so nothing below needs to fit
-            # in the blank; then on again — straight away while the blank lasts, or in the next one.
+            # THE COPY IN THE BLANK. On a tiled screen the screen is switched off first, so nothing
+            # below needs to fit in the blank; then on again — straight away while the blank lasts,
+            # or in the next one. A painted screen's copy keeps to the blanks itself and leaves the
+            # screen on.
             def emit_upload(asm, memory, painted)
               h = Console::SNESHardware
               layers = memory[LAYERS]
