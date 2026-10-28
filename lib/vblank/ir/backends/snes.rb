@@ -15,6 +15,7 @@ end
 
 require_relative "snes/w65816"
 require_relative "snes/gsu"
+require_relative "snes/spc700"
 require_relative "snes/linker"
 require_relative "snes/memory"
 require_relative "snes/runtime"
