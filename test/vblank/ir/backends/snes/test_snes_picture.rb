@@ -47,11 +47,12 @@ class TestSNESPicture < Minitest::Test
       game_loop do
         t.add! 1
         a.move_to 20 + t, 20
-        b.move_to 16, 22 + t
+        b.move_to 16 + t, 22
       end
     end
 
-    assert_equal 2, run.sprites.length
+    # The bar, declared second, crosses the block's middle: where they overlap it is the bar's.
+    assert_equal Color.resolve(:magenta), run.screen.pixel(34, 23)
   end
 
   def test_a_background_put_up_scrolled_changed_and_handed_another_map
@@ -82,16 +83,14 @@ class TestSNESPicture < Minitest::Test
     assert_operator run[:x], :>, 0
   end
 
-  private
-
-  def program_of(&game)
+  private def program_of(&game)
     builder = Builder.new
     builder.instance_eval(&game)
     builder.finalize_program
     builder.program.copy.tap { |program| program.console = :snes }
   end
 
-  def checked(frames: nil, &game)
+  private def checked(frames: nil, &game)
     SNES::CheckedRun.new.run(program_of(&game), frames: frames)
   end
 end

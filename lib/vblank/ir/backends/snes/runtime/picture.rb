@@ -22,10 +22,11 @@ module VBlank
           # console's 544 bytes); a map put up, copied whole from the cartridge; single cells
           # changed (a queue of them); and where each layer is scrolled to. The console takes video
           # RAM and the sprite table only while it is not drawing, so this is all done in the blank
-          # — and a copy too long for one blank (a map of 64×64 cells is 8K) is finished with the
-          # screen switched off, and the screen comes on again in the next blank, before the pass is
-          # said to be shown (Runtime::Frame's SHOWN). The frame drawn while it was off is black, and
-          # nothing reads it.
+          # with the screen switched off for the copy, so the console takes the writes however long
+          # the copy runs. A copy that ends inside the blank switches the screen on again there and
+          # nothing shows; one too long for the blank (a map of 64×64 cells is 8K) runs on into the
+          # frame and switches the screen on in the next blank, before the pass is said to be shown
+          # (Runtime::Frame's SHOWN). The frame drawn while it was off is black, and nothing reads it.
           #
           #   rt_picture_start     at power-on: the registers, the tiles and the colours
           #   rt_picture_prepare   at the end of every pass, before the wait (nothing yet)

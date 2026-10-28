@@ -26,8 +26,8 @@ you need before writing a test that uses it:
 `test/vblank/audio/`, of `cli.rb` in `test/vblank/`, of an example in `test/examples/` (or
 `test/advance/examples/` for a game for the Advance alone), of a tool in `test/tools/`. A new
 directory under `test/` needs one under `lib/` first. The exceptions are
-`test/vblank/ir/backends/native/examples/` and `test/vblank/ir/backends/gbc/examples/`, which
-mirror `examples/`, and `test/advance/`, which mirrors `test/` (below).
+`test/vblank/ir/backends/native/examples/`, `test/vblank/ir/backends/gbc/examples/` and
+`test/vblank/ir/backends/snes/examples/`, which mirror `examples/`, and `test/advance/`, which mirrors `test/` (below).
 
 A test belongs to the file a person opens first when it fails:
 

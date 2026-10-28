@@ -194,6 +194,7 @@ module VBlank
             refuse_what_snes_lacks!
             refuse_routines_that_call_themselves!
             refuse_unmade_picture!
+            make_sprite_art
             Reach.variables(@program).each { |name| @variables[name] = @memory.reserve("the variable #{name.inspect}", 4) }
             @declared_lists.each_value do |node|
               width = SLOT_BYTES.fetch(node.width)

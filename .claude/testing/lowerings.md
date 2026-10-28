@@ -31,6 +31,15 @@ call its run cannot answer (`GBC::HeadlessRun::CannotAnswer`), counted by reason
 (`consoles: %i[gba gbc]`) is played there as a Color game, as `examples/pacman.rb` and
 `examples/breakout.rb` are; `examples/pong_gbc.rb` is a game for the Color alone, a copy of
 `examples/pong.rb` changed for it, since the Advance's title zooms on a screen the Color cannot turn.
+**The Super Nintendo run is built the way the Color's is.** Its player (`SNESCheckedPlayer`,
+`SNES::CheckedRun`) plays each test's program as a Super Nintendo program in bsnes
+(ruby-snes-emulator, whose core `rake compile_snes_core` builds) and compares variables, lists,
+the picture and sprites with the interpreter's after every pass. A test whose program reaches a
+part its build does not make yet (`SNES::Lowering::NOT_LOWERED_YET`) skips, saying which part, and
+the run counts those skips by reason; `skip_on_snes` is there for a test it cannot play for a
+reason no folder says. `test/vblank/ir/backends/snes/` is its own folder, and its `examples/`
+mirrors `examples/`: a test there plays one example built for the Super Nintendo too
+(`consoles: %i[gba snes]`).
 `test/advance/` is owned by the GBA, native, JavaScript and Ruby lowerings together; a folder several
 lowerings name in `TestSuites::LOWERING_FOLDERS` is loaded by each of them
 (`Testing::Lowering.files_for`).

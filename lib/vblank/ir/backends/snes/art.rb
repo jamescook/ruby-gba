@@ -82,7 +82,7 @@ module VBlank
             end
             bytes = tile_bytes(places)
             number = @background_tile_numbers[bytes] ||= begin
-              refuse_too_many!(@background_tiles.length, MOST_BACKGROUND_TILES, "background tiles")
+              refuse_too_many!(@background_tiles.length, MOST_BACKGROUND_TILES, "backgrounds")
               @background_tiles << bytes
               @background_tiles.length - 1
             end
@@ -156,7 +156,7 @@ module VBlank
 
           def sprite_tile_number(bytes)
             @sprite_tile_numbers[bytes] ||= begin
-              refuse_too_many!(@sprite_tiles.length, MOST_SPRITE_TILES, "sprite tiles")
+              refuse_too_many!(@sprite_tiles.length, MOST_SPRITE_TILES, "sprites")
               @sprite_tiles << bytes
               @sprite_tiles.length - 1
             end
@@ -180,8 +180,9 @@ module VBlank
               return roomy
             end
             if palettes.length >= PALETTES
-              raise TooMuch, "The #{what} use more colours than a Super Nintendo holds for them: #{PALETTES} lists of " \
-                             "#{OWN_COLORS}. To fix this, use fewer colours in the #{what}' pictures."
+              raise TooMuch, "The pictures of the #{what} use more colours than a Super Nintendo can show for them. " \
+                             "It holds #{PALETTES} sets of #{OWN_COLORS} colours. To fix this, use fewer colours in " \
+                             "the #{what}' pictures."
             end
 
             palettes << colors.dup
@@ -191,8 +192,8 @@ module VBlank
           def refuse_too_many!(count, most, what)
             return if count < most
 
-            raise TooMuch, "This game has more #{what} than a Super Nintendo's video memory holds (#{most}). To fix " \
-                           "this, use fewer different pictures."
+            raise TooMuch, "The #{what} use more different 8×8 squares of picture than a Super Nintendo has room " \
+                           "for (#{most}). To fix this, use fewer different pictures."
           end
 
           # The 32 bytes of a tile whose 64 pixels are +places+ (0 to 15), row by row: each row's

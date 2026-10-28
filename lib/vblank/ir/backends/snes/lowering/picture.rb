@@ -43,7 +43,7 @@ module VBlank
               screens = @program.walk.select { |node| node.kind == :screen }.map(&:mode).uniq
               refuse_unmade!("a painted (bitmap) screen") unless (screens - [:tiled]).empty?
               names = @backgrounds.keys
-              refuse_unmade!("more than two backgrounds in one game") if names.length > LAYERS
+              refuse_unmade!("more than two backgrounds in one game") if names.length > BACKGROUND_LAYERS
               @backgrounds.each_value do |bg|
                 refuse_unmade!("background tiles of #{bg.tile_w}×#{bg.tile_h}") unless bg.tile_w == 8 && bg.tile_h == 8
                 refuse_unmade!("a background in a scene of its own") if bg.scene
@@ -59,8 +59,13 @@ module VBlank
               end
               ordered = @reachable.any? { |node| node.kind == :present_objects && !Array(node.orders).empty? }
               refuse_unmade!("sprites drawn in an order the game works out (`draw_in_order`)") if ordered
-              @sprite_names_pictures = @objects.values.flat_map(&:poses).uniq
-              @sprite_names_pictures.each { |name| @art.sprite_picture(name, Assets::Image.of(picture_named(name))) }
+            end
+
+            # Every picture a sprite can show, made into sprite pieces, in the order the pose tables
+            # number them.
+            def make_sprite_art
+              @sprite_pictures = @objects.values.flat_map(&:poses).uniq
+              @sprite_pictures.each { |name| @art.sprite_picture(name, Assets::Image.of(picture_named(name))) }
             end
 
             def refuse_unmade!(what)
@@ -70,7 +75,7 @@ module VBlank
             end
 
             # The two layers a background can be given.
-            LAYERS = 2
+            BACKGROUND_LAYERS = 2
 
             # The art, and each sprite's table of pictures, as sections for the Linker.
             def art_sections
@@ -99,7 +104,7 @@ module VBlank
               end
               @pose_tables.each do |obj, label|
                 data.label(label)
-                data.data_words(obj.poses.length, *obj.poses.map { |pose| @sprite_names_pictures.index(pose) })
+                data.data_words(obj.poses.length, *obj.poses.map { |pose| @sprite_pictures.index(pose) })
               end
               [data.section, *bytes_section("art background tiles", @art.background_tile_data),
                *bytes_section("art sprite tiles", @art.sprite_tile_data),
@@ -145,7 +150,8 @@ module VBlank
             # The layer a background is on: the one declared last on BG1 (0), in front.
             def layer_of(bg) = @backgrounds.length - 1 - @backgrounds.keys.index(bg.name)
 
-            def declared_background!(node)
+            # The declared background a scroll, a changed cell or a map handed over names.
+            def background_declared_for(node)
               @backgrounds.fetch(node.name) { raise LoweringError, "#{node.kind} of undeclared background #{node.name.inspect}" }
             end
 
@@ -168,14 +174,14 @@ module VBlank
 
             # Reference#exec_scroll_background.
             def emit_scroll_background(node)
-              bg = declared_background!(node)
+              bg = background_declared_for(node)
               runtime_call("rt_background_scroll", [Build.int(layer_of(bg)), node.x, node.y])
             end
 
             # Reference#exec_set_tile: a tile the background does not have changes nothing, and nor
             # does a place outside its map.
             def emit_set_tile(node)
-              bg = declared_background!(node)
+              bg = background_declared_for(node)
               return if node.tile && node.tile >= bg.tiles.length
 
               columns, rows = TileMap.size_of(bg.every_map.first)
@@ -200,7 +206,7 @@ module VBlank
             # Reference#exec_show_map: a number naming no map leaves the cells alone; the view stays
             # where it was.
             def emit_show_map(node)
-              bg = declared_background!(node)
+              bg = background_declared_for(node)
               which = keep_local(:map)
               value(node.which)
               store(which)
