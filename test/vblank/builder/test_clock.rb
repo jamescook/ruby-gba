@@ -31,6 +31,7 @@ class TestClock < Minitest::Test
   # A run never given a time is a cartridge with no clock chip: the game is told so, and every
   # reading is 0 rather than a time that looks right.
   def test_with_no_clock_the_game_is_told_so_and_reads_zeros
+    skip_on_snes "a Super Nintendo cartridge built here has no clock chip, so its build refuses `clock`"
     assert_equal({ present: 0, set: 0, hour: 0 }, answers(game_player.run(asking_program, frames: 2)))
   end
 
