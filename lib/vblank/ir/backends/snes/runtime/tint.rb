@@ -23,8 +23,9 @@ module VBlank
           # moves each colour by looking its three channels up. Colour 0 is moved too: it is what
           # shows where nothing is drawn, so it fades with the picture.
           #
-          #   rt_tint(toward, color, steps)   nothing, when nothing changed (most frames of a game
-          #                                   that says its fade every frame)
+          #   rt_tint(toward, color, steps)   the fade in force noted, or nothing when nothing changed
+          #                                   (most frames of a game that says its fade every frame)
+          #   rt_tint_prepare                 as a pass ends (JSL): the colours moved, if the fade changed
           #   rt_tint_upload                  in the blank (JSR): the moved colours, if they changed
           module Tint
             TOWARD_BLACK = 0
@@ -45,7 +46,12 @@ module VBlank
             TABLE = 8
             STATE_BYTES = TABLE + (3 * 32)
 
-            R = ->(n) { Memory.register(n) }
+            # What CHANGED holds besides nought: a fade said this pass, whose colours are still to be
+            # moved (rt_tint_prepare), or colours moved and still to be sent (rt_tint_upload).
+            TO_SEND = 1
+            TO_WORK_OUT = 2
+
+            R = Ractor.make_shareable(->(n) { Memory.register(n) })
 
             # The direct page the routine works on.
             Scratch = Data.define(:channel, :target, :factor, :product)
@@ -62,10 +68,12 @@ module VBlank
                           product: memory.scratch(2))
             end
 
-            def emit(asm, memory, s)
+            # +colors_shown+ is the runs of the colour memory a picture can show, as [first, count]
+            # (Lowering::Picture#colors_shown): the colours the fade moves.
+            def emit(asm, memory, s, colors_shown: [[0, 256]])
               emit_tint(asm, memory, s)
               emit_table(asm, memory, s)
-              emit_apply(asm, memory)
+              emit_apply(asm, memory, colors_shown)
               emit_upload(asm, memory)
             end
 
@@ -105,10 +113,23 @@ module VBlank
                 asm.lda(asm.direct(from))
                 asm.sta(asm.abs(state + to))
               end
+              asm.lda(TO_WORK_OUT)
+              asm.sta(asm.abs(state + CHANGED))
+              asm.rtl
+
+              # rt_tint_prepare (JSL, as a pass ends): the colours moved by the fade in force, if it
+              # changed this pass. Only the fade in force as the pass ends is ever sent, so a pass
+              # that says several — a fade that catches up on the frames a slow pass took says one
+              # for each — moves the colours once, not once for each.
+              asm.label("rt_tint_prepare")
+              asm.lda(asm.abs(state + CHANGED))
+              asm.cmp(TO_WORK_OUT)
+              asm.bne("rt_tint_prepare_done")
               asm.jsr(asm.abs("rt_tint_table"))
               asm.jsr(asm.abs("rt_tint_apply"))
-              asm.lda(1)
+              asm.lda(TO_SEND)
               asm.sta(asm.abs(state + CHANGED))
+              asm.label("rt_tint_prepare_done")
               asm.rtl
 
               # rt_tint_times (JSR): A = the byte at +channel+ times the byte at +factor+, by the
@@ -203,32 +224,39 @@ module VBlank
               asm.rts
             end
 
-            # rt_tint_apply (JSR): every colour of the game's moved into the copy, through the table.
-            def emit_apply(asm, memory)
+            # rt_tint_apply (JSR): each colour of the game's a picture can show moved into the copy,
+            # through the table. Moving a colour is the most of a fade's work, so only the runs of
+            # +colors_shown+ are moved: a game whose pictures use one palette moves its sixteen
+            # colours, the backdrop among them, not 256. The others are never drawn from, and stay as nought in the copy.
+            def emit_apply(asm, memory, colors_shown)
               state = memory[STATE]
               shadow = memory[SHADOW]
               asm.label("rt_tint_apply")
-              asm.ldx(0)
-              asm.label("rt_tint_apply_color")
-              asm.lda(0)
-              asm.sta(asm.long_x(shadow))
-              3.times do |channel|
-                asm.lda(asm.long_x("art colors"))
-                (channel * 5).times { asm.lsr }
-                asm.and_a(CHANNEL_MAX)
-                asm.phx
-                asm.tax
-                asm.lda(asm.abs_x(state + TABLE + (channel * 32)))
-                asm.plx
-                asm.and_a(CHANNEL_MAX)
-                (channel * 5).times { asm.asl }
-                asm.ora(asm.long_x(shadow))
+              colors_shown.each_with_index do |(first, count), run|
+                next if count.zero?
+
+                asm.ldx(first * 2)
+                asm.label("rt_tint_apply_color_#{run}")
+                asm.lda(0)
                 asm.sta(asm.long_x(shadow))
+                3.times do |channel|
+                  asm.lda(asm.long_x("art colors"))
+                  (channel * 5).times { asm.lsr }
+                  asm.and_a(CHANNEL_MAX)
+                  asm.phx
+                  asm.tax
+                  asm.lda(asm.abs_x(state + TABLE + (channel * 32)))
+                  asm.plx
+                  asm.and_a(CHANNEL_MAX)
+                  (channel * 5).times { asm.asl }
+                  asm.ora(asm.long_x(shadow))
+                  asm.sta(asm.long_x(shadow))
+                end
+                asm.inx
+                asm.inx
+                asm.cpx((first + count) * 2)
+                asm.bne("rt_tint_apply_color_#{run}")
               end
-              asm.inx
-              asm.inx
-              asm.cpx(512)
-              asm.bne("rt_tint_apply_color")
               asm.rts
             end
 
@@ -242,7 +270,8 @@ module VBlank
               shadow = memory[SHADOW]
               asm.label("rt_tint_upload")
               asm.lda(asm.abs(state + CHANGED))
-              asm.beq("rt_tint_upload_none")
+              asm.cmp(TO_SEND)
+              asm.bne("rt_tint_upload_none")
               asm.stz(asm.abs(state + CHANGED))
               asm.sep(0x20)
               asm.stz(asm.abs(h::CGADD))

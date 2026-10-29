@@ -75,6 +75,10 @@ module VBlank
             end
           end
 
+          # How many of the colour memory's colours the game paints in, from colour 0: the rest are
+          # black and never painted with.
+          def colors_painted = @colors.length
+
           # The colour list as the console's colour memory takes it: 256 colours, two bytes each.
           def cgram
             @colors.dup.fill(BLACK, @colors.length...COLORS).pack("v*")

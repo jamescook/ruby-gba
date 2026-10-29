@@ -64,7 +64,13 @@ module VBlank
 
           attr_reader :background_tiles, :sprite_tiles, :grids, :sprite_pictures
 
-          def initialize
+          # The backdrop of a game that says none: black, as the interpreter's empty screen is.
+          BACKDROP = 0
+
+          # +backdrop+ is the colour the game shows wherever nothing is drawn (`screen ... backdrop:`),
+          # a 15-bit colour, or nil for black.
+          def initialize(backdrop: nil)
+            @backdrop = (backdrop || BACKDROP) & 0x7FFF
             @background_tiles = [blank_tile] # tile 0: nothing drawn, for an empty cell
             @background_tile_numbers = { blank_tile => 0 }
             @background_palettes = [[]] # each a list of up to fifteen colours
@@ -192,12 +198,22 @@ module VBlank
           # --- the colour memory ---
 
           # All 256 colours, as the console's colour memory holds them: two bytes each, the
-          # backgrounds' eight palettes and then the sprites'.
+          # backgrounds' eight palettes and then the sprites'. Colour 0 is the backdrop.
           def cgram
             colors = Array.new(256, 0)
+            colors[0] = @backdrop
             @background_palettes.each_with_index { |list, p| list&.each_with_index { |c, i| colors[(p * PLACES) + i + 1] = c } }
             @sprite_palettes.each_with_index { |list, p| list&.each_with_index { |c, i| colors[128 + (p * PLACES) + i + 1] = c } }
             colors.pack("v*")
+          end
+
+          # The colours a picture can show, as [first, count] runs of the colour memory: the
+          # backdrop and the backgrounds' palettes the game's pictures use, then the sprites'. The
+          # rest are never drawn from, so a fade has no need to move them.
+          def colors_shown
+            runs = [[0, @background_palettes.length * PLACES]]
+            runs << [PALETTES * PLACES, @sprite_palettes.length * PLACES] unless @sprite_palettes.empty?
+            runs
           end
 
           def sprite_tile_data = @sprite_tiles.join

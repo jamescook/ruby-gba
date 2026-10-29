@@ -46,8 +46,18 @@ module VBlank
             # The SNES::Art the game's pictures were made into.
             attr_reader :art
 
+            # The runs of the colour memory a picture can show, which a fade moves (Runtime::Tint). A
+            # painted screen's colours are Lowering::Paint's: those it paints in, or every one in a
+            # game with sprites, which draw from the colour memory's second half.
+            def colors_shown
+              return @art.colors_shown unless painted?
+
+              @objects.empty? ? [[0, @painted_art.colors_painted]] : [[0, 256]]
+            end
+
             def prepare_picture
-              @art = Art.new
+              refuse_backdrops_of_its_own!
+              @art = Art.new(backdrop: IR::SceneHandover.of(@program).game_backdrop)
               @pictures = by_kind(:bitmap)
               @objects = by_kind(:object)
               @backgrounds = by_kind(:background)
@@ -119,7 +129,11 @@ module VBlank
             # names each copy as the picture it copies. A list's colours never change as the game
             # runs: a list told to hold others (`holds`) is not made yet.
             def make_recolored_art(mixed)
+              painted = @tile_runs.filter_map(&:picture)
               @objects.each_value do |obj|
+                if !obj.recolors.empty? && obj.poses.intersect?(painted)
+                  refuse_unmade!("a picture painted from a list and drawn with other colours (`draw_with`)")
+                end
                 obj.recolors.each_with_index do |list, which|
                   swapped = list.is_a?(Symbol) ? color_list_named(list).colors : list
                   obj.poses.each do |pose|
@@ -164,6 +178,16 @@ module VBlank
                 run.tiles.each_with_index { |image, k| @run_cells[image] = [first + k, palette] }
                 @run_places[number] = Runtime::Picture::BG_TILES + (first * Art::TILE_BYTES / 2)
               end
+            end
+
+            # A `screen` other than the game's own that says a backdrop the game's does not: a scene's
+            # own. Colour 0 is the console's one backdrop, set once for the game here, so one that
+            # changes as a scene comes up is not made yet.
+            def refuse_backdrops_of_its_own!
+              game_backdrop = IR::SceneHandover.of(@program).game_backdrop
+              return unless @program.walk.any? { |node| node.kind == :screen && node.backdrop && node.backdrop != game_backdrop }
+
+              refuse_unmade!("a scene that says a backdrop of its own (`screen ... backdrop:`)")
             end
 
             def refuse_unmade!(what)
