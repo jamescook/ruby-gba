@@ -424,7 +424,8 @@ module VBlank
           turned = picture.public_send(way)
           record_picture(Build.bitmap(name, width: turned.width, height: turned.height,
                                               pixels: turned.pixels, transparent: turned.transparent,
-                                              colors: turned.colors, places: turned.places, colors_name: turned.colors_name))
+                                              colors: turned.colors, places: turned.places, colors_name: turned.colors_name,
+                                              pieces: turned.pieces))
           box_x, box_y, box_w, box_h = @image_bounds[source] || [0, 0, turned.width, turned.height]
           @image_bounds[name] = if way == :mirrored
                                   [turned.width - box_x - box_w, box_y, box_w, box_h]
@@ -538,7 +539,7 @@ module VBlank
       # from pieces draws it from these ones, rather than cutting the picture on an 8-pixel grid,
       # which can put more pieces on one line than it shows.
       def define_pieced_image(name, pieces:, colors:, colors_name: nil)
-        refuse_bad_pieces!(name, pieces)
+        refuse_bad_pieces!(name, pieces, colors)
         # Out to a multiple of a piece each way, see-through past the pieces: a console that cuts a
         # picture into pieces itself takes one of whole pieces.
         reach = ->(far) { (far + PIECE_SIZE + PIECE_SIZE - 1) / PIECE_SIZE * PIECE_SIZE }
@@ -556,10 +557,9 @@ module VBlank
                                   colors_name: colors_name, pieces: kept)
       end
 
-      # The side of a piece of a picture made of pieces.
-      PIECE_SIZE = 8
+      PIECE_SIZE = IR::Assets::PIECE_SIZE
 
-      def refuse_bad_pieces!(name, pieces)
+      def refuse_bad_pieces!(name, pieces, colors)
         unless pieces.is_a?(Array) && !pieces.empty?
           raise ArgumentError, "image :#{name} was given pieces: #{pieces.inspect}. Give a list of pieces, " \
                                "each [dx, dy, places], like pieces: [[0, 0, places], [8, 0, places]]."
@@ -574,10 +574,13 @@ module VBlank
             raise ArgumentError, "piece #{n} of image :#{name} has #{own.is_a?(Array) ? own.length : 'no'} places. " \
                                  "A piece is 8x8, so give it 64 places, row by row."
           end
-          next if own.all? { |place| place.is_a?(Integer) && place.between?(0, OWN_COLORS - 1) }
+          next if Array(colors).empty? # said by refuse_bad_places!, which asks for the list
 
-          raise ArgumentError, "piece #{n} of image :#{name} has a place that is not a place in its colors: list. " \
-                               "A place is a whole number from 0 to #{OWN_COLORS - 1}."
+          last = Array(colors).length - 1
+          next if own.all? { |place| place.is_a?(Integer) && place.between?(0, last) }
+
+          raise ArgumentError, "piece #{n} of image :#{name} has a place that its colors: list does not hold. " \
+                               "The list holds #{last + 1} colors, so a place is a whole number from 0 to #{last}."
         end
       end
 

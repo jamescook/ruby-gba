@@ -105,6 +105,40 @@ class TestGBCRefusals < Minitest::Test
     end
   end
 
+  # A picture made of pieces is drawn from them, and the Color shows forty at once.
+  def test_a_picture_of_more_pieces_than_the_color_shows_is_refused
+    pieces = Array.new(41) { |n| [(n % 20) * 8, (n / 20) * 8, Array.new(64, 1)] }
+    error = assert_raises(GBC::LoweringError) do
+      GBC.new.build(color_program do
+        screen :tiled
+        image :crowd, colors: %i[transparent red], pieces: pieces
+        sprite :crowd, at: [0, 0]
+        game_loop {}
+      end)
+    end
+
+    assert_match(/made of 41 pieces/, error.message)
+    assert_match(/make it of fewer pieces/, error.message)
+  end
+
+  # Bigger than the mask a test of pixels walks, a picture of pieces is tested by its box.
+  def test_a_big_picture_of_pieces_tested_pixel_by_pixel_is_refused
+    error = assert_raises(GBC::LoweringError) do
+      GBC.new.build(color_program do
+        screen :tiled
+        image :wide, colors: %i[transparent red], pieces: [[0, 0, Array.new(64, 1)], [72, 0, Array.new(64, 1)]]
+        image(:dot, "#" => :red) { "#" }
+        wide = sprite :wide, at: [0, 0]
+        dot = sprite :dot, at: [4, 4]
+        hits = var :hits, 0
+        game_loop { wide.overlaps?(dot).then { hits.add! 1 } }
+      end)
+    end
+
+    assert_match(/tested pixel by pixel/, error.message)
+    assert_match(/give the sprite a hitbox:/, error.message)
+  end
+
   def color_program(&game)
     builder = Builder.new
     builder.instance_eval(&game)

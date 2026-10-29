@@ -60,6 +60,39 @@ class TestImagePieces < Minitest::Test
     assert_match(/give it 64 places/, error.message)
   end
 
+  # Turned left to right, the row is still its pieces, each moved to the other side and turned.
+  def test_a_mirrored_row_of_pieces_off_the_grid_shows_every_piece
+    pieces = Array.new(10) { |n| [4 + (8 * n), 0, Array.new(64) { |i| (i % 8) < 2 ? 1 : 2 }] }
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image :frame, colors: %i[transparent red blue], pieces: pieces
+      sprite :frame, at: [20, 40], facing: { turned: mirror(:frame) }
+      game_loop {}
+    end
+    b.finalize_program
+    screen = shown(b.program)
+
+    # 88 wide: piece n now sits at 88 - 12 - 8n, its two red columns on its right.
+    10.times do |n|
+      left = 20 + 88 - 12 - (8 * n)
+      assert_equal BLUE, screen.pixel(left, 43), "piece #{n} shows, its blue on the left"
+      assert_equal RED, screen.pixel(left + 7, 43), "...and its red on the right"
+    end
+  end
+
+  def test_a_piece_off_the_picture_is_a_friendly_error
+    error = assert_raises(ArgumentError) { built([[-1, 0, TestImagePieces.solid(1)]]) }
+
+    assert_match(/dx and dy are whole numbers from 0 to 247/, error.message)
+  end
+
+  def test_a_place_the_list_does_not_hold_is_a_friendly_error
+    error = assert_raises(ArgumentError) { built([[0, 0, TestImagePieces.solid(1)], [8, 0, TestImagePieces.solid(5)]]) }
+
+    assert_match(/its colors: list does not hold/, error.message)
+  end
+
   def test_pieces_with_a_size_are_a_friendly_error
     error = assert_raises(ArgumentError) do
       Builder.new.instance_eval do

@@ -55,7 +55,7 @@ class TestGBCStillSprites < Minitest::Test
     end
   end
 
-  # The border as Pokémon Pinball's field select has it: its pieces declared in the scene they show
+  # The border as a game that copies a cartridge's screen writes it: its pieces declared in the scene they show
   # in and hidden until the screen has faded in, each piece's three shades drawn from one list,
   # which the fade steps through 33 lists given only on the passes the fade moves; then shown, the
   # shade picked from a table of the blink's steps and the column from a table by the field chosen.
@@ -110,6 +110,28 @@ class TestGBCStillSprites < Minitest::Test
     end
   end
 
+  # The same border as ONE sprite whose three poses are each a picture of the 37 pieces
+  # (`image ..., pieces:`), as a cartridge keeps the border: one sprite placed in one call.
+  def self.pieced_border
+    VBlank.game("PIECED BORDER", consoles: %i[gbc]) do
+      screen :tiled
+      poses = TestGBCStillSprites::SHADES.each_index.map do |s|
+        pieces = TestGBCStillSprites::PLACES.each_with_index.map do |(c, r), n|
+          edge = Array.new(64) { |i| (i % 8) < 2 || (i / 8) < 2 ? s + 1 : 0 }
+          [c * 8, r * 8, n.odd? ? edge.each_slice(8).map(&:reverse).flatten : edge]
+        end
+        image :"border#{s}", colors: [:transparent, *TestGBCStillSprites::SHADES], pieces: pieces
+        [:"pose#{s}", :"border#{s}"]
+      end.to_h
+      border = sprite :border, at: [16, 16], facing: poses
+      shade = var :shade, 0
+      game_loop do
+        (shade == 2).then { shade.set! 0 }.else { shade.add! 1 }
+        border.face poses.keys, showing: shade
+      end
+    end
+  end
+
   def self.idle_share(every_pass:, frames_a_shade: 8)
     rom = border(every_pass: every_pass, frames_a_shade: frames_a_shade)
           .build_rom(console: :gbc, out: StringIO.new, err: StringIO.new, profile: false)
@@ -134,6 +156,19 @@ class TestGBCStillSprites < Minitest::Test
 
     assert_equal result.frames, result.passes
     assert_operator result.idle_share, :>, 0.05
+  end
+
+  # One sprite of 37 pieces changing its picture on every pass leaves most of each frame asleep.
+  def test_a_border_of_one_sprite_in_pieces_changing_every_pass_sleeps_most_of_each_frame
+    rom = TestGBCStillSprites.pieced_border.build_rom(console: :gbc, out: StringIO.new, err: StringIO.new, profile: false)
+    result = rom.profile(out: StringIO.new, frames: 60, settle: 20)
+
+    assert_equal result.frames, result.passes
+    assert_operator result.idle_share, :>, 0.5
+  end
+
+  def test_a_border_of_one_sprite_in_pieces_plays_as_the_interpreter_plays_it
+    game_player.run(TestGBCStillSprites.pieced_border.program(console: :gbc), frames: 12)
   end
 
   def test_a_scene_s_faded_border_plays_as_the_interpreter_plays_it

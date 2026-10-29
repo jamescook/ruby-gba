@@ -64,10 +64,10 @@ module VBlank
             PLACE_AS_PLACED = 1
             POSE_AS_PLACED = 3
             AS_PLACED = (1 << NUMBERS_AS_PLACED) | (1 << PLACE_AS_PLACED) | (1 << POSE_AS_PLACED)
-            # Every mark up but the pose's: only its pose changed. rt_sprite_kept then adds POSE_ONLY
-            # to the SAME_PIECE it answers with.
+            # Every mark up but the pose's: only its pose changed. rt_sprite_kept then adds
+            # ANSWER_POSE_ALONE to the SAME_PIECE it answers with (a value in A, not a mark's bit).
             POSE_CHANGED = AS_PLACED & ~(1 << POSE_AS_PLACED)
-            POSE_ONLY = 2
+            ANSWER_POSE_ALONE = 2
             # And one more, set by rt_place_kept_sprite with the others when the sprite was not
             # drawn — switched off, a pose none of its own, its scene not up — and left by the
             # writes. Not drawn and nothing of it changed since, nothing of it is in the table or the
@@ -142,7 +142,7 @@ module VBlank
               asm.ret
               # Its entries begin where they began, in the same round, and a number of it changed:
               # when its place is as it was placed, NZ with the carry, and A its SAME_PIECE, with
-              # POSE_ONLY added when its pose alone changed. Where its entries begin is noted
+              # ANSWER_POSE_ALONE added when its pose alone changed. Where its entries begin is noted
               # already, the same.
               asm.label("rt_sprite_kept_numbers")
               asm.bit(PLACE_AS_PLACED, :a) # NZ: its place is as it was placed
@@ -151,7 +151,7 @@ module VBlank
               (SAME_PIECE - PLACED).times { asm.inc(:hl) }
               asm.load(:a, [:hl])
               asm.jump_relative(:nz, "rt_sprite_kept_numbers_said")
-              asm.or_a(POSE_ONLY)
+              asm.or_a(ANSWER_POSE_ALONE)
               asm.label("rt_sprite_kept_numbers_said")
               asm.pop(:hl)
               asm.scf
@@ -445,7 +445,7 @@ module VBlank
               # last placed as one piece in one place: rt_sprite_kept's carry, and A. When its pose
               # alone changed, only the pose is read (rt_place_kept_sprite_pose).
               asm.jump_relative(:nc, "rt_place_kept_sprite_unasked")
-              asm.cp_a(1 | POSE_ONLY)
+              asm.cp_a(1 | ANSWER_POSE_ALONE)
               asm.jump(:z, "rt_place_kept_sprite_pose")
               asm.and_a(1)
               asm.jump_relative("rt_place_kept_sprite_asked")

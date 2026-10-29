@@ -1821,13 +1821,15 @@ module VBlank
             # Whether a sprite is on, as its own number and the scene it shows in: a sprite declared
             # in a scene is on while its own number is and that scene is up (Builder#gated_by_scene),
             # [its number, [the variable the game picks its scenes with, the value that picks this
-            # one]]; any other is [its number, nil]. Nil for a sum of another shape, or a scene
-            # picked by a number past a byte.
+            # one]]; any other is [its number, nil]. Nil for a sum of another shape — a letter of text
+            # shown while a condition holds is its scene and the condition — or a scene picked by a
+            # number past a byte.
             def showing_parts(obj)
               active = value_node(obj.active)
               return [active, nil] unless active.kind == :binop && active.op == :*
 
               on, up = active.lhs, active.rhs
+              return nil unless %i[var_ref int].include?(on.kind)
               return nil unless up.kind == :binop && up.op == :== && up.lhs.kind == :var_ref &&
                                 up.rhs.kind == :int && up.rhs.value.between?(0, 0xFF)
 
@@ -2131,7 +2133,7 @@ module VBlank
             end
 
             # A picture made of pieces can be bigger than the mask a test of its pixels walks (Art::
-            # LARGEST_SPRITE); one that is, is tested by its box.
+            # LARGEST_SPRITE); a sprite showing one is refused that test, and told to test by a box.
             def refuse_too_big_to_collide!(name)
               image = picture_named(name)
               return if image.width <= Art::LARGEST_SPRITE && image.height <= Art::LARGEST_SPRITE

@@ -322,8 +322,6 @@ module VBlank
       # every pick, since each pick reads it straight after writing it.
       PICKED_POSE_STEP = :_picked_pose_step
 
-      private
-
       def picked_pose_rows!(names, subject, row_of)
         unless names.is_a?(Array) && !names.empty?
           example = names.is_a?(Symbol) ? ":#{names}" : ":idle"

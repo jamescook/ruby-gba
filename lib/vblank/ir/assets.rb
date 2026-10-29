@@ -37,6 +37,9 @@ module VBlank
       # pixels as places in the picture's list, row by row. The picture's own pixels are those pieces
       # laid over each other, so a console that draws sprites from pieces can draw it from the same
       # ones; nil for any other picture.
+      # The side of a piece of a picture made of pieces (Image#pieces).
+      PIECE_SIZE = 8
+
       Image = Data.define(:width, :height, :transparent, :pixels, :colors, :places, :colors_name, :pieces) do
         def initialize(width:, height:, transparent:, pixels:, colors:, places:, colors_name: nil, pieces: nil) = super
 
@@ -102,7 +105,8 @@ module VBlank
           turned = (0...height).each_with_object(+"".b) do |row, bytes|
             bytes << pixels.byteslice(row * width * 2, width * 2).unpack("v*").reverse.pack("v*")
           end
-          with(pixels: turned, places: places && mirrored_places)
+          with(pixels: turned, places: places && mirrored_places,
+               pieces: pieces&.map { |dx, dy, own| [width - dx - PIECE_SIZE, dy, Image.rows(own).map(&:reverse).join.b] })
         end
 
         # THE SAME PICTURE TURNED TOP TO BOTTOM — its rows in the other order. The other
@@ -110,8 +114,13 @@ module VBlank
         def upside_down
           rows = (0...height).map { |row| pixels.byteslice(row * width * 2, width * 2) }
           upended = places && (0...height).map { |row| places.byteslice(row * width, width) }.reverse.join.b
-          with(pixels: rows.reverse.join.b, places: upended)
+          with(pixels: rows.reverse.join.b, places: upended,
+               pieces: pieces&.map { |dx, dy, own| [dx, height - dy - PIECE_SIZE, Image.rows(own).reverse.join.b] })
         end
+
+
+        # A piece's 64 places, a row of eight at a time.
+        def self.rows(own) = (0...PIECE_SIZE).map { |row| own.byteslice(row * PIECE_SIZE, PIECE_SIZE) }
 
         private
 
