@@ -427,11 +427,33 @@ module VBlank
                 "(`consoles: %i[gba]`).", part: "the sound"
               )
             end
+            refuse_note_changes!(song)
             kinds = song.voices.map { |part| IR::Tunes.part_kind(part) }
             return if kinds.count(:square) <= 2 && kinds.count(:wave) <= 1 && kinds.count(:noise) <= 1
 
             raise LoweringError, "The song #{song.name.inspect} has too many parts for one voice. A song can have two " \
                                  "square parts, one wave part and one noise part. To fix this, remove the extra parts."
+          end
+
+          # A NOTE THAT CHANGES AS IT PLAYS — fading out or swelling in, sliding or wobbling its
+          # pitch, playing from one speaker, or stepping through the square wave's shapes — as its
+          # part or the note itself says (IR::Tunes.said_fade and the rest). The voices here play
+          # each note as written, so a song that says any of these is not made yet.
+          def refuse_note_changes!(song)
+            changing = song.voices.any? do |part|
+              part.events.any? do |event|
+                event[1].positive? &&
+                  [IR::Tunes.said_fade(part, event), IR::Tunes.said_slide(part, event), IR::Tunes.said_vibrato(part, event),
+                   IR::Tunes.note_side(part, event), IR::Tunes.said_duty(part, event)].any?
+              end
+            end
+            return unless changing
+
+            raise Lowering::NotMadeYet.new(
+              "The song #{song.name.inspect} has a note that fades, swells, slides, wobbles, plays from one speaker " \
+              "or steps through shapes. The Super Nintendo build does not make that yet. To fix this, build the " \
+              "game for the Game Boy Advance alone for now (`consoles: %i[gba]`).", part: "notes that change as they play"
+            )
           end
         end
       end
