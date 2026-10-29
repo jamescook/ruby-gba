@@ -252,6 +252,57 @@ class TestSNESPicture < Minitest::Test
     assert_equal 10, run[:t]
   end
 
+  # SPRITES IN LAYERS, between the backgrounds: a walker in front of the floor and behind a fence
+  # of bars with gaps, a bird in front of everything, and a mole behind both backgrounds, seen
+  # only through a hole in the floor where the fence has a gap too. Each crosses the others.
+  def test_sprites_in_layers_go_behind_the_backgrounds_in_front_of_them
+    run = checked(frames: 12) do
+      screen :tiled
+      image(:dirt, "#" => :gray, "." => :transparent) { "########\n" * 8 }
+      image(:hole, "#" => :gray, "." => :transparent) { "##....##\n" * 8 }
+      image(:bars, "#" => :blue, "." => :transparent) { "##..##..\n" * 8 }
+      image(:walker, "#" => :red) { "########\n" * 8 }
+      image(:bird, "#" => :yellow) { "####\n" * 4 }
+      image(:mole, "#" => :green) { "########\n" * 8 }
+      tiles :ground, "#" => :dirt, "o" => :hole
+      tiles :fencing, "|" => :bars
+      layers :under, :floor, :walkers, :fence, :sky
+      mole = layer(:under) { sprite :mole, at: [20, 40] }
+      layer(:floor) { background :floor, tiles: :ground, map: Array.new(32) { |row| row == 5 ? "#####o" + ("#" * 26) : "#" * 32 } }
+      walker = layer(:walkers) { sprite :walker, at: [10, 40] }
+      layer(:fence) { background :fence, tiles: :fencing, map: Array.new(32) { "|" * 32 } }
+      bird = layer(:sky) { sprite :bird, at: [60, 42] }
+      t = var :t, 0
+      game_loop do
+        walker.move_to 10 + (t * 3), 40
+        bird.move_to 60 - (t * 3), 42
+        mole.move_to 36 + t, 38 + t
+        t.add! 1
+      end
+    end
+
+    assert_equal 12, run[:t]
+  end
+
+  # A sprite the game puts in another layer as it runs is not made yet.
+  def test_a_sprite_moved_between_layers_as_the_game_runs_is_refused_in_plain_words
+    error = assert_raises(SNES::Lowering::NotMadeYet) do
+      SNES.new.build(program_of do
+        screen :tiled
+        image(:wall, "#" => :gray) { "########\n" * 8 }
+        image(:ball, "#" => :red) { "####\n" * 4 }
+        tiles :set, "#" => :wall
+        layers :back, :actors, :front
+        layer(:back) { background :floor, tiles: :set, map: ["##"] }
+        layer(:front) { background :roof, tiles: :set, map: ["##"] }
+        ball = layer(:actors) { sprite :ball, at: [0, 0] }
+        game_loop { ball.put_in_layer :front }
+      end)
+    end
+
+    assert_match(/another layer as the game runs/, error.message)
+  end
+
   # A scene's own background goes on the front layer, so one the layers put behind a background
   # every screen shows is not made yet.
   def test_a_scenes_background_behind_one_every_screen_shows_is_refused_in_plain_words
@@ -395,6 +446,115 @@ class TestSNESPicture < Minitest::Test
     end
 
     assert_equal 8, run[:t]
+  end
+
+  # A canvas a sprite shows, with a plain sprite declared before it: each shows its own picture.
+  # The canvas's picture is made first, so the pictures' numbers are not the order the sprites
+  # name them in, and each sprite's table says the number the picture was made with.
+  def test_a_canvas_sprite_after_a_plain_one_shows_its_own_picture
+    run = checked(frames: 4) do
+      screen :tiled
+      image(:ball, "#" => :red) { "########\n" * 8 }
+      ball = sprite :ball, at: [10, 10]
+      tag = canvas :tag, width: 16, height: 16, colors: %i[transparent white green], as: :sprite
+      sprite :tag, at: [40, 40]
+      t = var :t, 0
+      game_loop do
+        tag.pixel t, t, :green
+        ball.move_to 10 + t, 10
+        t.add! 1
+      end
+    end
+
+    assert_equal 4, run[:t]
+  end
+
+  # A LAYER HALF SEE-THROUGH: colour math adds what is behind it to it and halves the sum, on every
+  # pixel where its own is drawn; where its tiles are see-through, what is behind shows plain, and a
+  # sprite in front is solid. 55 is half on the interpreter too: what is behind takes its share
+  # rounded down to sixteenths, 8. The console halves the channels' sum; the interpreter mixes them
+  # widened to eight bits, which is a step higher for some colours (31 and 30 among them, in the
+  # white over the gray), so the checked run holds such a game to the interpreter within a step of
+  # each channel — and a layer shown whole where it should be halved is far more than a step.
+  def test_a_layer_half_see_through_mixes_with_the_background_behind_it
+    run = checked(frames: 8) do
+      screen :tiled
+      image(:ground, "#" => rgb(30, 30, 30), "+" => :blue) { "####++++\n" * 8 }
+      image(:mist, "o" => :white, "." => :transparent) { "oooo....\noooooooo\n" * 4 }
+      image(:ball, "#" => :red) { "####\n" * 4 }
+      tiles :world_tiles, "#" => :ground
+      tiles :air_tiles, "o" => :mist
+      layers :world, :air
+      layer(:world) { background :world, tiles: :world_tiles, map: Array.new(32) { "#" * 32 } }
+      air = layer(:air, transparency: 55) do
+        background :air, tiles: :air_tiles, map: Array.new(32) { |row| row.even? ? "o" * 32 : "o " * 16 }
+      end
+      ball = sprite :ball, at: [30, 30]
+      t = var :t, 0
+      game_loop do
+        air.scroll_by 1, 1
+        ball.move_to 30 + t, 30
+        t.add! 1
+      end
+    end
+
+    assert_equal 8, run[:t]
+  end
+
+  # A LAYER OF SPRITES HALF SEE-THROUGH, as lake's jellyfish are: each is mixed with the scenery
+  # behind it, never with another sprite — a ghost passing over the hero hides the hero and shows
+  # the floor through itself — and its see-through pixels show what is behind plain. The ghosts
+  # take the console's last four sprite palettes, the only ones its colour math reaches.
+  def test_a_layer_of_sprites_half_see_through_mixes_with_the_scenery_behind_it
+    run = checked(frames: 10) do
+      screen :tiled
+      image(:ground, "#" => rgb(30, 30, 30), "+" => :blue) { "####++++\n" * 8 }
+      image(:hero, "#" => :green) { "########\n" * 8 }
+      image(:ghost, "o" => :white, "." => :transparent) { "oooo....\noooooooo\n" * 8 }
+      tiles :world_tiles, "#" => :ground
+      layers :world, :actors, :ghosts
+      floor = layer(:world) { background :world, tiles: :world_tiles, map: Array.new(32) { "#" * 32 } }
+      layer(:actors) { sprite :hero, at: [40, 40] }
+      ghost = layer(:ghosts, transparency: 50) { sprite :ghost, at: [20, 36] }
+      t = var :t, 0
+      game_loop do
+        floor.scroll_by 1, 0
+        ghost.move_to 20 + (t * 3), 36
+        t.add! 1
+      end
+    end
+
+    assert_equal 10, run[:t]
+  end
+
+  # The console mixes a layer with what is behind it only by half: other amounts, and amounts the
+  # game works out as it runs, are refused in plain words, and so is a see-through layer with
+  # nothing that covers the whole screen behind it, where the console would show it whole.
+  def test_amounts_the_console_cannot_mix_are_refused_in_plain_words
+    {
+      "a different amount" => [40, true, /half see-through.*50 to 56/m],
+      "an amount worked out as the game runs" => [:game, true, /as the game runs/],
+      "nothing covering the screen behind" => [55, false, /covers the whole screen/]
+    }.each do |what, (amount, covered, words)|
+      error = assert_raises(SNES::LoweringError, what) { SNES.new.build(see_through_game(amount, covered)) }
+      assert_match words, error.message, what
+    end
+  end
+
+  private def see_through_game(amount, covered)
+    program_of do
+      screen :tiled
+      image(:ground, "#" => :gray, "." => :transparent) { covered ? "########\n" * 8 : "####....\n" * 8 }
+      image(:mist, "o" => :white) { "oooooooo\n" * 8 }
+      tiles :world_tiles, "#" => :ground
+      tiles :air_tiles, "o" => :mist
+      layers :world, :air
+      layer(:world) { background :world, tiles: :world_tiles, map: Array.new(32) { "#" * 32 } }
+      mist = var :mist, 0
+      transparency = amount == :game ? 100 - mist : amount
+      layer(:air, transparency: transparency) { background :air, tiles: :air_tiles, map: ["oo"] }
+      game_loop { mist.add! 1 }
+    end
   end
 
   private def program_of(&game)

@@ -70,7 +70,10 @@ module Lake
   # ripples the water rather than on a rhythm of their own.
   SCREEN_W = 240
   JELLY_SIZE = 16
-  SEE_THROUGH = 55   # how much of the water shows through a bell, 0 solid to 100 invisible
+  # How much of the water shows through a bell, 0 solid to 100 invisible. 55 comes to an even
+  # half, which is also the one mix a Super Nintendo makes, so this needs no amount of its own
+  # there; a console that only halves refuses any other amount, in words saying so.
+  SEE_THROUGH = 55
   DRIFT = Ractor.make_shareable([[20, 96, 1],    # x it starts at, the depth it rests at, pixels a frame
            [110, 124, 2],
            [190, 108, 1]])
@@ -102,7 +105,7 @@ module Lake
     end.join
   end)
 
-  GAME = Ractor.make_shareable(VBlank.game("LAKE", consoles: %i[gba]) do
+  GAME = Ractor.make_shareable(VBlank.game("LAKE", consoles: %i[gba snes]) do
     screen :tiled # tile mode: two background layers the console composites for us
 
     # --- the scene above the water ---

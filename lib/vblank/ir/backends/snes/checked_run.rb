@@ -60,6 +60,7 @@ module VBlank
             frames ||= Reference::DEFAULT_FRAMES
             refuse_endless_game_without_frames!(program)
             before = @save.dup # the interpreter starts from the save memory the cartridge started from
+            @near = HeadlessRun.near_pictures?(program)
             @cartridge.run(program, frames: frames)
             width, height = @cartridge.screen.then { |picture| [picture.width, picture.height] }
             moments = play_on_interpreter(program, frames, width, height, before)
@@ -154,10 +155,11 @@ module VBlank
             nil
           end
 
-          # The interpreter's picture over the cartridge's screen.
+          # The interpreter's picture over the cartridge's screen, as the cartridge's Moments hold it
+          # (HeadlessRun.moment_picture).
           def picture_check(screen, width, height)
             shown = (0...height).flat_map { |y| (0...width).map { |x| screen.pixel(x, y) || 0 } }
-            RunComparison.picture_check(shown)
+            HeadlessRun.moment_picture(shown, @near)
           end
         end
       end

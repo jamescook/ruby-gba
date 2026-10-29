@@ -39,6 +39,11 @@ module VBlank
           # bits, the palette in the next three.
           PALETTE_SHIFT = 10
 
+          # A cell's priority bit: with it, BG1's cells are drawn in front of a sprite of priority
+          # 2, which is in front of BG2's (Mode 1's order, front first: sprites of priority 3, BG1
+          # high, BG2 high, sprites of 2, BG1 low, BG2 low, sprites of 1).
+          CELL_IN_FRONT = 0x2000
+
           # A sprite's picture, cut into 8×8 pieces: each piece where it sits in the picture, its
           # tile and its palette. +number+ is what the runtime knows it by.
           Piece = Data.define(:dx, :dy, :tile, :palette)
@@ -65,7 +70,8 @@ module VBlank
             @background_palettes = [[]] # each a list of up to fifteen colours
             @sprite_tiles = []
             @sprite_tile_numbers = {}
-            @sprite_palettes = []
+            @sprite_palettes = [] # each a list of up to fifteen colours, or nil for one not used yet
+            @sprite_palettes_for = { false => (0...PALETTES), true => (0...PALETTES) }
             @sprite_pictures = {}
             @grids = []
           end
@@ -90,15 +96,16 @@ module VBlank
           end
 
           # The map +cells+ ([tile, palette] or nil, by row and column) made into the console's grid
-          # of +columns+ × +rows+ cells, and its number.
-          def grid(cells, columns, rows)
+          # of +columns+ × +rows+ cells, and its number; +in_front+ gives every cell drawn the
+          # priority bit (CELL_IN_FRONT).
+          def grid(cells, columns, rows, in_front: false)
             bytes = +"".b
             (rows / 32).times do |screen_row|
               (columns / 32).times do |screen_column|
                 32.times do |row|
                   32.times do |column|
                     cell = cells.dig((screen_row * 32) + row, (screen_column * 32) + column)
-                    word = cell ? cell[0] | (cell[1] << PALETTE_SHIFT) : 0
+                    word = cell ? cell[0] | (cell[1] << PALETTE_SHIFT) | (in_front ? CELL_IN_FRONT : 0) : 0
                     bytes << [word].pack("v")
                   end
                 end
@@ -110,12 +117,24 @@ module VBlank
 
           # --- sprites ---
 
+          # The palettes a see-through sprite is drawn from: the console's colour math reaches a
+          # sprite drawn from the last four alone, so in a game with see-through sprites those are
+          # theirs and the first four the others' (#split_sprite_palettes!).
+          MIXED_SPRITE_PALETTES = (4...PALETTES)
+
+          # Keeps the last four sprite palettes for see-through sprites, before any sprite is made.
+          def split_sprite_palettes!
+            @sprite_palettes_for = { false => (0...MIXED_SPRITE_PALETTES.begin), true => MIXED_SPRITE_PALETTES }
+          end
+
           # The sprite picture +name+ (an Assets::Image), cut into pieces. A picture whose width or
           # height is not a multiple of 8 has its last pieces' extra pixels left undrawn.
-          def sprite_picture(name, image)
+          # +mixed+ draws it from a see-through sprite's palettes (#split_sprite_palettes!).
+          def sprite_picture(name, image, mixed: false)
             @sprite_pictures[name] ||= begin
               drawn = (0...(image.width * image.height)).select { |at| image.drawn_at?(at) }
-              palette = palette_for(@sprite_palettes, drawn.map { |at| image.color_at(at) }.uniq, "sprites")
+              palette = palette_for(@sprite_palettes, drawn.map { |at| image.color_at(at) }.uniq, "sprites",
+                                    @sprite_palettes_for.fetch(mixed))
               pieces = (0...((image.height + 7) / 8)).flat_map do |down|
                 (0...((image.width + 7) / 8)).filter_map do |across|
                   places = Array.new(64) do |at|
@@ -156,7 +175,7 @@ module VBlank
           # A sprite's picture +name+ of +width+ × +height+, painted from a list in +colors+: a piece
           # for each 8×8 tile, left to right and then top to bottom, as the list holds them.
           def sprite_run_picture(name, width, height, colors)
-            palette = run_palette(@sprite_palettes, colors, "sprites")
+            palette = run_palette(@sprite_palettes, colors, "sprites", @sprite_palettes_for.fetch(false))
             across = width / 8
             first = @sprite_tiles.length
             refuse_too_many!(first + (across * (height / 8)) - 1, MOST_SPRITE_TILES, "sprites")
@@ -176,8 +195,8 @@ module VBlank
           # backgrounds' eight palettes and then the sprites'.
           def cgram
             colors = Array.new(256, 0)
-            @background_palettes.each_with_index { |list, p| list.each_with_index { |c, i| colors[(p * PLACES) + i + 1] = c } }
-            @sprite_palettes.each_with_index { |list, p| list.each_with_index { |c, i| colors[128 + (p * PLACES) + i + 1] = c } }
+            @background_palettes.each_with_index { |list, p| list&.each_with_index { |c, i| colors[(p * PLACES) + i + 1] = c } }
+            @sprite_palettes.each_with_index { |list, p| list&.each_with_index { |c, i| colors[128 + (p * PLACES) + i + 1] = c } }
             colors.pack("v*")
           end
 
@@ -197,49 +216,48 @@ module VBlank
           end
 
           # The palette of +palettes+ that holds every one of +colors+, adding them to one with
-          # room where none does, or starting another. +what+ names whose palettes they are.
-          def palette_for(palettes, colors, what)
+          # room where none does, or starting another — of the palettes +within+. +what+ names
+          # whose palettes they are.
+          def palette_for(palettes, colors, what, within = (0...PALETTES))
             if colors.length > OWN_COLORS
               raise TooMuch, "A picture of the #{what} uses #{colors.length} colours, and on a tiled screen a " \
                              "Super Nintendo tile shows #{OWN_COLORS} and see-through. To fix this, draw it in #{OWN_COLORS} colours or fewer."
             end
 
-            found = palettes.index { |list| (colors - list).empty? }
+            used = within.select { |p| palettes[p] }
+            found = used.find { |p| (colors - palettes[p]).empty? }
             return found if found
 
-            roomy = palettes.each_index.select { |p| (palettes[p] | colors).length <= OWN_COLORS }
-                            .max_by { |p| (palettes[p] & colors).length }
+            roomy = used.select { |p| (palettes[p] | colors).length <= OWN_COLORS }
+                        .max_by { |p| (palettes[p] & colors).length }
             if roomy
               palettes[roomy] |= colors
               return roomy
             end
-            if palettes.length >= PALETTES
+            unused = within.find { |p| palettes[p].nil? }
+            unless unused
               raise TooMuch, "The pictures of the #{what} use more colours than a Super Nintendo can show for them. " \
                              "It holds #{PALETTES} sets of #{OWN_COLORS} colours. To fix this, use fewer colours in " \
                              "the #{what}' pictures."
             end
 
-            palettes << colors.dup
-            palettes.length - 1
+            palettes[unused] = colors.dup
+            unused
           end
 
           # The palette of +palettes+ whose first places are a run's +colors+ (past place 0) in their
           # order, starting one where none is. Other pictures' colours may join it later, after them.
-          def run_palette(palettes, colors, what)
+          def run_palette(palettes, colors, what, within = (0...PALETTES))
             own = colors.drop(1)
-            found = palettes.index { |list| list.take(own.length) == own }
+            found = within.find { |p| palettes[p]&.take(own.length) == own }
             return found if found
 
-            empty = palettes.index(&:empty?)
+            empty = within.find { |p| palettes[p].nil? || palettes[p].empty? }
             return empty.tap { palettes[empty] = own.dup } if empty
-            if palettes.length >= PALETTES
-              raise TooMuch, "The pictures of the #{what} use more colours than a Super Nintendo can show for them. " \
-                             "It holds #{PALETTES} sets of #{OWN_COLORS} colours, and each list of colours a game " \
-                             "paints with takes a set of its own. To fix this, use fewer colours or fewer lists."
-            end
 
-            palettes << own.dup
-            palettes.length - 1
+            raise TooMuch, "The pictures of the #{what} use more colours than a Super Nintendo can show for them. " \
+                           "It holds #{PALETTES} sets of #{OWN_COLORS} colours, and each list of colours a game " \
+                           "paints with takes a set of its own. To fix this, use fewer colours or fewer lists."
           end
 
           def refuse_too_many!(count, most, what)

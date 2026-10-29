@@ -95,7 +95,9 @@ module VBlank
                                              music_level_at: (lowering.variables.fetch(IR::Tunes::LEVEL) if follows_level),
                                              effects: effects, recordings: lowering.sound_recordings,
                                              plays: (lowering.recordings_section if samples), bar: bar,
-                                             bent: lowering.bent_layers, tile_runs: tile_runs.length)
+                                             bent: lowering.bent_layers, tile_runs: tile_runs.length,
+                                             see_through: lowering.see_through_layers,
+                                             sprite_depths: !lowering.painted? && !lowering.sprite_depths.empty?)
           linked = Linker.new(runtime + game, most_banks: board.most_banks).link
           routines = lowering.section_routines.map do |label, routine|
             placed = linked.sections.fetch(label)

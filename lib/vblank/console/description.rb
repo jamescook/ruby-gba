@@ -26,7 +26,10 @@ module VBlank
     # layer the console keeps beside them. +turning_sprites+ says whether a sprite can turn and resize.
     # +blends+ says whether its display can mix colours as it draws —
     # fade the finished picture, mix one layer into another — rather than only change the colours
-    # in its lists. +list_colors+ is how many places a list of colours holds. +painted_pages+ is
+    # in its lists. +mixes_by_half+ says whether, without blending by degrees, it can still show a
+    # layer half see-through — the Super Nintendo's colour math adds what is behind a layer to it
+    # and halves the sum — which an amount the build rounds to an even half asks for, and nothing
+    # else. +list_colors+ is how many places a list of colours holds. +painted_pages+ is
     # how many pictures a tear-free painted screen keeps: two where one is drawn while the other
     # is shown, one where the console only ever shows a picture whole. +clock_keeps_date+ says
     # whether the clock chip its cartridges carry holds the date and time, or only counts the days
@@ -71,7 +74,8 @@ module VBlank
     # off. Where it is not, the verb does nothing, since a game plays the same without it.
     Description = Data.define(:name, :title, :screen_width, :screen_height, :buttons, :sprites, :sprite_places,
                               :sprites_a_row, :turning_sprites, :backgrounds, :turning_backgrounds,
-                              :backgrounds_beside_turning, :bar_is_a_background, :blends, :list_colors, :painted_pages,
+                              :backgrounds_beside_turning, :bar_is_a_background, :blends, :mixes_by_half, :list_colors,
+                              :painted_pages,
                               :clock_keeps_date, :cycles_a_second, :cycles_a_frame, :samples_a_copy,
                               :sample_timer_step, :sample_timer_counts, :recordings_at_once, :mixes_recordings,
                               :recording_voice_hz,
@@ -118,7 +122,7 @@ module VBlank
                               backgrounds: 4, turning_backgrounds: 1, backgrounds_beside_turning: 2,
                               # A status bar is one of those layers.
                               bar_is_a_background: true,
-                              blends: true, list_colors: 16, painted_pages: 2, clock_keeps_date: true,
+                              blends: true, mixes_by_half: false, list_colors: 16, painted_pages: 2, clock_keeps_date: true,
                               # 228 lines of 1232 cycles: 160 drawn, and 68 the gap after.
                               cycles_a_second: 16_777_216, cycles_a_frame: 280_896,
                               # The sound copy moves four 32-bit words at a time: sixteen 8-bit samples.
@@ -150,7 +154,7 @@ module VBlank
                             backgrounds: 1, turning_backgrounds: 0, backgrounds_beside_turning: 0,
                             # A status bar is the window, a layer beside the one background.
                             bar_is_a_background: false,
-                            blends: false, list_colors: 4, painted_pages: 1, clock_keeps_date: false,
+                            blends: false, mixes_by_half: false, list_colors: 4, painted_pages: 1, clock_keeps_date: false,
                             # 154 lines of 456 cycles: the Advance's frame exactly, on a clock a
                             # quarter as fast. Double speed doubles the cycles, not the frames.
                             cycles_a_second: 4_194_304, cycles_a_frame: 70_224,
@@ -196,7 +200,7 @@ module VBlank
                                      bar_is_a_background: true,
                                      # Its colour maths adds, subtracts or halves, never the
                                      # Advance's sixteen steps, so a fade is walked colour by colour.
-                                     blends: false, list_colors: 16,
+                                     blends: false, mixes_by_half: true, list_colors: 16,
                                      # A painted screen is copied whole to the console before it
                                      # is shown, as the Color's is.
                                      painted_pages: 1, clock_keeps_date: false,

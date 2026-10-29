@@ -112,9 +112,11 @@ module VBlank
                           "`scale` are refused: the build does not use the one layer a Super Nintendo can turn."),
         status_bar: works("the bar is one of the two backgrounds."),
         canvas: works,
-        layers: works("a layer holds a background or sprites. `transparency:` is refused: a Super " \
-                      "Nintendo mixes one layer into another only whole or by half, never by the " \
-                      "Advance's sixteen steps."),
+        layers: works("a layer holds a background or sprites. A layer of backgrounds can be half " \
+                      "see-through, over a background that covers the whole screen: `transparency:` " \
+                      "from 50 to 56, or `shows: 50, shows_behind: 50`. A Super Nintendo mixes one " \
+                      "layer into another only by half, never by the Advance's sixteen steps, so other " \
+                      "amounts are refused."),
         layer: works("see `layers`."),
 
         # --- text ---

@@ -60,10 +60,13 @@ module VBlank
             when :sample, :play_sample then recording_question(node, console)
             when :pixelate then Question.new(:pixelate, "This line shows the screen in blocks (`pixelate`)", nil)
             # The layers' declaration, which every see-through layer is in: one whose amounts are
-            # written in the program is told to the console once and has no step of its own.
+            # written in the program is told to the console once and has no step of its own. A
+            # console that mixes only by half is asked no more here: its build says which amounts
+            # it can show (Backends::SNES::Lowering::Picture#refuse_unmade_see_through!).
             when :layers
               unless node.see_through.empty?
-                Question.new(:layers, "This game shows one layer through another (`transparency:`)", console.blends)
+                Question.new(:layers, "This game shows one layer through another (`transparency:`)",
+                             console.blends || console.mixes_by_half)
               end
             when :held, :pressed
               Question.new(:held, "This line reads the #{node.button.inspect} button", console_has_button?(node.button, console))

@@ -89,8 +89,10 @@ module VBlank
                                                   })
 
           # The kinds the Super Nintendo cannot do at all, refused in the words its answers have
-          # (#refuse_what_snes_lacks!): a layer seen through another by degrees, a light, a mosaic
-          # over the sprites, a turned or resized background, and a clock chip.
+          # (#refuse_what_snes_lacks!): a layer's see-through amount told to the console again as the
+          # game runs, a light, a mosaic over the sprites, a turned or resized background, and a
+          # clock chip. (A layer seen through at an even half is made, with nothing told again:
+          # Picture#refuse_see_through_amounts! says in its own words why another is not.)
           REFUSED = %i[see_through shade_outside pixelate affine_background set_clock clock].freeze
 
           # The verb whose answer (Console::SNESAnswers) says why, for each refused kind.
@@ -261,6 +263,7 @@ module VBlank
             refusal = refused&.message || Guardrails::Checks::LayerRefusals.message(asked)
             raise LoweringError, refusal if refusal
 
+            refuse_see_through_amounts!
             lacking = REFUSED & @reachable.map(&:kind)
             return if lacking.empty?
 

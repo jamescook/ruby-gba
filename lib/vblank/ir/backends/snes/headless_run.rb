@@ -35,6 +35,38 @@ module VBlank
             def on_screen?(x, y) = x.between?(0, width - 1) && y.between?(0, height - 1)
           end
 
+          # A PICTURE HELD WITHIN A STEP OF EACH CHANNEL, the picture of a Moment for a game with a
+          # layer half see-through (Lowering::Picture#refuse_unmade_see_through!). The console adds
+          # the two sides' 5-bit channels and halves the sum; the interpreter widens both to eight
+          # bits, mixes them and narrows the mix back, which comes out a step higher for some pairs
+          # (31 over 30 among them). So such a game's pictures are held to each other within a step
+          # of every channel of every pixel. A layer shown whole where it should be halved, a pixel
+          # out of place or a wrong colour is many steps out. The pixels are kept packed, two bytes
+          # each, as a check number reads them (RunComparison.picture_check).
+          NearPicture = Data.define(:packed) do
+            def self.of(shown) = new(packed: shown.pack("v*"))
+
+            # Whether two 15-bit colours are within a step of each other in each channel.
+            def self.within_one_step?(mine, theirs) = [0, 5, 10].all? { |at| (((mine >> at) & 31) - ((theirs >> at) & 31)).abs <= 1 }
+
+            def ==(other)
+              return false unless other.is_a?(NearPicture) && other.packed.bytesize == packed.bytesize
+              return true if other.packed == packed
+
+              packed.unpack("v*").zip(other.packed.unpack("v*")).all? { |mine, theirs| NearPicture.within_one_step?(mine, theirs) }
+            end
+
+            # The check number the picture has held exactly, for #torn_frames.
+            def check = Zlib.crc32(packed)
+          end
+
+          # What a Moment holds of the picture +shown+: its check number, or for a game with a
+          # see-through layer (+near+) the picture itself, held within a step (NearPicture).
+          def self.moment_picture(shown, near) = near ? NearPicture.of(shown) : RunComparison.picture_check(shown)
+
+          # Whether +program+'s pictures are held within a step (NearPicture).
+          def self.near_pictures?(program) = !SeeThrough.layers(program).empty?
+
           attr_reader :vars, :moments, :rom
 
           # +watch_picture+ reads the picture after every frame the console draws, not only at the end
@@ -76,6 +108,7 @@ module VBlank
 
             @rom = SNES.new.build(program, title: "CHECKED")
             @places = @rom.built
+            @near = HeadlessRun.near_pictures?(program)
             @drawn_sprites = SpriteNames.new(program)
             @declared_lists = program.walk.select { |node| node.kind == :list_new }.map(&:name).uniq
             @frames_took = {}
@@ -174,7 +207,7 @@ module VBlank
           # checked run holds it to the interpreter's; every frame between two passes is the first
           # of them or the second, unless the copy between is seen arriving.
           def torn_frames
-            whole = @moments.map(&:picture)
+            whole = @moments.map { |moment| moment.picture.is_a?(NearPicture) ? moment.picture.check : moment.picture }
             first_lit = @black_each_frame.index(false) || @black_each_frame.size
             (first_lit...@picture_each_frame.size).reject { |frame| whole.include?(@picture_each_frame[frame]) }
           end
@@ -334,7 +367,7 @@ module VBlank
             read_sound_entries(@sounds) if sound?
             @apu_ram = @core.apu_ram if frame == :end && sound?
             @active_samples = recordings_at(frame)
-            @moments << Moment.new(frame: frame, variables: variables, picture: RunComparison.picture_check(picture.shown),
+            @moments << Moment.new(frame: frame, variables: variables, picture: HeadlessRun.moment_picture(picture.shown, @near),
                                    sounds: @sounds, sprites: @sprites, collections: game_state.except(:vars), sounding: @active_samples)
             @on_vblank&.call(frame) unless frame == :end
           end

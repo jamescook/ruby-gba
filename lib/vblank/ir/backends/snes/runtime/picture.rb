@@ -177,9 +177,14 @@ module VBlank
             # +work+ is four words of the direct page the routines use. +bar+ for a game with a
             # status bar; +bent+ the layers bent row by row, for a game with bends; +tile_runs+ how
             # many runs of tiles a game paints from lists, and +run_scratch+ RunScratch's places.
-            def emit(asm, memory, work:, painted: false, bar: false, bent: [], tile_runs: 0, run_scratch: nil)
-              emit_start(asm, memory, painted)
-              emit_sprites(asm, memory, work)
+            # +see_through+ is the colour math a see-through layer needs, [the layers it mixes, the
+            # layers behind them] a bit each, or nil (Lowering::Picture#refuse_unmade_see_through!).
+            # +sprite_depths+ for a game with a sprite behind a background: rt_sprite_place takes a
+            # sixth number then (Lowering::Picture#sprite_depths).
+            def emit(asm, memory, work:, painted: false, bar: false, bent: [], tile_runs: 0, run_scratch: nil,
+                     see_through: nil, sprite_depths: false)
+              emit_start(asm, memory, painted, see_through)
+              emit_sprites(asm, memory, work, sprite_depths)
               emit_backgrounds(asm, memory, work)
               emit_bar(asm, memory) if bar
               emit_bends_prepare(asm, memory, work, bent) unless bent.empty?
@@ -197,7 +202,7 @@ module VBlank
 
             # The registers, then the tiles and the colours copied in while the screen is off — or,
             # for a +painted+ screen, Runtime::Paint's.
-            def emit_start(asm, memory, painted)
+            def emit_start(asm, memory, painted, see_through = nil)
               h = Console::SNESHardware
               asm.label("rt_picture_start")
               # WRIO's top bit lets a read of SLHV latch the line the picture is on, which the copy
@@ -225,6 +230,7 @@ module VBlank
               end
               asm.lda(0x13) # BG1, BG2 and the sprites on the main screen
               asm.sta(asm.abs(h::TM))
+              emit_see_through(asm, see_through) if see_through
               asm.rep(0x20)
               emit_dma_to_vram(asm, BG_TILES, "art background tiles", "art background tiles bytes")
               emit_dma_to_vram(asm, SPRITE_TILES, "art sprite tiles", "art sprite tiles bytes")
@@ -235,6 +241,24 @@ module VBlank
               emit_dma(asm, h::DMA_TO_ONE_PORT, h::CGDATA, asm.imm("art colors"), asm.bank_of("art colors"), 512)
               asm.jsl(asm.long("rt_sprites_begin"))
               asm.rtl
+            end
+
+            # A LAYER HALF SEE-THROUGH (8-bit A): the layers behind it on the sub screen as well (TS);
+            # colour math adding the sub screen rather than the fixed colour (CGWSEL bit 1); and, on
+            # the see-through layer's own pixels alone, adding and halving the sum (CGADSUB: bit 6
+            # halves, the low bits name the layers, bit 7 left clear adds). The sprites are not named,
+            # so a sprite in front stays solid. Where the sub screen shows nothing the console adds
+            # the fixed colour unhalved, which is why the build wants a background covering the
+            # screen behind the layer.
+            def emit_see_through(asm, see_through)
+              h = Console::SNESHardware
+              mixed, behind = see_through
+              asm.lda(behind)
+              asm.sta(asm.abs(h::TS))
+              asm.lda(0x02)
+              asm.sta(asm.abs(h::CGWSEL))
+              asm.lda(0x40 | mixed)
+              asm.sta(asm.abs(h::CGADSUB))
             end
 
             # A scroll register written with the 16-bit number in A: its low byte, then its high.
@@ -289,7 +313,8 @@ module VBlank
             # of the last pass. rt_sprite_place(poses, pose, x, y, whose) places one: +poses+ is the
             # 24-bit place of the sprite's table of pictures (how many, then each picture's number),
             # +pose+ which of them it shows — none for a number outside the table — and +whose+ the
-            # sprite's number for a reader (SpriteNames). Each piece of the picture is a row of the
+            # sprite's number for a reader (SpriteNames); in a game with sprites among the
+            # backgrounds, a sixth number flips each piece's priority bits. Each piece of the picture is a row of the
             # table, at the sprite's place plus the piece's own; a piece wholly off the screen is not
             # written, and nor is any piece once the table's 128 rows are used.
             #
@@ -298,8 +323,11 @@ module VBlank
             # edge, and one at -3 down as 253, which it draws with its top three rows above the
             # screen. So a piece that reaches the screen is written as its place's low bits, and one
             # that does not is not written at all, where coming round would show it somewhere else.
-            def emit_sprites(asm, memory, work)
+            def emit_sprites(asm, memory, work, depths = false)
               r = ->(n) { Memory.register(n) }
+              # How many pieces are left: R5, or R6 where R5 is the sixth number, the priority bits
+              # flipped in each piece's attributes (in front of every background, 3, made 2 or 1).
+              count = depths ? r.call(6) : r.call(5)
               oam = memory[SHADOW_OAM]
               drawn = memory[DRAWN]
               pointer = work # the picture's pieces, three bytes and a spare
@@ -393,15 +421,15 @@ module VBlank
               asm.and_a(0x00FF)
               asm.sta(asm.direct(pointer + 2))
               asm.lda(asm.ind_long(pointer)) # how many pieces
-              asm.sta(asm.direct(r.call(5)))
+              asm.sta(asm.direct(count))
               asm.ldy(2)
               asm.label("rt_sprite_place_piece")
-              asm.lda(asm.direct(r.call(5)))
+              asm.lda(asm.direct(count))
               asm.bne("rt_sprite_place_more")
               asm.label("rt_sprite_place_off")
               asm.rtl
               asm.label("rt_sprite_place_more")
-              asm.dec(asm.direct(r.call(5)))
+              asm.dec(asm.direct(count))
               asm.lda(asm.abs(memory[NEXT_ROW]))
               asm.beq("rt_sprite_place_off") # the table is full
               # Across: -7 to 255 reaches the screen.
@@ -439,6 +467,7 @@ module VBlank
               asm.iny
               asm.iny
               asm.lda(asm.ind_long_y(pointer)) # the tile, and its attributes above it
+              asm.eor(asm.direct(r.call(5))) if depths
               asm.sta(asm.long_x(oam, 2))
               asm.iny
               asm.iny

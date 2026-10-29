@@ -78,34 +78,50 @@ module VBlank
                 refuse_unmade!("a background whose maps are of different sizes or too big to hold") if bg.streams?
               end
               @objects.each_value do |obj|
-                refuse_unmade!("a sprite in a layer") if obj.layer || obj.layers
+                refuse_unmade!("a sprite put in another layer as the game runs (`put_in_layer`)") if obj.layer_pick
                 refuse_unmade!("a sprite drawn with other colours") unless obj.recolors.empty?
               end
               ordered = @reachable.any? { |node| node.kind == :present_objects && !Array(node.orders).empty? }
               refuse_unmade!("sprites drawn in an order the game works out (`draw_in_order`)") if ordered
             end
 
-            # Every picture a sprite can show, made into sprite pieces, in the order the pose tables
-            # number them.
+            # Every picture a sprite can show, made into sprite pieces in the order SpriteNames numbers
+            # them, a canvas's picture among them (#make_run_art), so the number a picture is made
+            # with is the one a reader of the drawn sprites turns back into its name.
+            #
+            # The pictures of a see-through layer's sprites are drawn from the console's last four
+            # sprite palettes, and every other picture from the first four (Art#split_sprite_palettes!),
+            # so a picture both kinds of sprite show would need to be made twice, which is not made yet.
             def make_sprite_art
-              make_run_art
-              @sprite_pictures = @objects.values.flat_map(&:poses).uniq
+              @art.split_sprite_palettes! unless see_through_sprites.empty?
+              @sprite_pictures = @objects.values.flat_map(&:poses).uniq.sort_by { |name| @sprite_names.picture_number(name) }
+              mixed = see_through_sprites.flat_map { |name| @objects.fetch(name).poses }.uniq
+              solid = (@objects.values.reject { |obj| see_through_sprites.include?(obj.name) }.flat_map(&:poses) +
+                       @tile_runs.filter_map(&:picture)).uniq
+              refuse_unmade!("a picture shown both by a see-through sprite and by another") if mixed.intersect?(solid)
+
               painted = @tile_runs.filter_map(&:picture)
-              (@sprite_pictures - painted).each { |name| @art.sprite_picture(name, Assets::Image.of(picture_named(name))) }
+              @sprite_pictures.each do |name|
+                if painted.include?(name)
+                  make_run_art(@tile_runs.index { |run| run.picture == name })
+                else
+                  @art.sprite_picture(name, Assets::Image.of(picture_named(name)), mixed: mixed.include?(name))
+                end
+              end
+              @tile_runs.each_index { |number| make_run_art(number) unless @run_places[number] }
             end
 
-            # Each run's tiles (SNES::Art#background_run, #sprite_run_picture), and where in video RAM
-            # the first is: tiles are 16 words each (Runtime::Picture's layout).
-            def make_run_art
-              @tile_runs.each do |run|
-                if run.picture
-                  picture = @art.sprite_run_picture(run.picture, run.width, run.height, run.colors)
-                  @run_places << (Runtime::Picture::SPRITE_TILES + (picture.pieces.first.tile * Art::TILE_BYTES / 2))
-                else
-                  first, palette = @art.background_run(run.colors, run.tiles.length)
-                  run.tiles.each_with_index { |image, k| @run_cells[image] = [first + k, palette] }
-                  @run_places << (Runtime::Picture::BG_TILES + (first * Art::TILE_BYTES / 2))
-                end
+            # Run +number+'s tiles (SNES::Art#background_run, #sprite_run_picture), and where in video
+            # RAM the first is: tiles are 16 words each (Runtime::Picture's layout).
+            def make_run_art(number)
+              run = @tile_runs.fetch(number)
+              if run.picture
+                picture = @art.sprite_run_picture(run.picture, run.width, run.height, run.colors)
+                @run_places[number] = Runtime::Picture::SPRITE_TILES + (picture.pieces.first.tile * Art::TILE_BYTES / 2)
+              else
+                first, palette = @art.background_run(run.colors, run.tiles.length)
+                run.tiles.each_with_index { |image, k| @run_cells[image] = [first + k, palette] }
+                @run_places[number] = Runtime::Picture::BG_TILES + (first * Art::TILE_BYTES / 2)
               end
             end
 
@@ -154,7 +170,8 @@ module VBlank
               end
               @pose_tables.each do |obj, label|
                 data.label(label)
-                data.data_words(obj.poses.length, *obj.poses.map { |pose| @sprite_pictures.index(pose) })
+                # Each picture by the number Art made it with ("art sprite pictures"' order).
+                data.data_words(obj.poses.length, *obj.poses.map { |pose| @art.sprite_pictures.fetch(pose).number })
               end
               [data.section, *bytes_section("art background tiles", @art.background_tile_data),
                *bytes_section("art sprite tiles", @art.sprite_tile_data),
@@ -165,8 +182,44 @@ module VBlank
             ART = W65816::Holding.new(what: "the game's pictures", fix: "use fewer different pictures and maps")
 
             # A sprite row's attributes, the high byte of its tile word: in front of every background
-            # (priority 3).
+            # (priority 3). A sprite behind a background has the difference from its own priority
+            # (#sprite_depths) taken off as it is placed.
             SPRITE_IN_FRONT = 0x3000
+
+            # The priority bits of a sprite row.
+            SPRITE_PRIORITY_SHIFT = 12
+
+            # SPRITES IN LAYERS, among the backgrounds (#assign_background_layers has put each
+            # background on its layer): each sprite's priority, by its name, from the backgrounds
+            # in front of it on the screens it is on (IR::Stacking's depths, per screenful) — 3 for
+            # none, 2 for BG1 alone, which is then drawn high (Art::CELL_IN_FRONT), 1 for BG2. Empty when
+            # every sprite is in front of every background, as in a game that names no layers.
+            def sprite_depths
+              @sprite_depths ||= begin
+                found = {}
+                Stacking.screenfuls(@program).each do |screenful|
+                  scenery = screenful.scenery.reject(&:bar?)
+                  screenful.objects.each do |obj|
+                    level = screenful.depths[obj.name]
+                    front = scenery.select { |bg| screenful.depths.of_scenery(bg) > level }.map { |bg| layer_of(bg) }
+                    priority = if front.include?(1) then 1
+                               elsif front.include?(0) then 2
+                               else 3
+                               end
+                    if found.fetch(obj.name, priority) != priority
+                      refuse_unmade!("a sprite behind a background on one screen and in front of it on another")
+                    end
+                    found[obj.name] = priority
+                  end
+                end
+                found.reject! { |_, priority| priority == 3 }
+                refuse_unmade!("a status bar beside a sprite behind a background") if !found.empty? && @backgrounds.each_value.any?(&:bar?)
+                found
+              end
+            end
+
+            # Whether +bg+'s cells are drawn high, in front of the sprites of priority 2.
+            def cells_in_front?(bg) = layer_of(bg).zero? && sprite_depths.value?(2)
 
             def pieces_label(number) = "art pieces #{number}"
             def grid_label(number) = "art grid #{number}"
@@ -177,6 +230,10 @@ module VBlank
               asm.data_bytes(bytes.bytes)
               asm.section
             end
+
+            # The colour math a see-through layer needs (#refuse_unmade_see_through!), as
+            # [the layers it mixes, the layers behind them] a bit each, BG1's first; nil for none.
+            attr_reader :see_through_layers
 
             # The layers bent, in #bends' order, whose line tables the runtime makes.
             def bent_layers = painted? ? [] : bends.map { |bend| layer_of(background_declared_for(bend)) }
@@ -231,6 +288,7 @@ module VBlank
               refuse_unmade_bends!(always)
               always.each_with_index { |bg, i| @layers[bg] = @scene_layers + (always.length - 1 - i) }
               own.each { |scenery| scenery.each_with_index { |bg, i| @layers[bg] = scenery.length - 1 - i } }
+              refuse_unmade_see_through!(always)
             end
 
             def layer_of(bg) = @layers.fetch(bg) { raise LoweringError, "the background #{bg.name.inspect} is on no layer" }
@@ -306,7 +364,7 @@ module VBlank
                 map = bg.every_map.fetch(which)
                 columns, rows = TileMap.grid(map)
                 cells = map.map { |row| Array(row).map { |tile| cell_of(bg, tile) } }
-                @art.grid(cells, columns, rows)
+                @art.grid(cells, columns, rows, in_front: cells_in_front?(bg))
               end
             end
 
@@ -346,7 +404,7 @@ module VBlank
                                                Build.binop(:<, Build.var_ref(row), Build.int(rows))))
               jump_unless(inside, outside)
               tile, palette = cell_of(bg, node.tile)
-              word = tile ? tile | (palette << Art::PALETTE_SHIFT) : 0
+              word = tile ? tile | (palette << Art::PALETTE_SHIFT) | (cells_in_front?(bg) ? Art::CELL_IN_FRONT : 0) : 0
               runtime_call("rt_set_cell", [Build.int(layer_of(bg)), Build.var_ref(column), Build.var_ref(row), Build.int(word)])
               @asm.label(outside)
             end
@@ -380,6 +438,114 @@ module VBlank
                 emit_tile_run_copy(name)
                 @asm.label(skip)
               end
+            end
+
+            # --- a layer half see-through ---
+
+            # THE LAYER SEEN THROUGH (`layer ..., transparency:`), on the console's colour math: every
+            # layer on the main screen as ever, the layers behind the see-through one on the sub
+            # screen too, and the math told to add the sub screen to the see-through layer's pixels
+            # and halve the sum, on its pixels alone (Runtime::Picture's power-on). So a sprite in
+            # front of it, and its own see-through pixels (where what is behind is on top of the main
+            # screen, with no math) stay solid, as on the interpreter. The console only halves, so
+            # the amounts must come to an even half, eight sixteenths each (IR::SeeThrough.weights),
+            # which #refuse_see_through_amounts! has seen to; and where the sub screen has nothing,
+            # the console adds its fixed colour instead and does not halve, so a background that
+            # covers every pixel must be behind the layer.
+            def refuse_unmade_see_through!(always)
+              layers = SeeThrough.layers(@program)
+              return if layers.empty?
+
+              layer = layers.first
+              picture = Stacking.picture(@program)
+              scenery = picture.scenery.reject(&:bar?)
+              seen_through = scenery.select { |bg| bg.layer == layer.name }
+              @see_through_sprites = picture.objects.select { |obj| obj.layer == layer.name }.map(&:name)
+              return if seen_through.empty? && @see_through_sprites.empty?
+              refuse_unmade!("a see-through layer of both backgrounds and sprites") unless seen_through.empty? || @see_through_sprites.empty?
+
+              at = picture.stack.index(layer.name)
+              behind = scenery.select { |bg| bg.layer.nil? || picture.stack.index(bg.layer) < at }
+              unless (seen_through + behind).all? { |bg| always.any? { |up| up.equal?(bg) } }
+                refuse_unmade!("a see-through layer over a background that a scene puts up")
+              end
+              raise LoweringError, see_through_uncovered_message(layer) unless behind.any? { |bg| covers_screen?(bg) }
+
+              bits = ->(bgs) { bgs.sum { |bg| 1 << layer_of(bg) } }
+              @see_through_layers = if seen_through.empty?
+                                      # The sprites' pixels mixed, with the scenery alone behind them.
+                                      [SPRITES_BIT, bits.call(behind)]
+                                    else
+                                      # The backgrounds' pixels mixed, with the scenery and the
+                                      # sprites behind them; a sprite in front is not on top of a
+                                      # mixed pixel anywhere it is drawn, so has no say.
+                                      [bits.call(seen_through), bits.call(behind) | SPRITES_BIT]
+                                    end
+            end
+
+            # The sprites' bit of the colour math's registers (TS, CGADSUB).
+            SPRITES_BIT = 0x10
+
+            # The names of the sprites in the see-through layer, drawn from the palettes the
+            # colour math reaches (Art#split_sprite_palettes!).
+            def see_through_sprites = @see_through_sprites || []
+
+            HALF = [SeeThrough::STEPS / 2, SeeThrough::STEPS / 2].freeze
+
+            # The amounts of the game's see-through layer, asked before the kinds a Super Nintendo
+            # cannot do (Lowering#refuse_what_snes_lacks!), so the framework's step that tells the
+            # console an amount again (`:see_through`, put in for an amount worked out as the game
+            # runs, or for more than one see-through layer) is refused in words about the amount.
+            def refuse_see_through_amounts!
+              layers = SeeThrough.layers(@program)
+              return if layers.empty?
+
+              refuse_unmade!("more than one see-through layer") if layers.length > 1
+              refuse_see_through_amount!(layers.first)
+            end
+
+            def refuse_see_through_amount!(layer)
+              worked_out = [layer.shows, layer.behind].any? { |amount| amount.kind != :int }
+              raise LoweringError, SEE_THROUGH_WORKED_OUT if worked_out
+              return if SeeThrough.weights(layer, layer.shows.value, layer.behind.value) == HALF
+
+              said = layer.split ? "`transparency: #{layer.behind.value}`" : "`shows: #{layer.shows.value}, shows_behind: #{layer.behind.value}`"
+              raise LoweringError, "Layer :#{layer.name} is see-through by #{said}. A Super Nintendo can show a layer " \
+                                   "half see-through only: `transparency:` from 50 to 56, or `shows: 50, shows_behind: " \
+                                   "50`. To fix this, use one of those amounts for the Super Nintendo, for example " \
+                                   "`transparency: console.name == :snes ? 50 : 40`."
+            end
+
+            SEE_THROUGH_WORKED_OUT = "This game works out how see-through a layer is as the game runs. A Super " \
+                                     "Nintendo can show a layer half see-through only, so the amount must be a " \
+                                     "number. To fix this, give the layer a number for the Super Nintendo, for " \
+                                     "example `transparency: console.name == :snes ? 50 : 100 - mist`."
+
+            def see_through_uncovered_message(layer)
+              "Layer :#{layer.name} is see-through, and no background behind it covers the whole screen. Where " \
+                "nothing is behind it, a Super Nintendo shows the layer whole, not half see-through. To fix this, " \
+                "put a background behind layer :#{layer.name} that fills every cell of its map with tiles that " \
+                "have no see-through pixels."
+            end
+
+            # Whether every map of +bg+ fills the console's whole grid of cells, each a tile with no
+            # see-through pixel, so whatever its scroll it covers every pixel of the screen.
+            def covers_screen?(bg)
+              bg.every_map.all? do |map|
+                columns, rows = TileMap.grid(map)
+                map.length == rows && map.all? do |row|
+                  Array(row).length == columns && Array(row).all? { |tile| solid_tile?(bg, tile) }
+                end
+              end
+            end
+
+            def solid_tile?(bg, tile)
+              return false if tile.nil? || tile.negative?
+              # A tile the game paints as it runs is never known solid.
+              return false if @tile_runs.any? { |run| !run.picture && run.tiles.include?(bg.tiles.fetch(tile)) }
+
+              image = Assets::Image.of(picture_named(bg.tiles.fetch(tile)))
+              (0...64).none? { |at| image.tile_see_through_at?(at) }
             end
 
             # --- a background bent row by row ---
@@ -485,8 +651,9 @@ module VBlank
                 obj = @objects.fetch(name) { raise LoweringError, "present of undeclared object #{name.inspect}" }
                 skip = fresh("sprite_off")
                 jump_unless(Build.binop(:==, obj.active, Build.int(1)), skip)
+                behind = sprite_depths.empty? ? [] : [Build.int((3 - sprite_depths.fetch(name, 3)) << SPRITE_PRIORITY_SHIFT)]
                 runtime_call("rt_sprite_place", [LongAddress.new(pose_table(obj)), obj.pose, obj.x, obj.y,
-                                                 Build.int(@sprite_names.name_number(obj.declared))])
+                                                 Build.int(@sprite_names.name_number(obj.declared)), *behind])
                 @asm.label(skip)
               end
               @asm.label(done)

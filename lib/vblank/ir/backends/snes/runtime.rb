@@ -70,10 +70,12 @@ module VBlank
           # (Lowering::Sound#recordings_section), for a game that plays them, which carries their count;
           # +bar+ for a game with a status bar, which carries what places it (Picture's rt_bar_place);
           # +bent+ the layers a game bends row by row, whose line tables it then makes; +tile_runs+ how
-          # many runs of tiles a game paints from lists, whose copy it then carries (Picture).
+          # many runs of tiles a game paints from lists, whose copy it then carries; +see_through+ the
+          # colour math of a game's see-through layer, which its power-on sets; +sprite_depths+ for a
+          # game with a sprite behind a background, whose sprites are placed with their priority (Picture).
           def sections(memory, main:, frame_begins: nil, painted: false, board: Cartridge::SNESROM::PLAIN, saves: false,
                        sound: false, sound_waves: [], music: nil, music_level_at: nil, effects: 0, recordings: [],
-                       plays: nil, bar: false, bent: [], tile_runs: 0)
+                       plays: nil, bar: false, bent: [], tile_runs: 0, see_through: nil, sprite_depths: false)
             chip = board.name == :super_fx
             vectors = W65816.new("runtime vectors", home: :first)
             Boot.emit_vectors(vectors)
@@ -85,7 +87,8 @@ module VBlank
             Blank.emit(asm, memory, Blank.scratch(memory))
             Lists.emit(asm, memory, Lists.scratch(memory))
             Picture.emit(asm, memory, work: memory.scratch(8), painted: painted, bar: bar, bent: bent, tile_runs: tile_runs,
-                                      run_scratch: (Picture.run_scratch(memory) if tile_runs.positive?))
+                                      run_scratch: (Picture.run_scratch(memory) if tile_runs.positive?),
+                                      see_through: see_through, sprite_depths: sprite_depths)
             Paint.emit(asm, memory, Paint.scratch(memory), chip: chip) if painted
             Tint.emit(asm, memory, Tint.scratch(memory))
             Collide.emit(asm, memory, Collide.scratch(memory))
