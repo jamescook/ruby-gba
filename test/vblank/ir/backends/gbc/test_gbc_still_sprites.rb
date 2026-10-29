@@ -55,6 +55,61 @@ class TestGBCStillSprites < Minitest::Test
     end
   end
 
+  # The border as Pokémon Pinball's field select has it: its pieces declared in the scene they show
+  # in and hidden until the screen has faded in, each piece's three shades drawn from one list,
+  # which the fade steps through 33 lists given only on the passes the fade moves; then shown, the
+  # shade picked from a table of the blink's steps and the column from a table by the field chosen.
+  def self.faded_border(frames_a_shade: 8)
+    VBlank.game("FADED BORDER", consoles: %i[gbc]) do
+      screen :tiled
+      showing = var :showing, 0
+      scene :border do
+        colors :edge, [:transparent, :white, :white, :white]
+        steps = (0...33).map do |step|
+          level = [step, 33 - step].min
+          colors :"edge_step#{step}", [:transparent, *(1..3).map { |c| rgb(31 - level, 31 - (c * level / 3), 31 - (level / 2)) }]
+          :"edge_step#{step}"
+        end
+        shades = TestGBCStillSprites::SHADES.each_with_index.map do |shade, s|
+          image :"edge_#{shade}", width: 8, height: 8, colors: :edge,
+                                  places: Array.new(64) { |i| (i % 8) < 2 || (i / 8) < 2 ? s + 1 : 0 }
+          :"edge_#{shade}"
+        end
+        turned = shades.map { |name| mirror(name) }
+        poses = %i[pose0 pose1 pose2]
+        pieces = TestGBCStillSprites::PLACES.each_with_index.map do |(c, r), n|
+          own = n.odd? ? turned : shades
+          sprite :"piece#{n}", at: [16 + (c * 8), 16 + (r * 8)], facing: poses.zip(own).to_h, shown: false
+        end
+        blink = table :blink, [0, 1, 0, 2]
+        columns = table :columns, [16, 64]
+        field = var :field, 0
+        passes = var :passes, 0
+        fade = var :fade, 0
+        step = var :step, 0
+        tick = var :tick, 0
+        fading = passes < 17
+        fading.then { fade.set! passes }
+        (fading | (passes == 17)).then { pieces.each { |piece| piece.draw_with steps, showing: fade } }
+        (passes >= 18).then do
+          (tick == 0).then do
+            pieces.each_with_index do |piece, n|
+              piece.show
+              piece.face poses, showing: blink[step]
+              piece.x.set! columns[field] + ((n % 10) * 8)
+            end
+            step.set!((step + 1) & 3)
+          end
+          (tick >= frames_a_shade - 1).then { tick.set! 0 }.else { tick.add! 1 }
+        end
+        passes.add! 1
+      end
+      game_loop do
+        case_var(:showing) { when_val 0, :border }
+      end
+    end
+  end
+
   def self.idle_share(every_pass:, frames_a_shade: 8)
     rom = border(every_pass: every_pass, frames_a_shade: frames_a_shade)
           .build_rom(console: :gbc, out: StringIO.new, err: StringIO.new, profile: false)
@@ -67,6 +122,22 @@ class TestGBCStillSprites < Minitest::Test
 
     assert_equal result.frames, result.passes
     assert_operator result.idle_share, :>, 0.15
+  end
+
+  # Shown, every piece changing its shade on every pass, each pass still fits its frame: the
+  # scene's sprites are passed over as unchanged like any others, and a change of the pose alone
+  # rewrites each piece where it is.
+  def test_a_scene_s_faded_border_changing_every_pass_fits_each_frame
+    rom = TestGBCStillSprites.faded_border(frames_a_shade: 1)
+                             .build_rom(console: :gbc, out: StringIO.new, err: StringIO.new, profile: false)
+    result = rom.profile(out: StringIO.new, frames: 60, settle: 40)
+
+    assert_equal result.frames, result.passes
+    assert_operator result.idle_share, :>, 0.05
+  end
+
+  def test_a_scene_s_faded_border_plays_as_the_interpreter_plays_it
+    game_player.run(TestGBCStillSprites.faded_border(frames_a_shade: 3).program(console: :gbc), frames: 40)
   end
 
   def test_still_sprites_given_their_poses_every_pass_leave_most_of_each_frame_asleep

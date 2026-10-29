@@ -1711,19 +1711,26 @@ module VBlank
             # A SPRITE PLACED AS IT WAS ON THE PASS BEFORE IS LEFT AS IT IS (Runtime::KeptSprites says
             # how). A sprite with a block (#posed_sprite_block) is placed by rt_place_kept_sprite alone,
             # its code three loads and a call: left as it is, changed where it is in the table, or
-            # placed afresh. Any other kept sprite asks rt_sprite_kept, which answers Z for one no
+            # placed afresh. One not drawn and unchanged since is passed over before the call
+            # (Runtime::KeptSprites::NOT_DRAWN). Any other kept sprite asks rt_sprite_kept, which answers Z for one no
             # write has changed since it was placed and whose place in the table is where it was, and
             # is otherwise placed by its own code and noted by rt_sprite_placed.
             def emit_placing_unless_unchanged(obj)
               return sprite_placement(obj) unless keeps_unchanged_sprites? && kept_sprites.include?(obj.name)
 
               block = posed_sprite_block(obj)
-              @asm.load(:hl, sprite_kept_at(obj))
               if block
+                passed = fresh("sprite_not_drawn")
+                @asm.load(:a, [sprite_kept_at(obj) + Runtime::KeptSprites::PLACED])
+                @asm.cp_a(Runtime::KeptSprites::NOT_DRAWN_AS_PLACED)
+                @asm.jump_relative(:z, passed)
+                @asm.load(:hl, sprite_kept_at(obj))
                 @asm.load(:de, block)
                 @bank_pose_tables ? @asm.load_bank_of(:a, block) : @asm.xor_a(:a)
-                return @asm.call("rt_place_kept_sprite")
+                @asm.call("rt_place_kept_sprite")
+                return @asm.label(passed)
               end
+              @asm.load(:hl, sprite_kept_at(obj))
 
               done = fresh("sprite_left")
               @asm.call("rt_sprite_kept")
@@ -1744,8 +1751,9 @@ module VBlank
             # that keeps its pose tables there.
             def posed_sprite_block(obj)
               lists = Array(obj.recolors)
-              return nil if lists.any?(Symbol) || obj.poses.length > 0xFF || lists.length > 0xFF
-              return nil if (folded(obj.active) && folded(obj.active) != 1) ||
+              on, scene = showing_parts(obj)
+              return nil if on.nil? || lists.any?(Symbol) || obj.poses.length > 0xFF || lists.length > 0xFF
+              return nil if (folded(on) && folded(on) != 1) ||
                             [obj.pose, obj.x, obj.y, *(obj.recolor unless lists.empty?)].any? { |number| folded(number) }
 
               pieces = single_pieces(obj)
@@ -1757,7 +1765,9 @@ module VBlank
                 end
               end
               place = ->(number) { little_endian(place_of(variable_named(value_node(number))), 2) }
-              head = [pieces ? 1 : 0, *(folded(obj.active) ? [0, 0] : place.call(obj.active)), *place.call(obj.pose),
+              head = [pieces ? 1 : 0, *(pieces ? [pieces.first.dx, pieces.first.dy] : [0, 0]),
+                      *(folded(on) ? [0, 0] : place.call(on)),
+                      *(scene ? [*place.call(scene.first), scene.last] : [0, 0, 0]), *place.call(obj.pose),
                       obj.poses.length, *place.call(obj.x), *place.call(obj.y),
                       *(lists.empty? ? [0, 0] : place.call(obj.recolor)), lists.length]
               drawing_table("posed_sprite", 1, head + rows, banked: @bank_pose_tables)
@@ -1794,8 +1804,34 @@ module VBlank
             # The numbers a sprite is placed from that the game can change: whether it is on, its pose,
             # its place, and the list it is drawn with.
             def sprite_numbers(obj)
-              [obj.active, obj.pose, obj.x, obj.y, (obj.recolor unless Array(obj.recolors).empty?)]
+              [*showing_numbers(obj), obj.pose, obj.x, obj.y, (obj.recolor unless Array(obj.recolors).empty?)]
                 .compact.map { |number| value_node(number) }.reject { |number| folded(number) }
+            end
+
+            # The numbers whether a sprite is on is worked out from: its own, and for one declared in
+            # a scene the variable the game picks its scenes with (#showing_parts) — or the whole
+            # sum, for a sprite whose on is neither.
+            def showing_numbers(obj)
+              on, scene = showing_parts(obj)
+              return [obj.active] if on.nil?
+
+              [on, (Build.var_ref(scene.first) if scene)]
+            end
+
+            # Whether a sprite is on, as its own number and the scene it shows in: a sprite declared
+            # in a scene is on while its own number is and that scene is up (Builder#gated_by_scene),
+            # [its number, [the variable the game picks its scenes with, the value that picks this
+            # one]]; any other is [its number, nil]. Nil for a sum of another shape, or a scene
+            # picked by a number past a byte.
+            def showing_parts(obj)
+              active = value_node(obj.active)
+              return [active, nil] unless active.kind == :binop && active.op == :*
+
+              on, up = active.lhs, active.rhs
+              return nil unless up.kind == :binop && up.op == :== && up.lhs.kind == :var_ref &&
+                                up.rhs.kind == :int && up.rhs.value.between?(0, 0xFF)
+
+              [on, [up.lhs.name, up.rhs.value]]
             end
 
             # The sprites kept as they were (#kept_sprites) placed from variable +name+.
@@ -1809,15 +1845,16 @@ module VBlank
             end
 
             # Each sprite placed from variable +name+ marked changed, to be placed again
-            # (Runtime::KeptSprites::PLACED): its place, when +name+ is where it is, and its other
-            # numbers, when +name+ is whether it is on, its pose or its list.
+            # (Runtime::KeptSprites::PLACED): its place, when +name+ is where it is, its pose, when it
+            # is its pose, and its other numbers, when +name+ is whether it is on, its scene or its list.
             def emit_sprites_changed(name)
               sprites_placed_from(name).uniq.each do |sprite|
                 obj = @objects.fetch(sprite)
                 names = ->(*numbers) { numbers.compact.map { |number| variable_named(value_node(number)) } }
                 bits = []
                 bits << Runtime::KeptSprites::PLACE_AS_PLACED if names.call(obj.x, obj.y).include?(name)
-                bits << Runtime::KeptSprites::NUMBERS_AS_PLACED if names.call(obj.active, obj.pose, obj.recolor).include?(name)
+                bits << Runtime::KeptSprites::NUMBERS_AS_PLACED if names.call(*showing_numbers(obj), obj.recolor).include?(name)
+                bits << Runtime::KeptSprites::POSE_AS_PLACED if names.call(obj.pose).include?(name)
                 @asm.load(:hl, sprite_kept_at(obj) + Runtime::KeptSprites::PLACED)
                 bits.each { |bit| @asm.res(bit, [:hl]) }
               end

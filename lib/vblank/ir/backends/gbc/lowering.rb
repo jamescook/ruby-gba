@@ -637,16 +637,22 @@ module VBlank
           def store(name)
             return emit_store_number(name) if sprites_placed_from(name).empty?
 
+            # Compared a byte at a time, lowest first, and written from the first that differs: the
+            # bytes below it are the same already.
             same = fresh("same_number")
             @asm.load(:hl, place_of(name))
             BCDE_LOW_FIRST.each_with_index do |register, i|
-              @asm.load(:a, i == 3 ? [:hl] : [:hli])
+              @asm.load(:a, [:hl])
               @asm.cp_a(register)
-              @asm.jump(:nz, "#{same}_differs") unless i == 3
+              @asm.jump_relative(:nz, "#{same}_from#{i}")
+              @asm.inc(:hl) unless i == 3
             end
-            @asm.jump(:z, same)
-            @asm.label("#{same}_differs")
-            emit_store_number(name)
+            @asm.jump(same)
+            BCDE_LOW_FIRST.each_with_index do |register, i|
+              @asm.label("#{same}_from#{i}")
+              @asm.load([:hl], register)
+              @asm.inc(:hl) unless i == 3
+            end
             emit_sprites_changed(name)
             @asm.label(same)
           end
@@ -1075,7 +1081,32 @@ module VBlank
 
             @asm.load(:hl, table_label(table.name))
             @asm.add_hl(:de)
-            @asm.call(reader)
+            emit_entry_read(bytes, signed)
+          end
+
+          # BCDE = the entry at HL, +bytes+ wide, widened with its sign or without: what the
+          # runtime's reader of that width does (Runtime::Calls#emit_table_readers), written where
+          # the entry is read, since a call and its return take longer than the reading itself.
+          def emit_entry_read(bytes, signed)
+            return @asm.call("rt_read_int32") if bytes == 4
+
+            if bytes == 2
+              @asm.load(:a, [:hli])
+              @asm.load(:e, :a)
+              @asm.load(:a, [:hl])
+              @asm.load(:d, :a)
+            else
+              @asm.load(:a, [:hl])
+              @asm.load(:e, :a)
+              @asm.load(:d, 0) unless signed
+            end
+            return @asm.load(:bc, 0) unless signed
+
+            @asm.rla # the carry is the sign bit
+            @asm.sbc_a(:a) # 0x00 or 0xFF
+            @asm.load(:d, :a) if bytes == 1
+            @asm.load(:c, :a)
+            @asm.load(:b, :a)
           end
 
           # --- save memory (Runtime::Saving), laid out as IR::SaveLayout says ---
@@ -1454,25 +1485,55 @@ module VBlank
               return @asm.call(holds_when == :z ? "rt_bool_of_z" : "rt_bool_of_nz")
             end
             return if node.op == :* && (emit_product_by_power_of_two(node) || emit_product_by_byte(node))
-            return if node.op == :+ && emit_sum_with_byte(node)
+            return if %i[+ -].include?(node.op) && emit_sum_with_constant(node)
+            return if node.op == :& && emit_and_with_byte(node)
 
             sum_of_two(node.lhs, node.rhs, SUMS.fetch(node.op))
           end
 
-          # A number plus a byte written in the program — a pose picked by a number, plus where its
-          # row starts — added in BCDE where it is, the carry walked up the bytes: a dozen
-          # instructions rather than a call, and none at all for nought. True when it was done so.
-          def emit_sum_with_byte(node)
+          # A number AND a byte written in the program — a table's index kept inside the table — is
+          # its lowest byte AND that one, and nought above: the byte read where a variable is kept,
+          # in a few instructions rather than all four through a call. True when it was done so.
+          def emit_and_with_byte(node)
             [[node.rhs, node.lhs], [node.lhs, node.rhs]].each do |by, other|
+              mask = folded(by)
+              next unless mask&.between?(0, 0xFF)
+
+              name = variable_named(other)
+              if name
+                @asm.load(:a, [place_of(name)])
+              else
+                value(other)
+                @asm.load(:a, :e)
+              end
+              @asm.and_a(mask)
+              @asm.load(:e, :a)
+              @asm.load(:d, 0)
+              @asm.load(:bc, 0)
+              return true
+            end
+            false
+          end
+
+          # A number plus or minus one written in the program — a pose picked by a number, plus
+          # where its row starts; a piece's column, less how far left of the sprite it sits — added
+          # in BCDE where it is, a byte of the number written to each byte, the carry walked up: a
+          # dozen instructions rather than a call, and none at all for nought. True when it was
+          # done so.
+          def emit_sum_with_constant(node)
+            sides = node.op == :+ ? [[node.rhs, node.lhs], [node.lhs, node.rhs]] : [[node.rhs, node.lhs]]
+            sides.each do |by, other|
               number = folded(by)
-              next unless number&.between?(0, 0xFF)
+              next unless number
 
               value(other)
+              number = Int32.neg(number) if node.op == :-
               return true if number.zero?
 
               BCDE_LOW_FIRST.each_with_index do |register, i|
+                byte = (number >> (8 * i)) & 0xFF
                 @asm.load(:a, register)
-                i.zero? ? @asm.add_a(number) : @asm.adc_a(0)
+                i.zero? ? @asm.add_a(byte) : @asm.adc_a(byte)
                 @asm.load(register, :a)
               end
               return true
@@ -1593,7 +1654,20 @@ module VBlank
             when :neg then folded(node.operand)&.then { |n| Int32.neg(n) }
             when :bit_not then folded(node.operand)&.then { |n| Int32.bit_not(n) }
             when :clamped then folded_clamp(node)
+            when :table_get then folded_table_get(node)
             end
+          end
+
+          # Reference#value_of_table_get: a table never changes, so its entry at an index the
+          # program writes is a number the program writes, and nothing is read as the game runs.
+          def folded_table_get(node)
+            index = folded(node.index)
+            values = @tables[node.name]&.values
+            return nil unless index && values&.any?
+
+            count = values.length
+            at = count.nobits?(count - 1) ? index & (count - 1) : index.clamp(0, count - 1)
+            Int32.wrap(values[at])
           end
 
           # Reference#clamp_value: held at the floor, then at the ceiling.

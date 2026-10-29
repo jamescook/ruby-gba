@@ -55,6 +55,29 @@ class TestFaceShowing < Minitest::Test
     (2..6).each { |frames| assert_backends_agree(game, frames: frames) }
   end
 
+  # An animation's frames as a table of poses, every one of them a pose the sprite has: the pick
+  # is the table's entry, frame after frame, with nothing left to ask as the game runs.
+  def test_a_table_of_poses_picks_each_in_turn
+    game = built do
+      screen :tiled
+      names = (0...3).map do |n|
+        image(:"pose#{n}", "." => :transparent, "#" => :red) { TestFaceShowing.marked(n) }
+        :"pose#{n}"
+      end
+      hero = sprite :hero, at: [40, 40], facing: names.to_h { |name| [name, name] }
+      frames = table :frames, [2, 0, 1, 0]
+      step = var :step, 0
+      game_loop do
+        hero.face names, showing: frames[step]
+        step.add! 1
+      end
+    end
+    # The pose it starts in, then each pass's pick (as #test_the_number_picks_the_pose_and_one_past_the_list_leaves_it).
+    shown = %i[pose0 pose2 pose0 pose1 pose0 pose2 pose0].drop(1 - framework_drawing_lag).first(6)
+
+    assert_equal shown, (1..6).map { |frames| game_player.run(game, frames: frames).sprites(:hero).first.picture }
+  end
+
   def test_a_bitmap_sprite_picks_the_same_way
     game = built(&stepping(4, screen: :bitmap))
     (1..6).each { |frames| assert_backends_agree(game, frames: frames) }

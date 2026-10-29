@@ -388,6 +388,7 @@ module VBlank
       values = values.map { |v| bits ? DSL::Fraction.scale(v, bits) : v }
       signed = values.any?(&:negative?) if signed.nil?
       check_table_values_fit!(name, values, width, signed)
+      (@table_values ||= {})[name] = values
       record(Build.table(name, values, width: width, signed: signed))
       DSL::Table.new(self, name, values.length, fraction_bits: bits, width: width)
     end

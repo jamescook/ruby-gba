@@ -277,12 +277,16 @@ module VBlank
           return yield Build.int(rows[fixed])
         end
 
-        step = kept_step(picked_step!(showing, subject, "face a pose"))
+        step = picked_step!(showing, subject, "face a pose")
+        always = always_within?(step, rows.length)
+        step = kept_step(step) unless always
         row = if rows.each_cons(2).all? { |a, b| b == a + 1 }
                 step + rows.first
               else
                 pose_rows_table(rows)[step]
               end
+        return yield row.node if always
+
         ((step >= 0) & (step < rows.length)).then { yield row.node }
       end
 
@@ -294,8 +298,24 @@ module VBlank
         fixed = DSL::Value.fixed_number(showing)
         return choice.set!(fixed.between?(0, count - 1) ? start + fixed : outside) if fixed
 
-        step = kept_step(picked_step!(showing, subject, verb))
+        step = picked_step!(showing, subject, verb)
+        return choice.set!(step + start) if always_within?(step, count)
+
+        step = kept_step(step)
         ((step >= 0) & (step < count)).then { choice.set!(step + start) }.else { choice.set!(outside) }
+      end
+
+      private
+
+      # +step+ is a read of a table every entry of which is from 0 to +count+ - 1, so whatever it
+      # reads names one of +count+ choices, and needs no asking as the game runs: a pose stepped
+      # through by a table of an animation's frames.
+      def always_within?(step, count)
+        node = step.node
+        return false unless node.kind == :table_get
+
+        values = @table_values&.fetch(node.name, nil)
+        !values.nil? && values.all? { |value| value.between?(0, count - 1) }
       end
 
       # Scratch for a step worked out from an expression (see #kept_step): one variable for

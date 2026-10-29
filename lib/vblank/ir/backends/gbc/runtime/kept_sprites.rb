@@ -51,18 +51,38 @@ module VBlank
             # 1 when it was last placed by rt_place_kept_sprite, drawn, with every row one piece in
             # one place: rt_sprite_reposed's.
             SAME_PIECE = 8
-            BYTES = 9
+            # Where in its block the rows of the list it was last drawn with begin, the first pose's
+            # first (two bytes), for a sprite SAME_PIECE says was so drawn: a change of its pose alone
+            # is the row that many rows on (rt_place_kept_sprite_pose).
+            ROWS_AT = 9
+            BYTES = 11
 
-            # PLACED's two marks, each made nought by a write of a number it is about (Lowering::Picture
-            # #emit_sprites_changed): the sprite's numbers but its place (whether it is on, its pose,
-            # its list) are as it was placed with, and its place is.
+            # PLACED's marks, each made nought by a write of a number it is about (Lowering::Picture
+            # #emit_sprites_changed): whether it is on and its list (and its scene's being up) are as
+            # it was placed with, its place is, and its pose is.
             NUMBERS_AS_PLACED = 0
             PLACE_AS_PLACED = 1
-            AS_PLACED = (1 << NUMBERS_AS_PLACED) | (1 << PLACE_AS_PLACED)
+            POSE_AS_PLACED = 3
+            AS_PLACED = (1 << NUMBERS_AS_PLACED) | (1 << PLACE_AS_PLACED) | (1 << POSE_AS_PLACED)
+            # Every mark up but the pose's: only its pose changed. rt_sprite_kept then adds POSE_ONLY
+            # to the SAME_PIECE it answers with.
+            POSE_CHANGED = AS_PLACED & ~(1 << POSE_AS_PLACED)
+            POSE_ONLY = 2
+            # And one more, set by rt_place_kept_sprite with the others when the sprite was not
+            # drawn — switched off, a pose none of its own, its scene not up — and left by the
+            # writes. Not drawn and nothing of it changed since, nothing of it is in the table or the
+            # list, and nothing is to be put there: its code passes it over without a call (Lowering::
+            # Picture#emit_placing_unless_unchanged), however the sprites before it moved, which is
+            # most of a game's sprites while the scene they are declared in is not up.
+            NOT_DRAWN = 2
+            NOT_DRAWN_AS_PLACED = AS_PLACED | (1 << NOT_DRAWN)
 
             # A posed sprite's block (Lowering::Picture#posed_sprite_block), read in this order by
-            # rt_sprite_posed: 1 when every row is one piece in one place (one byte), where it keeps
-            # whether it is on (two, nought for always), its pose (two) and how many poses (one), its
+            # rt_sprite_posed: 1 when every row is one piece in one place (one byte), that place's dx
+            # and dy (one and one, nought for a sprite of more pieces), where it keeps
+            # whether it is on (two, nought for always), for a sprite declared in a scene where the
+            # game keeps which scene is up and the number that is this one (two and one, nought and
+            # nought for a sprite of no scene), its pose (two) and how many poses (one), its
             # place (two and two), the list it is drawn with (two, nought for none) and how many lists
             # (one); then its rows, ROW_BYTES each: the picture (two), the attributes (four), in a game
             # whose sprites borrow the eight lists the list the row is drawn in (one, nought
@@ -121,13 +141,18 @@ module VBlank
               asm.and_a(:a) # NZ, and no carry
               asm.ret
               # Its entries begin where they began, in the same round, and a number of it changed:
-              # when its place is as it was placed, NZ with the carry, and A its SAME_PIECE. Where its
-              # entries begin is noted already, the same.
+              # when its place is as it was placed, NZ with the carry, and A its SAME_PIECE, with
+              # POSE_ONLY added when its pose alone changed. Where its entries begin is noted
+              # already, the same.
               asm.label("rt_sprite_kept_numbers")
               asm.bit(PLACE_AS_PLACED, :a) # NZ: its place is as it was placed
               asm.jump_relative(:z, "rt_sprite_kept_changed")
+              asm.cp_a(POSE_CHANGED) # Z: its pose alone
               (SAME_PIECE - PLACED).times { asm.inc(:hl) }
               asm.load(:a, [:hl])
+              asm.jump_relative(:nz, "rt_sprite_kept_numbers_said")
+              asm.or_a(POSE_ONLY)
+              asm.label("rt_sprite_kept_numbers_said")
               asm.pop(:hl)
               asm.scf
               asm.ret
@@ -167,21 +192,61 @@ module VBlank
             # is a sprite not drawn, or drawn in its own colours, as Lowering::Picture#sprite_placement
             # says. The block is read with its bank in view, and the caller's put back after.
             def emit_posed(asm, memory, lends:)
-              asm.label("rt_sprite_posed")
+              emit_in_bank(asm, "rt_sprite_posed", "rt_sprite_posed_read")
+              emit_in_bank(asm, "rt_sprite_pose", "rt_sprite_pose_read")
+              emit_posed_read(asm, memory, lends: lends)
+              emit_pose_read(asm, memory, lends: lends)
+            end
+
+            # +label+(HL = a sprite's block, A = the bank it is in, nought for the part always in
+            # view): +reader+ with the block's bank in view, and the caller's put back after.
+            def emit_in_bank(asm, label, reader)
+              asm.label(label)
               asm.and_a(:a)
-              asm.jump(:z, "rt_sprite_posed_read")
+              asm.jump(:z, reader)
               asm.load(:c, :a)
               asm.load_high(:a, Memory::CURRENT_BANK)
               asm.push(:af)
               asm.load(:a, :c)
               asm.load_high(Memory::CURRENT_BANK, :a)
               asm.select_rom_bank
-              asm.call("rt_sprite_posed_read")
+              asm.call(reader)
               asm.pop(:af)
               asm.load_high(Memory::CURRENT_BANK, :a)
               asm.select_rom_bank
               asm.ret
-              emit_posed_read(asm, memory, lends: lends)
+            end
+
+            # Where in a block its pose's place is (Lowering::Picture#posed_sprite_block): past
+            # SAME_PIECE's one byte, its piece's dx and dy (two), whether it is on (two) and its
+            # scene (three).
+            BLOCK_POSE = 8
+
+            # rt_sprite_pose_read(HL = the block, its bank in view): as rt_sprite_posed_read, for a
+            # sprite whose pose alone changed, its list's rows found already (SpriteArgs#rows_at): its
+            # pose, one of its own, and the row that pose is — or C = 0 for a pose none of its own.
+            def emit_pose_read(asm, memory, lends:)
+              args = SpriteArgs.new(memory, lends)
+              asm.label("rt_sprite_pose_read")
+              asm.load(:de, BLOCK_POSE)
+              asm.add_hl(:de)
+              asm.load(:a, [:hli])
+              asm.load(:e, :a)
+              asm.load(:a, [:hli])
+              asm.load(:d, :a) # HL at how many poses
+              asm.load(:a, [:de])
+              asm.load(:c, :a) # C = the pose
+              emit_upper_bytes_or(asm)
+              asm.jump(:nz, "rt_sprite_posed_not_drawn")
+              asm.load(:a, :c)
+              asm.cp_a([:hl])
+              asm.jump(:nc, "rt_sprite_posed_not_drawn")
+              asm.load_high(:a, args.rows_at)
+              asm.load(:l, :a)
+              asm.load_high(:a, args.rows_at + 1)
+              asm.load(:h, :a)
+              emit_pose_row(asm)
+              asm.jump("rt_sprite_posed_in_place")
             end
 
             # rt_sprite_posed_read(HL = the block, its bank in view): as rt_sprite_posed, and the
@@ -201,6 +266,11 @@ module VBlank
               asm.load_high(:a, args.reposable)
               asm.and_a(:b)
               asm.load_high(args.repose, :a)
+              # Where its one piece sits, when it is one (rt_sprite_one_piece).
+              asm.load(:a, [:hli])
+              asm.load_high(args.piece, :a)
+              asm.load(:a, [:hli])
+              asm.load_high(args.piece + 1, :a)
               asm.load(:a, [:hli])
               asm.load(:e, :a)
               asm.load(:a, [:hli])
@@ -213,6 +283,22 @@ module VBlank
               emit_upper_bytes_or(asm)
               asm.jump_relative(:nz, "rt_sprite_posed_not_drawn")
               asm.label("rt_sprite_posed_on")
+              # Its scene up: the variable the game picks its scenes with holding the number that
+              # picks this one, or nought for a sprite of no scene.
+              asm.load(:a, [:hli])
+              asm.load(:e, :a)
+              asm.load(:a, [:hli])
+              asm.load(:d, :a)
+              asm.load(:c, [:hl])
+              asm.inc(:hl)
+              asm.or_a(:e)
+              asm.jump_relative(:z, "rt_sprite_posed_up")
+              asm.load(:a, [:de])
+              asm.cp_a(:c)
+              asm.jump(:nz, "rt_sprite_posed_not_drawn")
+              emit_upper_bytes_or(asm)
+              asm.jump(:nz, "rt_sprite_posed_not_drawn")
+              asm.label("rt_sprite_posed_up")
               asm.load(:a, [:hli])
               asm.load(:e, :a)
               asm.load(:a, [:hli])
@@ -275,50 +361,49 @@ module VBlank
               asm.label("rt_sprite_posed_own")
               asm.xor_a(:a)
               asm.label("rt_sprite_posed_row")
-              # HL = the row times the poses, plus the pose: which row of the block is read.
-              asm.load(:h, 0)
-              asm.load(:l, :c)
+              # HL = the row times the poses: where that list's rows begin among the block's. The
+              # product is added up a turn for each of the smaller of the two: a sprite faded through
+              # dozens of lists has a few poses, and one with dozens of poses few lists.
+              asm.load(:hl, 0)
               asm.and_a(:a)
               asm.jump_relative(:z, "rt_sprite_posed_at")
-              asm.load(:e, :b)
+              asm.cp_a(:b)
+              asm.jump_relative(:c, "rt_sprite_posed_by_row")
+              asm.load(:e, :a) # the poses at most: B turns of the row
+              asm.jump_relative("rt_sprite_posed_turns")
+              asm.label("rt_sprite_posed_by_row")
+              asm.load(:e, :b) # fewer rows: a turn of the poses for each
               asm.load(:b, :a)
+              asm.label("rt_sprite_posed_turns")
               asm.load(:d, 0)
               asm.label("rt_sprite_posed_rows")
               asm.add_hl(:de)
               asm.dec(:b)
               asm.jump_relative(:nz, "rt_sprite_posed_rows")
               asm.label("rt_sprite_posed_at")
-              raise ArgumentError, "a row is read here as nine bytes" unless ROW_BYTES == 9
-
-              asm.load(:d, :h) # ROW_BYTES a row: eight times it, and once more
-              asm.load(:e, :l)
-              3.times { asm.add_hl(:hl) }
-              asm.add_hl(:de)
-              asm.load(:d, :h)
-              asm.load(:e, :l)
+              emit_rows_to_bytes(asm)
               asm.pop(:hl)
-              asm.add_hl(:de) # HL = the row
+              asm.add_hl(:de) # HL = the list's first row, noted for a change of the pose alone
+              asm.load(:a, :l)
+              asm.load_high(args.rows_at, :a)
+              asm.load(:a, :h)
+              asm.load_high(args.rows_at + 1, :a)
+              emit_pose_row(asm)
               asm.load_high(:a, args.repose)
               asm.and_a(:a)
               asm.jump_relative(:nz, "rt_sprite_posed_in_place")
+              # The picture's number and the list's: the low half of the one and the low byte of the
+              # other, all rt_sprite reads of them.
               asm.load(:a, [:hli])
               asm.load_high(args.picture, :a)
               asm.load(:a, [:hli])
               asm.load_high(args.picture + 1, :a)
-              asm.rla # the picture's sign, into both its upper bytes
-              asm.sbc_a(:a)
-              asm.load_high(args.picture + 2, :a)
-              asm.load_high(args.picture + 3, :a)
               4.times do |i|
                 asm.load(:a, [:hli])
                 asm.load_high(args.attributes + i, :a)
               end
               asm.load(:a, [:hli])
-              if lends
-                asm.load_high(args.lent, :a)
-                asm.xor_a(:a)
-                (1..3).each { |i| asm.load_high(args.lent + i, :a) }
-              end
+              asm.load_high(args.lent, :a) if lends
               asm.label("rt_sprite_posed_piece")
               asm.load(:a, [:hli])
               asm.load_high(args.tile, :a)
@@ -357,8 +442,14 @@ module VBlank
               asm.pop(:de)
               asm.jump(:z, "rt_place_kept_sprite_left")
               # It can be changed where it is when only its numbers but its place changed and it was
-              # last placed as one piece in one place: rt_sprite_kept's carry, and A.
-              asm.jump_relative(:c, "rt_place_kept_sprite_asked")
+              # last placed as one piece in one place: rt_sprite_kept's carry, and A. When its pose
+              # alone changed, only the pose is read (rt_place_kept_sprite_pose).
+              asm.jump_relative(:nc, "rt_place_kept_sprite_unasked")
+              asm.cp_a(1 | POSE_ONLY)
+              asm.jump(:z, "rt_place_kept_sprite_pose")
+              asm.and_a(1)
+              asm.jump_relative("rt_place_kept_sprite_asked")
+              asm.label("rt_place_kept_sprite_unasked")
               asm.xor_a(:a)
               asm.label("rt_place_kept_sprite_asked")
               asm.load_high(args.reposable, :a)
@@ -372,9 +463,16 @@ module VBlank
               asm.jump(:z, "rt_place_kept_sprite_hidden")
               asm.load_high(:a, args.repose)
               asm.and_a(:a)
-              asm.jump(:nz, "rt_sprite_reposed")
+              asm.jump_relative(:nz, "rt_place_kept_sprite_reposed")
               asm.push(:hl)
+              asm.load_high(:a, args.same_piece)
+              asm.and_a(:a)
+              asm.jump_relative(:nz, "rt_place_kept_sprite_one_piece")
               asm.call("rt_sprite_args_set")
+              asm.jump_relative("rt_place_kept_sprite_set")
+              asm.label("rt_place_kept_sprite_one_piece")
+              asm.call("rt_sprite_one_piece")
+              asm.label("rt_place_kept_sprite_set")
               asm.pop(:hl)
               asm.push(:hl)
               asm.call("rt_sprite_placed")
@@ -382,13 +480,20 @@ module VBlank
               asm.load(:de, SAME_PIECE)
               asm.add_hl(:de)
               asm.load_high(:a, args.same_piece)
+              asm.load([:hli], :a)
+              asm.load_high(:a, args.rows_at) # ROWS_AT, which follows
+              asm.load([:hli], :a)
+              asm.load_high(:a, args.rows_at + 1)
               asm.load([:hl], :a)
               asm.ret
               asm.label("rt_place_kept_sprite_hidden")
               asm.push(:hl)
               asm.call("rt_sprite_placed")
               asm.pop(:hl)
-              asm.load(:de, SAME_PIECE)
+              asm.load(:de, PLACED)
+              asm.add_hl(:de)
+              asm.set(NOT_DRAWN, [:hl])
+              asm.load(:de, SAME_PIECE - PLACED)
               asm.add_hl(:de)
               asm.xor_a(:a)
               asm.load([:hl], :a)
@@ -396,7 +501,47 @@ module VBlank
               asm.label("rt_place_kept_sprite_left")
               asm.pop(:hl)
               asm.ret
+              # Changed where it is, with where its list's rows begin noted, which a change of its
+              # list moved.
+              asm.label("rt_place_kept_sprite_reposed")
+              asm.push(:hl)
+              asm.load(:de, ROWS_AT)
+              asm.add_hl(:de)
+              asm.load_high(:a, args.rows_at)
+              asm.load([:hli], :a)
+              asm.load_high(:a, args.rows_at + 1)
+              asm.load([:hl], :a)
+              asm.pop(:hl)
+              asm.jump("rt_sprite_reposed")
+              emit_pose_alone(asm, args)
               emit_reposed(asm, memory, lends: lends)
+            end
+
+            # rt_place_kept_sprite_pose: a sprite whose pose alone changed since it was last drawn,
+            # as one piece in one place (DE its block, B the block's bank, what it keeps on the stack).
+            # Whether it is on, its scene, its list and its place are as they were, so only its pose
+            # is read, and its row is the one that many on from where its list's rows begin (ROWS_AT):
+            # it is changed where it is (rt_sprite_reposed). A pose none of its own is not drawn,
+            # as rt_sprite_posed would find it.
+            def emit_pose_alone(asm, args)
+              asm.label("rt_place_kept_sprite_pose")
+              asm.pop(:hl)
+              asm.push(:hl)
+              asm.push(:de)
+              asm.load(:de, ROWS_AT)
+              asm.add_hl(:de)
+              asm.load(:a, [:hli])
+              asm.load_high(args.rows_at, :a)
+              asm.load(:a, [:hl])
+              asm.load_high(args.rows_at + 1, :a)
+              asm.pop(:hl) # the block
+              asm.load(:a, :b)
+              asm.call("rt_sprite_pose")
+              asm.pop(:hl)
+              asm.load(:a, :c)
+              asm.and_a(:a)
+              asm.jump(:z, "rt_place_kept_sprite_hidden")
+              asm.jump("rt_sprite_reposed")
             end
 
             # rt_sprite_reposed(HL = what the sprite keeps): a sprite of one piece whose picture or list
@@ -490,11 +635,36 @@ module VBlank
               def x = picture - 4
               def y = picture - 8
               def attributes = picture - 12
-              def tile = memory.args + (4 * count)
-              def bits = tile + 1
-              def same_piece = tile + 2
-              def reposable = tile + 3
-              def repose = tile + 4
+              # The piece, as a picture's table keeps one: its dx, dy, tile and bank and flips.
+              def piece = memory.args + (4 * count)
+              def tile = piece + 2
+              def bits = piece + 3
+              def same_piece = piece + 4
+              def reposable = piece + 5
+              def repose = piece + 6
+              def rows_at = piece + 7
+            end
+
+            # DE = HL rows of the block, ROW_BYTES each: eight times them, and once more.
+            def emit_rows_to_bytes(asm)
+              raise ArgumentError, "a row is counted here as nine bytes" unless ROW_BYTES == 9
+
+              asm.load(:d, :h)
+              asm.load(:e, :l)
+              3.times { asm.add_hl(:hl) }
+              asm.add_hl(:de)
+              asm.load(:d, :h)
+              asm.load(:e, :l)
+            end
+
+            # HL = the row C (the pose) rows on from HL, where a list's rows begin.
+            def emit_pose_row(asm)
+              asm.push(:hl)
+              asm.load(:h, 0)
+              asm.load(:l, :c)
+              emit_rows_to_bytes(asm)
+              asm.pop(:hl)
+              asm.add_hl(:de)
             end
 
             # A = the three upper bytes of the number DE points at its lowest byte of, or'd, with DE

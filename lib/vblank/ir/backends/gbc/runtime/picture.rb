@@ -181,6 +181,50 @@ module VBlank
               asm.label("rt_lend_on_first_piece_done")
             end
 
+            # Written down for a reader of the run, in the list of what was drawn: whose, which
+            # picture, where — rt_sprite's numbers, +args+ (Calls.arg) — or, the list full, nothing,
+            # on to +full+.
+            def emit_drawn_note(asm, memory, args, full)
+              asm.load(:a, [memory[DRAWN]])
+              asm.cp_a(MOST_DRAWN)
+              asm.jump_relative(:nc, full)
+              asm.load(:e, :a)
+              asm.inc(:a)
+              asm.load([memory[DRAWN]], :a)
+              asm.load(:l, :e)
+              asm.load(:h, 0)
+              3.times { asm.add_hl(:hl) }
+              asm.load(:a, :l) # × 8, less one: × 7
+              asm.sub_a(:e)
+              asm.load(:l, :a)
+              asm.load(:a, :h)
+              asm.sbc_a(0)
+              asm.load(:h, :a)
+              asm.load(:de, memory[DRAWN] + 1)
+              asm.add_hl(:de)
+              [args.call(3) + 1, args.call(3) + 2, args.call(3) + 3, args.call(1), args.call(1) + 1,
+               args.call(2), args.call(2) + 1].each do |from|
+                asm.load_high(:a, from)
+                asm.load([:hli], :a)
+              end
+            end
+
+            # rt_sprite_one_piece: rt_sprite_args_set for a sprite drawn as one piece, whose piece —
+            # its dx, dy, tile and bank — rt_sprite_posed noted from the sprite's block
+            # (KeptSprites::SpriteArgs#piece): the pictures' table is not read, nor its bank put in
+            # view, and the piece is placed as rt_sprite places each of a picture's.
+            def emit_one_piece_sprite(asm, memory, args, lends)
+              asm.label("rt_sprite_one_piece")
+              if lends
+                asm.load(:a, 1)
+                asm.load([memory[LENT] + LENT_PENDING], :a)
+              end
+              emit_drawn_note(asm, memory, args, "rt_sprite_one_piece_noted")
+              asm.label("rt_sprite_one_piece_noted")
+              asm.load(:hl, KeptSprites::SpriteArgs.new(memory, lends).piece)
+              asm.jump("rt_gbc_place_piece")
+            end
+
             # LENDING THE EIGHT SPRITE LISTS. A Color draws a sprite's piece in one of eight lists of
             # four colours. A game whose sprites wear more lists than that between them lends the
             # eight out, the way the console's own games do: rt_lend_list, with C the game's list
@@ -966,29 +1010,7 @@ module VBlank
                 asm.load([memory[LENT] + LENT_PENDING], :a)
               end
               asm.label("rt_sprite_taken")
-              # Written down for a reader of the run: whose, which picture, where.
-              asm.load(:a, [memory[DRAWN]])
-              asm.cp_a(MOST_DRAWN)
-              asm.jump_relative(:nc, "rt_sprite_noted")
-              asm.load(:e, :a)
-              asm.inc(:a)
-              asm.load([memory[DRAWN]], :a)
-              asm.load(:l, :e)
-              asm.load(:h, 0)
-              3.times { asm.add_hl(:hl) }
-              asm.load(:a, :l) # × 8, less one: × 7
-              asm.sub_a(:e)
-              asm.load(:l, :a)
-              asm.load(:a, :h)
-              asm.sbc_a(0)
-              asm.load(:h, :a)
-              asm.load(:de, memory[DRAWN] + 1)
-              asm.add_hl(:de)
-              [args.call(3) + 1, args.call(3) + 2, args.call(3) + 3, args.call(1), args.call(1) + 1,
-               args.call(2), args.call(2) + 1].each do |from|
-                asm.load_high(:a, from)
-                asm.load([:hli], :a)
-              end
+              emit_drawn_note(asm, memory, args, "rt_sprite_noted")
               asm.label("rt_sprite_noted")
               asm.load_high(:a, args.call(0)) # the picture's entry: the table + 3 × its number
               asm.load(:l, :a)
@@ -1010,6 +1032,7 @@ module VBlank
               asm.dec(:c)
               asm.jump_relative(:nz, "rt_sprite_piece")
               asm.jump("rt_bank_back")
+              emit_one_piece_sprite(asm, memory, args, lends) if KeptSprites.any?(memory)
 
               # One piece at HL (dx, dy, tile, bank), HL moved past it: its place on the screen
               # worked out in 16 bits, and an entry written unless it is wholly off the screen or the
