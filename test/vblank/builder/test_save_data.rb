@@ -43,7 +43,19 @@ class TestSaveData < Minitest::Test
   end
 
   private def play(program, store, pressing: {}, frames: 6)
-    game_player(save: store).input_each_frame { |f| Array(pressing[f]) }.run(program, frames: frames)
+    game_player(save: store).input_each_frame(&presses_from_first_pass(pressing)).run(program, frames: frames)
+  end
+
+  # The buttons of +pressing+ (a frame's number => buttons) counted from the first frame the game
+  # reads its buttons on, rather than from power-on. Setting up counts frames too, and a console
+  # slower than the Advance can spend several placing its save records before its first pass, so
+  # a press numbered from power-on would fall before the game was listening.
+  private def presses_from_first_pass(pressing)
+    first = nil
+    lambda do |frame|
+      first ||= frame
+      Array(pressing[frame - first + 1])
+    end
   end
 
   def test_a_saved_record_comes_back_after_the_power_goes_off
@@ -218,13 +230,13 @@ class TestSaveData < Minitest::Test
     before = SaveImage.new
     files_after(before, :a, :up, :a)
     whole = before.dup
-    game_player(save: whole).input_each_frame { |f| f == 2 ? [:right] : [] }.run(three_files, frames: 4)
+    game_player(save: whole).input_each_frame(&presses_from_first_pass(2 => :right)).run(three_files, frames: 4)
     assert_equal 99, files_after(whole)[:shown0], "uncut, the new save is the copy"
 
     (0..40).each do |cut|
       store = before.dup
       game_player(save: store.cut_power_after(cut))
-               .input_each_frame { |f| f == 2 ? [:right] : [] }.run(three_files, frames: 4)
+               .input_each_frame(&presses_from_first_pass(2 => :right)).run(three_files, frames: 4)
       back = files_after(store)
 
       assert_equal [2, 2], [back[:state0], back[:state1]], "cut after #{cut} bytes"
@@ -259,7 +271,7 @@ class TestSaveData < Minitest::Test
     store = SaveImage.new
     files_after(store, :up, :up, :a)
     game_player(save: store.cut_power_after(12))
-             .input_each_frame { |f| f == 2 ? [:a] : [] }.run(three_files, frames: 4)
+             .input_each_frame(&presses_from_first_pass(2 => :a)).run(three_files, frames: 4)
     back = files_after(store)
 
     assert_equal [3, 0, 2], (0..2).map { |n| back[:"state#{n}"] }
@@ -783,7 +795,7 @@ class TestSaveData < Minitest::Test
     (0..1300).step(37) do |cut|
       store = before.dup
       game_player(save: store.cut_power_after(cut))
-               .input_each_frame { |f| f == 2 ? [:a] : [] }.run(resave, frames: 20)
+               .input_each_frame(&presses_from_first_pass(2 => :a)).run(resave, frames: 20)
       back = play(changes_while_saving, store, frames: 2)
 
       assert_includes [12, 99], back[:hearts], "cut after #{cut} bytes"
@@ -1107,7 +1119,7 @@ class TestSaveData < Minitest::Test
     steps.each do |cut, step|
       store = fresh.dup
       game_player(save: store.cut_power_after(cut))
-               .input_each_frame { |f| f == 2 ? [:a] : [] }.run(header_and_body, frames: 12)
+               .input_each_frame(&presses_from_first_pass(2 => :a)).run(header_and_body, frames: 12)
       half = half_with_marker(store, Layout::PACKED.data_start)
       body = store.read_bytes(half + Layout::HEADER, HEADER_AND_BODY_BODY)
 
