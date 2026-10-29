@@ -1,12 +1,15 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "first_pass_presses"
 
 # A TEST WRITES A SAVE INTO SAVE MEMORY, so a game starts from a save it chose rather than
 # being played until it saves one. The copy is the one the game itself would have written,
 # so the game treats it the same as its own: good, read by peek and load, saved over, erased
 # and copied like any other.
 class TestSaveInto < Minitest::Test
+  include FirstPassPresses
+
   private def built(save_memory: nil, &block)
     save_memory ? VBlank.game("PUTSAVE", consoles: %i[gba], save_memory: save_memory, &block) : VBlank.game("PUTSAVE", consoles: %i[gba], &block)
   end
@@ -45,7 +48,7 @@ class TestSaveInto < Minitest::Test
   end
 
   private def boot(program, image, pressing: {}, frames: 3)
-    game_player(save: image).input_each_frame { |f| Array(pressing[f]) }.run(program, frames: frames)
+    game_player(save: image).input_each_frame(&presses_from_first_pass(pressing)).run(program, frames: frames)
   end
 
   def test_a_written_copy_is_good_and_loads_back
@@ -93,7 +96,7 @@ class TestSaveInto < Minitest::Test
     image = SaveImage.new
     Reference.save_into(image, program, :file, 0, hearts: 12, name: [5, 6])
     Reference.save_into(image, program, :file, 1, hearts: 2)
-    run = game_player(save: image).input_each_frame { |f| f == 2 ? [:b] : [] }.run(program, frames: 4)
+    run = game_player(save: image).input_each_frame(&presses_from_first_pass(2 => :b)).run(program, frames: 4)
 
     assert_equal [2, []], [run[:hearts], run.list(:name)]
   end

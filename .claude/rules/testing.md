@@ -56,6 +56,8 @@ to, sample for sample against the native one's), `midpoint_circle.rb` (the answe
 rows), `many_rooms_game.rb` (a scene of many rooms with sprite pictures grouped by room),
 `status_bar_games.rb` (small games with a status bar, for the verb's and its handle's tests),
 `screen_backdrop_games.rb` (small tiled games for `screen ... backdrop:`),
+`first_pass_presses.rb` (presses counted from a game's first pass, for a game that sets up save
+records first),
 `speakers.rb` (which speaker a cartridge's voice is heard from),
 `many_tiles.rb` (backgrounds of many different tiles, for what a console does when they are too many to
 hold at once), and the

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "first_pass_presses"
 
 # SAVE DATA: a record is a group of the game's own state — variables and lists — kept in the
 # cartridge's save memory when the game says so, and put back when the game says so. Unlike a
@@ -11,6 +12,7 @@ require "test_helper"
 # run is turning the console off and on again.
 class TestSaveData < Minitest::Test
   include VBlank::Console::Hardware
+  include FirstPassPresses
 
   private def built(&block)
     builder = Builder.new
@@ -44,18 +46,6 @@ class TestSaveData < Minitest::Test
 
   private def play(program, store, pressing: {}, frames: 6)
     game_player(save: store).input_each_frame(&presses_from_first_pass(pressing)).run(program, frames: frames)
-  end
-
-  # The buttons of +pressing+ (a frame's number => buttons) counted from the first frame the game
-  # reads its buttons on, rather than from power-on. Setting up counts frames too, and a console
-  # slower than the Advance can spend several placing its save records before its first pass, so
-  # a press numbered from power-on would fall before the game was listening.
-  private def presses_from_first_pass(pressing)
-    first = nil
-    lambda do |frame|
-      first ||= frame
-      Array(pressing[frame - first + 1])
-    end
   end
 
   def test_a_saved_record_comes_back_after_the_power_goes_off
