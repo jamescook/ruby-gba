@@ -108,6 +108,23 @@ class TestRowBend < Minitest::Test
                  row_picture(combined, 0), "the two offsets add"
   end
 
+  # A block that calls a routine of the game's: the routine runs as each row is worked out,
+  # however the rest of the game calls it, so a build has to make it even when nothing else does.
+  def test_a_routine_called_only_from_the_block_bends_the_rows
+    program = bars_program do |water|
+      amount = var :amount, 0
+      func(:pick_amount) { amount.set! 3 }
+      water.scroll_each_row do |_row|
+        call :pick_amount
+        amount
+      end
+    end
+    i = game_player.run(program)
+
+    assert_equal ".....RR.....", row_picture(i, 0), "every row slid three, the routine's amount"
+    assert_equal ".....RR.....", row_picture(i, 9)
+  end
+
   # --- the console and the interpreter draw the same picture ---
 
   # Every one of the 38,400 pixels, for a bend that varies down the screen. This is the

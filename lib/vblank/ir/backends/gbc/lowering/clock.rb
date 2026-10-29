@@ -108,7 +108,7 @@ module VBlank
             def clock_work(part) = :"clock.working #{part}"
 
             # The call that reads the chip before the game's first line, for the program's routine.
-            def clock_at_power_on = @clock_used ? [PartCall.new(AT_POWER_ON)] : []
+            def clock_at_power_on = @clock_used ? [RoutineCuts::PartCall.new(AT_POWER_ON)] : []
 
             # The read after each wait.
             def emit_clock_each_pass

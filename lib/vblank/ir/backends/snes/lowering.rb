@@ -102,13 +102,8 @@ module VBlank
           REFUSED_VERBS = Ractor.make_shareable({ see_through: :layers, shade_outside: :spotlight, pixelate: :pixelate,
                                                   affine_background: :background, set_clock: :clock, clock: :clock })
 
-          # How a table keeps its entries, by the width the game declared and whether they are
-          # signed: bytes an entry, and the range that holds. Any other table keeps whole words.
-          TABLE_WIDTHS = Ractor.make_shareable({ [:byte, true] => [1, -128..127], [:byte, false] => [1, 0..255],
-                                                 [:half, true] => [2, -32_768..32_767], [:half, false] => [2, 0..65_535] })
-
           # How the runtime's list copy knows each way of keeping an entry (Runtime::Lists::KEPT), by
-          # its bytes and its sign.
+          # its bytes and its sign (LoweringPlan#table_keeping).
           TABLE_KEPT = Ractor.make_shareable({ [1, true] => :signed_byte, [1, false] => :byte, [2, true] => :signed_half,
                                                [2, false] => :half, [4, true] => :word })
 
@@ -116,34 +111,12 @@ module VBlank
           # half a bank, so a part and the entries it holds of the next together still fit in one.
           PART_BYTES = 0x4000
 
-          # How many bytes a slot of a list takes, by the width it was declared with.
-          SLOT_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4, nil => 4 })
-
           # The runtime's routines for a binop worked out by a call, and the binops written in place.
           CALLED_SUMS = Ractor.make_shareable({ :* => "rt_mul32", :/ => "rt_div32", :% => "rt_mod32",
                                                 :<< => "rt_shl32", :>> => "rt_shr32" })
           IN_PLACE_SUMS = Ractor.make_shareable({ :+ => %i[clc adc], :- => %i[sec sbc], :& => [nil, :and_a],
                                                   :| => [nil, :ora], :^ => [nil, :eor] })
           COMPARISONS = %i[< <= > >= == !=].freeze
-
-          # What a sum or a comparison of numbers written in the program comes to, worked out here
-          # rather than by the console: IR::Int32's own answer.
-          FOLDED = Ractor.make_shareable({
-                                           :+ => ->(a, b) { Int32.add(a, b) }, :- => ->(a, b) { Int32.sub(a, b) },
-                                           :* => ->(a, b) { Int32.mul(a, b) }, :/ => ->(a, b) { Int32.div(a, b) },
-                                           :% => ->(a, b) { Int32.mod(a, b) }, :& => ->(a, b) { Int32.bit_and(a, b) },
-                                           :| => ->(a, b) { Int32.bit_or(a, b) }, :^ => ->(a, b) { Int32.bit_xor(a, b) },
-                                           :<< => ->(a, b) { Int32.shift_left(a, b) },
-                                           :>> => ->(a, b) { Int32.shift_right(a, b) },
-                                           :< => ->(a, b) { Int32.cmp(a, b).negative? ? 1 : 0 },
-                                           :<= => ->(a, b) { Int32.cmp(a, b) <= 0 ? 1 : 0 },
-                                           :> => ->(a, b) { Int32.cmp(a, b).positive? ? 1 : 0 },
-                                           :>= => ->(a, b) { Int32.cmp(a, b) >= 0 ? 1 : 0 },
-                                           :== => ->(a, b) { Int32.cmp(a, b).zero? ? 1 : 0 },
-                                           :!= => ->(a, b) { Int32.cmp(a, b).zero? ? 0 : 1 },
-                                           and: ->(a, b) { !Int32.wrap(a).zero? && !Int32.wrap(b).zero? ? 1 : 0 },
-                                           or: ->(a, b) { !Int32.wrap(a).zero? || !Int32.wrap(b).zero? ? 1 : 0 }
-                                         })
 
           # What the game's code is to the author, for a cartridge too full for it (Linker::TooBig).
           DATA = W65816::Holding.new(what: "the game's tables", fix: "make its tables shorter, or use fewer of them")
@@ -167,33 +140,26 @@ module VBlank
           def initialize(program, memory:)
             @program = program
             @memory = memory
-            @funcs = program.walk.select { |node| node.kind == :func }.to_h { |node| [node.name, node] }
-            @tick_handlers = Nodes::OnTimer.of(program)
-            @timers = program.walk.filter_map do |node|
-              case node.kind
-              when :timer_start, :timer_stop, :timer_ticks then node.name
-              when :on_timer then node.timer
-              end
-            end.uniq.each_with_index.to_h
-            # A bend's steps run at every frame boundary (Picture#emit_bends), wherever it is declared.
-            bend_roots = program.walk.select { |node| node.kind == :scroll_rows }
-            @called = Reach.routines(program, also: @tick_handlers.values + bend_roots)
-            @reachable = Reach.statements_from(program, *@called.map { |name| @funcs.fetch(name) }, *@tick_handlers.values,
-                                               *bend_roots)
-            # A list is there, empty, from power-on wherever it is declared (the interpreter gathers
-            # them before running), so its storage is the first declaration's.
-            @declared_lists = @reachable.reverse.select { |node| node.kind == :list_new }.to_h { |node| [node.name, node] }
-            @tables = program.walk.select { |node| node.kind == :table }.to_h { |node| [node.name, node] }
+            # What the program is before any instruction is made, worked out as the Color's is
+            # (LoweringPlan), and kept here under the names the rest of the lowering reads.
+            @plan = LoweringPlan.new(program, console: Console::SUPER_NINTENDO, error: LoweringError)
+            @funcs = @plan.funcs
+            @tick_handlers = @plan.tick_handlers
+            @timers = @plan.timers
+            @called = @plan.called
+            @reachable = @plan.reachable
+            @declared_lists = @plan.declared_lists
+            @tables = @plan.tables
+            @handover = @plan.handover
+            @scenes = @plan.scenes
             @lists = {}
-            @handover = SceneHandover.of(program)
-            @scenes = program.walk.select { |node| node.kind == :case }.flat_map { |node| node.clauses.map(&:last) }
-                             .uniq.each_with_index.to_h
             @variables = {}
             @locals = {} # a routine's own numbers, by the name the lowering gave each
             @starts = [] # [address, value] for a place that does not start at nought
             @routine_tables = {} # a list of routines a call picks from by number -> its table's label
             @section_routines = {}
-            @cut_children = {} # a statement whose statements were cut into parts -> what stands for them
+            @cuts = RoutineCuts.new(plan: @plan, most_routine_bytes: MOST_ROUTINE_BYTES,
+                                    most_part_bytes: MOST_PART_BYTES) { |statements| bytes_of(statements) }
             prepare_picture
             prepare_paint
             prepare_collision
@@ -205,7 +171,7 @@ module VBlank
           def sections
             refuse_unlowered_kinds!
             refuse_what_snes_lacks!
-            refuse_routines_that_call_themselves!
+            @plan.refuse_routines_that_call_themselves!
             refuse_unmade_picture!
             refuse_unsupported_save_memory!
             assign_background_layers unless painted?
@@ -213,7 +179,7 @@ module VBlank
             reserve_patches
             Reach.variables(@program).each { |name| @variables[name] = @memory.reserve("the variable #{name.inspect}", 4) }
             @declared_lists.each_value do |node|
-              width = SLOT_BYTES.fetch(node.width)
+              width = LoweringPlan::SLOT_BYTES.fetch(node.width)
               place = @memory.reserve_far("the list #{node.name.inspect}", Runtime::Lists::HEADER + (node.capacity * width))
               @lists[node.name] = [place, node.capacity, width, node.name.to_s]
             end
@@ -237,14 +203,8 @@ module VBlank
           # made: a step that only means something on the Advance, and one the Super Nintendo build
           # does not make yet. A step in a routine nothing calls never runs, and is not refused.
           def refuse_unlowered_kinds!
+            @plan.refuse_hardware_only_kinds!
             kinds = @reachable.map(&:kind).uniq
-            hardware = kinds.select { |kind| Portability.hardware_only?(kind) }
-            unless hardware.empty?
-              raise LoweringError, "This game uses #{hardware.map(&:inspect).join(', ')}, which only means something " \
-                                   "on the Game Boy Advance. The Super Nintendo build cannot make it. To fix this, " \
-                                   "build the game for the Game Boy Advance alone."
-            end
-
             missing = NOT_LOWERED_YET.select { |_, listed| listed.intersect?(kinds) }
             return if missing.empty?
 
@@ -256,16 +216,10 @@ module VBlank
             )
           end
 
-          # What a Super Nintendo cannot do at all, and the layers one screen cannot have, refused as a
-          # game's build refuses them (Checks::ConsoleAnswers, Checks::LayerRefusals). A program
-          # handed straight to a lowering, as a test's is, never passes the build's checks; and one
-          # that names no console, or another, is asked about as the Super Nintendo's.
+          # What a Super Nintendo cannot do at all, as a game's build refuses it
+          # (LoweringPlan#refuse_what_console_lacks!), then a kind its answers cannot catch by the verb.
           def refuse_what_snes_lacks!
-            asked = @program.console == :snes ? @program : @program.copy.tap { |copy| copy.console = :snes }
-            refused = Guardrails::Checks::ConsoleAnswers.new.detect(asked).find { |finding| finding.severity == :error }
-            refusal = refused&.message || Guardrails::Checks::LayerRefusals.message(asked)
-            raise LoweringError, refusal if refusal
-
+            @plan.refuse_what_console_lacks!
             refuse_see_through_amounts!
             lacking = REFUSED & @reachable.map(&:kind)
             return if lacking.empty?
@@ -273,27 +227,6 @@ module VBlank
             verb = REFUSED_VERBS.fetch(lacking.first)
             raise LoweringError, "This game uses `#{verb}`, and a Super Nintendo cannot: " \
                                  "#{Console::SNESAnswers.answer(verb).words}"
-          end
-
-          # A routine's own numbers are kept at fixed places, so a routine that can come round to
-          # calling itself again would write over its own numbers while it still needs them.
-          def refuse_routines_that_call_themselves!
-            calls = @called.to_h { |name| [name, Reach.routines_named(Reach.statements_under(@funcs.fetch(name))).uniq & @called] }
-            @called.each do |start|
-              seen = []
-              waiting = calls.fetch(start).dup
-              until waiting.empty?
-                name = waiting.shift
-                if name == start
-                  raise LoweringError, "The routine #{start.inspect} can call itself again before it has finished. The Super " \
-                                       "Nintendo build cannot make that yet. To fix this, count with a loop in the routine instead."
-                end
-                next if seen.include?(name)
-
-                seen << name
-                waiting.concat(calls.fetch(name))
-              end
-            end
           end
 
           # --- the data ---
@@ -380,27 +313,11 @@ module VBlank
                                  "this, copy fewer entries in each copy."
           end
 
-          def tables_read
-            read = @reachable.filter_map do |node|
-              case node.kind
-              when :table_get then node.name
-              when :list_copy then node.table
-              end
-            end
-            @tables.values.select { |table| read.include?(table.name) }
-          end
+          def tables_read = @plan.tables_read
 
           def table_label(name) = "table #{name}"
 
-          # How +table+ keeps its entries — [bytes an entry, whether signed] — as the cartridge keeps
-          # it: at the width the game declared when every entry fits it, and whole words otherwise.
-          def table_keeping(table)
-            signed = table.signed ? true : false
-            bytes, range = TABLE_WIDTHS[[table.width, signed]]
-            return [bytes, signed] if bytes && table.values.all? { |entry| range.cover?(Int32.wrap(entry)) }
-
-            [4, true]
-          end
+          def table_keeping(table) = @plan.table_keeping(table)
 
           def little_endian(value, size) = Array.new(size) { |i| (value >> (8 * i)) & 0xFF }
 
@@ -420,8 +337,7 @@ module VBlank
             @asm.section
           end
 
-          # A routine of the game's, as the author names it: a scene as one.
-          def routine_said(name) = @scenes.key?(name) ? "scene #{name.inspect}" : name.to_s
+          def routine_said(name) = @plan.routine_said(name)
 
           def fresh(what)
             @labels += 1
@@ -455,70 +371,19 @@ module VBlank
           # The most bytes a part cut off a routine may come to.
           MOST_PART_BYTES = 12_000
 
-          # A call of a part cut off a routine, standing where its statements stood.
-          PartCall = Data.define(:label)
-
-          # The routine +label+ of +body+'s statements, and the parts cut off it to fit a bank. A run
-          # of statements side by side becomes a routine of its own, called where they were (a long
-          # call, so the part can be in any bank); a statement too big to move whole has what is
-          # inside it cut the same way instead. The parts share the routine's own numbers, which are
-          # kept in work RAM, so nothing is handed between them.
+          # The routine +label+ of +body+'s statements, and the parts cut off it to fit a bank
+          # (RoutineCuts), each a section of its own; a part is called with a long call, so it can be
+          # in any bank.
           def routines_fitting(label, body, routine:)
-            parts = []
-            body = statements_fitting(body, label, parts)
+            body, parts = @cuts.fit(label, body)
             [routine_section(label, body, routine: routine), *part_sections(parts, routine)]
           end
 
-          # +body+, cut into the parts it adds to +parts+ ([label, statements] each) when it comes to
-          # more than a routine may.
-          def statements_fitting(body, base, parts) = bytes_of(body) > MOST_ROUTINE_BYTES ? cut_list(body, base, parts) : body
-
           def part_sections(parts, routine) = parts.map { |part, statements| routine_section(part, statements, routine: routine) }
 
-          def cut_list(list, base, parts)
-            kept = []
-            run = []
-            run_bytes = 0
-            flush = lambda do
-              next if run.empty?
-
-              part = "#{base}_part#{parts.length + 1}"
-              parts << [part, run]
-              kept << PartCall.new(part)
-              run = []
-              run_bytes = 0
-            end
-            list.each do |node|
-              size = bytes_of([node])
-              if size <= MOST_PART_BYTES
-                flush.call if run_bytes + size > MOST_PART_BYTES
-                run << node
-                run_bytes += size
-              else
-                flush.call
-                kept << cut_inside(node, base, parts)
-              end
-            end
-            flush.call
-            kept
-          end
-
-          # A statement too big to move whole, with the statements it holds cut. Only an `if`, a
-          # `loop` and a `repeat` hold statements that are made where they stand.
-          def cut_inside(node, base, parts)
-            return node unless %i[if loop repeat].include?(node.kind)
-
-            body, otherwise = children_of(node)
-            # Cut before naming the table they go in: measuring puts back a copy of it (#bytes_of).
-            cut = [cut_list(body, base, parts), cut_list(otherwise, base, parts)]
-            @cut_children[node.object_id] = cut
-            node
-          end
-
-          # The statements +node+ holds, and an `if`'s other side: as cut, when they were.
-          def children_of(node)
-            @cut_children.fetch(node.object_id) { [node.children, node.kind == :if ? node.else&.children || [] : []] }
-          end
+          # The statements +node+ holds, and an `if`'s other side: as cut, when they were
+          # (RoutineCuts#children_of).
+          def children_of(node) = @cuts.children_of(node)
 
           # How many bytes +list+ comes to, made on its own and thrown away: everything the lowering
           # keeps while it makes a statement — its labels, the numbers a routine keeps and the work
@@ -546,11 +411,11 @@ module VBlank
           # What the lowering only reads while it makes a statement, shared as it is: numbers, names,
           # the program and what is worked out from it before any statement is made.
           SHARED_WHEN_MEASURING = [Integer, Symbol, String, NilClass, TrueClass, FalseClass, IR::Node, SceneHandover,
-                                   SpriteNames, Music, W65816, PartCall].freeze
+                                   SpriteNames, Music, W65816, RoutineCuts::PartCall, LoweringPlan].freeze
 
           # What the lowering keeps that making a statement never changes, shared as it is: the
           # statements already cut into parts, which only cutting adds to.
-          UNCHANGED_WHEN_MEASURING = %i[@cut_children].freeze
+          UNCHANGED_WHEN_MEASURING = %i[@cuts].freeze
 
           # A copy of the lowering's +value+ (held in +name+) that measuring can change and leave the
           # lowering as it was. The lowering's own lists and tables are added to, never changed
@@ -582,7 +447,7 @@ module VBlank
           # --- statements ---
 
           def statement(node)
-            return call_routine(node.label) if node.is_a?(PartCall)
+            return call_routine(node.label) if node.is_a?(RoutineCuts::PartCall)
 
             send(STATEMENTS.fetch(node.kind), node)
           end
@@ -1069,15 +934,14 @@ module VBlank
           # One timer, a frame on: its sixtieths, the whole ticks they come to, and its handler run
           # once for each. How many that is is settled before the first of them runs, so a handler
           # that stops or restarts its own timer still finishes the ticks this frame crossed. A
-          # handler too big for a bank is cut into parts as a routine is (#statements_fitting).
+          # handler too big for a bank is cut into parts as a routine is (RoutineCuts).
           def timer_section(name)
             parts = timer_number(name, :parts)
             ticks = timer_number(name, :ticks)
             sixtieths = Build.binop(:+, Build.var_ref(parts), Build.var_ref(timer_number(name, :part_rate)))
             rate = Build.int(FRAMES_A_SECOND)
             handler = @tick_handlers[name]
-            cut = []
-            body = handler ? statements_fitting(handler.children, timer_label(name), cut) : []
+            body, cut = handler ? @cuts.fit(timer_label(name), handler.children) : [[], []]
             routine = "timer #{name.inspect}"
             each_tick = routine_section(timer_label(name), [], routine: routine) do
               value(Build.binop(:+, Build.var_ref(timer_number(name, :whole_rate)), Build.binop(:/, sixtieths, rate)))
@@ -1397,33 +1261,7 @@ module VBlank
             end
           end
 
-          # The number +node+ comes to when everything in it is written in the program, or nil.
-          def folded(node)
-            case node
-            when Integer then Int32.wrap(node)
-            when Node then folded_node(node)
-            end
-          end
-
-          def folded_node(node)
-            case node.kind
-            when :int then Int32.wrap(node.value)
-            when :binop
-              lhs = folded(node.lhs)
-              rhs = folded(node.rhs)
-              lhs && rhs ? Int32.wrap(FOLDED.fetch(node.op).call(lhs, rhs)) : nil
-            when :neg then folded(node.operand)&.then { |n| Int32.neg(n) }
-            when :bit_not then folded(node.operand)&.then { |n| Int32.bit_not(n) }
-            when :clamped then folded_clamp(node)
-            end
-          end
-
-          def folded_clamp(node)
-            number, floor, ceiling = [node.operand, node.min, node.max].map { |part| folded(part) }
-            return nil unless number && floor && ceiling
-
-            [[number, floor].max, ceiling].min
-          end
+          def folded(node) = @plan.folded(node)
 
           def variable_named(node)
             return node if node.is_a?(Symbol)
