@@ -165,6 +165,7 @@ def rg_screen_setup
   # (equal?), never by what they hold.
   @rg_first_page = Array.new(RG_SCREEN_CELLS, 0)
   @rg_second_page = Array.new(RG_SCREEN_CELLS, 0)
+  @rg_backdrop = 0 # the colour shown wherever nothing is drawn (Reference @backdrop)
   @rg_pixels = @rg_first_page
   @rg_viewed = @rg_first_page
   @rg_shown = Array.new(RG_SCREEN_CELLS, 0)
@@ -1707,7 +1708,7 @@ def rg_keep_scenery
   outer = @rg_area
   @rg_area = RgArea.new(false, 0, 0, 0, 0)
   @rg_target = @rg_scenery
-  rg_clear_to(0)
+  rg_clear_to(@rg_backdrop)
   @rg_game_picture_sizes[RG_SIZE_BACKGROUNDS].times { |bg| rg_background_stamp(bg) if rg_showing?(bg) }
   @rg_target = @rg_pixels
   @rg_area = outer
@@ -1928,7 +1929,7 @@ end
 def rg_repaint_view
   rg_mix_nothing
   rg_fade_unless_left_as_drawn(RG_NO_LAYER)
-  rg_clear_to(0)
+  rg_clear_to(@rg_backdrop)
   bar = rg_bar_showing
   if bar
     rg_mix_as_layer(rg_background_field(bar, RG_BG_SEE_THROUGH))
@@ -1998,12 +1999,15 @@ end
 # the picture and takes the scenery down; arriving on a screen drawn from tiles puts up again what
 # every such screen shows, as declared, and says so (1). A change between one page and two keeps
 # the same picture and wipes nothing.
-def rg_screen_set(new_kind, two_pages)
+def rg_screen_set(new_kind, two_pages, new_backdrop)
   crossing = @rg_kind >= 0 && @rg_kind != new_kind
   if crossing
-    rg_clear_to(0)
+    @rg_backdrop = new_backdrop
+    rg_clear_to(@rg_backdrop)
     @rg_shown_backgrounds = []
     @rg_scenery_kept = false
+  else
+    rg_show_backdrop(new_backdrop)
   end
   @rg_kind = new_kind
   rg_show_pages(two_pages)
@@ -2019,8 +2023,20 @@ def rg_screen_set(new_kind, two_pages)
 end
 
 # Reference#cross_to_scene_screen
-def rg_screen_cross_to(new_kind, two_pages)
-  @rg_kind >= 0 && @rg_kind != new_kind ? rg_screen_set(new_kind, two_pages) : 0
+def rg_screen_cross_to(new_kind, two_pages, new_backdrop)
+  return rg_screen_set(new_kind, two_pages, new_backdrop) if @rg_kind >= 0 && @rg_kind != new_kind
+
+  rg_show_backdrop(new_backdrop)
+  0
+end
+
+# rg_screen.c's show_backdrop
+def rg_show_backdrop(color)
+  return if color == @rg_backdrop
+
+  @rg_backdrop = color
+  @rg_scenery_kept = false
+  @rg_shown_backgrounds.empty? ? rg_clear_to(@rg_backdrop) : rg_request_repaint
 end
 
 def rg_scene_enter(scene)
@@ -2040,7 +2056,7 @@ def rg_scene_take_down(brings_scenery)
 
   @rg_shown_backgrounds = kept
   @rg_scenery_kept = false
-  rg_clear_to(0)
+  rg_clear_to(@rg_backdrop)
   rg_stamp_in_stack_order(-1)
   @rg_scenery_taken_down = true
 end

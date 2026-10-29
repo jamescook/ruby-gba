@@ -88,7 +88,7 @@ module VBlank
       #   screen :bitmap, tear_free: true, late: 40
       # @example A game at thirty that does not drop to twenty on a heavy frame
       #   screen :bitmap, tear_free: true, late: :show_now, pace: 30
-      def screen(mode, tear_free: false, colors: nil, late: :wait, pace: 60)
+      def screen(mode, tear_free: false, colors: nil, late: :wait, pace: 60, backdrop: nil)
         case mode
         when Symbol
           unless SCREEN_NAMES.include?(mode)
@@ -116,7 +116,22 @@ module VBlank
         @tear_free = tear_free
         late_rows = resolve_late_pages(late, tear_free)
         record(Build.screen(mode, buffered: tear_free, colors: resolve_screen_colors(colors, tear_free),
-                                  late: late_rows, late_pace: resolve_late_pace(pace, late_rows)))
+                                  late: late_rows, late_pace: resolve_late_pace(pace, late_rows),
+                                  backdrop: resolve_backdrop(backdrop, mode)))
+      end
+
+      # THE COLOUR A SCREEN SHOWS WHEREVER NOTHING IS DRAWN, as the IR keeps it: nil for a screen
+      # that says none, which shows the game's (black, the colour every screen has shown there
+      # before, unless the game's own `screen` says another). A painted screen draws every pixel, so
+      # it has nowhere to show one.
+      private def resolve_backdrop(backdrop, mode)
+        return nil if backdrop.nil?
+        if mode == :bitmap
+          raise ArgumentError, "`screen :bitmap` says backdrop:. A bitmap screen draws every pixel, so no backdrop " \
+                               "shows. To fill the screen with a colour, use clear_screen."
+        end
+
+        Graphics::Color.resolve(backdrop) & 0x7FFF
       end
 
       # The breaks a pass may take and be on time, as the IR keeps them: nil for one.

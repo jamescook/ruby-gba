@@ -38,6 +38,9 @@ module VBlank
                       "colours cannot each keep one place in every set. " \
                       "`tear_free: true` keeps one picture, because a Game Boy Color always shows " \
                       "a painted picture whole. " \
+                      "`backdrop:` works for the whole game. The Color keeps the backdrop as the " \
+                      "first colour of each of its colour lists, so a scene that says a different " \
+                      "backdrop is refused. " \
                       "`screen :rotozoom` is refused: " \
                       "a Game Boy Color cannot turn or resize a background."),
         setting: works,

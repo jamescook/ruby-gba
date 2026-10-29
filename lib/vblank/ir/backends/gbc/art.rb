@@ -16,10 +16,10 @@ module VBlank
         # What cannot fit — a picture with more colours than a list holds, more lists than the
         # Color has — is refused here with the picture's name.
         #
-        # A background's place 0 is the BACKDROP, the colour shown where nothing is drawn, which on
-        # the Color as in the interpreter is black: a tile's see-through pixels show it. So a
-        # background tile has three colours of its own, and a sprite's picture three and
-        # see-through.
+        # A background's place 0 is the backdrop, the colour shown where nothing is drawn — black,
+        # BACKDROP, unless the game's `screen` says another (#backdrop) — on the Color as in the
+        # interpreter: a tile's see-through pixels show it. So a background tile has three colours
+        # of its own, and a sprite's picture three and see-through.
         #
         # Everything is kept in the cartridge (#sections) under the labels the runtime reads it by
         # (Runtime::Picture): the tiles, copied into the console's memory at power-on; the
@@ -33,7 +33,7 @@ module VBlank
           # How many palettes of each kind there are.
           PALETTES = 8
 
-          # The backdrop: black, as the interpreter's empty screen is.
+          # The backdrop of a game that says none: black, as the interpreter's empty screen is.
           BACKDROP = 0
 
           # How many tiles of each kind there is room for in the console's picture memory: sprites
@@ -127,7 +127,7 @@ module VBlank
             def brings_in? = chain.any? { |link| link.tiles.any? || link.palettes.any? || link.first_palette }
           end
 
-          attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids
+          attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids, :backdrop
 
           # A tile of a picture grouped by room: the +index+th of the picture's own, whose number is
           # known once every picture is (#group_rooms).
@@ -145,7 +145,13 @@ module VBlank
           # +room_colors+ says each screen brings its own palettes in with its tiles
           # (TooManyBackgroundLists). +first_cleared_to+ is the colour the game's first
           # `clear_screen` names, nil for none (#first_screen_backdrop).
-          def initialize(square_colors: nil, lends: false, grouped: {}, room_colors: false, first_cleared_to: nil)
+          #
+          # +backdrop+ is the colour the game shows wherever nothing is drawn (`screen ... backdrop:`):
+          # the first colour of every background palette an empty cell or a see-through pixel shows,
+          # in place of black.
+          def initialize(square_colors: nil, lends: false, grouped: {}, room_colors: false, first_cleared_to: nil,
+                         backdrop: BACKDROP)
+            @backdrop = backdrop
             @square_colors = square_colors
             @first_cleared_to = first_cleared_to
             @lends = lends
@@ -308,7 +314,7 @@ module VBlank
           # (Runtime::Boot#emit).
           def backdrop_at_power_on = first_screen_backdrop || first_list_backdrop
 
-          private def first_list_backdrop = (background_colors_at_power_on.first&.first || BACKDROP) & 0x7FFF
+          private def first_list_backdrop = (background_colors_at_power_on.first&.first || @backdrop) & 0x7FFF
 
           # The place a painted colour is kept at in every one of the painted screen's palettes.
           def paint_place(color) = @square_colors.place(color)
@@ -412,7 +418,7 @@ module VBlank
             return unless room_colors?
 
             @first_free = @black_held || @background_palettes.empty?
-            @background_palettes << black_alone if @background_palettes.empty?
+            @background_palettes << backdrop_alone if @background_palettes.empty?
             @shared_palettes = @background_palettes.length
           end
 
@@ -503,7 +509,7 @@ module VBlank
           # see-through pixels, which show it.
           def placed_colors(image, placed)
             shown = placed.map { |place| yield(place) & 0x7FFF }
-            padded(see_through_tile?(image) ? [BACKDROP, *shown] : shown)
+            padded(see_through_tile?(image) ? [@backdrop, *shown] : shown)
           end
 
           def see_through_tile?(image) = (0...64).any? { |i| image.tile_see_through_at?(i) }
@@ -520,7 +526,7 @@ module VBlank
 
               placed.index(image.place_at(i)) + (see_through ? 1 : 0)
             end
-            [tile_number_in(drawing.room, encode(places)), drawn_palette_number(colors, drawing, keeps_black: see_through)]
+            [tile_number_in(drawing.room, encode(places)), drawn_palette_number(colors, drawing, keeps_backdrop: see_through)]
           end
 
           # A TILE DRAWN BY PLACE FROM A LIST OF FOUR, with no see-through pixel, the way a cartridge
@@ -530,17 +536,18 @@ module VBlank
           # through. Its places, in the order the palette holds them; nil for a tile that is not
           # one (#drawn_tile).
           #
-          # Black goes first when the list has it. An empty cell is written with the first palette,
-          # here and in the game's code, and shows that palette's first colour — so a list that
-          # starts with black can be the first palette (#background_palette_number).
+          # The backdrop (black unless the game says another) goes first when the list has it. An
+          # empty cell is written with the first palette, here and in the game's code, and shows that
+          # palette's first colour — so a list that starts with the backdrop can be the first
+          # palette (#background_palette_number).
           def list_order(image)
             list = image.colors
             return nil unless image.places && list && list.length.between?(2, PLACES + 1)
             return nil if (0...64).any? { |i| image.tile_see_through_at?(i) }
 
             places = (1...list.length).to_a
-            black = places.find { |place| (list[place] & 0x7FFF) == BACKDROP }
-            black ? [black, *(places - [black])] : places
+            backdrop = places.find { |place| (list[place] & 0x7FFF) == @backdrop }
+            backdrop ? [backdrop, *(places - [backdrop])] : places
           end
 
           # The tile number and palette number of a tile drawn from its list (#list_order): each
@@ -550,12 +557,12 @@ module VBlank
           def listed_tile(image, order, drawing)
             colors = padded(order.map { |place| image.colors[place] & 0x7FFF })
             [tile_number_in(drawing.room, encode(Array.new(64) { |i| order.index(image.place_at(i)) })),
-             drawn_palette_number(colors, drawing, keeps_black: !drawing.recolor_steps)]
+             drawn_palette_number(colors, drawing, keeps_backdrop: !drawing.recolor_steps)]
           end
 
           # The number of the palette of +colors+ a tile drawn as +drawing+ says is drawn from.
-          def drawn_palette_number(colors, drawing, keeps_black: true)
-            background_palette_number(colors, keeps_black: keeps_black, room: drawing.room, swaps: drawing.recolor_steps,
+          def drawn_palette_number(colors, drawing, keeps_backdrop: true)
+            background_palette_number(colors, keeps_backdrop: keeps_backdrop, room: drawing.room, swaps: drawing.recolor_steps,
                                               any_first: drawing.any_first)
           end
 
@@ -567,8 +574,8 @@ module VBlank
           # +swaps+ is what the palette shows with each list a background draws it with, nil for none.
           # +any_first+ says no empty cell shows while it is in, so whatever its first colour, it can
           # be the first.
-          def background_palette_number(colors, keeps_black: true, room: nil, swaps: nil, any_first: false)
-            can_be_first = any_first || (keeps_black && colors.first == BACKDROP)
+          def background_palette_number(colors, keeps_backdrop: true, room: nil, swaps: nil, any_first: false)
+            can_be_first = any_first || (keeps_backdrop && colors.first == @backdrop)
             palette = BackgroundPalette.new(colors: colors, swaps: swaps)
             return room_palette_number(room, palette, can_be_first) if room && room_colors?
             return settled_palette_number(palette, can_be_first) if @shared_palettes
@@ -584,7 +591,7 @@ module VBlank
               return 0
             end
             if @background_palettes.empty? && !can_be_first
-              @background_palettes << black_alone
+              @background_palettes << backdrop_alone
               @black_held = true
             end
             added_palette_number(@background_palettes, palette, "backgrounds")
@@ -641,8 +648,9 @@ module VBlank
           # How many palettes the backgrounds have: the eight, less the painted screen's.
           def most_background_palettes = painting? ? PALETTES - painted_palettes.length : PALETTES
 
-          # The palette of black alone, where an empty cell is drawn from while nothing else is first.
-          def black_alone = BackgroundPalette.new(colors: padded([BACKDROP]), swaps: nil)
+          # The palette of the backdrop alone (black unless the game says another), where an empty
+          # cell is drawn from while nothing else is first.
+          def backdrop_alone = BackgroundPalette.new(colors: padded([@backdrop]), swaps: nil)
 
           # A tile drawn any other way — from colours, or from a list with a see-through place or
           # more than four colours: three colours of its own after the backdrop, in the order it
@@ -654,7 +662,7 @@ module VBlank
                                    "#{OWN_COLORS} and the backdrop. To fix this, draw it in #{OWN_COLORS} colours."
             end
 
-            colors = [BACKDROP, *drawn]
+            colors = [@backdrop, *drawn]
             places = Array.new(64) { |i| image.tile_see_through_at?(i) ? 0 : drawn.index(image.color_at(i) & 0x7FFF) + 1 }
             [tile_number_in(drawing.room, encode(places)), drawn_palette_number(padded(colors), drawing)]
           end
@@ -680,7 +688,7 @@ module VBlank
 
               own = colors.drop(1).map { |color| color & 0x7FFF }
               [(@background_tiles << Array.new(16, 0)).length - 1,
-               background_palette_number(padded([BACKDROP, *own]))]
+               background_palette_number(padded([@backdrop, *own]))]
             end
           end
 
@@ -774,9 +782,9 @@ module VBlank
             asm = SM83.new("art tables", home: :fixed, holds: PICTURE_TABLES)
             asm.label("art_palettes")
             # A game that lends its sprites' lists starts with nothing in the eight.
-            [background_colors_at_power_on, lends? ? [] : @sprite_palettes].each do |palettes|
+            [[background_colors_at_power_on, @backdrop], [lends? ? [] : @sprite_palettes, BACKDROP]].each do |palettes, unused|
               PALETTES.times do |i|
-                colors = palettes[i] || Array.new(PLACES, BACKDROP)
+                colors = palettes[i] || Array.new(PLACES, unused)
                 asm.data_words(colors)
               end
             end
@@ -863,7 +871,7 @@ module VBlank
             @rooms.each do |room|
               asm.label("art_room_colors_#{room.number}")
               listed = room.chain_palettes
-              listed.unshift([0, room.first_palette_in_chain || black_alone]) if @first_free
+              listed.unshift([0, room.first_palette_in_chain || backdrop_alone]) if @first_free
               asm.data_bytes(listed.length)
               listed.each do |number, palette|
                 asm.data_bytes(number)

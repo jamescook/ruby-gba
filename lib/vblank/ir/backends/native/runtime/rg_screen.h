@@ -36,8 +36,9 @@ void rg_screen_hold(int32_t held);              /* switched off until the first 
  * Both answer 1 when the scenery every screen drawn from tiles shows was put up again, as
  * declared, because a screen of another kind had replaced the display. The game then puts what
  * says which map each of those backgrounds shows back to the first. */
-int32_t rg_screen_set(int32_t kind, int32_t two_pages);
-int32_t rg_screen_cross_to(int32_t kind, int32_t two_pages); /* a scene arriving on the screen it draws on */
+/* +backdrop+ is the colour shown wherever nothing is drawn (IR::SceneHandover#backdrop_of). */
+int32_t rg_screen_set(int32_t kind, int32_t two_pages, int32_t backdrop);
+int32_t rg_screen_cross_to(int32_t kind, int32_t two_pages, int32_t backdrop); /* a scene arriving on the screen it draws on */
 void rg_screen_paint_owed_rebuild(void);        /* rebuild the whole view, if a rebuild is owed */
 
 void rg_screen_clear(int32_t color);

@@ -525,15 +525,16 @@ module VBlank
           # A tear-free screen is two pages. The list of colors one can be given changes nothing
           # that is drawn: a color is still named, and the build has already refused one the
           # list does not hold.
-          def lower_screen(node) = screen_change("rg_screen_set", node.mode, node.buffered)
+          # The colour shown wherever nothing is drawn goes with it (IR::SceneHandover#backdrop_of).
+          def lower_screen(node) = screen_change("rg_screen_set", node.mode, node.buffered, @handover.backdrop_of(node))
 
           # A change of screen, by `screen` or by a scene arriving on its own. The C says when
           # that put the scenery every screen shows up again as declared, and what says which
           # map each of those backgrounds shows then goes back to the first, and what every
           # screen shows that the game paints is copied in from its list as it is now, as
           # Reference#put_up_always_up does both.
-          def screen_change(function, screen, two_pages)
-            change = call(function, C::Int.new(SCREEN_KINDS.fetch(screen)), yes_or_no(two_pages))
+          def screen_change(function, screen, two_pages, backdrop)
+            change = call(function, C::Int.new(SCREEN_KINDS.fetch(screen)), yes_or_no(two_pages), C::Int.new(backdrop))
             always = @handover.always_up
             put_back = [*always.map_choices.map { |var| assign(var, C::Int.new(0)) },
                         *(always.painted_tiles + always.painted_pictures).map { |run| tile_copy(run) }]
@@ -892,7 +893,7 @@ module VBlank
                        lower_screen(arrival.screen)
                      else
                        screen_change("rg_screen_cross_to", Modes::SCREEN_OF_MODE.fetch(arrival.mode),
-                                     arrival.mode == Modes::BUFFERED)
+                                     arrival.mode == Modes::BUFFERED, arrival.backdrop)
                      end
             [eval_call("rg_scene_enter", C::Int.new(@scenes.fetch(scene))),
              *arrival.scenery.map { |bg| eval_call("rg_background_forget_cells", C::Int.new(entry_of(bg))) },

@@ -62,6 +62,7 @@ static int32_t held;            /* switched off until the first frame (Framebuff
 static int32_t frames_begun;    /* a frame boundary has been reached (Reference @uses_frames) */
 static int32_t kind = -1;       /* the kind of screen up; none before the first `screen` */
 static int32_t owed;            /* a rebuild of the whole view is owed (Reference#request_repaint) */
+static int32_t backdrop;        /* the colour shown wherever nothing is drawn (Reference @backdrop) */
 static int32_t current_scene = -1;
 
 /* What a display does to the finished picture: one effect at a time (Framebuffer#fade_to). */
@@ -1533,7 +1534,7 @@ static void keep_scenery(void) {
   drawing_area outer = area;
   area.in_force = 0;
   target = scenery;
-  clear_to(0);
+  clear_to(backdrop);
   for (int32_t bg = 0; bg < rg_game_picture_sizes[RG_SIZE_BACKGROUNDS]; bg++)
     if (showing(bg)) rg_background_stamp(bg);
   target = pixels;
@@ -1761,7 +1762,7 @@ static void fade_nothing(void) { fading_what_is_painted = 0; }
 static void repaint_view(void) {
   mix_nothing();
   fade_unless_left_as_drawn(RG_NO_LAYER);
-  clear_to(0);
+  clear_to(backdrop);
   /* A status bar first: no background is painted under it, so it is in front of all of them and
    * every sprite is painted over it. */
   int32_t bar = bar_showing();
@@ -1824,16 +1825,30 @@ void rg_screen_frame_ended(void) {
   target = pixels;
 }
 
+/* Reference#show_backdrop: the colour wherever nothing is drawn becomes +color+, the picture painted
+ * again over it where anything is up. */
+static void show_backdrop(int32_t color) {
+  if (color == backdrop) return;
+  backdrop = color;
+  scenery_kept = 0;
+  if (shown_count == 0) clear_to(backdrop);
+  else request_repaint();
+}
+
 /* Reference#exec_screen. Every kind of screen is a display of its own, so any change of kind
  * wipes the picture and takes the scenery down; arriving on a screen drawn from tiles puts up
  * again what every such screen shows, as declared (#put_up_always_up), and says so. A change
- * between one page and two keeps the same picture and wipes nothing. */
-int32_t rg_screen_set(int32_t new_kind, int32_t two_pages) {
+ * between one page and two keeps the same picture and wipes nothing. +new_backdrop+ is the colour
+ * shown wherever nothing is drawn from here (IR::SceneHandover#backdrop_of). */
+int32_t rg_screen_set(int32_t new_kind, int32_t two_pages, int32_t new_backdrop) {
   int32_t crossing = kind >= 0 && kind != new_kind;
   if (crossing) {
-    clear_to(0);
+    backdrop = new_backdrop;
+    clear_to(backdrop);
     shown_count = 0;
     scenery_kept = 0;
+  } else {
+    show_backdrop(new_backdrop);
   }
   kind = new_kind;
   show_pages(two_pages);
@@ -1848,8 +1863,10 @@ int32_t rg_screen_set(int32_t new_kind, int32_t two_pages) {
 }
 
 /* Reference#cross_to_scene_screen */
-int32_t rg_screen_cross_to(int32_t new_kind, int32_t two_pages) {
-  return kind >= 0 && kind != new_kind ? rg_screen_set(new_kind, two_pages) : 0;
+int32_t rg_screen_cross_to(int32_t new_kind, int32_t two_pages, int32_t new_backdrop) {
+  if (kind >= 0 && kind != new_kind) return rg_screen_set(new_kind, two_pages, new_backdrop);
+  show_backdrop(new_backdrop);
+  return 0;
 }
 
 void rg_scene_enter(int32_t scene) { current_scene = scene; }
@@ -1875,7 +1892,7 @@ void rg_scene_take_down(int32_t brings_scenery) {
 
   shown_count = kept;
   scenery_kept = 0;
-  clear_to(0);
+  clear_to(backdrop);
   stamp_in_stack_order(-1);
   scenery_taken_down = 1;
 }

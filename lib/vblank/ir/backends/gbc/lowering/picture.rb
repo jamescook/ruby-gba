@@ -87,7 +87,30 @@ module VBlank
 
             private
 
+            # THE COLOUR THE GAME SHOWS WHEREVER NOTHING IS DRAWN (IR::SceneHandover#game_backdrop).
+            # The Color has no one backdrop colour: each of its background palettes keeps its own
+            # first colour, which the see-through pixels of the tiles drawn from it show, and an
+            # empty cell shows the first palette's. So the backdrop is built into every palette, and
+            # a `screen` that says another (#refuse_backdrops_of_its_own!) is refused.
+            def color_backdrop = IR::SceneHandover.of(@program).game_backdrop
+
+            # A `screen` other than the game's own that says a backdrop the game's does not: a scene's
+            # would have every palette written again as it takes over. Named by its scene.
+            def refuse_backdrops_of_its_own!
+              handover = IR::SceneHandover.of(@program)
+              @program.walk.each do |node|
+                next unless node.kind == :screen && node.backdrop && node.backdrop != handover.game_backdrop
+
+                scene = handover.scene_of_screen(node)
+                where = scene ? "the scene #{Modes.strip_scene_prefix(scene).to_sym.inspect}" : "a `screen` in a routine"
+                raise LoweringError, "#{where} says a backdrop of its own. A Game Boy Color keeps the backdrop in " \
+                                     "each of its colour lists, so a game shows one backdrop on the Color. To fix " \
+                                     "this, say backdrop: on the game's own `screen` alone."
+              end
+            end
+
             def prepare_picture
+              refuse_backdrops_of_its_own!
               @stacking = Stacking.picture(@program)
               @objects = by_name(@program.walk, :object)
               @color_lists = by_name(@program.walk, :color_list)
@@ -96,7 +119,8 @@ module VBlank
               @picture_sets = by_name(@program.walk, :picture_groups)
               @art = Art.new(square_colors: @square_colors&.refusal ? nil : @square_colors, lends: @lends_sprite_colors,
                              grouped: grouped_pictures, room_colors: @plans_room_colors,
-                             first_cleared_to: @program.walk.find { |node| node.kind == :clear_screen }&.color)
+                             first_cleared_to: @program.walk.find { |node| node.kind == :clear_screen }&.color,
+                             backdrop: color_backdrop)
               @grids = {} # a background declaration -> its grid's number
               @backgrounds = by_name(@program.walk, :background)
               @drawn_sprites = SpriteNames.new(@program) # the numbers a run says its sprites by
@@ -1420,7 +1444,7 @@ module VBlank
             # Each of +bg+'s own lists to the list it is drawn with at its step +step+.
             def swaps_for(bg, step) = bg.list_swaps(step)
 
-            def padded_colors(colors) = [Art::BACKDROP, *colors.map { |color| color & 0x7FFF }].fill(Art::BACKDROP, colors.length + 1...Art::PLACES)
+            def padded_colors(colors) = [@art.backdrop, *colors.map { |color| color & 0x7FFF }].fill(Art::BACKDROP, colors.length + 1...Art::PLACES)
 
             def map_size_of(bg)
               sizes = bg.every_map.map { |map| TileMap.size_of(map) }.uniq

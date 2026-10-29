@@ -68,8 +68,11 @@ module VBlank
       # without the word — a game counting frames from power-on has no hand-over it could
       # move to make up a pass. In a program with no game loop there is no pass after, so the
       # scene starts at once.
+      #
+      # Its +backdrop+ is the colour it shows wherever nothing is drawn: what its own `screen`
+      # says, or else what the game's says (#game_backdrop), 0 being black.
       Arrival = Data.define(:scene, :screen, :mode, :scenery, :map_choices, :painted_tiles, :painted_pictures,
-                            :takes_down_scenery, :takes_down_art, :loads_first) do
+                            :takes_down_scenery, :takes_down_art, :loads_first, :backdrop) do
         def takes_down_scenery? = takes_down_scenery
         def takes_down_art? = takes_down_art
         def loads_first? = loads_first
@@ -100,6 +103,8 @@ module VBlank
         @objects = picture.objects
         @tile_runs, @picture_runs = program.walk.select { |node| node.kind == :tile_run }.partition { |run| run.picture.nil? }
         @funcs = program.children.select { |node| node.kind == :func }.to_h { |func| [func.name, func] }
+        @game_screen = program.children.find { |node| node.kind == :screen }
+        @backdrops = program.walk.any? { |node| node.kind == :screen && node.backdrop }
         @modes = Modes.resolve(program)
         @paced = program.walk.any? { |node| node.kind == :wait_vblank }
         @arrivals = {}
@@ -110,12 +115,51 @@ module VBlank
         @arrivals[scene] ||= begin
           scenery = @scenery.select { |node| on_arrival?(node) && node.scene == scene }
           pictures = painted_pictures_of(@objects.select { |obj| obj.scene && obj.scene == scene })
-          Arrival.new(scene: scene, screen: @funcs[scene]&.children&.find { |node| node.kind == :screen },
+          screen = @funcs[scene]&.children&.find { |node| node.kind == :screen }
+          tiled = self.class.tiles?(Modes::SCREEN_OF_MODE.fetch(@modes.mode_of(scene)))
+          Arrival.new(scene: scene, screen: screen, backdrop: tiled ? screen&.backdrop || game_backdrop : 0,
                       mode: @modes.mode_of(scene), scenery: scenery, map_choices: scenery.flat_map(&:choice),
                       painted_tiles: painted_tiles_of(scenery), painted_pictures: pictures,
                       takes_down_scenery: scenery.empty? && @scenery.any? { |node| on_arrival?(node) },
                       takes_down_art: pictures.empty? && @objects.any? { |obj| obj.scene && painted?(obj) },
                       loads_first: loads_first_in_loop?(@funcs[scene]))
+        end
+      end
+
+      # THE COLOUR THE GAME SHOWS WHEREVER NOTHING IS DRAWN, as its own `screen` — the one in no
+      # scene — says it: 0, black, when it says none. A scene that says no backdrop shows this.
+      def game_backdrop = (@game_screen&.backdrop if @game_screen && DISPLAYS.key?(@game_screen.mode)) || 0
+
+      # Does any `screen` say a backdrop? A game where none does shows black wherever nothing is
+      # drawn, as every game did before a screen could say one, and a backend emits nothing for it.
+      def backdrops? = @backdrops
+
+      # Is +node+ a `screen` naming a kind of screen that a scene says, at the top of its own routine
+      # (rather than the game's)? A raw display setting is the author's own register write.
+      def scene_screen?(node) = DISPLAYS.key?(node.mode) && !scene_of_screen(node).nil?
+
+      # THE BACKDROP A `screen` STATEMENT MEANS where it is written: at the top of a scene, the
+      # scene's (Arrival#backdrop, its own or the game's); anywhere else its own, or the game's
+      # where it says none. Black on a painted screen, and on a raw display setting, which names
+      # no kind of screen.
+      def backdrop_of(node)
+        scene = scene_of_screen(node)
+        return arrival(scene).backdrop if scene
+        return 0 unless DISPLAYS.key?(node.mode) && self.class.tiles?(node.mode)
+
+        node.backdrop || game_backdrop
+      end
+
+      # The scene whose routine says +node+ at its top, or nil — a scene, and not any other routine.
+      def scene_of_screen(node)
+        @funcs.find { |name, func| Modes.scene_func?(name) && func.children.any? { |child| child.equal?(node) } }&.first
+      end
+
+      # Every scene's own `screen` line, by the scene's routine.
+      def scene_screens
+        @funcs.filter_map do |name, func|
+          screen = func.children.find { |node| node.kind == :screen }
+          [name, screen] if Modes.scene_func?(name) && screen
         end
       end
 

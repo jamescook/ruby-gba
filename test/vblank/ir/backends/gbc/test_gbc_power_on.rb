@@ -14,19 +14,26 @@ class TestGBCPowerOn < Minitest::Test
   TILES = 300
   LIST = %i[transparent white red green blue].freeze
 
+  # +count+ tiles of different pictures in the tileset :pale_set, each drawn by place from :pale,
+  # declared in +game+; the map of a screen that shows them all in turn, row by row.
+  def self.declare_pale_tiles(game, count)
+    game.colors :pale, LIST
+    names = (0...count).map do |n|
+      game.image :"tile#{n}", width: 8, height: 8, colors: :pale,
+                              places: Array.new(64) { |i| (n[i % 9] + n[(i + 3) % 9] + (i / 32)) % 4 + 1 }
+      :"tile#{n}"
+    end
+    keys = (0...count).map { |n| (n + 256).chr(Encoding::UTF_8) }
+    game.tiles :pale_set, keys.zip(names).to_h
+    Array.new(18) { |r| (0...20).map { |c| keys[((r * 20) + c) % count] }.join }
+  end
+
   private def white_game_with_much_art(setting_up:)
     b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
     b.instance_eval do
       screen :tiled
-      colors :pale, LIST
-      names = (0...TILES).map do |n|
-        image :"tile#{n}", width: 8, height: 8, colors: :pale,
-                           places: Array.new(64) { |i| (n[i % 9] + n[(i + 3) % 9] + (i / 32)) % 4 + 1 }
-        :"tile#{n}"
-      end
-      keys = (0...TILES).map { |n| (n + 256).chr(Encoding::UTF_8) }
-      tiles :set, keys.zip(names).to_h
-      field = background :field, tiles: :set, map: Array.new(18) { |r| (0...20).map { |c| keys[((r * 20) + c) % TILES] }.join }
+      map = TestGBCPowerOn.declare_pale_tiles(self, TILES)
+      field = background :field, tiles: :pale_set, map: map
       # Drawn with lists of its own, as a screen faded in from white is: its first colour, white,
       # is then the backdrop, since no cell of it is empty.
       colors :pale_again, %i[transparent white blue green red]
@@ -40,19 +47,20 @@ class TestGBCPowerOn < Minitest::Test
 
   # A GAME WHOSE SCREENS BRING THEIR OWN COLOURS IN: a white title, and a second screen of eight
   # lists more, which together are more than the Color's eight at once. Each screen's lists come in
-  # with it, and the title's are not in the console until the game first shows it.
-  private def white_title_among_lists(setting_up:)
+  # with it, and the title's are not in the console until the game first shows it. A title of
+  # +title_tiles+ different tiles takes frames to copy in after the game's first frame, and until
+  # its lists come in with it the screen shows nothing drawn: the game's +backdrop+, nil for black.
+  private def white_title_among_lists(setting_up: 0, title_tiles: 1, backdrop: nil)
     b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
     b.instance_eval do
-      screen :tiled
-      colors :pale, LIST
-      image :pale_tile, width: 8, height: 8, colors: :pale, places: ManyTiles::QUARTERS
-      tiles :pale_set, "p" => :pale_tile
+      backdrop ? screen(:tiled, backdrop: backdrop) : screen(:tiled)
+      map = TestGBCPowerOn.declare_pale_tiles(self, title_tiles)
       colors :pale_again, %i[transparent white blue green red]
-      lists = (0...8).map { |n| [:transparent, VBlank::Graphics::Color.rgb(31, n, n), 31 << 5, 31 << 10, 0] }
+      # Each list holds the backdrop, so one of them can be the list an empty cell shows.
+      lists = (0...8).map { |n| [:transparent, VBlank::Graphics::Color.rgb(31, n, n), 31 << 5, 31 << 10, backdrop || 0] }
       row = ManyTiles.declare_listed(self, :many, lists)
       scene(:title) do
-        title = background :title, tiles: :pale_set, map: Array.new(18) { "p" * 20 }
+        title = background :title, tiles: :pale_set, map: map
         title.draw_with :pale_again
       end
       scene(:busy) { background :busy, tiles: :many, map: [row] }
@@ -105,6 +113,19 @@ class TestGBCPowerOn < Minitest::Test
 
   def test_a_white_title_among_screens_with_their_own_colours_never_shows_black_while_it_loads
     assert_empty black_frames(white_title_among_lists(setting_up: 20_000)), "frames that showed black"
+  end
+
+  # A TITLE WITH MUCH ART, which takes two frames to copy in after the game's first, shows nothing
+  # drawn until then: black, the backdrop of a game that says none — and the game's own, said white,
+  # the way a cartridge that fades its screens in from white starts.
+  def test_a_white_title_with_much_art_shows_the_backdrop_while_it_loads
+    assert_equal [5, 6], black_frames(white_title_among_lists(title_tiles: 200)), "black while it loads"
+    assert_empty black_frames(white_title_among_lists(title_tiles: 200, backdrop: :white)), "frames that showed black"
+  end
+
+  # ...and plays as the interpreter plays it, pass for pass.
+  def test_a_white_title_on_a_white_backdrop_plays_as_the_interpreter_plays_it
+    game_player.run(white_title_among_lists(title_tiles: 200, backdrop: :white), frames: 6)
   end
 
   def test_a_white_painted_screen_never_shows_black_while_it_loads

@@ -1131,7 +1131,8 @@ module VBlank
         # +late+: the rows above which a page finished too late for its break is shown at once
         # rather than at the next break (see IR::LatePages); nil, the default, always waits.
         # +late_pace+: how many breaks a pass may take and be on time; nil is one.
-        operands mode: :mode, buffered: :flag, colors: :list, late: :int, late_pace: :int
+        # +backdrop+: the colour shown wherever nothing is drawn, as a 15-bit colour; nil is black.
+        operands mode: :mode, buffered: :flag, colors: :list, late: :int, late_pace: :int, backdrop: :int
       end
 
       class ScrollBackground

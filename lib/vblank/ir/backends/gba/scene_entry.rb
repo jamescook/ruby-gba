@@ -22,7 +22,7 @@ module VBlank
         class SceneEntry
           # The notes, one per kind of thing a scene puts up as it takes over, and one for which
           # scene ran last (see #emit_return_on_arrival_pass).
-          MARKERS = { scenery: :_scene_scenery, art: :_scene_art, pass: :_scene_pass }.freeze
+          MARKERS = { scenery: :_scene_scenery, art: :_scene_art, pass: :_scene_pass, backdrop: :_scene_backdrop }.freeze
 
           def initialize(emitter:, primitives:)
             @emitter = emitter

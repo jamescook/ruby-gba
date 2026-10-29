@@ -120,9 +120,21 @@ module VBlank
           # for the whole program by the boot setup and each scene's mode-switch
           # preamble, so a `screen` node is only a build-time declaration of a scene's
           # mode and emits nothing here. Otherwise it's the plain one-time register write.
+          #
+          # A `screen` a scene says, on a screen of the same kind as the game's, writes nothing
+          # either: the display is already as it says, and its statement runs on every pass the
+          # scene runs, so writing the display's settings there held the picture off on every one
+          # (#initial_forced_blank_bit). What else it says, its backdrop, is the scene's arrival's
+          # (#emit_scene_backdrop).
+          #
+          # In a game where a screen says a backdrop, every `screen` outside a scene's top also
+          # writes the one it means (IR::SceneHandover#backdrop_of) where the console keeps it: a
+          # game with no backgrounds sends no table of colours that would carry it.
           def emit_screen(node)
             emit_late_pages_setting(IR::LatePages.setting_of(node))
-            return if @layout.modes.switched_per_scene?
+            return if @layout.modes.switched_per_scene? || scene_handover.scene_screen?(node)
+
+            emit_backdrop_color(scene_handover.backdrop_of(node)) if scene_handover.backdrops? && node.mode != :bitmap
 
             mode = node.mode
             value = if mode == :tiled
@@ -468,10 +480,31 @@ module VBlank
             emit_scene_mode(name) if @layout.modes.switched_per_scene?
             emit_painted_run_places(name)
             emit_scene_scenery(name)
+            emit_scene_backdrop(name) if scene_handover.backdrops?
             @raster.emit_light_leaving(name) # before the scene tells the blend unit its own mixing
             emit_scene_blend(name)
             @raster.emit_light_for_lit_scene(name) # ...and after, so it is the last word
             emit_scene_layers(name)
+          end
+
+          # THE COLOUR THIS SCENE SHOWS WHEREVER NOTHING IS DRAWN, in a game where a screen says one
+          # (IR::SceneHandover::Arrival#backdrop). The console keeps it in the first place of its
+          # background colours, which every tile's see-through pixels and every empty cell show;
+          # it is written as the scene takes over, after the scene's own colours, whose table
+          # carries it too (ScreenLayout#with_backdrop). A painted screen draws every pixel, and
+          # keeps a tint's colour in that place, so it is left alone there.
+          def emit_scene_backdrop(name)
+            arrival = scene_handover.arrival(name)
+            return unless IR::SceneHandover.tiles?(IR::Modes::SCREEN_OF_MODE.fetch(arrival.mode))
+
+            @scene_entry.emit_once_on_arrival(:backdrop, name) { emit_backdrop_color(arrival.backdrop) }
+          end
+
+          # The colour +color+ into the first place of the background colours: the backdrop.
+          def emit_backdrop_color(color)
+            @emitter.emit(ASM.load_immediate(ACC, color))
+            @emitter.emit(ASM.load_immediate(TMP, PALETTE_START))
+            @emitter.emit(ASM.store_halfword(ACC, TMP))
           end
 
           # WHICH LAYERS THIS SCENE BLENDS, for a game whose scenes want different answers.

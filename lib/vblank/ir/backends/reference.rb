@@ -186,6 +186,7 @@ module VBlank
           @clock_keeps_date = nil  # ...and whether it keeps the date, when not the console's chip
           @frame = 0               # passes of the game loop finished (see @screen_frame for frames shown)
           @screen_mode = nil       # the mode a `screen` op selected, if any
+          @backdrop = 0            # the colour shown wherever nothing is drawn (`screen ... backdrop:`), black unless said
           @buffered = false        # whether that mode opted into double buffering
           @log = []               # observable events: [:vblank, n], [:halt]
           @defined_sounds = {}     # name -> musical params (from define_sound)
@@ -933,7 +934,9 @@ module VBlank
           advance_frame
         end
 
-        def exec_screen(node)
+        # +backdrop+ is the colour the screen shows wherever nothing is drawn: a scene's arrival
+        # says its own (IR::SceneHandover::Arrival#backdrop), and the game's own `screen` its own.
+        def exec_screen(node, backdrop: @handover.backdrop_of(node))
           # Remember the chosen mode; the fake screen already models the bitmap the
           # draw ops assume. Double buffering (node.buffered) asks it for a second
           # page: the display shows one picture while the program draws into the other,
@@ -948,8 +951,11 @@ module VBlank
           # surface, so it wipes nothing.
           crossing = IR::SceneHandover.crossing?(@screen_mode, node.mode)
           if crossing
-            @screen.clear(0)
+            @backdrop = backdrop
+            @screen.clear(@backdrop)
             reset_scenery_state
+          else
+            show_backdrop(backdrop)
           end
           @screen_mode = node.mode
           # A tear-free screen is two pages only where the console keeps two; one that only ever
@@ -961,13 +967,25 @@ module VBlank
           put_up_always_up if crossing && IR::SceneHandover.tiles?(node.mode)
         end
 
+        # THE COLOUR WHEREVER NOTHING IS DRAWN BECOMES +color+: the picture is painted again over it
+        # where anything is up, so every empty place shows it at once, as the console shows its
+        # backdrop colour the moment it is given another.
+        def show_backdrop(color)
+          return if color == @backdrop
+
+          @backdrop = color
+          @scene_fb = nil
+          @bg_shown.empty? ? @screen.clear(@backdrop) : request_repaint
+        end
+
         # Arrive on the screen a scene draws on, for a scene that names none: one reached from
-        # a screen of another kind crosses back to its own, the same as if it had said so.
+        # a screen of another kind crosses back to its own, the same as if it had said so. Its
+        # backdrop is the game's, or black on a painted screen (Arrival#backdrop).
         def cross_to_scene_screen(arrival)
           screen = IR::Modes::SCREEN_OF_MODE.fetch(arrival.mode)
-          return unless IR::SceneHandover.crossing?(@screen_mode, screen)
+          return show_backdrop(arrival.backdrop) unless IR::SceneHandover.crossing?(@screen_mode, screen)
 
-          exec_screen(Build.screen(screen, buffered: arrival.mode == IR::Modes::BUFFERED))
+          exec_screen(Build.screen(screen, buffered: arrival.mode == IR::Modes::BUFFERED), backdrop: arrival.backdrop)
         end
 
         # PUT UP AGAIN WHAT EVERY SCREEN DRAWN FROM TILES SHOWS, once a screen of another kind
@@ -1434,7 +1452,7 @@ module VBlank
           # one of those names are forgotten now, before anything is painted: a background of
           # the same name in the scene leaving can hold tiles this scene's declaration has not.
           arrival.scenery.each { |bg| @bg_maps.delete(bg.name) }
-          arrival.screen ? exec_screen(arrival.screen) : cross_to_scene_screen(arrival)
+          arrival.screen ? exec_screen(arrival.screen, backdrop: arrival.backdrop) : cross_to_scene_screen(arrival)
           took_down = false
           if @bg_shown.any?(&:scene) || arrival.scenery.any?
             paint_owed_repaint
@@ -1546,7 +1564,7 @@ module VBlank
 
           @bg_shown = kept
           @scene_fb = nil
-          @screen.clear(0)
+          @screen.clear(@backdrop)
           in_stack_order(kept).each { |bg| stamp_background(bg) }
           true
         end
@@ -2171,7 +2189,7 @@ module VBlank
         def repaint_view
           kept = @fade_placed ? names_above_placed_fade : nil
           set_blend_for(nil, kept)      # the backdrop is behind everything, so it blends
-          @screen.clear(0)                # the backdrop the layers' transparent pixels reveal
+          @screen.clear(@backdrop)        # the backdrop the layers' transparent pixels reveal
           # A status bar first: no background is painted under it (#scenery_rows), so it is in
           # front of all of them, and every sprite is painted over it.
           bar = bar_showing
@@ -2785,7 +2803,7 @@ module VBlank
         # so this is the clean picture we restore under a moving object each frame.
         def scene_framebuffer
           @scene_fb ||= begin
-            fb = framebuffer_like_screen(fill: 0) # 0 = the backdrop the empty parts of the scene show
+            fb = framebuffer_like_screen(fill: @backdrop) # the backdrop the empty parts of the scene show
             drawing_into(fb) { showing_scenery.each { |bg| stamp_background(bg) } }
             fb
           end

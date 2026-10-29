@@ -600,12 +600,15 @@ module VBlank
             # program, it is what was free on the screen the background belongs to.
             @hardware_layers = @backgrounds.transform_values(&:bg)
 
-            colors = banks.entries
+            # The first colour of the table is the backdrop, shown wherever nothing is drawn: the
+            # game's in the table every scene shows, and each scene's own in the table it sends.
+            handover = backdrops
+            colors = with_backdrop(banks.entries, handover.game_backdrop)
             @blobs[BG_SHARED_PAL] = colors.pack("v*")
             # ...and the table each scene with backgrounds of its own sends as it takes over.
             banks.scenes.each_with_index do |scene, index|
               blob = :"__bg_palette_scene_#{index}"
-              @blobs[blob] = banks.table(scene).pack("v*")
+              @blobs[blob] = with_backdrop(banks.table(scene), handover.arrival(scene).backdrop).pack("v*")
               keep_unpacked!(blob)
               record_scene_send(scene, bg_palette: blob)
             end
@@ -613,6 +616,13 @@ module VBlank
             @vram = fullest.vram # what the report reads the room left out of
             @bg_shared = shared_scenery_summary(regular_nodes + affine_nodes, big, colors, boot: everywhere, fullest: fullest)
           end
+
+          # A table of background colours with +backdrop+ in its first place, where the console keeps
+          # the colour it shows wherever nothing is drawn.
+          def with_backdrop(table, backdrop) = [backdrop, *table.drop(1)]
+
+          # Which backdrop each scene shows (IR::SceneHandover#arrival, #game_backdrop).
+          def backdrops = @backdrops ||= IR::SceneHandover.of(@program)
 
           # Fill in part of what +scene+ sends as it takes over.
           def record_scene_send(scene, **part) = @scene_sends[scene] = scene_send(scene).with(**part)
@@ -1332,7 +1342,8 @@ module VBlank
               keep_unpacked!(base_table)
             end
             colors = :"__bg_set_colors_#{tag}"
-            tables = node.sets.map { |area| banks.area_entries(area, node.scene) }
+            backdrop = node.scene ? backdrops.arrival(node.scene).backdrop : backdrops.game_backdrop
+            tables = node.sets.map { |area| with_backdrop(banks.area_entries(area, node.scene), backdrop) }
             @blobs[colors] = tables.flatten.pack("v*")
             keep_unpacked!(colors)
             TileSetSwap.new(tiles: tiles, at: laid.start, stride: laid.bytes.first.bytesize,
