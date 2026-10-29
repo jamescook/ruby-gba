@@ -279,21 +279,24 @@ module Snake
 
     # --- Scenes ---
 
-    # The blinking prompt at +y+: its own rectangle erased, then drawn again if it is on.
+    # Each screen's blinking prompt: its own rectangle erased, then drawn again if it is on.
     # Run when a screen is painted, and each time the prompt blinks — never in between,
-    # since nothing else there changes. (The words' width rounded up to even, as a fill
-    # width must be, and centred as the words are.)
+    # since nothing else there changes. Each is a func, so the words are in the cartridge
+    # once per screen however many places call it. (The words' width rounded up to even,
+    # as a fill width must be, and centred as the words are.)
     prompt_w = (text_width("PRESS START") + 1) & ~1
-    prompt = lambda do |y|
-      dma_fill_rect (here.width - prompt_w) / 2, y, prompt_w, PROMPT_H, :black
-      (blink == 1).then { draw_text "PRESS START", :center, y, :gray }
+    { title_prompt: 96, game_over_prompt: 110 }.each do |name, y|
+      func name do
+        dma_fill_rect (here.width - prompt_w) / 2, y, prompt_w, PROMPT_H, :black
+        (blink == 1).then { draw_text "PRESS START", :center, y, :gray }
+      end
     end
 
-    # Flash the prompt on and off twice a second, painting only its line.
-    blink_prompt = lambda do |y|
+    # Flash the prompt named +prompt+ on and off twice a second, painting only its line.
+    blink_prompt = lambda do |prompt|
       every(0.5, :seconds) do
         (blink == 1).then { blink.set! 0 }.else { blink.set! 1 }
-        prompt.call(y)
+        call prompt
       end
     end
 
@@ -304,10 +307,10 @@ module Snake
         draw_text "SNAKE", :center, 56, :green
         draw_text "HIGH", :right, 78, :gray, within: here.stat_label
         draw_number :high_score, :left, 78, :white, digits: 3, within: here.stat_number
-        prompt.call(96)
+        call :title_prompt
         painted.set! 1
       end
-      blink_prompt.call(96)
+      blink_prompt.call(:title_prompt)
 
       # Keep stirring the random stream while we wait, so the food layout is decided
       # by the player's reaction time — every game plays out a little differently.
@@ -338,10 +341,10 @@ module Snake
         draw_number score, :left, 76, :white, digits: 3, within: here.stat_number
         draw_text "HIGH", :right, 90, :gray, within: here.stat_label
         draw_number :high_score, :left, 90, :white, digits: 3, within: here.stat_number
-        prompt.call(110)
+        call :game_over_prompt
         painted.set! 1
       end
-      blink_prompt.call(110)
+      blink_prompt.call(:game_over_prompt)
 
       pressed(:start).then { call :new_game }
     end
