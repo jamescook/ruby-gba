@@ -16,6 +16,7 @@ class TestChipBandExample < Minitest::Test
   # Each press is held for a few frames and let go for a while, the way a person presses: the Color
   # takes its first frames setting the game up, and a press over before the game looks is missed.
   private def log_after(downs)
+    skip_on_snes "the chip band is made for the Game Boy Advance and the Game Boy Color, not the Super Nintendo"
     player = game_player
     frame = 0
     player.input_each_frame do

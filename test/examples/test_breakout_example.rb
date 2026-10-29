@@ -25,6 +25,7 @@ class TestBreakoutExample < Minitest::Test
   # comfortable margin: the ball breaks its first brick and a held paddle clamps at
   # the wall well before frame 40, so the asserted state has settled by here.
   private def play(then_hold: [], frames: 120)
+    skip_on_snes "breakout is made for the Game Boy Advance and the Game Boy Color, not the Super Nintendo"
     script = lambda do |frame|
       frame == 1 ? [:start] : then_hold
     end

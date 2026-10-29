@@ -24,6 +24,10 @@ class TestMenu < Minitest::Test
   PLAIN = Color.resolve(:gray)
   DIMMED = Color.resolve(:red) # a colour of its own, so "dimmed" is visible in a test
 
+  # Why a test that taps on frames a pass apart skips on the Super Nintendo.
+  SLOW_PASS = "clearing the painted screen every pass takes a Super Nintendo several frames, so a tap on a " \
+              "frame between two passes is never read"
+
   # A four-row menu whose second row cannot be picked. `chose` records which row's
   # block ran, so the action half is observable too. The same program is built for
   # either screen — that one verb reads the same way on both is the thing under test
@@ -143,6 +147,7 @@ class TestMenu < Minitest::Test
   # ---- moving ----
 
   def test_down_moves_the_cursor_and_up_moves_it_back
+    skip_on_snes SLOW_PASS
     down = walk(menu_program, frames: 3) { |f| f == 1 ? [:down] : [] }
 
     assert_equal 2, cursor_row(down), "row 1 cannot be picked, so down lands on row 2"
@@ -197,6 +202,7 @@ class TestMenu < Minitest::Test
   end
 
   def test_letting_go_clears_the_wait_so_the_next_tap_moves_at_once
+    skip_on_snes SLOW_PASS
     i = walk(counting_moves(repeat_every: 60), frames: 6) { |f| f.odd? ? [:down] : [] }
 
     assert_equal 3, i[:chose],
@@ -249,6 +255,7 @@ class TestMenu < Minitest::Test
   # ---- the pick is remembered ----
 
   def test_the_pick_survives_leaving_the_scene_and_coming_back
+    skip_on_snes SLOW_PASS
     program = build_program do
       screen :bitmap
       state = var :state, 0
@@ -849,6 +856,7 @@ class TestMenu < Minitest::Test
   end
 
   def test_up_wraps_and_steps_over_shut_rows_too
+    skip_on_snes SLOW_PASS
     i = walk(changing_menu, frames: 6) { |f| { 1 => [:up], 4 => [:up] }.fetch(f, []) }
 
     assert_equal 0, cursor_row(i), "up to FOUR, then up over THREE and TWO to ONE"

@@ -65,6 +65,7 @@ class TestClockSetTo < Minitest::Test
 
   # On a cartridge with no clock, setting it does nothing: it reads zeros still.
   def test_setting_a_missing_clock_does_nothing
+    skip_on_snes "a Super Nintendo cartridge built here has no clock chip, so its build refuses `clock`"
     player = game_player.run(setting_program, frames: 4)
 
     assert_equal [0, 0, 0], [player[:set], player[:year], player[:hour]]
