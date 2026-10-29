@@ -67,12 +67,18 @@ module VBlank
             LENT_MISSED = 8 + 3
             # 1 while the sprite being placed has yet to place a piece, so has borrowed no list.
             LENT_PENDING = LENT_MISSED + 2
-              LENT_BYTES = LENT_PENDING + 1
-# In a game whose scenes number their own lists (Art::TooManyLentLists, #emit_lend_scene):
-# where the scene up keeps its own lists' colours, then their families, two bytes each,
-# and the bank both are in.
-LENT_TABLE = "rt picture lent table"
-LENT_TABLE_BYTES = 5
+            LENT_BYTES = LENT_PENDING + 1
+            # In a game whose scenes number their own lists (Art::TooManyLentLists, #emit_lend_scene):
+            # where the scene up keeps its own lists' colours, then their families, two bytes each,
+            # and the bank both are in.
+            LENT_TABLE = "rt picture lent table"
+            LENT_TABLE_BYTES = 5
+            # And in that game, the bank in view while the sprite being placed has its pieces read
+            # (rt_sprite, rt_sprite_one_piece). Borrowing a list on the sprite's first piece puts the
+            # scene's own table in view to copy its colours, and then the game's bank back, since
+            # the controller cannot be asked which bank it showed; the pieces' bank is put back from
+            # here after.
+            PIECES_BANK = "rt picture pieces bank"
 
             # A STATUS BAR (`status_bar`), in a game that has one: the console's window, read from
             # the second grid. BAR is the row its top is at, the number of the grid in the window's
@@ -110,7 +116,10 @@ LENT_TABLE_BYTES = 5
                 memory.reserve(BAR_JOB, 6)
               end
               memory.reserve(LENT, LENT_BYTES) if lends
-              memory.reserve(LENT_TABLE, LENT_TABLE_BYTES) if lends == :by_scene
+              if lends == :by_scene
+                memory.reserve(LENT_TABLE, LENT_TABLE_BYTES)
+                memory.reserve(PIECES_BANK, 1)
+              end
               PictureGroups.reserve(memory) if groups
               memory.reserve(SHADOW_PALETTES, 128)
               memory.reserve(PALETTES_CHANGED, 1)
@@ -186,6 +195,10 @@ LENT_TABLE_BYTES = 5
               asm.load_high(:a, attributes)
               asm.or_a(:e)
               asm.load_high(attributes, :a)
+              if memory.reserved?(PIECES_BANK)
+                asm.load(:a, [memory[PIECES_BANK]])
+                asm.select_rom_bank
+              end
               %i[hl de bc].each { |pair| asm.pop(pair) }
               asm.label("rt_lend_on_first_piece_done")
             end
@@ -227,6 +240,11 @@ LENT_TABLE_BYTES = 5
               if lends
                 asm.load(:a, 1)
                 asm.load([memory[LENT] + LENT_PENDING], :a)
+              end
+              # Its piece is read from where rt_sprite_posed noted it, with the game's bank in view.
+              if memory.reserved?(PIECES_BANK)
+                asm.load_high(:a, Memory::CURRENT_BANK)
+                asm.load([memory[PIECES_BANK]], :a)
               end
               emit_drawn_note(asm, memory, args, "rt_sprite_one_piece_noted")
               asm.label("rt_sprite_one_piece_noted")
@@ -1169,9 +1187,11 @@ LENT_TABLE_BYTES = 5
               asm.load(:l, :a)
               asm.load_high(:a, args.call(0) + 1)
               asm.load(:h, :a)
-              # The pieces' bank in view while they are read, and the game's back after. Nothing
-              # placing a piece switches it.
+              # The pieces' bank in view while they are read, and the game's back after. Only the
+              # borrowing of a scene's own list switches it while a piece is placed, and puts it back
+              # from PIECES_BANK (#emit_lend_on_first_piece).
               emit_banked_entry(asm, "art_pictures")
+              asm.load([memory[PIECES_BANK]], :a) if memory.reserved?(PIECES_BANK)
               asm.load(:h, :d)
               asm.load(:l, :e) # HL = the picture's pieces
               asm.load(:a, [:hli])

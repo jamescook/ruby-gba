@@ -28,14 +28,21 @@ class TestGBCSpriteLists < Minitest::Test
   # SCENES THAT EACH FADE THEIR OWN SPRITES, as a game fades every screen in and out: three
   # scenes, three sprites each, each sprite stepping through 33 lists of its own. That is 297
   # lists in all, more than the 254 a build numbers for the whole game, and 99 for any one
-  # scene, since a scene never shows another's sprites.
-  def self.fading_scenes(scenes: 3, sprites: 3, steps: 33)
+  # scene, since a scene never shows another's sprites. +size+ is the ships' width and height, so
+  # a ship of 16 is four pieces. +filler+ lines of code the first scene never runs fill the
+  # cartridge's first bank, so the other scenes' code goes in the second.
+  def self.fading_scenes(scenes: 3, sprites: 3, steps: 33, size: 8, filler: 0)
+    ship = Array.new(size * size) { |i| ((i % size) + (i / size)).even? ? :red : :green }
     VBlank.game("FADING SCENES", consoles: %i[gbc]) do
       screen :tiled
-      image :ship, width: 8, height: 8, data: TestGBCSpriteLists::SHIP, colors: %i[transparent red green]
+      image :ship, width: size, height: size, data: ship, colors: %i[transparent red green]
       showing = var :showing, 0
       scenes.times do |s|
         scene :"fading#{s}" do
+          if s.zero? && filler.positive?
+            never = var :never, 0
+            (never == 1).then { filler.times { |i| never.set! never + i } }
+          end
           ships = (0...sprites).map do |n|
             lists = (0...steps).map do |step|
               colors :"fade#{s}_#{n}_#{step}", [:transparent, Color.rgb(step % 32, (s * sprites) + n, step / 32),
@@ -60,6 +67,21 @@ class TestGBCSpriteLists < Minitest::Test
 
   def test_scenes_fading_more_lists_than_a_build_numbers_play_as_the_interpreter_plays_them
     game_player.run(TestGBCSpriteLists.fading_scenes.program(console: :gbc), frames: 110)
+  end
+
+  # A sprite's pieces are read from the bank its picture is kept in, put in view for the reading.
+  # A scene's own list is copied in from the bank that scene's colours are in, on the sprite's first
+  # piece, and the pieces' bank has to be put back after it for the rest. This game is laid out so
+  # that the bank put back would otherwise be the code's, not the pieces': the later scenes' code
+  # is in the second bank, the ship's pieces in what room is left in the first.
+  def test_scenes_fading_sprites_of_many_pieces_play_as_the_interpreter_plays_them
+    game = TestGBCSpriteLists.fading_scenes(size: 16, filler: 550)
+    code = GBC.new.build(game.program(console: :gbc)).built.code
+    assert_operator code.fetch("art_lent_scene_1_colors").bank, :positive?
+    refute_equal code.fetch("art_pieces_0").bank, code.fetch("routine _scene_fading1").bank,
+                 "the filler no longer puts the pieces and the code in different banks: change how much there is"
+
+    game_player.run(game.program(console: :gbc), frames: 110)
   end
 
   # Each scene's fade steps every sprite to a list it has not worn on every pass, and each
