@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# A SCREEN OF MANY STILL SPRITES, as Pokémon Pinball's field select draws its blinking border: 37
+# A SCREEN OF MANY STILL SPRITES, as a menu draws a blinking border round its choice: 37
 # pieces of 8×8 round a box, each its own sprite with three poses — three shades of the border —
 # and some of them turned over, changing pose together every eight frames. Nothing moves. A Color
 # with its frame to spare sleeps through most of each one, as the console's own screen does.
