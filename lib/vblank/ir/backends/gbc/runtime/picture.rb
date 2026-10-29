@@ -145,6 +145,7 @@ module VBlank
                                       drawn_palettes: drawn_palettes, bar: !bar_rows.nil?, backdrop: backdrop)
               emit_rooms(asm, memory, colors: room_colors) if rooms
               emit_upload(asm, memory, groups: groups, bar: !bar_rows.nil?, label: rooms ? "rt_upload_now" : "rt_upload")
+              emit_oam_dma_held(asm)
               PictureGroups.emit(asm, memory) if groups
               emit_tile_runs(asm, runs)
               emit_sprites(asm, memory, lends: lends)
@@ -617,6 +618,23 @@ module VBlank
               asm.ret
             end
 
+            # THE SPRITE TABLE'S COPY WITH INTERRUPTS HELD OFF. While the copy runs the processor can
+            # read nothing but its quick memory, and every interrupt's routine is in the cartridge:
+            # taken then, the processor would read nonsense and run it, until the console started
+            # again. The copy starts as the blank does (rt_sleep_until_vblank), when the display
+            # raises nothing, but the timer's interrupt comes when it comes in a game that plays a
+            # recording, and a copy that starts late for any reason would meet the one that bends a
+            # row (rt_hblank_interrupt). Held off, an interrupt is answered as soon as the copy is
+            # done, which holds a recording's next sample back by a little. Every caller has
+            # interrupts on, so they go back on.
+            def emit_oam_dma_held(asm)
+              asm.label("rt_oam_dma_held")
+              asm.di
+              asm.call(Memory::OAM_DMA)
+              asm.ei
+              asm.ret
+            end
+
             # IN THE BLANK: the sprite table, the colours if they changed, the scroll and the
             # screen's switches; and a few more rows of a grid being put up. Carry set when a grid
             # is still being put up, so the frame waits for another blank before it counts as shown.
@@ -640,7 +658,7 @@ module VBlank
               asm.label(label)
               asm.load(:a, [memory[Paint::SCREEN_KIND]])
               asm.cp_a(Paint::PAINTED)
-              asm.call(:nz, Clips.any?(memory) ? "rt_clip_oam_dma" : Memory::OAM_DMA)
+              asm.call(:nz, "rt_oam_dma_held")
               asm.load(:a, [memory[PALETTES_CHANGED]])
               asm.and_a(:a)
               asm.call(:nz, "rt_picture_write_palettes")

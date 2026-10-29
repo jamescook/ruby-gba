@@ -91,7 +91,7 @@ module VBlank
 
       # The runtime's HALT instructions — waiting for the screen, and stopped for good. The emulator
       # charges a sleep to the instruction that went to sleep, so their cycles are the sleep.
-      SLEEPS = %w[rt_sleep_until_vblank rt_stopped].freeze
+      SLEEPS = %w[rt_sleep_until_vblank_halt rt_stopped].freeze
 
       def result_of(counted, frames, passes, missed)
         total = counted[:total].to_f

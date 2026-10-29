@@ -273,11 +273,27 @@ module VBlank
               asm.load([memory[WAITING]], :a)
               asm.ret
 
+              # SLEEPING UNTIL THE BLANK. The processor sleeps until any interrupt, so it sleeps again
+              # until the screen's has said a blank began. A pass that ends late can find one begun
+              # already, and that one is passed over for the next. Slept through, the next interrupt
+              # to wake the game would be — in a game that bends rows — the display's own, as the
+              # first line of the frame ends: the blank's copies would run while the screen is drawn,
+              # the first rows bent wrong, and an interrupt taken during the sprite table's copy
+              # would start the console again (rt_oam_dma_held). Used at once, the game would never be
+              # waiting as a frame begins, where the reader of a running cartridge looks for it
+              # (GBC::HeadlessRun). Interrupts are held off while the blank is forgotten, so the
+              # screen's cannot say one began between that and the sleep; they come back on after
+              # the instruction that follows, the sleep itself.
               asm.label("rt_sleep_until_vblank")
+              asm.di
+              asm.xor_a(:a)
+              asm.load_high(vblank, :a)
+              asm.ei
+              asm.label("rt_sleep_until_vblank_halt")
               asm.halt
               asm.load_high(:a, vblank)
               asm.and_a(:a)
-              asm.jump_relative(:z, "rt_sleep_until_vblank")
+              asm.jump_relative(:z, "rt_sleep_until_vblank_halt")
               asm.xor_a(:a)
               asm.load_high(vblank, :a)
               asm.ret

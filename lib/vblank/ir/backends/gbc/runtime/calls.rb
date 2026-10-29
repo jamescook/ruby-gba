@@ -98,10 +98,8 @@ module VBlank
 
               emit_parted_read(asm)
 
-              # BCDE = the 32-bit number at HL, and the number at HL = BCDE: a variable read and
-              # written in the three bytes of a call rather than the eight of the loads themselves.
-              asm.label("rt_load32")
-              asm.jump("rt_read_int32")
+              # The number at HL = BCDE: a variable written in the three bytes of a call rather than
+              # the seven of the stores themselves. Reading one is rt_load32, which is rt_read_int32.
               asm.label("rt_store32")
               %i[e d c].each do |reg|
                 asm.load(:a, reg)
@@ -186,6 +184,7 @@ module VBlank
               asm.load(:bc, 0)
               asm.ret
               asm.label("rt_read_int32")
+              asm.label("rt_load32") # a variable read in the three bytes of a call, not the eight of the loads
               asm.load(:a, [:hli])
               asm.load(:e, :a)
               asm.load(:a, [:hli])

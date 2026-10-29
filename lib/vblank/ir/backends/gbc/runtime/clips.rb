@@ -71,7 +71,6 @@ module VBlank
               emit_play(asm, memory, counts)
               emit_stop(asm, memory)
               emit_tick(asm, memory)
-              emit_oam_dma_held(asm)
             end
 
             # WHILE A RECORDING PLAYS THE WAVE VOICE IS ITS OWN: the music player's writes to it are
@@ -89,18 +88,6 @@ module VBlank
               asm.load_high(:a, Console::GBCHardware::TAC)
               asm.bit(2, :a)
               asm.jump_relative(:nz, past)
-            end
-
-            # THE SPRITE TABLE'S COPY WITH THE TIMER HELD OFF. While the copy runs the processor can
-            # read nothing but its quick memory, and the timer's interrupt is in the cartridge: taken
-            # then, the processor would read nonsense and run it. So in a game that plays a recording
-            # the copy runs with interrupts held off, which holds one sample back by a little.
-            def emit_oam_dma_held(asm)
-              asm.label("rt_clip_oam_dma")
-              asm.di
-              asm.call(Memory::OAM_DMA)
-              asm.ei
-              asm.ret
             end
 
             def emit_play(asm, memory, counts)
