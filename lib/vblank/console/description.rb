@@ -24,6 +24,9 @@ module VBlank
     # them can turn and resize, and +backgrounds_beside_turning+ how many still scroll on a screen
     # where one turns. +bar_is_a_background+ says whether a status bar is one of those layers, or a
     # layer the console keeps beside them. +turning_sprites+ says whether a sprite can turn and resize.
+    # +cuts_sprites+ says whether its build draws every sprite's picture in pieces of 8×8, so a
+    # picture the game paints from a list can be any size in whole pieces, not only a size one
+    # sprite of the console is drawn at.
     # +blends+ says whether its display can mix colours as it draws —
     # fade the finished picture, mix one layer into another — rather than only change the colours
     # in its lists. +mixes_by_half+ says whether, without blending by degrees, it can still show a
@@ -73,7 +76,7 @@ module VBlank
     # +rumbles+ says a game's `rumble` is felt: the cartridge carries a motor the game turns on and
     # off. Where it is not, the verb does nothing, since a game plays the same without it.
     Description = Data.define(:name, :title, :screen_width, :screen_height, :buttons, :sprites, :sprite_places,
-                              :sprites_a_row, :turning_sprites, :backgrounds, :turning_backgrounds,
+                              :sprites_a_row, :turning_sprites, :cuts_sprites, :backgrounds, :turning_backgrounds,
                               :backgrounds_beside_turning, :bar_is_a_background, :blends, :mixes_by_half, :list_colors,
                               :painted_pages,
                               :clock_keeps_date, :cycles_a_second, :cycles_a_frame, :samples_a_copy,
@@ -117,7 +120,7 @@ module VBlank
                               # What limits a row on the Advance is the time the display has to
                               # draw it, which depends on how wide each sprite is and whether it
                               # turns, and the build does not work that out.
-                              sprites_a_row: nil, turning_sprites: true,
+                              sprites_a_row: nil, turning_sprites: true, cuts_sprites: false,
                               # Four layers that scroll, or two that scroll and one that turns.
                               backgrounds: 4, turning_backgrounds: 1, backgrounds_beside_turning: 2,
                               # A status bar is one of those layers.
@@ -150,7 +153,7 @@ module VBlank
     # each verb does on it is Console::ColorAnswers's to say.
     COLOR = Description.new(name: :gbc, title: "Game Boy Color", screen_width: 160, screen_height: 144,
                             buttons: %i[a b select start right left up down].freeze, sprites: 40, sprite_places: 40,
-                            sprites_a_row: 10, turning_sprites: false,
+                            sprites_a_row: 10, turning_sprites: false, cuts_sprites: false,
                             backgrounds: 1, turning_backgrounds: 0, backgrounds_beside_turning: 0,
                             # A status bar is the window, a layer beside the one background.
                             bar_is_a_background: false,
@@ -193,6 +196,8 @@ module VBlank
                                      # A row of the screen shows at most 32 sprites and 34 of their
                                      # 8-pixel pieces; a piece is what this counts.
                                      sprites_a_row: 34, turning_sprites: false,
+                                     # Every sprite picture is cut into 8×8 pieces (Backends::SNES::Art).
+                                     cuts_sprites: true,
                                      # The build shows a game's backgrounds on the arrangement of
                                      # layers called mode 1: two of sixteen colours and one of four.
                                      # Mode 7 turns one layer, alone; the build does not use it.

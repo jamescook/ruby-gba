@@ -469,6 +469,37 @@ class TestSNESPicture < Minitest::Test
     assert_equal 4, run[:t]
   end
 
+  # A canvas a sprite shows can be any size in whole 8×8 pieces on a Super Nintendo, which cuts
+  # every sprite's picture into pieces: hero's sign box, 192×16, typed into a letter at a time.
+  def test_a_canvas_sprite_of_any_size_in_whole_pieces_shows_what_was_painted
+    run = checked(frames: 6, built_for: :snes) do
+      screen :tiled
+      box = canvas :box, width: 192, height: 16, colors: %i[transparent white blue], as: :sprite
+      sprite :box, at: [24, 144]
+      t = var :t, 0
+      game_loop do
+        (t == 0).then { box.clear :blue }
+        box.fill_rect 4 + (t * 30), 4, 20, 8, :white
+        t.add! 1
+      end
+    end
+
+    assert_equal 6, run[:t]
+  end
+
+  # ...and a side that is not whole pieces is refused, saying what to make it.
+  def test_a_canvas_sprite_not_in_whole_pieces_is_refused_in_plain_words
+    error = assert_raises(ArgumentError) do
+      program_of(built_for: :snes) do
+        screen :tiled
+        canvas :box, width: 100, height: 16, colors: %i[transparent white], as: :sprite
+        game_loop { wait_vblank }
+      end
+    end
+
+    assert_match(/100x16.*multiple of 8/, error.message)
+  end
+
   # A LAYER HALF SEE-THROUGH: colour math adds what is behind it to it and halves the sum, on every
   # pixel where its own is drawn; where its tiles are see-through, what is behind shows plain, and a
   # sprite in front is solid. 55 is half on the interpreter too: what is behind takes its share
@@ -557,14 +588,16 @@ class TestSNESPicture < Minitest::Test
     end
   end
 
-  private def program_of(&game)
-    builder = Builder.new
+  # +built_for+ builds the program as a Super Nintendo game from the start, for what the builder
+  # allows on that console alone; otherwise it is built as the Advance's and then named the SNES's.
+  private def program_of(built_for: nil, &game)
+    builder = built_for ? Builder.new(options: VBlank::Cartridge::Options.new.with(console: built_for)) : Builder.new
     builder.instance_eval(&game)
     builder.finalize_program
     builder.program.copy.tap { |program| program.console = :snes }
   end
 
-  private def checked(frames: nil, &game)
-    SNES::CheckedRun.new.run(program_of(&game), frames: frames)
+  private def checked(frames: nil, built_for: nil, &game)
+    SNES::CheckedRun.new.run(program_of(built_for: built_for, &game), frames: frames)
   end
 end

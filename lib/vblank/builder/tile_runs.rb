@@ -96,6 +96,23 @@ module VBlank
       PICTURE_SIZES = Ractor.make_shareable([[8, 8], [16, 16], [32, 32], [64, 64], [16, 8], [32, 8], [32, 16],
                                              [64, 32], [8, 16], [8, 32], [16, 32], [32, 64]])
 
+      # A painted picture's size: one a sprite of the console is drawn at — or, on a console whose
+      # build cuts every sprite's picture into 8×8 pieces (Console::Description#cuts_sprites), any
+      # size in whole pieces.
+      def refuse_picture_run_size!(name, width, height)
+        if console.cuts_sprites
+          return if [width, height].all? { |side| side.is_a?(Integer) && side.positive? && (side % 8).zero? }
+
+          raise ArgumentError, "image :#{name} gets its pixels from a list, so it is drawn in whole 8x8 pieces. " \
+                               "It is #{width.inspect}x#{height.inspect}. To fix this, make each side a multiple of 8."
+        end
+        return if PICTURE_SIZES.include?([width, height])
+
+        raise ArgumentError, "image :#{name} gets its pixels from a list, so it must be a size the console " \
+                             "draws a sprite at. It is #{width.inspect}x#{height.inspect}. The sizes are " \
+                             "#{PICTURE_SIZES.map { |w, h| "#{w}x#{h}" }.join(', ')}."
+      end
+
       # `image` given a list rather than art: a picture a sprite shows, painted by the game. Its
       # tiles are the list's 32-byte runs left to right and then top to bottom, which is the
       # order a sprite's tiles are kept in.
@@ -105,11 +122,7 @@ module VBlank
         height = opts[:height]
         colors = tile_run_colors(name, opts[:colors], what: "image")
         refuse_tile_run_on_bitmap_screen!(name, what: "image")
-        unless PICTURE_SIZES.include?([width, height])
-          raise ArgumentError, "image :#{name} gets its pixels from a list, so it must be a size the console " \
-                               "draws a sprite at. It is #{width.inspect}x#{height.inspect}. The sizes are " \
-                               "#{PICTURE_SIZES.map { |w, h| "#{w}x#{h}" }.join(', ')}."
-        end
+        refuse_picture_run_size!(name, width, height)
         refuse_tile_run_list_unfit!(name, list, (width / 8) * (height / 8), what: "image")
 
         @images[name] = [width, height]

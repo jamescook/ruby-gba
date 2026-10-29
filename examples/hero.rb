@@ -113,7 +113,7 @@ module Hero
     end.join
   end)
 
-  GAME = VBlank.game("HERO", consoles: %i[gba]) do
+  GAME = VBlank.game("HERO", consoles: %i[gba snes]) do
     screen :tiled # tile mode: a scrolling background for the world + a hardware sprite on top
 
     # Pixels the hero walks per frame while a direction is held. A setting rather than a
@@ -234,8 +234,13 @@ module Hero
     # A number written here would be sent to the display once and never again. A value is
     # sent again before every frame, and that is the only difference: one register write
     # per frame, and nothing is redrawn.
+    #
+    # A SUPER NINTENDO MIXES A LAYER ONLY BY HALF, never by degrees, so there the mist is a
+    # haze that stays half thick wherever you walk: `console` is the console the game is being
+    # built for, and the one line says each console's best. (`mist` is still worked out and
+    # saved on both, so a file means the same walk on either.)
     mist = var :mist, 0
-    layer(:air, transparency: 100 - mist) do
+    layer(:air, transparency: console.name == :snes ? 50 : 100 - mist) do
       background :fog, tiles: :weather, map: Array.new(32) { "#" * 32 }
     end
 
@@ -282,8 +287,14 @@ module Hero
     #
     #     box = canvas :box, width: 192, height: 16, colors: [...]
     #     pen.add! box.draw_letter(note[typed], pen, 5, :white)   # one letter, then the next
+    #
+    # A SUPER NINTENDO SHOWS TWO BACKGROUNDS AT ONCE, and the world and the mist are both of
+    # them, so there the box is a picture sprites show instead (`as: :sprite`): the same words,
+    # typed the same way.
+    two_backgrounds = console.name == :snes
     note = list :note, capacity: 32, width: :byte # the sign's words, as letters, put together as you read
-    box = canvas :box, width: 192, height: 16, colors: [:transparent, :white, rgb(2, 4, 12)]
+    box = canvas :box, width: 192, height: 16, colors: [:transparent, :white, rgb(2, 4, 12)],
+                       as: two_backgrounds ? :sprite : :tiles
     trail = canvas :trail, width: 32, height: 32, colors: %i[transparent white blue], as: :sprite
     reading = var :reading, 0 # 1 while the sign's box is open
     typed = var :typed, 0     # how many of its letters are up
@@ -333,7 +344,9 @@ module Hero
       fresh_pictures.call
     end
 
-    # A plain backdrop for the file screen, so its words are not read over scenery.
+    # A plain backdrop for the file screen, so its words are not read over scenery — on a
+    # console with backgrounds to spare. On a Super Nintendo the words are read over the misty
+    # world instead.
     image :panel, "#" => rgb(2, 4, 12) do
       "########\n" * 8
     end
@@ -348,7 +361,7 @@ module Hero
       choosing.set! next_choosing
       number.set! slot + 1
       layer(:words) do
-        background :backdrop, tiles: :panels, map: Array.new(20) { "#" * 30 }
+        background :backdrop, tiles: :panels, map: Array.new(20) { "#" * 30 } unless two_backgrounds
         # The map of the walk you left, in the same corner it had while you walked. A
         # picture the game paints can be shown on any number of screens; each one puts it
         # up from what the game last drew, so nothing here has to draw it again.
@@ -454,8 +467,12 @@ module Hero
       # file you are walking in and the steps it has taken — a number no picture drawn
       # before the game was built could hold.
       layer(:words) do
-        rows = box.cells.map { |row| ([nil] * 3) + row + ([nil] * 3) }
-        background :sign_box, tiles: :box, map: Array.new(18) { [nil] * 30 } + rows
+        if two_backgrounds
+          sprite :box, at: [24, 144]
+        else
+          rows = box.cells.map { |row| ([nil] * 3) + row + ([nil] * 3) }
+          background :sign_box, tiles: :box, map: Array.new(18) { [nil] * 30 } + rows
+        end
         sprite :trail, at: [204, 4]
       end
       tick.add! 1
