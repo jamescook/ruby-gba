@@ -17,7 +17,7 @@ class TestVariant < Minitest::Test
     superfx = VBlank::Console.described(:snes, variant: :superfx)
 
     assert_operator superfx.roomier_memory_bytes, :>, plain.roomier_memory_bytes
-    assert_equal 2, superfx.painted_pages
+    assert_equal plain.painted_pages, superfx.painted_pages, "a painted screen keeps one page in the chip's RAM too"
     assert_equal plain.screen_size, superfx.screen_size
     assert_equal plain.buttons, superfx.buttons
     assert_includes superfx.title, "Super FX"

@@ -18,7 +18,7 @@ class TestEvaluatedGame < Minitest::Test
   # A game that stops half way through itself. The blue clear is in the program; the red
   # one is written after the `debug_halt` and never happened.
   private def truncated_game
-    VBlank.game("DBGHLT", consoles: %i[gba], code: "ZDBG", maker: "01") do
+    VBlank.game("DBGHLT", consoles: %i[gba gbc snes], code: "ZDBG", maker: "01") do
       screen :bitmap
       clear_screen :blue
       debug_halt
@@ -31,7 +31,7 @@ class TestEvaluatedGame < Minitest::Test
   # game anyone was bisecting could not be run in a test, profiled, or explained.
   def test_a_game_that_stops_early_answers_its_program_the_way_it_answers_its_rom
     program = nil
-    capture_io { program = truncated_game.program } # swallow the debug_halt reminder
+    capture_io { program = truncated_game.program(console: game_console) } # swallow the debug_halt reminder
 
     screen = game_player.run(program).screen
     assert_equal Color.resolve(:blue), screen.pixel(120, 80), "the draw before debug_halt ran"

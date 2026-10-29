@@ -17,7 +17,10 @@ class TestSuitesSplit < Minitest::Test
              VBlank::Testing::RubyCheckedPlayer, VBlank::IR::Backends::Ruby::CheckedRun,
              VBlank::IR::Backends::Ruby::HeadlessRun,
              VBlank::Testing::GBCCheckedPlayer, VBlank::IR::Backends::GBC::CheckedRun,
-             VBlank::IR::Backends::GBC::HeadlessRun].freeze
+             VBlank::IR::Backends::GBC::HeadlessRun,
+             VBlank::Testing::SNESCheckedPlayer, VBlank::IR::Backends::SNES::CheckedRun].freeze
+  # SNES::HeadlessRun is left out: it also takes `watch_picture:`, which only the Super Nintendo
+  # lowering's own tests ask for, and a test is never handed it as its player.
 
   # A test of one lowering's own output — the ARM a cartridge is made of, the cartridge played in
   # the emulator, the C the native lowering writes — lives in a folder that lowering owns, and

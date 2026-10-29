@@ -23,7 +23,7 @@ class TestTestTask < Minitest::Test
     error = assert_raises(ArgumentError) { made_alone { |t| t.lowering = "native" } }
 
     assert_match(/was given "native"/, error.message)
-    assert_match(/:gba, :native, :js, :ruby or :gbc/, error.message)
+    assert_match(/:gba, :native, :js, :ruby, :gbc or :snes/, error.message)
   end
 
   # The process runner is loaded into a native run as the task is made, so a lowering said

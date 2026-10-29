@@ -86,10 +86,10 @@ class TestGameSuite < Minitest::Test
   # A Rakefile that names a console there is not is told which there are, and one that names none
   # is told to name them: what `consoles:` refuses where the game is named.
   def test_a_game_that_names_an_unknown_console_is_told_the_consoles
-    out, passed, = rake("-T", env: { "GAME_SUITE_CONSOLES" => "gba snes" })
+    out, passed, = rake("-T", env: { "GAME_SUITE_CONSOLES" => "gba psp" })
 
     refute passed
-    assert_match(/no console named :snes/, out)
+    assert_match(/no console named :psp/, out)
     assert_match(/:gba/, out)
   end
 

@@ -23,12 +23,12 @@ class TestGame < Minitest::Test
   end
 
   def test_program_runs_on_the_interpreter
-    g = VBlank.game("FILL", consoles: %i[gba], code: "BFIL", maker: "01") do
+    g = VBlank.game("FILL", consoles: %i[gba gbc snes], code: "BFIL", maker: "01") do
       screen :bitmap
       clear_screen :red
       halt
     end
-    i = game_player.run(g.program)
+    i = game_player.run(g.program(console: game_console))
     assert_equal Color.resolve(:red), i.screen.pixel(10, 10)
   end
 
@@ -38,12 +38,12 @@ class TestGame < Minitest::Test
   # program.
   def test_a_local_variable_is_captured_by_the_block
     fill = :green
-    g = VBlank.game("LOCAL", consoles: %i[gba], code: "BLOC", maker: "01") do
+    g = VBlank.game("LOCAL", consoles: %i[gba gbc snes], code: "BLOC", maker: "01") do
       screen :bitmap
       clear_screen fill
       halt
     end
-    i = game_player.run(g.program)
+    i = game_player.run(g.program(console: game_console))
     assert_equal Color.resolve(:green), i.screen.pixel(0, 0)
   end
 
