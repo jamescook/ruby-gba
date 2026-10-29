@@ -40,9 +40,9 @@ module VBlank
       # to the 65816, the console's 16-bit processor, and laid out in a LoROM cartridge.
       #
       # HOW IT IS MADE. SNES::Lowering walks the IR and emits 65816 machine code through the Ruby
-      # assembler (SNES::W65816), as the Game Boy Color's lowering emits SM83, sharing only what
-      # the IR itself says with the other lowerings. The runtime the code calls is written in
-      # 65816 here, in Ruby.
+      # assembler (SNES::W65816), as the Game Boy Color's lowering emits SM83, and shares with
+      # that lowering what both work out before writing an instruction (LoweringPlan, RoutineCuts,
+      # Sections). The runtime the code calls is written in 65816 here, in Ruby.
       #
       # THE BOARD. A plain cartridge is ROM alone, with battery-backed RAM when the game saves, and
       # runs on a plain console. A game that names the Super FX 2 (`variants: { snes: :superfx }`)

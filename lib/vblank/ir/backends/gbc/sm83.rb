@@ -61,26 +61,18 @@ module VBlank
           # Raised for an instruction the processor does not have — a mistake in the lowering.
           class Error < StandardError; end
 
-          # A place named in an instruction, filled in once everything is placed. +kind+ is
-          # :word (its 16-bit address), :near (the same, for a jump or a call, which can only reach
-          # the bank in view and the part always in view), :relative (a jump's distance from the
-          # next instruction, one signed byte), or :bank (which bank of the cartridge it is in).
-          Fixup = Data.define(:offset, :kind, :label, :plus)
+          # A place named in an instruction, filled in once everything is placed (Sections::Fixup).
+          # Its +kind+ here is :word (its 16-bit address), :near (the same, for a jump or a call,
+          # which can only reach the bank in view and the part always in view), :relative (a jump's
+          # distance from the next instruction, one signed byte), or :bank (which bank of the
+          # cartridge it is in).
+          Fixup = Sections::Fixup
 
-          # A named run of bytes, with the labels it defines and the holes it leaves. +home+ says
-          # where it must go: :fixed for the part of the cartridge always in view, :banked for any
-          # bank of the rest, or a label, which puts it in the same bank as that label's section.
-          # +holds+ is what of the GAME's it keeps (a Holding), so a cartridge too full for the game
-          # can say which of the game's parts is too big and how to make it smaller; nil for the
-          # framework's own code, which is not the author's to change.
-          Section = Data.define(:name, :bytes, :labels, :fixups, :home, :holds) do
-            def size = bytes.bytesize
-          end
-
-          # One of the game's parts, in words the author knows: +what+ it is ("the game's songs",
-          # always plural, since it is said as "the game's songs take 900 bytes"), and +fix+, what
-          # the author can do to make it smaller ("make its songs shorter, or use fewer of them").
-          Holding = Data.define(:what, :fix)
+          # A named run of bytes (Sections::Section). Its +home+ here is :fixed for the part of the
+          # cartridge always in view, :banked for any bank of the rest, or a label, which puts it in
+          # the same bank as that label's section.
+          Section = Sections::Section
+          Holding = Sections::Holding
 
           attr_reader :bytes
 

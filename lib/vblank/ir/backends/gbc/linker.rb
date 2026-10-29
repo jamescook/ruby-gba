@@ -93,10 +93,11 @@ module VBlank
             placed
           end
 
-          # First fit, in the order the sections came: each goes in the first bank with room for
-          # it, a section kept with another's label going in that one's bank.
+          # First fit, in the order the sections came (Sections::Banks), from bank 1: each goes in
+          # the first bank with room for it, a section kept with another's label going in that one's
+          # bank.
           def place_banked(placed, banked)
-            room = [] # bank number - 1 -> bytes used
+            banks = Sections::Banks.new(first: 1, room: ->(_) { BANK_SIZE })
             label_bank = {}
             placed.each { |p| p.section.labels.each_key { |l| label_bank[l] = p.bank } }
             banked.each do |section|
@@ -104,18 +105,16 @@ module VBlank
               refuse_bigger_than_bank!(section) if size > BANK_SIZE
 
               align = section.home == :aligned16 ? 16 : 1
-              start_in = ->(b) { ((room[b - 1] || 0) + align - 1) / align * align }
               bank = if section.home.is_a?(String)
                        label_bank.fetch(section.home) { raise Error, "section #{section.name} keeps with #{section.home}, which is not placed yet" }
                      else
-                       (1..).find { |b| start_in.call(b) + size <= BANK_SIZE }
+                       banks.first_fit(size, align: align)
                      end
               refuse_too_many_banks!(banked) if bank >= @most_banks
-              used = start_in.call(bank)
-              raise Error, "section #{section.name} does not fit in bank #{bank} beside what is there" if used + size > BANK_SIZE
+              used = banks.take(bank, size, align: align)
+              raise Error, "section #{section.name} does not fit in bank #{bank} beside what is there" unless used
 
               placed << Placed.new(section: section, bank: bank, address: BANKED_START + used)
-              room[bank - 1] = used + size
               section.labels.each_key { |l| label_bank[l] = bank }
             end
           end
@@ -143,8 +142,8 @@ module VBlank
 
             raise TooBigForView, "#{DOES_NOT_FIT} The part of the cartridge that is always in view holds #{BANK_SIZE} " \
                                  "bytes. The game needs #{needed} bytes there. Of those, " \
-                                 "#{taken_words(placed.map(&:section))}, and the framework's own code takes the rest. " \
-                                 "To fix this, #{biggest(placed.map(&:section)).fix}."
+                                 "#{Sections.taken_words(placed.map(&:section))}, and the framework's own code takes " \
+                                 "the rest. To fix this, #{Sections.biggest(placed.map(&:section)).fix}."
           end
 
           # One section bigger than a bank, which no placing can mend: the game's, when it is one of
@@ -162,24 +161,9 @@ module VBlank
             raise Error, "the framework's own code needs more than #{@most_banks} banks" if banked.none?(&:holds)
 
             raise TooBig, "#{DOES_NOT_FIT} A cartridge#{' with a clock chip' if @clock} holds #{@most_banks} banks " \
-                          "of #{BANK_SIZE} bytes. Of what goes in them, #{taken_words(banked)}. To fix this, " \
-                          "#{biggest(banked).fix}."
+                          "of #{BANK_SIZE} bytes. Of what goes in them, #{Sections.taken_words(banked)}. To fix " \
+                          "this, #{Sections.biggest(banked).fix}."
           end
-
-          # Bytes taken by each of the game's parts among +sections+, the biggest first.
-          def game_parts(sections)
-            sections.select(&:holds).group_by(&:holds).transform_values { |parts| parts.sum(&:size) }
-                    .reject { |_, bytes| bytes.zero? }.sort_by { |_, bytes| -bytes }
-          end
-
-          # "the game's tables take 900 bytes and the game's songs take 40 bytes"
-          def taken_words(sections)
-            shares = game_parts(sections).map { |holding, bytes| "#{holding.what} take #{bytes} bytes" }
-            shares.length == 1 ? shares.first : "#{shares[0...-1].join(', ')} and #{shares.last}"
-          end
-
-          # The game's biggest part among +sections+: the one worth making smaller.
-          def biggest(sections) = game_parts(sections).first.first
 
           def refuse_overlaps!(placed)
             placed.group_by(&:bank).each_value do |in_bank|

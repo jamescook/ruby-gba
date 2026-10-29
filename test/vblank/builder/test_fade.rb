@@ -333,6 +333,26 @@ class TestFade < Minitest::Test
     end
   end
 
+  # An amount the game works out far past 100 is a fade all the way, as one of 100 is: eight
+  # times over is 256 thirty-seconds, which a console that reads the steps a byte at a time
+  # would see as none.
+  def test_a_fraction_worked_out_far_past_the_end_fades_all_the_way
+    tile = SOLID_TILE
+    shown = game_player.run(program do
+      screen :tiled
+      image(:brick, "#" => :red) { tile }
+      tiles :wall, "#" => :brick
+      background :wall, tiles: :wall, map: Array.new(20) { "#" * 30 }
+      level = var :level, 0.0
+      game_loop do
+        level.set! 800.5
+        fade :black, level
+      end
+    end, frames: 3).screen.pixel(8, 8)
+
+    assert_equal 0, shown & 0x1F, "the wall is black"
+  end
+
   # The colours are written into the console's colour table rather than blended by the
   # display, so there is no emulator rounding to allow for: every step is exact.
   def test_the_console_fades_a_fraction_in_the_same_thirty_two_steps

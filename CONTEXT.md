@@ -129,6 +129,13 @@ never in the IR. There are three: the GBA lowering, the native lowering and the 
 lowering.
 _Avoid_: codegen, compiling, emitting
 
+**Lowering plan**:
+What a cartridge lowering works out from a program before it writes one instruction — what a run
+reaches, how each table is kept, where a routine too big for a bank is cut — decided once and read
+by every console whose cartridge is seen a bank at a time (`Backends::LoweringPlan`). The
+instructions are each lowering's own; the plan is not.
+_Avoid_: pass, analysis, front end
+
 **Reference interpreter**:
 The `Reference` backend, run headless as the answer key: it has a fake screen and
 variables a test reads. Named for its role, not for the language.

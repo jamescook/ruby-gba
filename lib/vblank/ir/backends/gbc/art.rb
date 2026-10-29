@@ -395,19 +395,10 @@ module VBlank
               end
 
               places = sprite_places(name, image)
-              pieces = []
-              (0...image.height).step(8).each do |y0|
-                (0...image.width).step(8).each do |x0|
-                  piece = Array.new(64) do |i|
-                    x = x0 + (i % 8)
-                    y = y0 + (i / 8)
-                    x >= image.width || y >= image.height ? 0 : places[(y * image.width) + x]
-                  end
-                  next if piece.all?(&:zero?) # a piece with nothing in it is not drawn at all
-
-                  tile, flips = @grouped.key?(name) ? grouped_tile(name, piece) : sprite_tile(piece)
-                  pieces << Piece.new(dx: x0, dy: y0, tile: tile, flips: flips)
-                end
+              pieces = SpritePieces.cut(image.width, image.height) { |x, y| places[(y * image.width) + x] }
+                                   .map do |x0, y0, piece|
+                tile, flips = @grouped.key?(name) ? grouped_tile(name, piece) : sprite_tile(piece)
+                Piece.new(dx: x0, dy: y0, tile: tile, flips: flips)
               end
               mask = Array.new(image.width * image.height) { |i| image.drawn_at?(i) }
               SpritePicture.new(name: name, number: @sprite_pictures.size, width: image.width, height: image.height,

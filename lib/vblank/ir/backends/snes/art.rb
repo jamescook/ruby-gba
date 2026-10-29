@@ -141,20 +141,12 @@ module VBlank
               drawn = (0...(image.width * image.height)).select { |at| image.drawn_at?(at) }
               palette = palette_for(@sprite_palettes, drawn.map { |at| image.color_at(at) }.uniq, "sprites",
                                     @sprite_palettes_for.fetch(mixed))
-              pieces = (0...((image.height + 7) / 8)).flat_map do |down|
-                (0...((image.width + 7) / 8)).filter_map do |across|
-                  places = Array.new(64) do |at|
-                    x = (across * 8) + (at % 8)
-                    y = (down * 8) + (at / 8)
-                    i = (y * image.width) + x
-                    next 0 if x >= image.width || y >= image.height || !image.drawn_at?(i)
-
-                    @sprite_palettes[palette].index(image.color_at(i)) + 1
-                  end
-                  next if places.all?(&:zero?) # a piece with nothing drawn is not placed at all
-
-                  Piece.new(dx: across * 8, dy: down * 8, tile: sprite_tile_number(tile_bytes(places)), palette: palette)
-                end
+              cut = SpritePieces.cut(image.width, image.height) do |x, y|
+                i = (y * image.width) + x
+                image.drawn_at?(i) ? @sprite_palettes[palette].index(image.color_at(i)) + 1 : 0
+              end
+              pieces = cut.map do |across, down, places|
+                Piece.new(dx: across, dy: down, tile: sprite_tile_number(tile_bytes(places)), palette: palette)
               end
               SpritePicture.new(name: name, number: @sprite_pictures.length, width: image.width, height: image.height,
                                 pieces: pieces)

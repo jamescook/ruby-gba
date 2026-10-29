@@ -64,25 +64,20 @@ module VBlank
 
           private
 
+          # The sections that must be in the first bank, there in the order they came; then the rest
+          # first fit (Sections::Banks), the first bank's room ending at its header.
           def place_sections
-            used = [0]
+            banks = Sections::Banks.new(first: 0, room: method(:room))
             first, rest = @sections.partition { |section| section.home == :first }
             placed = first.map do |section|
-              offset = used[0]
-              used[0] += section.size
+              offset = banks.take(0, section.size) || refuse_first_bank_full!(first)
               Placed.new(section: section, bank: 0, offset: offset)
             end
-            refuse_first_bank_full!(first) if used[0] > HEADER_FROM
             rest.each do |section|
               refuse_bigger_than_bank!(section) if section.size > BANK_SIZE
-              bank = used.each_index.find { |i| used[i] + section.size <= room(i) }
-              unless bank
-                used << 0
-                bank = used.size - 1
-              end
+              bank = banks.first_fit(section.size)
               refuse_too_many_banks!(rest) if bank >= @most_banks
-              placed << Placed.new(section: section, bank: bank, offset: used[bank])
-              used[bank] += section.size
+              placed << Placed.new(section: section, bank: bank, offset: banks.take(bank, section.size))
             end
             placed
           end
@@ -104,11 +99,9 @@ module VBlank
           def refuse_too_many_banks!(sections)
             raise Error, "the framework's own code needs more than #{@most_banks} banks" if sections.none?(&:holds)
 
-            parts = sections.select(&:holds).group_by(&:holds).transform_values { |s| s.sum(&:size) }
-                            .sort_by { |_, bytes| -bytes }
-            taken = parts.map { |holding, bytes| "#{holding.what} take #{bytes} bytes" }.join(", ")
             raise TooBig, "#{DOES_NOT_FIT} A cartridge holds #{@most_banks} banks of #{BANK_SIZE} bytes. Of what " \
-                          "goes in them, #{taken}. To fix this, #{parts.first.first.fix}."
+                          "goes in them, #{Sections.taken_words(sections)}. To fix this, " \
+                          "#{Sections.biggest(sections).fix}."
           end
 
           def label_places(placed)

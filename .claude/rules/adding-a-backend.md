@@ -83,9 +83,29 @@ a console of its own needs beyond a lowering:
 `GBC::Lowering` is a peer of the GBA lowering, not of the native one: it walks the IR and emits
 SM83 machine code itself (its picture and sound in `GBC::Lowering::Picture` and
 `GBC::Lowering::Sound`), through the Ruby assembler (`GBC::SM83`), calling a runtime written in
-SM83 the same way. It shares with the other lowerings only what the IR says (`IR::Reach`,
-`IR::Frames`, `IR::SceneHandover`, `IR::SaveLayout`), never another lowering's code. The comment
-atop `Backends::GBC` says the rest.
+SM83 the same way. The comment atop `Backends::GBC` says the rest.
+
+**What the cartridge lowerings share, and what they do not.** The Color's and the Super Nintendo's
+lowerings each write machine code for a processor of their own, and that code, the runtime it
+calls and where the console keeps things are each lowering's alone. Everything they decide before
+writing an instruction is shared, because two copies of a decision drift apart (they did: one
+lowering made the routines a bend calls and the other did not):
+
+- `Backends::LoweringPlan` — what a run reaches, the numbers timers and scenes are known by, how
+  each table is kept, constant folding, the game loop in the console's order, and the refusals
+  every console makes alike (a step only the Advance has, what the console's answers refuse, a
+  routine that calls itself).
+- `Backends::RoutineCuts` — cutting a routine too big for a bank into parts; the lowering says how
+  big its bank is and measures its own code.
+- `Backends::Sections` — what an assembler's section is, first-fit placing of sections in banks,
+  and the words for a cartridge too full for the game. Each linker keeps its bank geometry and how
+  it fills in a hole.
+- `Backends::SpritePieces` — a sprite picture cut into 8×8 squares, blank ones left out.
+- `IR::Tunes.ranks_in_order`, `Backends::FadeSteps` — the order sound ranks are kept in, and a
+  fade's steps.
+
+A third console that sees its cartridge a bank at a time starts from these. A decision found
+written in two lowerings goes here rather than being fixed in each.
 
 ## Start from the native lowering's statements
 

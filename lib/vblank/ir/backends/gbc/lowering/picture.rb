@@ -2186,18 +2186,12 @@ module VBlank
                                            Build.int(Graphics::Color.resolve(node.color)), walk_steps(node)])
             end
 
-            # FadeSteps.steps for a fade that walks the colours: the amount (0..100, or a fraction of
-            # +fraction_bits+) as thirty-seconds — finely for a fraction, in whole sixteenths
-            # otherwise — held to 0..32. The runtime holds it there too.
+            # FadeSteps' steps for a fade that walks the colours, worked out as the game runs, held to
+            # 0..32 here: rt_tint reads only the low byte and the sign of what it is handed, so a fade
+            # far past 100 would otherwise come round to a few steps.
             def walk_steps(node)
-              amount = node.amount
-              if node.fraction_bits
-                Build.binop(:/, Build.binop(:*, amount, Build.int(Runtime::Picture::STEPS)), Build.int(100 << node.fraction_bits))
-              else
-                sixteenths = Build.clamped(Build.binop(:/, Build.binop(:*, amount, Build.int(16)), Build.int(100)),
-                                           Build.int(0), Build.int(16))
-                Build.binop(:*, sixteenths, Build.int(2))
-              end
+              steps = FadeSteps.steps_value(node.amount, fraction_bits: node.fraction_bits, walked: true)
+              Build.clamped(steps, Build.int(0), Build.int(Runtime::Picture::STEPS))
             end
 
             # --- tables of the drawing's numbers ---

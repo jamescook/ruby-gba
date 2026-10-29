@@ -370,9 +370,7 @@ module VBlank
 
           # Every rank the game's songs and sound effects can have, and nobody's, lowest first.
           def ranks
-            @ranks ||= ([0] + @songs.map { |song| IR::Tunes.song_rank(song) } +
-                        @effect_names.each_with_index.map { |name, i| IR::Tunes.effect_rank(song_named(name), i) })
-                       .uniq.sort
+            @ranks ||= IR::Tunes.ranks_in_order(@songs, @effect_names.map { |name| song_named(name) })
           end
 
           def rank_place(full) = ranks.index(full) or raise LoweringError, "the rank #{full} is not among the game's"

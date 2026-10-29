@@ -40,8 +40,10 @@ module VBlank
       # controller.
       #
       # HOW IT IS MADE. GBC::Lowering walks the IR and emits SM83 machine code, as the GBA lowering
-      # emits ARM, sharing only what the IR itself says with the other lowerings (IR::Reach,
-      # IR::Frames, IR::SceneHandover and the rest). The runtime the code calls (runtime/*.rb) is
+      # emits ARM. What it works out before writing an instruction — what a run reaches, how a
+      # table is kept, where a routine too big for a bank is cut, how sections fill the banks — it
+      # shares with the Super Nintendo's lowering (LoweringPlan, RoutineCuts, Sections), so the two
+      # decide alike; the instructions are its own. The runtime the code calls (runtime/*.rb) is
       # written in SM83 here, in Ruby: the arithmetic of IR::Int32 a byte at a time
       # (Runtime::Int32), the frame and the buttons, the lists, and the console's own picture and
       # sound.

@@ -108,24 +108,16 @@ module VBlank
             rts: 0x60, rtl: 0x6B, rti: 0x40, nop: 0xEA, wai: 0xCB, stp: 0xDB
           }.freeze
 
-          # A place named in an instruction, filled in once everything is placed. +kind+ is :abs
-          # (the low 16 bits of its address), :long (all 24), :bank (the top 8), :relative (a
-          # branch's distance from the next instruction, one signed byte) or :relative_long (BRL's
-          # and PER's, two).
-          Fixup = Data.define(:offset, :kind, :label, :plus)
+          # A place named in an instruction, filled in once everything is placed (Sections::Fixup).
+          # Its +kind+ here is :abs (the low 16 bits of its address), :long (all 24), :bank (the top
+          # 8), :relative (a branch's distance from the next instruction, one signed byte) or
+          # :relative_long (BRL's and PER's, two).
+          Fixup = Sections::Fixup
 
-          # A named run of bytes, with the labels it defines and the holes it leaves. +home+ says
-          # where it must go: :first for the cartridge's first bank, where the processor starts
-          # and its interrupts land, or :any. +holds+ is what of the GAME's it keeps (a Holding),
-          # so a cartridge too full can say which of the game's parts is too big; nil for the
-          # framework's own code.
-          Section = Data.define(:name, :bytes, :labels, :fixups, :home, :holds) do
-            def size = bytes.bytesize
-          end
-
-          # One of the game's parts, in words the author knows: +what+ it is ("the game's songs")
-          # and +fix+, what the author can do to make it smaller.
-          Holding = Data.define(:what, :fix)
+          # A named run of bytes (Sections::Section). Its +home+ here is :first for the cartridge's
+          # first bank, where the processor starts and its interrupts land, or :any.
+          Section = Sections::Section
+          Holding = Sections::Holding
 
           attr_reader :bytes
 

@@ -288,6 +288,15 @@ module VBlank
       # +order+ counts the program's sound effects from 0, in the order they were declared.
       def effect_rank(song, order) = song_rank(song) | (ORDER_MASK - order)
 
+      # EVERY RANK A GAME'S SONGS AND SOUND EFFECTS CAN HAVE, the lowest first, nobody's (0) the
+      # first of all — given the songs the game plays and its sound effects' songs in the order they
+      # were declared. A cartridge that keeps each rank as its place in this list rather than the
+      # number itself keeps a byte where it would keep four, and places compare as ranks do.
+      def ranks_in_order(songs, effect_songs)
+        ([0] + songs.map { |song| song_rank(song) } +
+         effect_songs.each_with_index.map { |song, order| effect_rank(song, order) }).uniq.sort
+      end
+
       # THE PRIORITY A RANK CARRIES, without the order under it — what decides between two sound
       # effects of one GROUP (a song node's +group+), which play one at a time. Asked for while
       # another of its group is sounding or already asked for, an effect of at least that one's
