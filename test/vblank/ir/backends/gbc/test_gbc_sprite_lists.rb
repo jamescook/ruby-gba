@@ -25,6 +25,64 @@ class TestGBCSpriteLists < Minitest::Test
     assert GBC.new.build(one_set_of(8))
   end
 
+  # SCENES THAT EACH FADE THEIR OWN SPRITES, as a game fades every screen in and out: three
+  # scenes, three sprites each, each sprite stepping through 33 lists of its own. That is 297
+  # lists in all, more than the 254 a build numbers for the whole game, and 99 for any one
+  # scene, since a scene never shows another's sprites.
+  def self.fading_scenes(scenes: 3, sprites: 3, steps: 33)
+    VBlank.game("FADING SCENES", consoles: %i[gbc]) do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: TestGBCSpriteLists::SHIP, colors: %i[transparent red green]
+      showing = var :showing, 0
+      scenes.times do |s|
+        scene :"fading#{s}" do
+          ships = (0...sprites).map do |n|
+            lists = (0...steps).map do |step|
+              colors :"fade#{s}_#{n}_#{step}", [:transparent, Color.rgb(step % 32, (s * sprites) + n, step / 32),
+                                                Color.rgb(31 - (step % 32), s, n)]
+              :"fade#{s}_#{n}_#{step}"
+            end
+            [sprite(:"ship#{s}_#{n}", at: [16 + (n * 16), 16 + (s * 16)], facing: { ship: :ship }), lists]
+          end
+          step = var :"step#{s}", 0
+          ships.each { |ship, lists| ship.draw_with lists, showing: step }
+          (step == steps - 1).then do
+            step.set! 0
+            showing.set!((s + 1) % scenes)
+          end.else { step.add! 1 }
+        end
+      end
+      game_loop do
+        case_var(:showing) { scenes.times { |s| when_val s, :"fading#{s}" } }
+      end
+    end
+  end
+
+  def test_scenes_fading_more_lists_than_a_build_numbers_play_as_the_interpreter_plays_them
+    game_player.run(TestGBCSpriteLists.fading_scenes.program(console: :gbc), frames: 110)
+  end
+
+  # Each scene's fade steps every sprite to a list it has not worn on every pass, and each
+  # pass still fits its frame, every sprite finding one of the eight for its list, through
+  # every handover from one scene to the next.
+  def test_scenes_fading_more_lists_than_a_build_numbers_fit_each_frame
+    rom = TestGBCSpriteLists.fading_scenes.build_rom(console: :gbc, out: StringIO.new, err: StringIO.new, profile: false)
+    result = rom.profile(out: StringIO.new, frames: 100, settle: 10)
+
+    assert_equal result.frames, result.passes
+    assert_equal 0, result.lists_missed
+  end
+
+  # A scene wearing more lists than a build numbers is refused, naming the scene.
+  def test_one_scene_wearing_more_lists_than_a_build_numbers_is_refused_naming_it
+    error = assert_raises(VBlank::BuildError) do
+      TestGBCSpriteLists.fading_scenes(scenes: 2, sprites: 8, steps: 33).program(console: :gbc).then { |p| GBC.new.build(p) }
+    end
+
+    assert_match(/the scene :fading\d/, error.message)
+    assert_match(/254 lists of colours/, error.message)
+  end
+
   private
 
   # A pool of things each wearing one of +count+ lists, all of them in one set, beside a set of one.

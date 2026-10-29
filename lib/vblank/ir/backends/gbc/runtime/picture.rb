@@ -67,7 +67,12 @@ module VBlank
             LENT_MISSED = 8 + 3
             # 1 while the sprite being placed has yet to place a piece, so has borrowed no list.
             LENT_PENDING = LENT_MISSED + 2
-            LENT_BYTES = LENT_PENDING + 1
+              LENT_BYTES = LENT_PENDING + 1
+# In a game whose scenes number their own lists (Art::TooManyLentLists, #emit_lend_scene):
+# where the scene up keeps its own lists' colours, then their families, two bytes each,
+# and the bank both are in.
+LENT_TABLE = "rt picture lent table"
+LENT_TABLE_BYTES = 5
 
             # A STATUS BAR (`status_bar`), in a game that has one: the console's window, read from
             # the second grid. BAR is the row its top is at, the number of the grid in the window's
@@ -105,6 +110,7 @@ module VBlank
                 memory.reserve(BAR_JOB, 6)
               end
               memory.reserve(LENT, LENT_BYTES) if lends
+              memory.reserve(LENT_TABLE, LENT_TABLE_BYTES) if lends == :by_scene
               PictureGroups.reserve(memory) if groups
               memory.reserve(SHADOW_PALETTES, 128)
               memory.reserve(PALETTES_CHANGED, 1)
@@ -138,9 +144,11 @@ module VBlank
             # lists that are lent come in families (Art#lent_family). +backdrop+ is the first screen's,
             # shown until the first frame, or nil where the first list holds it (Art#first_screen_backdrop).
             # +banked_colors+ says its backgrounds' colour tables are kept in banks (#emit_background_colors_far).
+            # +lends+ is :by_scene when each scene numbers its own lists, and +first_kept_list+ is then
+            # the number, one up, of the first list every scene keeps (Art#first_kept_list).
             def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false,
                      palettes_in_use:, groups: false, bar_rows: nil, rooms: false, room_colors: false, lent_families: false,
-                     backdrop: nil, banked_colors: false)
+                     backdrop: nil, banked_colors: false, first_kept_list: nil)
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
                                       drawn_palettes: drawn_palettes, bar: !bar_rows.nil?, backdrop: backdrop)
               emit_rooms(asm, memory, colors: room_colors) if rooms
@@ -149,7 +157,8 @@ module VBlank
               PictureGroups.emit(asm, memory) if groups
               emit_tile_runs(asm, runs)
               emit_sprites(asm, memory, lends: lends)
-              emit_lend_colors(asm, memory, drawn_palettes, families: lent_families) if lends
+              emit_lend_colors(asm, memory, drawn_palettes, families: lent_families,
+                                                            first_kept: (first_kept_list if lends == :by_scene)) if lends
               emit_background(asm, memory, bar: !bar_rows.nil?)
               emit_bar(asm, memory, bar_rows) if bar_rows
               emit_choices(asm, memory)
@@ -248,7 +257,11 @@ module VBlank
             # by without anything placed in it, since nothing says part way through a pass which lists
             # the rest will wear. So with all eight in use, a thing that comes on the pass another
             # goes is drawn for that pass in colours not its own.
-            def emit_lend_colors(asm, memory, drawn_palettes, families: false)
+            #
+            # In a game whose scenes number their own lists (+first_kept+, #emit_lend_scene), a list
+            # numbered from +first_kept+ up is one every scene keeps, and its colours are in
+            # art_lent_palettes; one below is the scene up's own, read from the bank its table is in.
+            def emit_lend_colors(asm, memory, drawn_palettes, families: false, first_kept: nil)
               lent = memory[LENT]
               sprite_colors = drawn_palettes + 64
               asm.label("rt_lend_list")
@@ -299,17 +312,25 @@ module VBlank
               asm.load(:a, 1)
               asm.load([lent + 10], :a)
               asm.push(:de)
-              # The list's colours, from art_lent_palettes + 8 × the list...
-              asm.load(:a, :c)
-              asm.dec(:a)
-              asm.load(:l, :a)
-              asm.load(:h, 0)
-              3.times { asm.add_hl(:hl) }
-              asm.load(:de, "art_lent_palettes")
-              asm.add_hl(:de)
+              if first_kept
+                # The list's colours, from its table (rt_lend_colors_at)...
+                asm.call("rt_lend_colors_at")
+                asm.pop(:de)
+                asm.push(:de)
+                asm.push(:af)
+              else
+                # The list's colours, from art_lent_palettes + 8 × the list...
+                asm.load(:a, :c)
+                asm.dec(:a)
+                asm.load(:l, :a)
+                asm.load(:h, 0)
+                3.times { asm.add_hl(:hl) }
+                asm.load(:de, "art_lent_palettes")
+                asm.add_hl(:de)
+                asm.pop(:de)
+                asm.push(:de)
+              end
               # ...into the sprites' colours drawn now + 8 × the one it took.
-              asm.pop(:de)
-              asm.push(:de)
               asm.load(:a, :e)
               3.times { asm.add_a(:a) }
               asm.add_a(sprite_colors & 0xFF)
@@ -318,7 +339,12 @@ module VBlank
               asm.adc_a(0)
               asm.load(:d, :a)
               asm.load(:b, 8)
-              asm.call("rt_copy_b")
+              if first_kept
+                asm.pop(:af)
+                asm.call("rt_lend_copy")
+              else
+                asm.call("rt_copy_b")
+              end
               asm.pop(:de)
               asm.label("rt_lend_placed")
               asm.load(:a, [lent + 8])
@@ -326,14 +352,15 @@ module VBlank
               asm.load([lent + 8], :a)
               asm.label("rt_lend_answer")
               asm.ret
-              emit_lend_family(asm, lent) if families
+              emit_lend_family(asm, lent, first_kept: first_kept) if families
+              emit_lend_tables(asm, memory, first_kept) if first_kept
             end
 
             # rt_lend_family: C = a list, one up, that found none of the eight free. One that holds a
             # list of its family (Art#lent_family) and that nothing was placed in this pass is
             # its: NZ, with HL at it, E which it is and D its bit, as rt_lend_take takes them. Z for
             # none. A sprite stepping through its lists takes the one it wore the frame before.
-            def emit_lend_family(asm, lent)
+            def emit_lend_family(asm, lent, first_kept: nil)
               asm.label("rt_lend_family")
               asm.load(:a, :c)
               asm.call("rt_lend_family_of")
@@ -365,6 +392,15 @@ module VBlank
 
               # A = a list, one up: A = its family (0 for none). Keeps BC, DE and HL.
               asm.label("rt_lend_family_of")
+              if first_kept
+                %i[bc de hl].each { |pair| asm.push(pair) }
+                asm.call("rt_lend_family_at")
+                asm.call("rt_lend_byte")
+                %i[hl de bc].each { |pair| asm.pop(pair) }
+                asm.ret
+                return
+              end
+
               asm.push(:de)
               asm.push(:hl)
               asm.dec(:a)
@@ -376,6 +412,123 @@ module VBlank
               asm.pop(:hl)
               asm.pop(:de)
               asm.ret
+            end
+
+            # THE LISTS A SCENE NUMBERS OF ITS OWN (Art::TooManyLentLists). A scene's sprites wear
+            # lists by numbers that mean other lists in another scene, so rt_lend_scene, called as a
+            # scene arrives with HL at its record (Art#lent_scene_label: where its colours and its
+            # families are, and their bank), notes that record (LENT_TABLE) and forgets each of the
+            # eight that held a list of the scene before's own: that number means another list now.
+            # Those are free again at once, since the scene before's sprites are not placed from here.
+            # One holding a list every scene keeps stays as it is.
+            def emit_lend_tables(asm, memory, first_kept)
+              lent = memory[LENT]
+              table = memory[LENT_TABLE]
+              asm.label("rt_lend_scene")
+              asm.load(:de, table)
+              asm.load(:b, LENT_TABLE_BYTES)
+              asm.call("rt_copy_b")
+              asm.load(:hl, lent)
+              asm.load(:d, 1) # the bit of the one being looked at
+              asm.label("rt_lend_scene_next")
+              asm.load(:a, [:hl])
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_lend_scene_kept")
+              asm.cp_a(first_kept)
+              asm.jump_relative(:nc, "rt_lend_scene_kept")
+              asm.xor_a(:a)
+              asm.load([:hl], :a)
+              asm.load(:a, :d)
+              asm.cpl
+              asm.load(:e, :a)
+              [8, 9].each do |at|
+                asm.load(:a, [lent + at])
+                asm.and_a(:e)
+                asm.load([lent + at], :a)
+              end
+              asm.label("rt_lend_scene_kept")
+              asm.inc(:hl)
+              asm.sla(:d)
+              asm.jump_relative(:nz, "rt_lend_scene_next")
+              asm.ret
+
+              # rt_lend_colors_at: C = a list, one up: HL = its colours, A = the bank they are in
+              # (nought for the part always in view). A list every scene keeps is in art_lent_palettes,
+              # counted down from the top.
+              asm.label("rt_lend_colors_at")
+              asm.load(:a, :c)
+              asm.cp_a(first_kept)
+              asm.jump_relative(:c, "rt_lend_colors_own")
+              asm.load(:a, Art::MOST_LENT)
+              asm.sub_a(:c)
+              asm.load(:l, :a)
+              asm.load(:h, 0)
+              3.times { asm.add_hl(:hl) }
+              asm.load(:de, "art_lent_palettes")
+              asm.add_hl(:de)
+              asm.xor_a(:a)
+              asm.ret
+              asm.label("rt_lend_colors_own")
+              asm.dec(:a)
+              asm.load(:l, :a)
+              asm.load(:h, 0)
+              3.times { asm.add_hl(:hl) }
+              asm.load(:a, [table])
+              asm.load(:e, :a)
+              asm.load(:a, [table + 1])
+              asm.load(:d, :a)
+              asm.add_hl(:de)
+              asm.load(:a, [table + 4])
+              asm.ret
+
+              # rt_lend_family_at: A = a list, one up: HL = where its family is, A = the bank.
+              asm.label("rt_lend_family_at")
+              asm.load(:c, :a)
+              asm.cp_a(first_kept)
+              asm.jump_relative(:c, "rt_lend_family_own")
+              asm.load(:a, Art::MOST_LENT)
+              asm.sub_a(:c)
+              asm.load(:e, :a)
+              asm.load(:d, 0)
+              asm.load(:hl, "art_lent_families")
+              asm.add_hl(:de)
+              asm.xor_a(:a)
+              asm.ret
+              asm.label("rt_lend_family_own")
+              asm.dec(:a)
+              asm.load(:e, :a)
+              asm.load(:d, 0)
+              asm.load(:a, [table + 2])
+              asm.load(:l, :a)
+              asm.load(:a, [table + 3])
+              asm.load(:h, :a)
+              asm.add_hl(:de)
+              asm.load(:a, [table + 4])
+              asm.ret
+
+              # rt_lend_byte: A = the byte at HL, with bank A in view while it is read (nought for the
+              # part always in view), and the caller's bank put back after.
+              asm.label("rt_lend_byte")
+              asm.and_a(:a)
+              asm.jump_relative(:nz, "rt_lend_byte_far")
+              asm.load(:a, [:hl])
+              asm.ret
+              asm.label("rt_lend_byte_far")
+              asm.load(:c, :a)
+              asm.load_high(:a, Memory::CURRENT_BANK)
+              asm.load(:b, :a)
+              asm.load(:a, :c)
+              asm.load_high(Memory::CURRENT_BANK, :a)
+              asm.select_rom_bank
+              asm.load(:c, [:hl])
+              asm.load(:a, :b)
+              asm.load_high(Memory::CURRENT_BANK, :a)
+              asm.select_rom_bank
+              asm.load(:a, :c)
+              asm.ret
+
+              # rt_lend_copy(HL = from, DE = to, B = how many, A = the bank HL is in).
+              KeptSprites.emit_in_bank(asm, "rt_lend_copy", "rt_copy_b")
             end
 
             # rt_background_colors: HL = a table of a background's colours (Lowering::Picture

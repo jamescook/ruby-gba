@@ -76,6 +76,16 @@ module VBlank
           # the eight holds in a byte, one up so that nought is none.
           MOST_LENT = 254
 
+          # MORE LENT LISTS THAN A BYTE NUMBERS. A game whose sprites between them wear more than
+          # MOST_LENT lists still fits when no one scene's sprites wear more, since a scene never
+          # shows another's sprites: each scene then NUMBERS ITS OWN, and its arrival tells the
+          # lending which scene's lists the numbers mean (Runtime::Picture#emit_lend_scene). The lists
+          # sprites in no scene wear keep one number in every scene, counted down from the top, so
+          # a scene's own count up beneath them. A game is first built numbering them once for the
+          # whole game; this is raised when that runs out, and the build is made again numbering
+          # them by scene (GBC#build).
+          class TooManyLentLists < LoweringError; end
+
           # MORE BACKGROUND TILES THAN THE COLOR HOLDS AT ONCE. A game whose backgrounds between
           # them need more tiles than its picture memory holds still fits when no one screen needs
           # more: each screen then BRINGS ITS OWN TILES IN as it comes up (a Room, and
@@ -140,7 +150,8 @@ module VBlank
 
           # +square_colors+ are the colour lists of a painted screen's squares (GBC::SquareColors), nil for
           # a game that paints no screen. +lends+ says the sprites' lists borrow the console's eight
-          # as the game runs (TooManySpriteLists). +grouped+ is the set of picture groups each grouped
+          # as the game runs (TooManySpriteLists), and is :by_scene when each scene numbers its own
+          # as well (TooManyLentLists). +grouped+ is the set of picture groups each grouped
           # picture is copied in by, by the picture's name (Lowering::Picture#grouped_pictures).
           # +room_colors+ says each screen brings its own palettes in with its tiles
           # (TooManyBackgroundLists). +first_cleared_to+ is the colour the game's first
@@ -168,6 +179,8 @@ module VBlank
             @sprite_tile_numbers = {} # bytes -> [number, flips]
             @sprite_pictures = {}     # picture name -> SpritePicture
             @sprite_palettes = []     # lists of four colours
+            @scene_palettes = {}      # a scene -> the lists of four colours its own sprites wear (TooManyLentLists)
+            @wearer_scenes = {}       # a sprite's name -> the scene whose lists it wears, when they are numbered by scene
             @background_tiles = []
             @background_tile_numbers = {}
             @background_palettes = []
@@ -196,12 +209,20 @@ module VBlank
 
           # Do the sprites' lists borrow the console's eight as the game runs? Then a sprite
           # palette's number counts into every list the game has (art_lent_palettes), not the eight.
-          def lends? = @lends
+          def lends? = !!@lends
 
-          # The lists sprite +wearer+ (the object's name) can wear, by their numbers, for #lent_family.
-          def note_lists_worn(wearer, palettes)
+          # Does each scene number the lists its own sprites wear (TooManyLentLists)?
+          def lists_by_scene? = @lends == :by_scene
+
+          # How the sprites' lists are lent, as the runtime is told: false, true, or :by_scene.
+          def lending = lists_by_scene? ? :by_scene : lends?
+
+          # The lists sprite +wearer+ (the object's name) can wear, by their numbers, for #lent_family:
+          # +scene+'s numbers, or the ones every scene keeps for nil.
+          def note_lists_worn(wearer, palettes, scene: nil)
             @lists_worn ||= Hash.new { |all, name| all[name] = [] }
             @lists_worn[wearer] |= palettes
+            @wearer_scenes[wearer] = scene if scene
           end
 
           # LISTS ONE SPRITE WEARS BY TURNS, AND NO OTHER SPRITE EVER DOES — the lists of its
@@ -212,16 +233,42 @@ module VBlank
           # the one it takes was its own, and no sprite placed later in the pass loses its colours.
           # A list two sprites can wear — a pool's things, two sprites of one picture — is in no
           # family. Each sprite is a family, so there are never more than MOST_LENT, a byte's worth
-          # with nought left for none. A lent list's number -> its family's.
+          # with nought left for none. In a game whose scenes number their own lists, the families of
+          # sprites in no scene come first and each scene's are numbered past them, so the families
+          # that can be up together never share a number. [the scene whose number it is, nil for
+          # every scene's; a lent list's number] -> its family's.
           def lent_family
             @lent_family ||= begin
-              wearers = Hash.new(0)
-              (@lists_worn || {}).each_value { |lists| lists.each { |number| wearers[number] += 1 } }
-              own = (@lists_worn || {}).values.map { |lists| lists.select { |number| wearers[number] == 1 } }
-              own.select { |lists| lists.length > 1 }.each_with_index.each_with_object({}) do |(lists, i), family|
-                lists.each { |number| family[number] = i + 1 }
+              worn = (@lists_worn || {}).to_h do |wearer, lists|
+                [wearer, lists.map { |number| [@wearer_scenes[wearer], number] }]
               end
+              wearers = Hash.new(0)
+              worn.each_value { |lists| lists.each { |key| wearers[key] += 1 } }
+              own = worn.values.map { |lists| lists.select { |key| wearers[key] == 1 } }.select { |lists| lists.length > 1 }
+              every, scened = own.partition { |lists| lists.first.first.nil? }
+              family = {}
+              every.each_with_index { |lists, i| lists.each { |key| family[key] = i + 1 } }
+              scened.group_by { |lists| lists.first.first }.each_value do |group|
+                group.each_with_index { |lists, i| lists.each { |key| family[key] = every.length + i + 1 } }
+              end
+              family
             end
+          end
+
+          # The number the runtime is handed for the first of the lists every scene keeps, one up,
+          # in a game whose scenes number their own: they are counted down from MOST_LENT, so a
+          # smaller number is the scene's own.
+          def first_kept_list = MOST_LENT + 1 - @sprite_palettes.length
+
+          # The scenes that number lists of their own, in the order their tables are kept.
+          def scenes_with_own_lists = @scene_palettes.keys
+
+          # The label of the record scene +scene+'s arrival hands the lending (Runtime::Picture
+          # #emit_lend_scene). Its arrival can be written before its sprites are, so asking gives
+          # it a table, which may stay empty.
+          def lent_scene_label(scene)
+            @scene_palettes[scene] ||= []
+            "art_lent_scene_#{scenes_with_own_lists.index(scene)}"
           end
 
           # Has any sprite lists of its own to step through (#lent_family)?
@@ -410,21 +457,23 @@ module VBlank
             end
           end
 
-          # The palette a painted picture is drawn in from +colors+, a list by place, see-through first.
-          def painted_sprite_palette(name, colors)
+          # The palette a painted picture is drawn in from +colors+, a list by place, see-through first,
+          # worn by a sprite of +scene+ (nil for one in no scene).
+          def painted_sprite_palette(name, colors, scene: nil)
             if colors.length > PLACES
               raise LoweringError, "the sprite picture #{name.inspect} is painted from a list with #{colors.length} " \
                                    "colours, and a Game Boy Color sprite holds #{OWN_COLORS} and see-through. To fix " \
                                    "this, give `colors:` #{PLACES} colours or fewer."
             end
 
-            palette_number(@sprite_palettes, padded([BACKDROP, *colors.drop(1).map { |color| color & 0x7FFF }]), "sprites")
+            sprite_list_number(padded([BACKDROP, *colors.drop(1).map { |color| color & 0x7FFF }]), scene)
           end
 
           # The palette a sprite picture drawn as +drawn+ shows is given: +drawn+ is each pixel's
           # colour, or NOT_DRAWN, as the interpreter draws the picture (in its own colours or in
-          # another list's). The same list asked twice is the same palette.
-          def sprite_palette(name, image, drawn)
+          # another list's). The same list asked twice is the same palette. +scene+ is the scene of
+          # the sprite wearing it, nil for one in no scene.
+          def sprite_palette(name, image, drawn, scene: nil)
             picture = sprite_picture(name, image)
             colors = Array.new(PLACES, BACKDROP)
             picture.places.each_with_index do |place, i|
@@ -432,7 +481,34 @@ module VBlank
 
               colors[place] = drawn[i] & 0x7FFF
             end
-            palette_number(@sprite_palettes, colors, "sprites")
+            sprite_list_number(colors, scene)
+          end
+
+          # The number of sprite list +colors+ worn by a sprite of +scene+. Numbered once for the whole
+          # game, or, in a game whose scenes number their own (TooManyLentLists), among the scene's
+          # own from nought up; the lists sprites in no scene wear are counted down from the top
+          # (#first_kept_list), the same in every scene.
+          def sprite_list_number(colors, scene)
+            return palette_number(@sprite_palettes, colors, "sprites") unless lists_by_scene?
+            return MOST_LENT - 1 - palette_number(@sprite_palettes, colors, "sprites") unless scene
+
+            own = @scene_palettes[scene] ||= []
+            own.index(colors) || begin
+              own << colors
+              refuse_scene_lists_past_most!(scene)
+              own.length - 1
+            end
+          end
+
+          # A scene whose own lists and every scene's come to more than a byte numbers.
+          def refuse_scene_lists_past_most!(scene)
+            own = @scene_palettes.fetch(scene).length
+            return if own + @sprite_palettes.length <= MOST_LENT
+
+            kept = @sprite_palettes.empty? ? "" : " Sprites in no scene wear #{@sprite_palettes.length} of them."
+            raise LoweringError, "the sprites of the scene :#{Modes.strip_scene_prefix(scene)} need more than the " \
+                                 "#{MOST_LENT} lists of colours that a Game Boy Color build keeps for one scene.#{kept} " \
+                                 "To fix this, draw more of these sprites from the same colours."
           end
 
           # --- backgrounds ---
@@ -790,7 +866,9 @@ module VBlank
           # each of the others is in the part always in view.
           def sections
             refuse_too_many_tiles!
+            @scene_palettes.each_key { |scene| refuse_scene_lists_past_most!(scene) }
             [tables_section,
+             *scenes_with_own_lists.each_with_index.map { |scene, at| lent_scene_section(scene, at) },
              *@sprite_pictures.each_value.map { |picture| picture_section(picture) },
              data_section("art sprite tiles", "art_sprite_tiles", @sprite_tiles.flatten, holds: SPRITE_PICTURES),
              *group_rooms.each_value.map { |room| group_tiles_section(room) },
@@ -829,7 +907,14 @@ module VBlank
               @sprite_palettes.each { |colors| asm.data_words(colors) }
               if lent_families?
                 asm.label("art_lent_families")
-                asm.data_bytes(@sprite_palettes.each_index.map { |number| lent_family.fetch(number, 0) })
+                asm.data_bytes(@sprite_palettes.each_index.map { |at| lent_family.fetch([nil, kept_list_number(at)], 0) })
+              end
+              # Each scene's record for the lending: where its own lists' colours and families are,
+              # and their bank.
+              scenes_with_own_lists.each_index do |at|
+                asm.label("art_lent_scene_#{at}")
+                asm.data_words("art_lent_scene_#{at}_colors", "art_lent_scene_#{at}_families")
+                asm.data_bank_of("art_lent_scene_#{at}_colors")
               end
             end
             # Where each sprite picture's pieces and mask are, and the bank each is in (#picture_section).
@@ -914,6 +999,22 @@ module VBlank
                 asm.data_words(palette.colors)
               end
             end
+          end
+
+          # The number the +at+th list every scene keeps goes by: the same, or counted down from the
+          # top in a game whose scenes number their own (#sprite_list_number).
+          def kept_list_number(at) = lists_by_scene? ? MOST_LENT - 1 - at : at
+
+          # THE LISTS ONE SCENE'S OWN SPRITES WEAR, in a bank: their colours, eight bytes a list, then
+          # each one's family, nought for none (#lent_family), both by the scene's numbers.
+          def lent_scene_section(scene, at)
+            own = @scene_palettes.fetch(scene)
+            asm = SM83.new("art lent scene #{at}", home: :banked, holds: PICTURE_TABLES)
+            asm.label("art_lent_scene_#{at}_colors")
+            own.each { |colors| asm.data_words(colors) }
+            asm.label("art_lent_scene_#{at}_families")
+            asm.data_bytes(own.each_index.map { |number| lent_family.fetch([scene, number], 0) })
+            asm.section
           end
 
           # A SPRITE PICTURE'S PIECES AND MASK, in a bank of the cartridge rather than the part always
@@ -1167,6 +1268,7 @@ module VBlank
                    end
             if palettes.length == most
               raise TooManySpriteLists, "more lists" if sprites && !lends?
+              raise TooManyLentLists, "more lists" if sprites && !lists_by_scene?
               raise TooManyBackgroundLists, "more lists" unless sprites || room_colors?
 
               scenes = if sprites then ""

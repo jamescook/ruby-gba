@@ -53,7 +53,7 @@ module VBlank
             Rumble.reserve(memory) if rumble
             KeptSprites.reserve(memory) if kept_sprites
             Frame.reserve(memory, together: together, dark: dark)
-            Picture.reserve(memory, lends: art.lends?, groups: art.groups?, bar_rows: bar_rows, rooms: art.rooms.any?)
+            Picture.reserve(memory, lends: art.lending, groups: art.groups?, bar_rows: bar_rows, rooms: art.rooms.any?)
             BigMaps.reserve(memory)
             Paint.reserve(memory, painting: art.painting?)
             Music.reserve(memory, effects: effects, slides: slides, wobbles: wobbles, shapes: shapes, swells: swells,
@@ -93,10 +93,11 @@ module VBlank
             Frame.emit(asm, memory, together: together, count_at: count_at)
             Lists.emit(asm, memory)
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length,
-                                      runs: runs, drawn_palettes: drawn_palettes, lends: art.lends?,
+                                      runs: runs, drawn_palettes: drawn_palettes, lends: art.lending,
                                       palettes_in_use: art.palettes_in_use, groups: art.groups?, bar_rows: bar_rows,
                                       rooms: art.rooms.any?, room_colors: art.room_colors?, lent_families: art.lent_families?,
-                                      backdrop: art.first_screen_backdrop, banked_colors: banked_colors)
+                                      backdrop: art.first_screen_backdrop, banked_colors: banked_colors,
+                                      first_kept_list: art.first_kept_list)
             BigMaps.emit(asm, memory, buffer: big_maps&.first, staged: big_maps&.last)
             Paint.emit(asm, memory, painting: art.painting?, map_count: art.square_maps.length, bar: !bar_rows.nil?)
             Sound.emit(asm)

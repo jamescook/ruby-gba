@@ -673,6 +673,7 @@ module VBlank
               screen = arrival_screen(arrival)
               emit_screen_change(screen)
               emit_tile_room(arrival_room(scene)) # its own tiles, before its grids name them
+              emit_lend_scene(scene)
               arrival.scenery.each { |bg| emit_held_background_colors(bg) }
               arrival.map_choices.each do |var|
                 load_constant(0)
@@ -698,6 +699,16 @@ module VBlank
               # The sprites this pass placed, in front of the scenery the scene brought of its own,
               # on a screen drawn from tiles (Reference#redraw_sprites_over_arrived_scenery).
               @asm.call("rt_sprites_on") if arrival.scenery.any? && SceneHandover.tiles?(screen)
+            end
+
+            # In a game whose scenes number their own sprite lists (Art::TooManyLentLists), the lending
+            # is told the arriving scene's: from here a number past the lists every scene keeps means
+            # one of this scene's.
+            def emit_lend_scene(scene)
+              return unless @art.lists_by_scene?
+
+              @asm.load(:hl, @art.lent_scene_label(scene))
+              @asm.call("rt_lend_scene")
             end
 
             # A screen with no status bar has the window off, in a game with a bar somewhere; one
@@ -2015,15 +2026,24 @@ module VBlank
             # A sprite's rows (PoseRow), a row for each pose under each set of colours it is drawn in,
             # the lists they are drawn in noted as worn in a game whose sprites borrow the eight.
             def pose_rows(obj, level)
+              scene = lists_scene(obj)
               rows = sets_drawn_with(Array(obj.recolors)).flatten(1).flat_map do |colors|
                 obj.poses.map do |name|
-                  palette = palette_of(name, colors)
+                  palette = palette_of(name, colors, scene: scene)
                   PoseRow.new(picture: picture_number(name), palette: palette,
                               attributes: said_attributes(obj, name, @art.lends? ? 0 : palette, level))
                 end
               end
-              @art.note_lists_worn(obj.name, rows.map(&:palette).uniq) if @art.lends?
+              @art.note_lists_worn(obj.name, rows.map(&:palette).uniq, scene: scene) if @art.lends?
               rows
+            end
+
+            # The scene whose own lists sprite +obj+ wears, in a game whose scenes number their own
+            # (Art::TooManyLentLists): its scene, when that is one a scene's arrival hands over to,
+            # since the arrival is what tells the lending whose numbers they are. Nil for the lists
+            # every scene keeps.
+            def lists_scene(obj)
+              obj.scene if @art.lists_by_scene? && obj.scene && @scene && @scenes.key?(obj.scene)
             end
 
             # Where a sprite drawn with lists reads its tables: its row times its poses, plus its
@@ -2091,13 +2111,14 @@ module VBlank
             end
 
             # The palette picture +name+ is drawn in with the list +colors+ (nil for its own): the
-            # colour each of its places shows, as the interpreter draws it.
-            def palette_of(name, colors)
+            # colour each of its places shows, as the interpreter draws it. +scene+ is the scene whose
+            # own lists the sprite wearing it is numbered among (#lists_scene).
+            def palette_of(name, colors, scene: nil)
               run = picture_painting(name)
-              return @art.painted_sprite_palette(name, painted_colors(run, colors)) if run
+              return @art.painted_sprite_palette(name, painted_colors(run, colors), scene: scene) if run
 
               image = picture_named(name)
-              @art.sprite_palette(name, image, sprite_pixels(image, colors))
+              @art.sprite_palette(name, image, sprite_pixels(image, colors), scene: scene)
             end
 
             # A sprite picture's pixels as the interpreter draws them (Reference#blit_image): the

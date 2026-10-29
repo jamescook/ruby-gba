@@ -165,7 +165,8 @@ module VBlank
           attr_reader :variables, :lists, :frame_begins
 
           # +lends_sprite_colors+ builds the game with its sprites' lists of colours borrowing the
-          # console's eight as it runs (Art::TooManySpriteLists). +tile_rooms+ builds it with each screen
+          # console's eight as it runs (Art::TooManySpriteLists), and :by_scene with each scene numbering
+          # its own lists too (Art::TooManyLentLists). +tile_rooms+ builds it with each screen
           # bringing its own background tiles in (Art::TooManyBackgroundTiles, Picture#plan_tile_rooms),
           # and +room_colors+ with its own background colours too (Art::TooManyBackgroundLists).
           # +banked_songs+ keeps its songs' notes in the cartridge's banks (GBC::Music#sections), and

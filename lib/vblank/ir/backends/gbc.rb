@@ -112,7 +112,8 @@ module VBlank
 
         # +program+ as a cartridge (Cartridge::GBCROM), carrying its Places.
         # A game whose sprites wear more lists of colours than the console holds is built again
-        # with the lists borrowing them as it runs (Art::TooManySpriteLists).
+        # with the lists borrowing them as it runs (Art::TooManySpriteLists), and one whose sprites
+        # wear more lists than a byte numbers with each scene numbering its own (Art::TooManyLentLists).
         # A game whose backgrounds need more tiles than the console holds at once is built again with
         # each screen bringing its own tiles in (Art::TooManyBackgroundTiles), and one whose
         # backgrounds draw from more lists of colours than it holds at once with each screen bringing
@@ -137,7 +138,11 @@ module VBlank
         def build_lending_if_needed(program, title, tile_rooms:, room_colors: false)
           build_cartridge(program, title, lends: false, tile_rooms: tile_rooms, room_colors: room_colors)
         rescue Art::TooManySpriteLists
-          build_cartridge(program, title, lends: true, tile_rooms: tile_rooms, room_colors: room_colors)
+          begin
+            build_cartridge(program, title, lends: true, tile_rooms: tile_rooms, room_colors: room_colors)
+          rescue Art::TooManyLentLists
+            build_cartridge(program, title, lends: :by_scene, tile_rooms: tile_rooms, room_colors: room_colors)
+          end
         end
 
         def build_cartridge(program, title, lends:, tile_rooms:, room_colors:, banked_songs: false, bank_pose_tables: false,
