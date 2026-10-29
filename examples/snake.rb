@@ -26,7 +26,16 @@
 # the snake just left. A handful of cells always fits in the safe window, so the
 # picture stays clean no matter how long the snake grows.
 #
-# Run it to build examples/snake.gba:
+# The title and game-over screens work the same way: each is painted once as the game
+# arrives at it, and after that only the blinking "PRESS START" is erased and drawn
+# again. Nothing else on them changes, so nothing else is painted twice.
+#
+# --- One game, every screen size ---
+# The board is laid out from the screen the game is built for (`screen_width`,
+# `screen_height`), so it fills the Game Boy Advance's 240x160 and the Super
+# Nintendo's 256x224 alike: 30x20 cells on one, 32x28 on the other.
+#
+# Run it to build examples/snake.gba and examples/snake.sfc:
 #   ruby examples/snake.rb
 
 require_relative "../lib/vblank"
@@ -35,29 +44,15 @@ require_relative "../lib/vblank"
 # (requiring it just defines the module; only running it directly writes a ROM).
 module Snake
   # --- Build-time constants (plain Ruby, resolved before any code is emitted) ---
-  SCREEN_W = 240
-  SCREEN_H = 160
 
   # The play area is a grid of square cells. The snake and the food snap to it, so
   # positions are counted in cells (0, 1, 2 …); a `grid` (built below) turns those
   # cell coordinates into pixels, so nothing here multiplies by CELL by hand.
   CELL = 8                     # an 8x8 cell (draw widths must be even, and 8 is)
-  COLS = SCREEN_W / CELL       # 30 cells across
-  ROWS = SCREEN_H / CELL       # 20 cells down
 
   # The top two rows are a header for the score; a one-cell gray wall frames the
   # rest. The snake lives in the interior, between the walls.
   HEADER_ROWS = 2
-  MIN_COL = 1                  # just inside the left wall (column 0)
-  MAX_COL = COLS - 2           # just inside the right wall (column 29)
-  MIN_ROW = HEADER_ROWS + 1    # just below the top wall
-  MAX_ROW = ROWS - 2           # just above the bottom wall
-
-  # Pixel geometry of the wall frame (all fixed, so it draws with dma_fill_rect).
-  TOP_WALL_Y    = HEADER_ROWS * CELL       # top wall sits just under the header
-  BOTTOM_WALL_Y = (ROWS - 1) * CELL        # bottom wall on the last row
-  RIGHT_WALL_X  = (COLS - 1) * CELL         # right wall on the last column
-  WALL_H        = SCREEN_H - TOP_WALL_Y     # how tall the side walls are
 
   # Header score readout: a fixed "SCORE" label and a three-digit field one gap beyond
   # it. Where the field starts is asked of the font rather than counted, so rewording
@@ -71,31 +66,54 @@ module Snake
   # middle — the word pushed up against it from the left, the figures from the right of
   # it — so a pair meets in the middle whatever the words are.
   STAT_GAP    = 6
-  STAT_LABEL  = (0...(SCREEN_W / 2))
-  STAT_NUMBER = (((SCREEN_W / 2) + STAT_GAP)...SCREEN_W)
 
-  # The interior holds at most this many cells, so a body list this long can never
-  # overflow. It opens at four cells and grows one per apple, so a played game spends its time far
-  # below that. The build also measures each scene with the body held at its capacity,
-  # and would warn if a full board did not keep up. It does: the body is walked once a
-  # step, not once a frame.
-  BODY_CAP = (MAX_COL - MIN_COL + 1) * (MAX_ROW - MIN_ROW + 1)
+  # How tall the blinking prompt's line is, which is what is erased when it blinks off.
+  PROMPT_H = 8
 
   STEP = 6                     # frames between moves — the snake steps ~10x a second
 
-  # The snake starts as a short horizontal run in the middle, heading right. The
-  # body is ordered tail-first, so the last cell is the head.
-  START_ROW   = (MIN_ROW + MAX_ROW) / 2
-  START_CELLS = Ractor.make_shareable([[5, START_ROW], [6, START_ROW], [7, START_ROW], [8, START_ROW]])
-
   FOOD_TRIES = 8               # random cells to try when placing food off the snake
+
+  # WHERE EVERYTHING GOES on a screen +width+ by +height+ pixels: worked out once, from
+  # the screen the game is built for.
+  Layout = Data.define(:width, :height) do
+    def cols = width / CELL    # 30 cells across on the Advance
+    def rows = height / CELL   # 20 cells down on the Advance
+
+    def min_col = 1                   # just inside the left wall (column 0)
+    def max_col = cols - 2            # just inside the right wall
+    def min_row = HEADER_ROWS + 1     # just below the top wall
+    def max_row = rows - 2            # just above the bottom wall
+
+    # Pixel geometry of the wall frame (all fixed, so it draws with dma_fill_rect).
+    def top_wall_y = HEADER_ROWS * CELL       # top wall sits just under the header
+    def bottom_wall_y = (rows - 1) * CELL     # bottom wall on the last row
+    def right_wall_x = (cols - 1) * CELL      # right wall on the last column
+    def wall_h = height - top_wall_y          # how tall the side walls are
+
+    def stat_label = (0...(width / 2))
+    def stat_number = (((width / 2) + STAT_GAP)...width)
+
+    # The interior holds at most this many cells, so a body list this long can never
+    # overflow. It opens at four cells and grows one per apple, so a played game spends
+    # its time far below that. The build also measures each scene with the body held at
+    # its capacity, and would warn if a full board did not keep up. It does: the body is
+    # walked once a step, not once a frame.
+    def body_cap = (max_col - min_col + 1) * (max_row - min_row + 1)
+
+    # The snake starts as a short horizontal run in the middle, heading right. The
+    # body is ordered tail-first, so the last cell is the head.
+    def start_row = (min_row + max_row) / 2
+    def start_cells = [[5, start_row], [6, start_row], [7, start_row], [8, start_row]]
+  end
 
   # The whole game, as a block the builder runs. Keeping it in one place means the
   # test drives the exact program that ships: the headless interpreter runs THIS to
   # check the game plays without crashing, and the console runs the ROM built from it.
-  GAME = VBlank.game("SNAKE", consoles: %i[gba]) do
+  GAME = VBlank.game("SNAKE", consoles: %i[gba snes]) do
     screen :bitmap
     enable_sound
+    here = Layout.new(width: screen_width, height: screen_height)
 
     # Where the score's figures start: one gap past the end of the word, whatever the
     # word is. The font is the only thing that knows how wide "SCORE" comes out.
@@ -106,8 +124,8 @@ module Snake
     define_sound :die, frequency: 140, duty: :half, decay: :medium
 
     # --- The body: two parallel lists, one entry per cell (xs[i], ys[i]) ---
-    xs = list :xs, capacity: BODY_CAP
-    ys = list :ys, capacity: BODY_CAP
+    xs = list :xs, capacity: here.body_cap
+    ys = list :ys, capacity: here.body_cap
 
     # --- RAM variables (each `var` hands back a handle we compare and mutate) ---
     var :state, 0               # 0 = title, 1 = playing, 2 = game over (read via case_var)
@@ -130,11 +148,12 @@ module Snake
     high     = save_var :high_score, 0
     self_hit = var :self_hit, 0 # set when the new head lands on the body
     placed   = var :placed, 0   # set once food has found an empty cell
+    painted  = var :painted, 0  # 1 once the title or game-over screen showing is painted
 
     # The board, in cell coordinates. set_cell / clear_cell take cell numbers and do
     # the pixel arithmetic (and the erase-to-background), so the snake code below
     # never writes `* CELL`. A cleared cell returns to :black, the board's backdrop.
-    board = grid :board, cols: COLS, rows: ROWS, cell: CELL, over: :black
+    board = grid :board, cols: here.cols, rows: here.rows, cell: CELL, over: :black
 
     # --- Subroutines ---
 
@@ -147,8 +166,8 @@ module Snake
       set! :placed, 0
       FOOD_TRIES.times do
         (placed == 0).then do
-          roll :food_x, MIN_COL..MAX_COL
-          roll :food_y, MIN_ROW..MAX_ROW
+          roll :food_x, here.min_col..here.max_col
+          roll :food_y, here.min_row..here.max_row
           set! :placed, 1 # assume it's clear...
           repeat(xs.length) do |i|
             # ...unless a body cell is already sitting there.
@@ -175,10 +194,10 @@ module Snake
     func :draw_board do
       clear_screen :black
       draw_text "SCORE", SCORE_LABEL_X, SCORE_Y, :gray
-      dma_fill_rect 0, TOP_WALL_Y, SCREEN_W, CELL, :gray            # top wall
-      dma_fill_rect 0, BOTTOM_WALL_Y, SCREEN_W, CELL, :gray         # bottom wall
-      dma_fill_rect 0, TOP_WALL_Y, CELL, WALL_H, :gray             # left wall
-      dma_fill_rect RIGHT_WALL_X, TOP_WALL_Y, CELL, WALL_H, :gray  # right wall
+      dma_fill_rect 0, here.top_wall_y, here.width, CELL, :gray                  # top wall
+      dma_fill_rect 0, here.bottom_wall_y, here.width, CELL, :gray               # bottom wall
+      dma_fill_rect 0, here.top_wall_y, CELL, here.wall_h, :gray                 # left wall
+      dma_fill_rect here.right_wall_x, here.top_wall_y, CELL, here.wall_h, :gray # right wall
       call :draw_score
       call :draw_food
       repeat(xs.length) do |i|
@@ -191,9 +210,9 @@ module Snake
     # score, place the first food, paint the board once, and switch to playing.
     func :new_game do
       # Re-declaring a list empties it — the clean way to start the body over.
-      list :xs, capacity: BODY_CAP
-      list :ys, capacity: BODY_CAP
-      START_CELLS.each do |cx, cy|
+      list :xs, capacity: here.body_cap
+      list :ys, capacity: here.body_cap
+      here.start_cells.each do |cx, cy|
         xs.push cx
         ys.push cy
       end
@@ -207,6 +226,7 @@ module Snake
       call :spawn_food
       call :draw_board
       set! :state, 1
+      painted.set! 0 # the game-over screen, when it comes, is painted afresh
     end
 
     # Advance the snake one cell: commit the buffered turn, work out the new head,
@@ -225,7 +245,7 @@ module Snake
 
       # Game over if we hit a wall or ourselves. (Landing on the very last tail
       # cell counts too — the simplest "don't touch yourself at all" rule.)
-      dead = (hx < MIN_COL) | (hx > MAX_COL) | (hy < MIN_ROW) | (hy > MAX_ROW) | (self_hit == 1)
+      dead = (hx < here.min_col) | (hx > here.max_col) | (hy < here.min_row) | (hy > here.max_row) | (self_hit == 1)
       dead.then do
         set! :state, 2
         beep :die
@@ -259,15 +279,35 @@ module Snake
 
     # --- Scenes ---
 
-    scene :title do
-      clear_screen :black
-      draw_text "SNAKE", :center, 56, :green
-      draw_text "HIGH", :right, 78, :gray, within: STAT_LABEL
-      draw_number :high_score, :left, 78, :white, digits: 3, within: STAT_NUMBER
+    # The blinking prompt at +y+: its own rectangle erased, then drawn again if it is on.
+    # Run when a screen is painted, and each time the prompt blinks — never in between,
+    # since nothing else there changes. (The words' width rounded up to even, as a fill
+    # width must be, and centred as the words are.)
+    prompt_w = (text_width("PRESS START") + 1) & ~1
+    prompt = lambda do |y|
+      dma_fill_rect (here.width - prompt_w) / 2, y, prompt_w, PROMPT_H, :black
+      (blink == 1).then { draw_text "PRESS START", :center, y, :gray }
+    end
 
-      # Flash the prompt on and off twice a second.
-      every(0.5, :seconds) { (blink == 1).then { blink.set! 0 }.else { blink.set! 1 } }
-      (blink == 1).then { draw_text "PRESS START", :center, 96, :gray }
+    # Flash the prompt on and off twice a second, painting only its line.
+    blink_prompt = lambda do |y|
+      every(0.5, :seconds) do
+        (blink == 1).then { blink.set! 0 }.else { blink.set! 1 }
+        prompt.call(y)
+      end
+    end
+
+    scene :title do
+      # Painted once, as the game arrives here: nothing on it changes but the prompt.
+      (painted == 0).then do
+        clear_screen :black
+        draw_text "SNAKE", :center, 56, :green
+        draw_text "HIGH", :right, 78, :gray, within: here.stat_label
+        draw_number :high_score, :left, 78, :white, digits: 3, within: here.stat_number
+        prompt.call(96)
+        painted.set! 1
+      end
+      blink_prompt.call(96)
 
       # Keep stirring the random stream while we wait, so the food layout is decided
       # by the player's reaction time — every game plays out a little differently.
@@ -290,15 +330,18 @@ module Snake
     end
 
     scene :game_over do
-      clear_screen :black
-      draw_text "GAME OVER", :center, 52, :red
-      draw_text "SCORE", :right, 76, :gray, within: STAT_LABEL
-      draw_number score, :left, 76, :white, digits: 3, within: STAT_NUMBER
-      draw_text "HIGH", :right, 90, :gray, within: STAT_LABEL
-      draw_number :high_score, :left, 90, :white, digits: 3, within: STAT_NUMBER
-
-      every(0.5, :seconds) { (blink == 1).then { blink.set! 0 }.else { blink.set! 1 } }
-      (blink == 1).then { draw_text "PRESS START", :center, 110, :gray }
+      # Painted once, as the game arrives here (new_game said it is not painted yet).
+      (painted == 0).then do
+        clear_screen :black
+        draw_text "GAME OVER", :center, 52, :red
+        draw_text "SCORE", :right, 76, :gray, within: here.stat_label
+        draw_number score, :left, 76, :white, digits: 3, within: here.stat_number
+        draw_text "HIGH", :right, 90, :gray, within: here.stat_label
+        draw_number :high_score, :left, 90, :white, digits: 3, within: here.stat_number
+        prompt.call(110)
+        painted.set! 1
+      end
+      blink_prompt.call(110)
 
       pressed(:start).then { call :new_game }
     end

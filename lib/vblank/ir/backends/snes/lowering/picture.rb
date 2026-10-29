@@ -79,7 +79,6 @@ module VBlank
               end
               @objects.each_value do |obj|
                 refuse_unmade!("a sprite put in another layer as the game runs (`put_in_layer`)") if obj.layer_pick
-                refuse_unmade!("a sprite drawn with other colours") unless obj.recolors.empty?
               end
               ordered = @reachable.any? { |node| node.kind == :present_objects && !Array(node.orders).empty? }
               refuse_unmade!("sprites drawn in an order the game works out (`draw_in_order`)") if ordered
@@ -109,6 +108,48 @@ module VBlank
                 end
               end
               @tile_runs.each_index { |number| make_run_art(number) unless @run_places[number] }
+              make_recolored_art(mixed)
+            end
+
+            # A SPRITE DRAWN WITH OTHER COLOURS (`draw_with`): each of its lists made, ahead of time,
+            # into a copy of each of its pictures (Assets::Recolor, the rule the interpreter draws
+            # by), with tiles and a palette of its own — two places of a picture's list may share a
+            # colour and still swap to two, so no one palette could stand in for another. They are
+            # made after every plain picture, whose numbers stay SpriteNames'; #sprite_picture_names
+            # names each copy as the picture it copies. A list's colours never change as the game
+            # runs: a list told to hold others (`holds`) is not made yet.
+            def make_recolored_art(mixed)
+              @objects.each_value do |obj|
+                obj.recolors.each_with_index do |list, which|
+                  swapped = list.is_a?(Symbol) ? color_list_named(list).colors : list
+                  obj.poses.each do |pose|
+                    image = Assets::Image.of(picture_named(pose))
+                    @art.sprite_picture([pose, swapped], RecoloredImage.new(image: image, recolor: Assets::Recolor.of(image, swapped)),
+                                        mixed: mixed.include?(pose))
+                  end
+                end
+              end
+            end
+
+            # A picture drawn with another list: its colours swapped pixel by pixel.
+            RecoloredImage = Data.define(:image, :recolor) do
+              def width = image.width
+              def height = image.height
+              def drawn_at?(at) = image.drawn_at?(at)
+              def color_at(at) = recolor.color_for(at, image.color_at(at))
+            end
+
+            def color_list_named(name)
+              @color_lists ||= by_kind(:color_list)
+              @color_lists.fetch(name) { raise LoweringError, "the list of colours #{name.inspect} is drawn with and never declared" }
+            end
+
+            # The picture each picture of the art is, by number, as SpriteNames numbers it: a plain
+            # picture its own, a copy in other colours (#make_recolored_art) the one it copies.
+            def sprite_picture_names
+              @art.sprite_pictures.map do |name, _|
+                @sprite_names.picture_number(name.is_a?(Array) ? name.first : name)
+              end
             end
 
             # Run +number+'s tiles (SNES::Art#background_run, #sprite_run_picture), and where in video
@@ -168,10 +209,12 @@ module VBlank
                 data.data_words(list & 0xFFFF, list >> 16, staging & 0xFFFF, staging >> 16, @run_places[number],
                                 Picture.tile_run_bytes(@program)[number] / 32, Picture.tile_run_bytes(@program)[number], 0)
               end
-              @pose_tables.each do |obj, label|
+              @pose_tables.each do |(obj, swapped), label|
                 data.label(label)
-                # Each picture by the number Art made it with ("art sprite pictures"' order).
-                data.data_words(obj.poses.length, *obj.poses.map { |pose| @art.sprite_pictures.fetch(pose).number })
+                # Each picture by the number Art made it with ("art sprite pictures"' order), or its
+                # copy in the list of colours +swapped+.
+                data.data_words(obj.poses.length,
+                                *obj.poses.map { |pose| @art.sprite_pictures.fetch(swapped ? [pose, swapped] : pose).number })
               end
               [data.section, *bytes_section("art background tiles", @art.background_tile_data),
                *bytes_section("art sprite tiles", @art.sprite_tile_data),
@@ -652,15 +695,36 @@ module VBlank
                 skip = fresh("sprite_off")
                 jump_unless(Build.binop(:==, obj.active, Build.int(1)), skip)
                 behind = sprite_depths.empty? ? [] : [Build.int((3 - sprite_depths.fetch(name, 3)) << SPRITE_PRIORITY_SHIFT)]
-                runtime_call("rt_sprite_place", [LongAddress.new(pose_table(obj)), obj.pose, obj.x, obj.y,
-                                                 Build.int(@sprite_names.name_number(obj.declared)), *behind])
+                emit_sprite_place(obj, name, behind)
                 @asm.label(skip)
               end
               @asm.label(done)
             end
 
             # The table of a sprite's pictures: how many, then each one's number.
-            def pose_table(obj) = @pose_tables[obj] ||= "poses #{@pose_tables.length}"
+            # +swapped+ for the table of the sprite's pictures drawn with that list of colours.
+            def pose_table(obj, swapped = nil) = @pose_tables[[obj, swapped]] ||= "poses #{@pose_tables.length}"
+
+            # The sprite drawn from the table its list of colours picks (Reference#object_recolor): a
+            # number naming none of its lists draws its own colours.
+            def emit_sprite_place(obj, name, behind)
+              place = lambda do |swapped|
+                runtime_call("rt_sprite_place", [LongAddress.new(pose_table(obj, swapped)), obj.pose, obj.x, obj.y,
+                                                 Build.int(@sprite_names.name_number(obj.declared)), *behind])
+              end
+              return place.call(nil) if obj.recolors.empty?
+
+              placed = fresh("sprite_colored")
+              obj.recolors.each_with_index do |list, which|
+                other = fresh("sprite_not_colored")
+                jump_unless(Build.binop(:==, obj.recolor, Build.int(which)), other)
+                place.call(list.is_a?(Symbol) ? color_list_named(list).colors : list)
+                @asm.brl(placed)
+                @asm.label(other)
+              end
+              place.call(nil)
+              @asm.label(placed)
+            end
 
             # Reference#exec_hide_sprites: the next placing of the sprites places none.
             def emit_hide_sprites(_node) = store_number(place_of(sprites_hidden_flag), 1)

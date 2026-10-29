@@ -57,9 +57,10 @@ module VBlank
         # from, each entry of the interpreter's sound log by the number the cartridge's own log keeps
         # it as (empty for a game that makes no sound), what the DSP writes for those entries are
         # worked out with (DSPWrites::Voicing, Lowering::Sound#sound_voicing), and the game's
-        # recordings by the number a place playing one keeps (Runtime::Recordings).
+        # recordings by the number a place playing one keeps (Runtime::Recordings), and each sprite
+        # picture's number as SpriteNames numbers the picture it shows (Lowering::Picture#sprite_picture_names).
         Places = Data.define(:variables, :lists, :runtime, :source_program, :code, :routines, :sound_entries,
-                             :sound_voicing, :recording_names) do
+                             :sound_voicing, :recording_names, :sprite_picture_names) do
           # Where the runtime counts the times the game has waited for the screen (32 bits).
           def waits_counted_at = runtime.fetch(Runtime::Frame::PASSES)
         end
@@ -107,7 +108,8 @@ module VBlank
                              runtime: memory.places.select { |name, _| name.start_with?("rt ") },
                              source_program: program, code: linked.places, routines: routines,
                              sound_entries: lowering.sound_entries, sound_voicing: lowering.sound_voicing,
-                             recording_names: lowering.recording_names)
+                             recording_names: lowering.recording_names,
+                             sprite_picture_names: lowering.sprite_picture_names)
           vectors = { reset: linked.address_of("rt_reset"), nmi: linked.address_of("rt_nmi"),
                       irq: linked.address_of("rt_irq"), brk: linked.address_of("rt_irq"),
                       cop: linked.address_of("rt_irq") }

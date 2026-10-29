@@ -16,16 +16,22 @@ module VBlank
           # holds arrives over several, and the pass counts as shown once it is all there.
           #
           # A blank is 37 of the console's lines, each 1364 of its master clock's cycles, and the
-          # copying engine takes 8 of those cycles a byte (fullsnes, "SNES Timing" and "SNES DMA");
-          # BLANK_BYTES leaves a third of the blank for the interrupt and the setting up. With the
-          # screen still off, before the first pass is shown, there is always room.
+          # copying engine takes 8 of those cycles a byte (fullsnes, "SNES Timing" and "SNES DMA"):
+          # about 6300 bytes a blank. What decides whether a piece goes is the line the picture is
+          # on, read as it is asked, so the interrupt's time and the setting up are already counted;
+          # BLANK_BYTES is a blank's copying, a little short of the whole, as a second guard. With
+          # the screen still off, before the first pass is shown, there is always room.
           #
           #   rt_blank_begin  as a blank's copying starts (JSR): nothing sent in it yet
           #   rt_blank_room   before each piece (JSR): A is its bytes; returns once there is room
           #   rt_blank_time   before a write that is not a copy (JSR): returns once the blank has a
           #                   line left for it
+          #   rt_blank_left   (JSR) A = the bytes this blank still has room and time for, 0 for none,
+          #                   so a run of pieces can be sent together (rt_blank_room then lets
+          #                   them go at once)
+          #   rt_blank_next   (JSR): the next blank waited for
           module Blank
-            BLANK_BYTES = 4096
+            BLANK_BYTES = 6144
             # The lines of a North American frame, 0 to 261; the blank is 225 to 261.
             LINES = 262
             FIRST_BLANK_LINE = 225
@@ -56,10 +62,18 @@ module VBlank
               emit_line_now(asm)
               asm.cmp(FIRST_BLANK_LINE)
               asm.bcc("rt_blank_room_wait")
+              # The lines it takes: a line copies about 170 bytes, and this counts one for every
+              # 146 or so (a 128th of the bytes, less a 1024th), and one line more.
               asm.sta(asm.direct(s.line))
               asm.lda(asm.direct(s.wanted))
-              7.times { asm.lsr } # the lines it takes: a line copies 170 bytes, so this is more than enough
-              asm.sec # and one line more
+              10.times { asm.lsr }
+              asm.eor(0xFFFF)
+              asm.sec
+              asm.adc(asm.direct(s.line))
+              asm.sta(asm.direct(s.line))
+              asm.lda(asm.direct(s.wanted))
+              7.times { asm.lsr }
+              asm.sec
               asm.adc(asm.direct(s.line))
               asm.cmp(LINES - 1)
               asm.bcc("rt_blank_room_there")
@@ -85,6 +99,54 @@ module VBlank
               asm.label("rt_blank_time_wait")
               emit_next_blank(asm, s)
               asm.label("rt_blank_time_there")
+              asm.rts
+
+              # The bytes the lines left allow, at 146 a line as rt_blank_room counts them (a 128th
+              # and a 1024th, less), two lines kept back for its line more and for rounding; held to
+              # what BLANK_BYTES leaves.
+              asm.label("rt_blank_left")
+              asm.lda(asm.abs(memory[Frame::DISPLAY_ON]))
+              asm.bne("rt_blank_left_on")
+              asm.lda(BLANK_BYTES)
+              asm.rts
+              asm.label("rt_blank_left_on")
+              emit_line_now(asm)
+              asm.cmp(FIRST_BLANK_LINE)
+              asm.bcc("rt_blank_left_none")
+              asm.eor(0xFFFF)
+              asm.sec
+              asm.adc(LINES - 3) # the lines left, less two
+              asm.bmi("rt_blank_left_none")
+              asm.beq("rt_blank_left_none")
+              asm.sta(asm.direct(s.line))
+              # × 146: × 128, + × 16, + × 2
+              7.times { asm.asl }
+              asm.sta(asm.direct(s.wanted))
+              asm.lda(asm.direct(s.line))
+              4.times { asm.asl }
+              asm.clc
+              asm.adc(asm.direct(s.wanted))
+              asm.sta(asm.direct(s.wanted))
+              asm.lda(asm.direct(s.line))
+              asm.asl
+              asm.clc
+              asm.adc(asm.direct(s.wanted))
+              asm.sta(asm.direct(s.wanted))
+              asm.lda(BLANK_BYTES)
+              asm.sec
+              asm.sbc(asm.direct(s.sent))
+              asm.bcc("rt_blank_left_none")
+              asm.cmp(asm.direct(s.wanted))
+              asm.bcc("rt_blank_left_budget") # the budget left is the less
+              asm.lda(asm.direct(s.wanted))
+              asm.label("rt_blank_left_budget")
+              asm.rts
+              asm.label("rt_blank_left_none")
+              asm.lda(0)
+              asm.rts
+
+              asm.label("rt_blank_next")
+              emit_next_blank(asm, s)
               asm.rts
             end
 

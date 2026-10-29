@@ -148,11 +148,27 @@ module VBlank
             # Whether the map, or the clear tile, changed since the last blank sent them.
             MAP_CHANGED = "rt paint map changed"
             CLEAR_CHANGED = "rt paint clear changed"
-            # The runs of tiles to send, each its first tile and how many, a word each; and the bytes
-            # of them in use. A row has at most one run for every two of its tiles.
+            # The runs of tiles to send, each its first tile and how many, a word each: from the
+            # start, the runs of tiles not on the screen now, to RUNS_END; and from the end back to
+            # IN_PLACE_START, the runs of tiles that are (see SHOWN_IN). A run is a tile or more,
+            # so there are never more runs than tiles.
             RUNS = "rt paint runs"
             RUNS_END = "rt paint runs end"
-            MOST_RUNS = TILES / 2
+            IN_PLACE_START = "rt paint in place start"
+            MOST_RUNS = TILES
+            # WHICH TILES ARE ON THE SCREEN NOW: for each tile, the generation it was last sent in
+            # (written as a pass is prepared), and the generation the screen shows (SHOWN_GENERATION,
+            # a word: nothing, past any byte, at power-on). A tile whose two match has its cell
+            # pointing at its own slot of video RAM in the map on the screen, so whatever is copied
+            # into that slot is seen as it arrives; such tiles go last, with the map. Each pass is
+            # shown before the next is prepared, so the generation shown is the one the last pass
+            # was prepared in. Readying and clearing leave these alone, so a pass that clears twice,
+            # or as the generations come round, still knows. When a byte's generations come round
+            # to one a tile was last sent in long ago, that tile is taken to be on the screen when
+            # it is not: it goes last when it need not, which is only later.
+            SHOWN_IN = "rt paint shown in"
+            SHOWN_GENERATION = "rt paint shown generation"
+            NOTHING_SHOWN = 0xFFFF
 
             # The direct page the routines work on.
             Scratch = Data.define(:left, :right, :top, :bottom, :area, :y, :row, :count, :chunk, :last,
@@ -179,6 +195,7 @@ module VBlank
               far.call(MAP_COPY, MAP_BYTES)
               far.call(CLEAR_TILE_COPY, TILE_BYTES)
               far.call(RUNS, MOST_RUNS * 4)
+              far.call(SHOWN_IN, TILES)
               memory.reserve(AREA, 8)
               memory.reserve(DIRTY, ROWS * 4)
               memory.reserve(COLUMN_MASKS, COLUMNS * 2)
@@ -188,6 +205,8 @@ module VBlank
               memory.reserve(MAP_CHANGED, 2)
               memory.reserve(CLEAR_CHANGED, 2)
               memory.reserve(RUNS_END, 2)
+              memory.reserve(IN_PLACE_START, 2)
+              memory.reserve(SHOWN_GENERATION, 2)
               memory.reserve(CAMERA, CAMERA_BYTES)
             end
 
@@ -216,6 +235,8 @@ module VBlank
               emit_patches(asm, memory, s, bank)
               emit_prepare(asm, memory, s)
               emit_upload(asm, memory, s, bank)
+              emit_send_run(asm, memory, bank)
+              emit_send_runs(asm, memory, s)
               emit_tables(asm)
             end
 
@@ -273,10 +294,15 @@ module VBlank
               # clear colour's planes start all nought, as Boot leaves them.
               asm.jsl(asm.long("rt_paint_anywhere"))
               emit_fill_work_ram(asm, memory[GENERATIONS], TILES, "rt_paint_no_generation")
+              emit_fill_work_ram(asm, memory[SHOWN_IN], TILES, "rt_paint_no_generation")
               emit_fill_work_ram(asm, memory[MAP_COPY], MAP_BYTES, "rt_paint_clear_cell")
               [GENERATION, CLEAR_PLACE, MAP_CHANGED, CLEAR_CHANGED, RUNS_END].each do |name|
                 asm.stz(asm.abs(memory[name]))
               end
+              asm.lda(NOTHING_SHOWN)
+              asm.sta(asm.abs(memory[SHOWN_GENERATION]))
+              asm.lda(MOST_RUNS * 4)
+              asm.sta(asm.abs(memory[IN_PLACE_START]))
               asm.stz(asm.abs(memory[CAMERA] + CAMERA_ACROSS))
               asm.lda(0x03FF)
               asm.sta(asm.abs(memory[CAMERA] + CAMERA_DOWN))
@@ -1386,12 +1412,64 @@ module VBlank
 
             # rt_paint_prepare (JSL, as a pass ends, before its wait): each row's tiles changed and
             # in this generation put on the runs to send, a run for each stretch of them side by
-            # side. A tile of an older generation between them is not sent: its cell shows the
-            # clear tile. The rows are said unchanged again.
+            # side — of tiles on the screen now, or of tiles that are not (SHOWN_IN), each on its own
+            # list. A tile of an older generation between them is not sent: its cell shows the
+            # clear tile. The rows are said unchanged again, and this generation is the one shown.
+            #
+            # A PASS THAT FITS IN ONE BLANK, as near as the rows changed say (rt_paint_prepare_whole),
+            # is not split: every run goes on the list that is sent last, with the map, so the whole
+            # pass arrives in one blank, in as few runs as it has. Only a bigger pass is split, its
+            # tiles on the screen held back to go with the map.
+            # (+mask+ is the kind of the run started, +not_mask+ the tile's: 0 not on the screen, 1
+            # on, or held back with the map; +temp+ 1 for a pass that is not split.)
             def emit_prepare(asm, memory, s)
               dirty = memory[DIRTY]
+              tint_changed = memory[Tint::STATE] + Tint::CHANGED
               asm.label("rt_paint_prepare")
               asm.stz(asm.abs(memory[RUNS_END]))
+              asm.lda(MOST_RUNS * 4)
+              asm.sta(asm.abs(memory[IN_PLACE_START]))
+              # The pass's bytes at most: each changed row's tiles from its leftmost to its rightmost
+              # and a run's setting up, then what goes with the map.
+              asm.stz(asm.direct(s.count))
+              asm.stz(asm.direct(s.temp))
+              asm.ldx(0)
+              asm.label("rt_paint_prepare_measure")
+              asm.lda(asm.abs_x(dirty + 2))
+              asm.sec
+              asm.sbc(asm.abs_x(dirty))
+              asm.bcc("rt_paint_prepare_measured_row") # a row with none
+              asm.inc
+              6.times { asm.asl }
+              asm.clc
+              asm.adc(RUN_SETTING_UP)
+              asm.clc
+              asm.adc(asm.direct(s.count))
+              asm.sta(asm.direct(s.count))
+              asm.cmp(Blank::BLANK_BYTES + 1)
+              asm.bcs("rt_paint_prepare_split") # too big already
+              asm.label("rt_paint_prepare_measured_row")
+              asm.inx
+              asm.inx
+              asm.inx
+              asm.inx
+              asm.cpx(ROWS * 4)
+              asm.bne("rt_paint_prepare_measure")
+              [[memory[MAP_CHANGED], MAP_BYTES], [memory[CLEAR_CHANGED], TILE_BYTES], [tint_changed, 512]].each do |flag, bytes|
+                skip = "rt_paint_prepare_count_#{bytes}"
+                asm.lda(asm.abs(flag))
+                asm.beq(skip)
+                asm.lda(asm.direct(s.count))
+                asm.clc
+                asm.adc(bytes)
+                asm.sta(asm.direct(s.count))
+                asm.label(skip)
+              end
+              asm.lda(asm.direct(s.count))
+              asm.cmp(Blank::BLANK_BYTES + 1)
+              asm.bcs("rt_paint_prepare_split")
+              asm.inc(asm.direct(s.temp)) # all of it with the map
+              asm.label("rt_paint_prepare_split")
               asm.stz(asm.direct(s.row)) # the row's first tile
               asm.ldx(0)
               asm.label("rt_paint_prepare_row")
@@ -1417,10 +1495,36 @@ module VBlank
               asm.and_a(0x00FF)
               asm.cmp(asm.abs(memory[GENERATION]))
               asm.bne("rt_paint_prepare_older")
+              # On the screen now, or not (or the whole pass with the map); and from this pass,
+              # sent in this generation.
+              asm.lda(asm.direct(s.temp))
+              asm.bne("rt_paint_prepare_kind")
+              asm.lda(asm.long_x(memory[SHOWN_IN]))
+              asm.and_a(0x00FF)
+              asm.cmp(asm.abs(memory[SHOWN_GENERATION]))
+              asm.bne("rt_paint_prepare_off_screen")
+              asm.lda(1)
+              asm.bra("rt_paint_prepare_kind")
+              asm.label("rt_paint_prepare_off_screen")
+              asm.lda(0)
+              asm.label("rt_paint_prepare_kind")
+              asm.sta(asm.direct(s.not_mask))
+              asm.sep(0x20)
+              asm.lda(asm.abs(memory[GENERATION]))
+              asm.sta(asm.long_x(memory[SHOWN_IN]))
+              asm.rep(0x20)
+              # A run of the other kind is ended first.
               asm.lda(asm.direct(s.chunk))
-              asm.bpl("rt_paint_prepare_next_tile")
+              asm.bmi("rt_paint_prepare_start")
+              asm.lda(asm.direct(s.not_mask))
+              asm.cmp(asm.direct(s.mask))
+              asm.beq("rt_paint_prepare_next_tile")
+              asm.jsr(asm.abs("rt_paint_run_end"))
+              asm.label("rt_paint_prepare_start")
               asm.lda(asm.direct(s.tile))
               asm.sta(asm.direct(s.chunk))
+              asm.lda(asm.direct(s.not_mask))
+              asm.sta(asm.direct(s.mask))
               asm.bra("rt_paint_prepare_next_tile")
               asm.label("rt_paint_prepare_older")
               asm.jsr(asm.abs("rt_paint_run_end"))
@@ -1441,24 +1545,38 @@ module VBlank
               asm.inx
               asm.inx
               asm.cpx(ROWS * 4)
-              asm.bne("rt_paint_prepare_row")
+              asm.branch_long(:bne, "rt_paint_prepare_row")
+              asm.lda(asm.abs(memory[GENERATION]))
+              asm.sta(asm.abs(memory[SHOWN_GENERATION]))
               asm.rtl
 
               # rt_paint_run_end (JSR): the run started at +chunk+, if one is, ended before +tile+
-              # and put on the runs.
+              # and put on its list: the runs of tiles not on the screen from the start, the others
+              # from the end back.
               asm.label("rt_paint_run_end")
               asm.lda(asm.direct(s.chunk))
               asm.bmi("rt_paint_run_end_none")
+              asm.lda(asm.direct(s.mask))
+              asm.bne("rt_paint_run_end_in_place")
               asm.ldx(asm.abs(memory[RUNS_END]))
+              asm.txa
+              asm.clc
+              asm.adc(4)
+              asm.sta(asm.abs(memory[RUNS_END]))
+              asm.bra("rt_paint_run_end_put")
+              asm.label("rt_paint_run_end_in_place")
+              asm.lda(asm.abs(memory[IN_PLACE_START]))
+              asm.sec
+              asm.sbc(4)
+              asm.sta(asm.abs(memory[IN_PLACE_START]))
+              asm.tax
+              asm.label("rt_paint_run_end_put")
+              asm.lda(asm.direct(s.chunk))
               asm.sta(asm.long_x(memory[RUNS]))
               asm.lda(asm.direct(s.tile))
               asm.sec
               asm.sbc(asm.direct(s.chunk))
               asm.sta(asm.long_x(memory[RUNS] + 2))
-              asm.txa
-              asm.clc
-              asm.adc(4)
-              asm.sta(asm.abs(memory[RUNS_END]))
               asm.lda(0xFFFF)
               asm.sta(asm.direct(s.chunk))
               asm.label("rt_paint_run_end_none")
@@ -1468,60 +1586,75 @@ module VBlank
             # --- the blank ---
 
             # rt_paint_upload (JSR, in the blank, the screen on — or off, before the first pass is
-            # shown): the runs, each copied to video RAM from the copy in +bank+; then together the
-            # clear tile, the map and the colours of a fade or tint, those of them that changed. Each
-            # goes when the blank has room for it (Blank's rt_blank_room).
+            # shown): the runs of tiles not on the screen, as many at a time as each blank has room
+            # for (rt_paint_send_runs); then, all in one blank so they show together, the tiles on
+            # the screen now (SHOWN_IN), the clear tile, the map and the colours of a fade or tint,
+            # those of them that changed. More than a blank holds of those, the tiles go first, as
+            # the others did, and the rest in the blank after.
             def emit_upload(asm, memory, s, bank)
               h = Console::SNESHardware
               tint_changed = memory[Tint::STATE] + Tint::CHANGED
               asm.label("rt_paint_upload")
+              asm.lda(asm.abs(memory[RUNS_END]))
+              asm.sta(asm.direct(s.last))
               asm.ldx(0)
-              asm.label("rt_paint_upload_run")
-              asm.cpx(asm.abs(memory[RUNS_END]))
-              asm.bcs("rt_paint_upload_last")
-              asm.lda(asm.long_x(memory[RUNS] + 2))
-              6.times { asm.asl }
-              asm.sta(asm.direct(s.chunk))
-              asm.jsr(asm.abs("rt_blank_room"))
-              asm.lda(asm.direct(s.chunk))
-              asm.sta(asm.abs(h::DMA_BASE + h::DASL))
-              asm.lda(asm.long_x(memory[RUNS]))
-              5.times { asm.asl } # the first tile's word in video RAM
-              asm.sta(asm.abs(h::VMADDL))
-              asm.asl # ...and its byte in the copy
-              asm.sta(asm.abs(h::DMA_BASE + h::A1TL))
-              asm.sep(0x20)
-              asm.lda(bank)
-              emit_copy_to_video_ram(asm)
-              asm.inx
-              asm.inx
-              asm.inx
-              asm.inx
-              asm.bra("rt_paint_upload_run")
+              asm.jsr(asm.abs("rt_paint_send_runs"))
 
-              # The rest, all in one blank, so they show together.
+              # +height+ is the bytes of the clear tile, the map and the colours; +chunk+ those and
+              # the tiles on the screen, each run counted RUN_SETTING_UP more for setting it going.
               asm.label("rt_paint_upload_last")
               asm.stz(asm.abs(memory[RUNS_END]))
-              asm.stz(asm.direct(s.chunk))
+              asm.stz(asm.direct(s.height))
               [[memory[MAP_CHANGED], MAP_BYTES], [memory[CLEAR_CHANGED], TILE_BYTES], [tint_changed, 512]].each do |flag, bytes|
                 skip = "rt_paint_upload_count_#{bytes}"
                 asm.lda(asm.abs(flag))
                 asm.beq(skip)
-                asm.lda(asm.direct(s.chunk))
+                asm.lda(asm.direct(s.height))
                 asm.clc
                 asm.adc(bytes)
-                asm.sta(asm.direct(s.chunk))
+                asm.sta(asm.direct(s.height))
                 asm.label(skip)
               end
+              asm.lda(asm.direct(s.height))
+              asm.sta(asm.direct(s.chunk))
+              asm.ldx(asm.abs(memory[IN_PLACE_START]))
+              asm.label("rt_paint_upload_count_in_place")
+              asm.cpx(MOST_RUNS * 4)
+              asm.bcs("rt_paint_upload_counted")
+              emit_add_run_bytes(asm, memory, s)
+              asm.bra("rt_paint_upload_count_in_place")
+              asm.label("rt_paint_upload_counted")
               # Nothing to copy, the camera alone moved: a line of the blank for its registers.
               asm.lda(asm.direct(s.chunk))
               asm.bne("rt_paint_upload_copies")
               asm.lda(asm.abs(memory[CAMERA] + CAMERA_CHANGED))
               asm.branch_long(:beq, "rt_paint_upload_done")
               asm.jsr(asm.abs("rt_blank_time"))
-              asm.bra("rt_paint_upload_camera")
+              asm.brl("rt_paint_upload_camera")
               asm.label("rt_paint_upload_copies")
+              asm.cmp(Blank::BLANK_BYTES + 1)
+              asm.bcs("rt_paint_upload_apart")
               asm.jsr(asm.abs("rt_blank_room"))
+              asm.ldx(asm.abs(memory[IN_PLACE_START]))
+              asm.label("rt_paint_upload_in_place")
+              asm.cpx(MOST_RUNS * 4)
+              asm.bcs("rt_paint_upload_rest")
+              asm.jsr(asm.abs("rt_paint_send_run"))
+              asm.inx
+              asm.inx
+              asm.inx
+              asm.inx
+              asm.bra("rt_paint_upload_in_place")
+              asm.label("rt_paint_upload_apart")
+              asm.lda(MOST_RUNS * 4)
+              asm.sta(asm.direct(s.last))
+              asm.ldx(asm.abs(memory[IN_PLACE_START]))
+              asm.jsr(asm.abs("rt_paint_send_runs"))
+              asm.lda(asm.direct(s.height))
+              asm.jsr(asm.abs("rt_blank_room"))
+              asm.label("rt_paint_upload_rest")
+              asm.lda(MOST_RUNS * 4)
+              asm.sta(asm.abs(memory[IN_PLACE_START]))
               [[CLEAR_CHANGED, CLEAR_TILE_COPY, CLEAR_TILE_AT, TILE_BYTES],
                [MAP_CHANGED, MAP_COPY, MAP, MAP_BYTES]].each do |flag, from, to, bytes|
                 skip = "rt_paint_upload_#{to}_sent"
@@ -1558,6 +1691,100 @@ module VBlank
               asm.rep(0x20)
               asm.label("rt_paint_upload_done")
               asm.rts
+            end
+
+            # rt_paint_send_runs (JSR): the runs of RUNS from X up to +last+, as many at a time as
+            # the blank has room and time for (Blank's rt_blank_left), each counted RUN_SETTING_UP
+            # more; when not even the next fits, in the next blank. One check of the blank for each
+            # handful of runs rather than for each run, which costs as much as copying a tile.
+            # (+tile+ is where the handful starts, +mark_count+ where it ends, +chunk+ the room,
+            # +count+ the handful's bytes.)
+            def emit_send_runs(asm, memory, s)
+              asm.label("rt_paint_send_runs")
+              asm.stx(asm.direct(s.tile))
+              asm.cpx(asm.direct(s.last))
+              asm.bcs("rt_paint_send_runs_done")
+              asm.jsr(asm.abs("rt_blank_left"))
+              asm.sta(asm.direct(s.chunk))
+              asm.stz(asm.direct(s.count))
+              asm.label("rt_paint_send_runs_scan")
+              asm.cpx(asm.direct(s.last))
+              asm.bcs("rt_paint_send_runs_scanned")
+              asm.lda(asm.long_x(memory[RUNS] + 2))
+              6.times { asm.asl }
+              asm.clc
+              asm.adc(RUN_SETTING_UP)
+              asm.clc
+              asm.adc(asm.direct(s.count))
+              asm.cmp(asm.direct(s.chunk))
+              asm.beq("rt_paint_send_runs_take")
+              asm.bcs("rt_paint_send_runs_scanned")
+              asm.label("rt_paint_send_runs_take")
+              asm.sta(asm.direct(s.count))
+              asm.inx
+              asm.inx
+              asm.inx
+              asm.inx
+              asm.bra("rt_paint_send_runs_scan")
+              asm.label("rt_paint_send_runs_scanned")
+              asm.stx(asm.direct(s.mark_count))
+              asm.ldx(asm.direct(s.tile))
+              asm.lda(asm.direct(s.count))
+              asm.bne("rt_paint_send_runs_go")
+              asm.jsr(asm.abs("rt_blank_next"))
+              asm.bra("rt_paint_send_runs")
+              asm.label("rt_paint_send_runs_go")
+              asm.jsr(asm.abs("rt_blank_room"))
+              asm.label("rt_paint_send_runs_one")
+              asm.cpx(asm.direct(s.mark_count))
+              asm.bcs("rt_paint_send_runs")
+              asm.jsr(asm.abs("rt_paint_send_run"))
+              asm.inx
+              asm.inx
+              asm.inx
+              asm.inx
+              asm.bra("rt_paint_send_runs_one")
+              asm.label("rt_paint_send_runs_done")
+              asm.rts
+            end
+
+            # rt_paint_send_run (JSR): the run at X of RUNS copied to video RAM from the copy in
+            # +bank+, its tiles to their own slots. Keeps X.
+            def emit_send_run(asm, memory, bank)
+              h = Console::SNESHardware
+              asm.label("rt_paint_send_run")
+              asm.lda(asm.long_x(memory[RUNS] + 2))
+              6.times { asm.asl }
+              asm.sta(asm.abs(h::DMA_BASE + h::DASL))
+              asm.lda(asm.long_x(memory[RUNS]))
+              5.times { asm.asl } # the first tile's word in video RAM
+              asm.sta(asm.abs(h::VMADDL))
+              asm.asl # ...and its byte in the copy
+              asm.sta(asm.abs(h::DMA_BASE + h::A1TL))
+              asm.sep(0x20)
+              asm.lda(bank)
+              emit_copy_to_video_ram(asm)
+              asm.rts
+            end
+
+            # What setting a run going costs the blank, counted as bytes copied: two thirds of a
+            # line as Blank counts them (about 146 bytes), for the hundred or so cycles of code that
+            # start its copy.
+            RUN_SETTING_UP = 96
+
+            # The run at X of RUNS added to +chunk+, as its bytes and RUN_SETTING_UP; X on to the next.
+            def emit_add_run_bytes(asm, memory, s)
+              asm.lda(asm.long_x(memory[RUNS] + 2))
+              6.times { asm.asl }
+              asm.clc
+              asm.adc(RUN_SETTING_UP)
+              asm.clc
+              asm.adc(asm.direct(s.chunk))
+              asm.sta(asm.direct(s.chunk))
+              asm.inx
+              asm.inx
+              asm.inx
+              asm.inx
             end
 
             # The copying engine's channel 0 sending to video RAM's two ports, from the bank in A (8

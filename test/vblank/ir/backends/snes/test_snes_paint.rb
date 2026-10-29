@@ -157,6 +157,61 @@ class TestSNESPaint < Minitest::Test
     assert_empty run.torn_frames
   end
 
+  # A TILE ON THE SCREEN PAINTED AGAIN goes into the slot of video RAM its cell shows, so it is
+  # seen the moment it arrives. In a big change those tiles go last, with the map, in one blank:
+  # here a word at the top changes colour each pass while a band of the screen the last pass left
+  # clear is filled — more than one blank's worth, of tiles not on the screen yet — and the word
+  # must not change colour before the band arrives. Snake's title giving way to its board is this.
+  def test_a_tile_painted_again_in_a_big_change_arrives_with_the_rest
+    program = program_of do
+      screen :bitmap
+      n = var :n, 0
+      game_loop do
+        clear_screen :black
+        (n % 2 == 0).then do
+          draw_text "SNAKE", 8, 8, :green
+          fill_rect 0, 112, 256, 56, :red
+        end
+        (n % 2 == 1).then do
+          draw_text "SNAKE", 8, 8, :white
+          fill_rect 0, 168, 256, 56, :blue
+        end
+        n.add! 1
+      end
+    end
+    SNES::CheckedRun.new.run(program, frames: 6)
+    run = SNES::HeadlessRun.new(watch_picture: true).run(program, frames: 6)
+
+    assert_operator run.frames_took(3), :>, 1, "the half screen takes more than one blank"
+    assert_empty run.torn_frames
+  end
+
+  # ...and so when the generations come round, where every tile's generation is forgotten: a tile
+  # on the screen then is still known to be, and still goes last.
+  def test_a_tile_painted_again_as_the_generations_come_round_arrives_with_the_rest
+    program = program_of do
+      screen :bitmap
+      n = var :n, 0
+      game_loop do
+        clear_screen :black
+        (n < 250).then { n.add! 1 }.else do
+          (n % 2 == 0).then do
+            draw_text "SNAKE", 8, 8, :green
+            fill_rect 0, 112, 256, 56, :red
+          end
+          (n % 2 == 1).then do
+            draw_text "SNAKE", 8, 8, :white
+            fill_rect 0, 168, 256, 56, :blue
+          end
+          n.add! 1
+        end
+      end
+    end
+    run = SNES::HeadlessRun.new(watch_picture: true).run(program, frames: 262)
+
+    assert_empty run.torn_frames
+  end
+
   # A clear moves the screen on a generation, and a tile painted in an older one is the clear
   # colour. The count is a byte, so it comes round: the 257th clear has the number the first had.
   # The tile painted red after the first clear, and never since, must still be the clear colour then,

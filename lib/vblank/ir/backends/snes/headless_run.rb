@@ -481,7 +481,9 @@ module VBlank
             signed = ->(value) { value >= 0x8000 ? value - 0x10000 : value }
             Array.new(@core.wram_read16(at)) do |i|
               whose, picture, x, y = @core.wram_bytes(at + 2 + (i * Runtime::Picture::DRAWN_BYTES), 8).unpack("v4")
-              @drawn_sprites.row(signed.call(whose), picture, signed.call(x), signed.call(y))
+              # A picture copied in other colours is named as the picture it copies.
+              @drawn_sprites.row(signed.call(whose), @places.sprite_picture_names.fetch(picture, picture), signed.call(x),
+                                 signed.call(y))
             end
           end
 

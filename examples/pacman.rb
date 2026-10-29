@@ -133,7 +133,7 @@ module Pacman
 
   # The game as a block the builder runs, so a test can drive the exact program that
   # ships — the headless interpreter runs THIS, the console runs the ROM.
-  GAME = VBlank.game("PACMAN", consoles: %i[gba gbc]) do
+  GAME = VBlank.game("PACMAN", consoles: %i[gba gbc snes]) do
     screen :tiled # tile mode: a background layer for the room + hardware sprites on top
     here = Layout.new(width: screen_width, height: screen_height)
 

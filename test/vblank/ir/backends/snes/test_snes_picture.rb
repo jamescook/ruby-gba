@@ -500,6 +500,32 @@ class TestSNESPicture < Minitest::Test
     assert_match(/100x16.*multiple of 8/, error.message)
   end
 
+  # A SPRITE DRAWN WITH OTHER COLOURS (`draw_with`), as pacman flashes when caught: each place of
+  # the picture's own list shows the colour at the same place of the list it is drawn with, one
+  # of two lists picked by a number the game works out, and its own colours again with `:own`. A
+  # second sprite shows the same picture in its own colours throughout, and the reader of the
+  # drawn sprites names the picture each shows.
+  def test_a_sprite_drawn_with_other_colours_shows_them
+    run = checked(frames: 12) do
+      screen :tiled
+      colors :flash, %i[transparent white blue cyan]
+      colors :dim, %i[transparent gray green black]
+      face_art = Array.new(256) { |i| %i[yellow red orange][((i % 16) / 4 + (i / 64)) % 3] }
+      image :face, width: 16, height: 16, data: face_art, colors: %i[transparent yellow red orange]
+      face = sprite :face, at: [20, 20]
+      sprite :face, at: [60, 20]
+      t = var :t, 0
+      game_loop do
+        (t < 8).then { face.draw_with %i[flash dim], showing: (t >> 1) & 1 }.else { face.draw_with :own }
+        face.move_to 20 + t, 20
+        t.add! 1
+      end
+    end
+
+    assert_equal 12, run[:t]
+    assert_equal %i[face face], run.sprites.map(&:picture)
+  end
+
   # A LAYER HALF SEE-THROUGH: colour math adds what is behind it to it and halves the sum, on every
   # pixel where its own is drawn; where its tiles are see-through, what is behind shows plain, and a
   # sprite in front is solid. 55 is half on the interpreter too: what is behind takes its share
