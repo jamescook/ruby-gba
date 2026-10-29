@@ -299,6 +299,7 @@ module VBlank
           # has, so one added there and not here fails that test.
           def frame = refuse_unanswered!(:frame)
           def frames_each_pass(&) = refuse_unanswered!(:frames_each_pass)
+          def frames_setting_up(*) = refuse_unanswered!(:frames_setting_up)
           def log = refuse_unanswered!(:log)
           def screen_mode = refuse_unanswered!(:screen_mode)
           def write_save_copy(*) = refuse_unanswered!(:write_save_copy)
