@@ -150,6 +150,7 @@ module VBlank
           Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?,
                                   bar_rows: lowering.bar_rows, slides: lowering.music.slides?,
                                   wobbles: lowering.music.wobbles?, shapes: lowering.music.shapes?,
+                                  swells: lowering.holds_swells?,
                                   banked_songs: lowering.music.banked?, clips: lowering.clips.any?,
                                   dark: lowering.counts_dark_frames?, rumble: lowering.rumbles?)
           game = lowering.sections

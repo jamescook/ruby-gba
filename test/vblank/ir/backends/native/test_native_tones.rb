@@ -92,6 +92,32 @@ class TestNativeTones < Minitest::Test
     assert_native_sounds_like_the_console program, frames: 150
   end
 
+  # A pad swelling in under the music volume stops at it, and fades with the music: held at half,
+  # then faded out to nothing, then brought back and swelling on.
+  def test_a_swelling_pad_is_held_under_the_music_volume_as_the_consoles_is
+    program = program_of do
+      enable_sound
+      song :tune do
+        voice(:lead) { rest :whole }
+        voice :pad do
+          volume 0
+          swell :fast
+          note :E4, :whole
+        end
+      end
+      play_song :tune
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 2).then { music_volume 50 }
+        (count == 40).then { fade_music_out frames: 20 }
+        (count == 80).then { fade_music_in frames: 20 }
+      end
+    end
+
+    assert_native_sounds_like_the_console program, frames: 130, voices: [:square2]
+  end
+
   # A sound effect's notes fade and swell the same way, over a song.
   def test_a_sound_effects_notes_fade_and_swell_as_the_consoles_do
     score = VBlank::Audio::Score

@@ -63,14 +63,39 @@ module VBlank
             # own (WAVE_LOADED says which is in), so a note after them finds its own gone.
             def reloads_wave?(memory) = memory.reserved?(WAVE_LOADED)
 
-            def reserve(memory, effects: [], slides: false, wobbles: false, shapes: false, banked: false)
+            def reserve(memory, effects: [], slides: false, wobbles: false, shapes: false, swells: false, banked: false)
               memory.reserve(BANK_NOTED, 1) if banked
               reserve_song_player(memory, banked)
               memory.reserve(WAVE_LOADED, 1) unless effects.empty? && !Clips.any?(memory)
               memory.reserve(NOTE_SLIDE, 1) if slides
               memory.reserve(WOBBLES, WOBBLE_BYTES * WOBBLE_VOICES) if wobbles
               memory.reserve(SHAPE_WALKS, SHAPE_BYTES * SHAPE_VOICES) if shapes
+              memory.reserve(SWELLS, SWELL_BYTES * SWELL_VOICES) if swells
               Effects.reserve(memory, effects)
+            end
+
+            # A SONG'S SWELLING NOTE HELD UNDER THE MUSIC VOLUME, in a game that moves the music volume
+            # and has one, for each of the two square voices (IR::Tunes::Swell says how it is counted):
+            # 1 while the voice has one, the 64ths of a second each step lasts, how loud the voice has
+            # it now, the 256ths of a 64th counted toward its next step (16 bits, low byte first), and
+            # 1 while it is still swelling. Six bytes a voice.
+            SWELLS = "rt music swells"
+            SWELL_BYTES = 6
+            SWELL_VOICES = 2
+            SWELL_STEP = 1
+            SWELL_VOLUME = 2
+            SWELL_COUNTED = 3
+            SWELL_SWELLING = 5
+
+            def swells?(memory) = memory.reserved?(SWELLS)
+
+            # Voice +voice+ holds no swell for the music volume: it went quiet, or another sound took
+            # it. Nothing in a game with none, nor on a voice that is not square.
+            def emit_end_swell(asm, memory, voice)
+              return unless swells?(memory) && voice <= SWELL_VOICES
+
+              asm.xor_a(:a)
+              asm.load([memory[SWELLS] + ((voice - 1) * SWELL_BYTES)], :a)
             end
 
             # A SQUARE NOTE'S SHAPES, in a game where a square note says them, for each of the two
@@ -87,7 +112,7 @@ module VBlank
             def shapes?(memory) = memory.reserved?(SHAPE_WALKS)
 
             # Whether anything moves a voice at the end of each of the player's frames (#emit_tick).
-            def steps_each_frame?(memory) = wobbles?(memory) || shapes?(memory)
+            def steps_each_frame?(memory) = wobbles?(memory) || shapes?(memory) || swells?(memory)
 
             # A NOTE A VOICE WOBBLES, in a game where a note does, for each of the two square voices
             # and the wave voice (IR::Tunes::Wobble steps it): its depth and speed (Audio::Vibrato#bits'
@@ -139,6 +164,7 @@ module VBlank
               emit_wobbles(asm, memory) if wobbles?(memory)
               emit_set_speakers(asm, memory) if pans
               emit_shapes(asm, memory) if shapes?(memory)
+              emit_swells(asm, memory) if swells?(memory)
               Effects.emit(asm, memory, effects, by_rank, slides: slides, pans: pans, fades: fades, bytes: bytes) if sharing
             end
 
@@ -473,6 +499,7 @@ module VBlank
                 asm.load([memory[WOBBLES] + ((voice - 1) * WOBBLE_BYTES)], :a)
               end
               emit_end_shapes(asm, memory, voice)
+              emit_end_swell(asm, memory, voice)
               h = Console::GBCHardware
               volume, start = { 1 => [h::NR12, h::NR14], 2 => [h::NR22, h::NR24], 3 => [h::NR30, nil],
                                 4 => [h::NR42, h::NR44] }.fetch(voice)
@@ -558,11 +585,14 @@ module VBlank
             def emit_tick(asm, memory, level, sharing)
               h = Console::GBCHardware
               asm.label("rt_music_tick")
-              # In a game where a note wobbles, every wobbling voice moves on once the frame's notes
-              # are all written (rt_wobble_step), and then, where a note steps its shapes, every
-              # square voice that does (rt_shape_step) — which the steps below end in many places to
-              # reach.
-              steps = [("rt_wobble_step" if wobbles?(memory)), ("rt_shape_step" if shapes?(memory))].compact
+              # Once the frame's notes are all written: where a swelling note is held under the music
+              # volume, every square voice holding one (rt_swell_step); then, in a game where a note
+              # wobbles, every wobbling voice moves on (rt_wobble_step), and then, where a note steps
+              # its shapes, every square voice that does (rt_shape_step) — those two putting a note
+              # struck again back at its frame's pitch and shape. The steps below end in many places
+              # to reach them.
+              steps = [("rt_swell_step" if swells?(memory)), ("rt_wobble_step" if wobbles?(memory)),
+                       ("rt_shape_step" if shapes?(memory))].compact
               unless steps.empty?
                 asm.call("rt_music_tick_body")
                 steps[0...-1].each { |step| asm.call(step) }
@@ -771,6 +801,7 @@ module VBlank
               if shapes?(memory)
                 SHAPE_VOICES.times { |i| asm.load([memory[SHAPE_WALKS] + (i * SHAPE_BYTES) + SHAPE_ON], :a) }
               end
+              SWELL_VOICES.times { |i| asm.load([memory[SWELLS] + (i * SWELL_BYTES)], :a) } if swells?(memory)
               asm.load(:a, 0x80)
               [h::NR14, h::NR24, h::NR44].each { |register| asm.load_high(register, :a) }
               emit_wave_quiet(asm, memory) if clips
@@ -1096,7 +1127,8 @@ module VBlank
               asm.load(:a, [part])
               (1..HELD_VOICES).each do |voice|
                 asm.cp_a(voice)
-                asm.jump_relative(:z, "rt_music_hold_#{voice}")
+                # A swell's start makes the voices' parts long enough to need a long jump.
+                swells?(memory) ? asm.jump(:z, "rt_music_hold_#{voice}") : asm.jump_relative(:z, "rt_music_hold_#{voice}")
               end
               asm.ret
               (1..HELD_VOICES).each do |voice|
@@ -1110,9 +1142,167 @@ module VBlank
                   asm.load([memory[TUNINGS] + ((voice - 1) * 2) + 1], :a)
                   asm.load(:a, [part + 1])
                   asm.load([memory[DUTIES] + voice - 1], :a)
+                  emit_start_swell(asm, memory, voice) if swells?(memory)
                 end
                 asm.ret
               end
+            end
+
+            # The note being played on square voice +voice+ (DE its tuning, B the volume the voice is
+            # told) counted from here when it swells by itself, so it is held under the music volume
+            # (#emit_swells): its fade is the top four bits of its tuning's high byte, 8 of them up
+            # and the step under it (GBC::Music::FADE_SHIFT). A rest, or a note that does not swell,
+            # holds no swell. Keeps B and DE.
+            def emit_start_swell(asm, memory, voice)
+              at = memory[SWELLS] + ((voice - 1) * SWELL_BYTES)
+              none = "rt_swell_none_#{voice}"
+              said = "rt_swell_said_#{voice}"
+              asm.load(:a, :d)
+              asm.and_a(:e)
+              asm.inc(:a) # nought for a rest
+              asm.jump_relative(:z, none)
+              asm.bit(7, :d)
+              asm.jump_relative(:z, none)
+              if memory.reserved?(NOTE_SLIDE) # a note that slides is left alone: striking it again starts its slide over
+                asm.load(:a, [memory[NOTE_SLIDE]])
+                asm.and_a(:a)
+                asm.jump_relative(:nz, none)
+              end
+              asm.load(:a, :d)
+              asm.and_a(0x70)
+              asm.jump_relative(:z, none)
+              asm.swap(:a)
+              asm.load([at + SWELL_STEP], :a)
+              asm.load(:a, :b)
+              asm.load([at + SWELL_VOLUME], :a)
+              asm.xor_a(:a)
+              asm.load([at + SWELL_COUNTED], :a)
+              asm.load([at + SWELL_COUNTED + 1], :a)
+              asm.inc(:a)
+              asm.load([at + SWELL_SWELLING], :a)
+              asm.jump_relative(said)
+              asm.label(none)
+              asm.xor_a(:a)
+              asm.label(said)
+              asm.load([at], :a)
+            end
+
+            # A SONG'S SWELLING NOTE HELD UNDER THE MUSIC VOLUME, in a game that has one
+            # (IR::Tunes::Swell says how it is counted, and every backend counts it alike).
+            #
+            # rt_swell_step: every square voice holding one, at the end of the interrupt's frame before
+            # the wobbles and the shapes (Reference::Player#step_swells). The loudest the music volume lets a note
+            # be is 15 times the level the held notes were set at, over 16. A swell that has reached
+            # it is struck again there, holding, and one held below it is struck again where it was,
+            # swelling on; then a swelling one is counted on a frame — a little over one 64th of a
+            # second, 274 256ths of one. A run of the cartridge reads each strike at
+            # rt_swell_struck_holding_N, where B holds the volume, and at rt_swell_struck_swelling_N,
+            # where C holds the fade
+            # as well (GBC::SoundLog).
+            def emit_swells(asm, memory)
+              h = Console::GBCHardware
+              loudest = IR::Tunes::LOUDEST
+              asm.label("rt_swell_step")
+              asm.load(:a, [memory[LEVEL_SET]])
+              asm.xor_a(IR::Tunes::FULL_LEVEL)
+              asm.load(:c, :a)
+              asm.load(:b, loudest)
+              asm.call("rt_music_scale")
+              asm.load(:d, :a) # the ceiling
+              { 1 => [h::NR11, h::NR12, h::NR13, h::NR14], 2 => [h::NR21, h::NR22, h::NR23, h::NR24] }.each do |voice, registers|
+                at = memory[SWELLS] + ((voice - 1) * SWELL_BYTES)
+                past = "rt_swell_past_#{voice}"
+                held = "rt_swell_kept_#{voice}"
+                hold = "rt_swell_hold_#{voice}"
+                count = "rt_swell_count_#{voice}"
+                climb = "rt_swell_climb_#{voice}"
+                asm.load(:a, [at])
+                asm.and_a(:a)
+                asm.jump(:z, past)
+                asm.load(:a, [at + SWELL_SWELLING])
+                asm.and_a(:a)
+                asm.jump(:z, held)
+                asm.load(:a, :d) # swelling: held at the ceiling once it is there, unless that is full
+                asm.cp_a(loudest)
+                asm.jump(:nc, count)
+                asm.load(:a, [at + SWELL_VOLUME])
+                asm.cp_a(:d)
+                asm.jump(:c, count)
+                asm.label(hold)
+                asm.load(:a, :d)
+                asm.load([at + SWELL_VOLUME], :a)
+                asm.xor_a(:a)
+                asm.load([at + SWELL_COUNTED], :a)
+                asm.load([at + SWELL_COUNTED + 1], :a)
+                asm.load([at + SWELL_SWELLING], :a)
+                asm.load(:b, :d)
+                asm.load(:c, 0)
+                asm.label("rt_swell_struck_holding_#{voice}")
+                emit_strike_swell(asm, memory, voice, registers)
+                asm.jump(past)
+                asm.label(held) # held: struck lower as the music falls, swelling on as it comes back
+                asm.load(:a, [at + SWELL_VOLUME])
+                asm.cp_a(:d)
+                asm.jump(:z, past)
+                asm.jump(:nc, hold)
+                asm.load(:b, :a)
+                asm.xor_a(:a)
+                asm.load([at + SWELL_COUNTED], :a)
+                asm.load([at + SWELL_COUNTED + 1], :a)
+                asm.inc(:a)
+                asm.load([at + SWELL_SWELLING], :a)
+                asm.load(:a, [at + SWELL_STEP])
+                asm.or_a(8)
+                asm.load(:c, :a)
+                asm.label("rt_swell_struck_swelling_#{voice}")
+                emit_strike_swell(asm, memory, voice, registers)
+                asm.label(count)
+                asm.load(:a, [at + SWELL_VOLUME])
+                asm.cp_a(loudest)
+                asm.jump_relative(:nc, past)
+                asm.load(:hl, at + SWELL_COUNTED)
+                asm.load(:a, [:hl])
+                asm.add_a(IR::Tunes::COUNTED_A_FRAME & 0xFF)
+                asm.load([:hli], :a)
+                asm.load(:a, [:hl])
+                asm.adc_a(IR::Tunes::COUNTED_A_FRAME >> 8)
+                asm.load([:hl], :a)
+                asm.load(:a, [at + SWELL_STEP])
+                asm.load(:e, :a)
+                asm.label(climb) # a step is the step's 64ths × 256: its high byte alone
+                asm.load(:a, [at + SWELL_COUNTED + 1])
+                asm.cp_a(:e)
+                asm.jump_relative(:c, past)
+                asm.sub_a(:e)
+                asm.load([at + SWELL_COUNTED + 1], :a)
+                asm.load(:a, [at + SWELL_VOLUME])
+                asm.inc(:a)
+                asm.load([at + SWELL_VOLUME], :a)
+                asm.cp_a(loudest)
+                asm.jump_relative(:c, climb)
+                asm.label(past)
+              end
+              asm.ret
+            end
+
+            # Square voice +voice+ (its +registers+) struck again with the note it holds: its duty and
+            # tuning as kept for a new music level (#emit_hold), at volume B with fade C under it.
+            # Keeps D.
+            def emit_strike_swell(asm, memory, voice, registers)
+              duty, volume, low, high = registers
+              asm.load(:a, [memory[DUTIES] + voice - 1])
+              asm.load_high(duty, :a)
+              asm.load(:a, :b)
+              asm.swap(:a)
+              asm.and_a(0xF0)
+              asm.or_a(:c)
+              asm.load_high(volume, :a)
+              asm.load(:a, [memory[TUNINGS] + ((voice - 1) * 2)])
+              asm.load_high(low, :a)
+              asm.load(:a, [memory[TUNINGS] + ((voice - 1) * 2) + 1])
+              asm.and_a(7)
+              asm.or_a(0x80)
+              asm.load_high(high, :a)
             end
 
             # THE MUSIC LEVEL MOVED: every voice holding a note takes the new level, as

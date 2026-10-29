@@ -161,6 +161,75 @@ module VBlank
         end
       end
 
+      # A SWELLING NOTE HELD UNDER THE MUSIC VOLUME, counted a frame at a time — the same count on
+      # every backend.
+      #
+      # A square voice counts a swelling note's loudness up by itself, a step every +step+ 64ths of
+      # a second, and stops only at full (15): it knows nothing of the music volume. So while the
+      # game moves the music volume, the player counts along with it, and when the note has
+      # reached the loudest the music volume lets a note be (#ceiling), strikes it again there,
+      # holding. If the music comes back up, it strikes it again where it was held, swelling on;
+      # if it goes down further, it strikes it lower. +volume+ is how loud the voice has the note
+      # now, +counted+ the 256ths of a 64th counted toward its next step, and +swelling+ whether the
+      # voice is still counting it up.
+      Swell = Data.define(:step, :volume, :counted, :swelling) do
+        # A note struck swelling, at +volume+: nothing counted yet.
+        def self.starting(step, volume) = new(step: step, volume: volume, counted: 0, swelling: true)
+
+        # The swell a frame on: a frame is a little longer than a 64th of a second
+        # (COUNTED_A_FRAME), so a step of 1 can climb twice in a frame, now and then.
+        def stepped
+          return self unless swelling && volume < LOUDEST
+
+          counted = self.counted + COUNTED_A_FRAME
+          volume = self.volume
+          while counted >= step * 256 && volume < LOUDEST
+            counted -= step * 256
+            volume += 1
+          end
+          with(volume: volume, counted: counted)
+        end
+
+        # WHAT THE PLAYER STRIKES under +ceiling+, and the swell after: nil for nothing, :hold
+        # for the note struck at the ceiling holding, :swell for it struck where it is, swelling
+        # on. At full there is nothing to hold: the voice stops there by itself.
+        def held_under(ceiling)
+          if swelling && volume >= ceiling && ceiling < LOUDEST
+            [with(volume: ceiling, counted: 0, swelling: false), :hold]
+          elsif !swelling && volume > ceiling
+            [with(volume: ceiling), :hold]
+          elsif !swelling && volume < ceiling
+            [with(counted: 0, swelling: true), :swell]
+          else
+            [self, nil]
+          end
+        end
+      end
+
+      # How loud a console voice can be.
+      LOUDEST = 15
+
+      # The 256ths of a 64th of a second a frame lasts (Swell#stepped), rounded down. Every console
+      # VBlank plays on today shows a frame for the same time; one whose frame is another length
+      # needs its own number here.
+      COUNTED_A_FRAME = 274
+
+      # The loudest a note can be at music volume +level+.
+      def ceiling(level) = scaled_volume(LOUDEST, level)
+
+      # DOES A SONG THE PROGRAM PLAYS HAVE A SQUARE NOTE THAT SWELLS BY ITSELF — a song, not a
+      # sound effect, which keeps its own volume? Only then has a player a swell to hold under the
+      # music volume (Swell).
+      def swelling_square_notes?(program)
+        effect_names = effects(program)
+        played_songs(program).any? do |song|
+          !effect_names.include?(song.name) && song.voices.any? do |part|
+            part_kind(part) == :square &&
+              part.events.any? { |event| event[1].positive? && said_fade(part, event)&.swells_by_itself? }
+          end
+        end
+      end
+
       # DOES THE VOICE CHANGE THIS NOTE ITSELF — a square note that said a fade or a swell with a
       # step to count, or a slide? Such a note is not held for the music volume: the volume reaches
       # a held note by striking it again, which would start its counting over, so a plucked note

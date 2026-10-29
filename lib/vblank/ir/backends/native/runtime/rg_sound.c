@@ -55,7 +55,8 @@
  * music volume a part sounds at in full and how far to shift back down by it
  * (IR::Tunes::FULL_LEVEL and LEVEL_SHIFT); sixteen numbers, the wave voice's loudness in
  * quarters for each volume from 0 to 15; and the part of a rank that is a sound effect's order
- * (IR::Tunes::ORDER_MASK), nought for the song.
+ * (IR::Tunes::ORDER_MASK), nought for the song; and the 256ths of a 64th of a second a frame lasts
+ * (IR::Tunes::COUNTED_A_FRAME).
  *
  * rg_game_effects: how many sound effects there are, 1 if any of them plays the wave voice (see
  * wave_put_in), then five numbers each, in the order they were declared — the song it plays (by
@@ -173,6 +174,8 @@
 #define FULL_LEVEL (rg_game_sound_rules[4])
 #define LEVEL_SHIFT (rg_game_sound_rules[5])
 #define WAVE_QUARTERS 6
+#define COUNTED_A_FRAME (rg_game_sound_rules[WAVE_QUARTERS + VOLUMES + 1])
+#define LOUDEST (VOLUMES - 1)
 #define SONG_COUNT (rg_game_music[0])
 #define SONG_STARTS 1
 #define NUMBERS_PER_SONG 5
@@ -784,6 +787,58 @@ static void wobble_start(int32_t voice, const int32_t *note) {
   wobbles[voice] = (wobble){vibrato, vibrato >> VIBRATO_AFTER_AT, 0, 0, 0, note[3]};
 }
 
+/* A SONG'S SWELLING NOTE HELD UNDER THE MUSIC VOLUME, by the square voice it is on
+ * (IR::Tunes::Swell says how it is counted): whether the voice has one, its step, how loud the voice
+ * has it now, the 256ths of a 64th counted toward its next step, whether it is still swelling, and
+ * the note's wave and shape, to strike it again with. */
+typedef struct {
+  int32_t active, step, volume, counted, swelling, wave_ticks, eighths_high;
+} swell_walk;
+
+static swell_walk swells[RG_SQUARE_VOICES + 1];
+
+static void swell_stop(int32_t voice) {
+  if (voice <= RG_SQUARE_VOICES) swells[voice].active = 0;
+}
+
+/* EVERY SWELLING NOTE HELD UNDER THE MUSIC VOLUME, at the end of the player's frame before the
+ * wobbles and the shapes, which put a note struck again back at its frame's pitch and shape, the
+ * voices in order (Reference::Player#step_swells): struck again at the loudest the
+ * music volume lets a note be, holding, or where it was held, swelling on, and logged as it is;
+ * then counted on a frame. */
+static void step_swells(void) {
+  int32_t ceiling = (LOUDEST * level) >> LEVEL_SHIFT;
+  for (int32_t voice = 1; voice <= RG_SQUARE_VOICES; voice++) {
+    swell_walk *swell = &swells[voice];
+    if (!swell->active) continue;
+    if (swell->swelling ? swell->volume >= ceiling && ceiling < LOUDEST : swell->volume > ceiling) {
+      swell->volume = ceiling;
+      swell->counted = 0;
+      swell->swelling = 0;
+      rg_sound_log("loudness %d %d", (int)voice, (int)ceiling);
+      square_start(voice, swell->wave_ticks, swell->eighths_high, ceiling, 0, 0);
+    } else if (!swell->swelling && swell->volume < ceiling) {
+      swell->counted = 0;
+      swell->swelling = 1;
+      rg_sound_log("loudness %d %d %d", (int)voice, (int)swell->volume, (int)(FADE_UP | swell->step));
+      square_start(voice, swell->wave_ticks, swell->eighths_high, swell->volume, FADE_UP | swell->step, 0);
+    }
+    if (!swell->swelling || swell->volume >= LOUDEST) continue;
+    swell->counted += COUNTED_A_FRAME;
+    while (swell->counted >= swell->step * 256 && swell->volume < LOUDEST) {
+      swell->counted -= swell->step * 256;
+      swell->volume++;
+    }
+  }
+}
+
+/* +voice+ has just been struck with a song's square note at +volume+ under the music volume: counted
+ * from here when it swells by itself. */
+static void swell_start(int32_t voice, const int32_t *note, int32_t eighths_high, int32_t volume, int32_t fade) {
+  if (note[1] == 0 || !(fade & FADE_UP) || (fade & FADE_STEP_BITS) == 0) return;
+  swells[voice] = (swell_walk){1, fade & FADE_STEP_BITS, volume, 0, 1, note[3], eighths_high};
+}
+
 /* A SQUARE NOTE'S SHAPES, by the voice it is on (Audio::Duty says what they are, and
  * Reference::Player#step_shapes how they step): the shapes' bits, the frame of the note it is on,
  * and whether they change at all — a note of one shape is never stepped. */
@@ -810,6 +865,7 @@ static int32_t note_eighths(const part_walk *part, const int32_t *note) {
  * note of one shape — steps nothing. */
 static void shape_start(int32_t voice, const int32_t *note) {
   if (voice > RG_SQUARE_VOICES) return;
+  swell_stop(voice);
   int32_t bits = note[1] != 0 && (note[5] & SAID_DUTY) ? note[5] & DUTY_BITS : 0;
   int32_t steps = 0;
   for (int32_t frame = 1; frame < 4; frame++) steps |= shape_at(bits, frame) != shape_at(bits, 0);
@@ -818,6 +874,7 @@ static void shape_start(int32_t voice, const int32_t *note) {
 
 static void shape_stop(int32_t voice) {
   if (voice <= RG_SQUARE_VOICES) shapes[voice].steps = 0;
+  swell_stop(voice);
 }
 
 /* EVERY SQUARE NOTE THAT STEPS ITS SHAPES given the shape of the frame it is on, at the end of the
@@ -1104,6 +1161,8 @@ static void play_note(part_walk *part, const int32_t *note) {
       hold_note((held_note){part->voice, 0, written, ticks, note_eighths(part, note), fade});
     }
     square_start(part->voice, ticks, note_eighths(part, note), sounded, fade, note_slide(note));
+    /* ...and one that slides is not held under the music volume either, for the same reason. */
+    if (level_variable && note_slide(note) == 0) swell_start(part->voice, note, note_eighths(part, note), sounded, fade);
     break;
   }
 }
@@ -1294,6 +1353,7 @@ void rg_music_frame(void) {
   while (at < EFFECT_COUNT && effect_row(by_rank[at])[EFFECT_RANK] > tune) play_effect_frame(by_rank[at++]);
   if (playing >= 0) play_song_frame();
   while (at < EFFECT_COUNT) play_effect_frame(by_rank[at++]);
+  step_swells();
   step_wobbles();
   step_shapes();
 }

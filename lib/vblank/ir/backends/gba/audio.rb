@@ -63,6 +63,7 @@ module VBlank
                                                        volume: node.volume, defined: @defined_sounds)
             emit_stop_wobble(Lane.new(:square, BEEP_CHANNEL))
             emit_end_shapes(Lane.new(:square, BEEP_CHANNEL))
+            emit_end_swell(Lane.new(:square, BEEP_CHANNEL))
             emit_speakers_both(BEEP_CHANNEL)
             emit_register_writes(VBlank::Audio::Sound::Registers.beep_writes(**effect.to_h))
           end
@@ -408,6 +409,9 @@ module VBlank
                 end
               end
             end
+            # ...and one that moves the music volume with no song's square note that swells by itself
+            # holds none under it (see #emit_step_swells).
+            @swells = @scales && IR::Tunes.swelling_square_notes?(program)
             @loops = IR::Tunes.played_songs(program).any? { |song| IR::Tunes.loop_frame(song).positive? }
             # A game whose every tune comes round emits nothing for one that ends.
             @any_plays_once = IR::Tunes.played_songs(program).any? { |song| IR::Tunes.plays_once?(song) }
@@ -935,6 +939,7 @@ module VBlank
               @emitter.emit_branch(:bl, SOUND_EFFECTS)
             end
             @emitter.place_label(finished)
+            emit_step_swells if in_interrupt && @swells
             emit_step_wobbles if in_interrupt && @wobbles
             emit_step_shapes if in_interrupt && @shape_steps
           end
@@ -1211,6 +1216,7 @@ module VBlank
                 emit_console_note(lane, row)
                 emit_start_wobble(lane, row)
                 emit_start_shapes(lane, row)
+                emit_end_swell(lane)
                 song_lane = @lanes.index(lane)
                 emit_clear_held_note(song_lane) if song_lane && holds_notes?(lane)
                 emit_set_speakers(lane, row)
@@ -1350,6 +1356,7 @@ module VBlank
             emit_register_writes(console_note(lane, SILENCE, 0, 0))
             emit_stop_wobble(lane)
             emit_end_shapes(lane)
+            emit_end_swell(lane)
             @emitter.emit(ASM.load_immediate(ACC, 0))
             @primitives.store_var(ACC, self.class.voice_rank(lane.index))
           end
@@ -1614,6 +1621,7 @@ module VBlank
               emit_register_writes(console_note(lane, SILENCE, 0, 0))
               emit_stop_wobble(lane)
               emit_end_shapes(lane)
+              emit_end_swell(lane)
               emit_clear_held_note(number) if holds_notes?(lane)
             else
               # A voice a sound effect holds is the effect's, and is left alone: its rank's bottom
@@ -1842,6 +1850,7 @@ module VBlank
               @emitter.emit(ASM.ldr_offset(NOTE_REG, at, 4))           # both register values
               emit_hold_note(lane, number) if holds_notes?(lane)
               emit_scaled_note(lane)
+              emit_start_swell(lane)
               emit_start_wobble(lane, at)
               emit_start_shapes(lane, at)
               emit_set_speakers(lane, at)
@@ -1974,6 +1983,145 @@ module VBlank
               @primitives.store_var(ACC, var.call(:frame))
               @emitter.place_label(still)
             end
+          end
+
+          # A SONG'S SWELLING NOTE HELD UNDER THE MUSIC VOLUME, as the player keeps it between frames,
+          # by the square voice it is on (IR::Tunes::Swell says how it is counted): the 64ths of a
+          # second each step lasts (nothing when the voice holds none), how loud the voice has it
+          # now, the 256ths of a 64th counted toward its next step, whether it is still swelling, and
+          # the note's two register values, to strike it again with.
+          def self.swell_var(channel, what) = :"__swell_#{what}_#{channel}"
+
+          # Whether this lane's notes can be held under the music volume: a square voice, in a game
+          # that moves the music volume and has a song's square note that swells by itself.
+          def swells_on?(lane) = @swells && lane.kind == :square
+
+          # The song's note in NOTE_REG, just written to +lane+'s voice at the music volume, counted
+          # from here when it swells by itself — its fade's four bits, 8 of them up and the step under
+          # it, are bits 8 to 11 of its control value — or, a rest or a note that does not swell,
+          # holding no swell.
+          def emit_start_swell(lane)
+            return unless swells_on?(lane)
+
+            var = ->(what) { self.class.swell_var(lane.index, what) }
+            @emitter.emit(ASM.lsr_imm(ACC, NOTE_REG, 8))
+            @emitter.emit(ASM.and_imm(ACC, ACC, 0xF))
+            @emitter.emit(ASM.cmp_imm(ACC, 9)) # up, and a step of at least one
+            @emitter.emit(ASM.mov_imm_cond(:lt, ACC, 0))
+            @emitter.emit(ASM.and_imm(ACC, ACC, 7))
+            if slides_on?(lane) # a note that slides is left alone: striking it again starts its slide over
+              @emitter.emit(ASM.tst_imm(NOTE_REG, SLIDE_SHIFT_BITS))
+              @emitter.emit(ASM.mov_imm_cond(:ne, ACC, 0))
+            end
+            @primitives.store_var(ACC, var.call(:step))
+            @primitives.store_var(NOTE_REG, var.call(:note))
+            @emitter.emit(ASM.lsr_imm(ACC, NOTE_REG, 12))
+            @emitter.emit(ASM.and_imm(ACC, ACC, 0xF))
+            emit_scaled_loudness(ACC)
+            @primitives.store_var(ACC, var.call(:volume))
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, var.call(:counted))
+            @emitter.emit(ASM.load_immediate(ACC, 1))
+            @primitives.store_var(ACC, var.call(:swelling))
+          end
+
+          # +lane+'s voice went quiet, or another sound takes it: it holds no swell.
+          def emit_end_swell(lane)
+            return unless swells_on?(lane)
+
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, self.class.swell_var(lane.index, :step))
+          end
+
+          # EVERY SWELLING NOTE HELD UNDER THE MUSIC VOLUME, at the end of the interrupt's frame before
+          # the wobbles and the shapes, which put a note struck again back at its frame's pitch and
+          # shape, the voices in order (Reference::Player#step_swells). The loudest the music
+          # volume lets a note be is 15 times the level the held notes were set at, over sixteen. A
+          # swell that has reached it is struck again there, holding, and one held below it is
+          # struck again where it was, swelling on; then a swelling one is counted on a frame — a
+          # little over one 64th of a second, 274 256ths of one.
+          SWELL_VOLUME_REG = 4
+          SWELL_CEILING_REG = 5
+          SWELL_STEP_REG = 6
+
+          def emit_step_swells
+            loudest = IR::Tunes::LOUDEST
+            volume, ceiling, step = SWELL_VOLUME_REG, SWELL_CEILING_REG, SWELL_STEP_REG
+            @primitives.load_var(LEVEL_REG, MUSIC_LEVEL_APPLIED)
+            @emitter.emit(ASM.load_immediate(TMP, loudest))
+            @emitter.emit(ASM.mul(ceiling, LEVEL_REG, TMP))
+            @emitter.emit(ASM.lsr_imm(ceiling, ceiling, IR::Tunes::LEVEL_SHIFT))
+            MUSIC_CHANNELS.each do |channel|
+              lane = Lane.new(:square, channel)
+              var = ->(what) { self.class.swell_var(channel, what) }
+              past, held, hold, count, climb, climbed = Array.new(6) { @emitter.gensym }
+              @primitives.load_var(step, var.call(:step))
+              @emitter.emit(ASM.cmp_imm(step, 0))
+              @emitter.emit_branch(:bcond, past, cond: :eq)
+              @primitives.load_var(volume, var.call(:volume))
+              @primitives.load_var(ACC, var.call(:swelling))
+              @emitter.emit(ASM.cmp_imm(ACC, 0))
+              @emitter.emit_branch(:bcond, held, cond: :eq)
+              @emitter.emit(ASM.cmp_imm(ceiling, loudest)) # swelling: held at the ceiling once there, unless that is full
+              @emitter.emit_branch(:bcond, count, cond: :ge)
+              @emitter.emit(ASM.cmp_reg(volume, ceiling))
+              @emitter.emit_branch(:bcond, count, cond: :lt)
+              @emitter.place_label(hold)
+              @emitter.emit(ASM.mov_reg(volume, ceiling))
+              @primitives.store_var(volume, var.call(:volume))
+              @emitter.emit(ASM.load_immediate(ACC, 0))
+              @primitives.store_var(ACC, var.call(:counted))
+              @primitives.store_var(ACC, var.call(:swelling))
+              emit_strike_swell(lane, fade: 0)
+              @emitter.emit_branch(:b, past)
+              @emitter.place_label(held) # held: struck lower as the music falls, swelling on as it comes back
+              @emitter.emit(ASM.cmp_reg(volume, ceiling))
+              @emitter.emit_branch(:bcond, past, cond: :eq)
+              @emitter.emit_branch(:bcond, hold, cond: :gt)
+              @emitter.emit(ASM.load_immediate(ACC, 0))
+              @primitives.store_var(ACC, var.call(:counted))
+              @emitter.emit(ASM.load_immediate(ACC, 1))
+              @primitives.store_var(ACC, var.call(:swelling))
+              emit_strike_swell(lane, fade: :swelling)
+              @emitter.place_label(count)
+              @emitter.emit(ASM.cmp_imm(volume, loudest))
+              @emitter.emit_branch(:bcond, past, cond: :ge)
+              @primitives.load_var(WORK_REG, var.call(:counted))
+              @emitter.emit(ASM.load_immediate(TMP, IR::Tunes::COUNTED_A_FRAME))
+              @emitter.emit(ASM.add_reg(WORK_REG, WORK_REG, TMP))
+              @emitter.emit(ASM.lsl_imm(TMP, step, 8)) # a step is its 64ths × 256
+              @emitter.place_label(climb)
+              @emitter.emit(ASM.cmp_reg(WORK_REG, TMP))
+              @emitter.emit_branch(:bcond, climbed, cond: :lt)
+              @emitter.emit(ASM.sub_reg(WORK_REG, WORK_REG, TMP))
+              @emitter.emit(ASM.add_imm(volume, volume, 1))
+              @emitter.emit(ASM.cmp_imm(volume, loudest))
+              @emitter.emit_branch(:bcond, climb, cond: :lt)
+              @emitter.place_label(climbed)
+              @primitives.store_var(WORK_REG, var.call(:counted))
+              @primitives.store_var(volume, var.call(:volume))
+              @emitter.place_label(past)
+            end
+          end
+
+          # +lane+'s voice struck again with the note it holds, at the volume in SWELL_VOLUME_REG: its
+          # tone and the low bits of its control as the note had them, with no fade under it, or with
+          # a swell of its step (in SWELL_STEP_REG) for +fade+ :swelling; then its pitch, whose top bit
+          # starts the note.
+          def emit_strike_swell(lane, fade:)
+            regs = music_voice_regs(lane)
+            @primitives.load_var(NOTE_REG, self.class.swell_var(lane.index, :note))
+            @emitter.emit(ASM.and_imm(WRITE_REG, NOTE_REG, 0xFF))
+            @emitter.emit(ASM.orr_reg_lsl(WRITE_REG, WRITE_REG, SWELL_VOLUME_REG, 12))
+            if fade == :swelling
+              @emitter.emit(ASM.orr_reg_lsl(WRITE_REG, WRITE_REG, SWELL_STEP_REG, 8))
+              @emitter.emit(ASM.orr_imm(WRITE_REG, WRITE_REG, 0x800))
+            end
+            @emitter.emit(ASM.load_immediate(TMP, regs[:reg_a]))
+            @emitter.emit(ASM.store_halfword(WRITE_REG, TMP))
+            @emitter.emit(ASM.lsr_imm(WRITE_REG, NOTE_REG, 16))
+            @emitter.emit(ASM.load_immediate(TMP, regs[:reg_b]))
+            @emitter.emit(ASM.store_halfword(WRITE_REG, TMP))
           end
 
           # WHICH SPEAKERS A VOICE PLAYS FROM is a pair of switches for each voice in SOUNDCNT_L: the

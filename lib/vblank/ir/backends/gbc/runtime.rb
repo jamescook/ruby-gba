@@ -42,16 +42,18 @@ module VBlank
           # songs' notes are kept in the cartridge's banks (GBC::Music#banked?), +clips+ that it
           # plays a recording (GBC::Clips#any?), and +dark+ that it counts the frames its screen is
           # off for (Lowering#counts_dark_frames?), and +rumble+ that it runs a cartridge's motor
-          # (Lowering#rumbles?).
+          # (Lowering#rumbles?). +swells+ says a song's square note swells by itself in a game that
+          # moves the music volume (GBC::Music#swells?).
           def reserve(memory, art:, effects: [], together: false, bar_rows: nil, slides: false, wobbles: false,
-                      shapes: false, banked_songs: false, clips: false, dark: false, rumble: false)
+                      shapes: false, swells: false, banked_songs: false, clips: false, dark: false, rumble: false)
             Clips.reserve(memory) if clips
             Rumble.reserve(memory) if rumble
             Frame.reserve(memory, together: together, dark: dark)
             Picture.reserve(memory, lends: art.lends?, groups: art.groups?, bar_rows: bar_rows, rooms: art.rooms.any?)
             BigMaps.reserve(memory)
             Paint.reserve(memory, painting: art.painting?)
-            Music.reserve(memory, effects: effects, slides: slides, wobbles: wobbles, shapes: shapes, banked: banked_songs)
+            Music.reserve(memory, effects: effects, slides: slides, wobbles: wobbles, shapes: shapes, swells: swells,
+                                  banked: banked_songs)
           end
 
           # The runtime's sections: the processor's entry points, and everything else in one.

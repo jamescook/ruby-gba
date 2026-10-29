@@ -84,4 +84,23 @@ class TestGBCNoteFades < Minitest::Test
 
     assert_equal 0xC3, nr42
   end
+
+  # A PAD HELD UNDER THE MUSIC VOLUME is struck again at the loudest the volume lets it be, with no
+  # fade under it, so the voice stops counting it up there.
+  def test_a_swelling_pad_held_at_half_is_told_to_hold
+    b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      enable_sound
+      song(:tune) { voice(:lead) { |v| v.rest :whole }; voice(:pad) { |v| v.volume 0; v.swell :fast; v.note :G4, :whole } }
+      play_song :tune
+      music_volume 50
+      game_loop { wait_vblank }
+    end
+    b.finalize_program
+    _, nr22, = registers_after(b.program, frames: 40)
+
+    assert_equal 0x70, nr22, "the pad held at 7 of 15, counting nothing"
+  end
 end

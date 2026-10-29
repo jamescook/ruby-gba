@@ -214,6 +214,7 @@ def rg_sound_setup
   @rg_slide_clock = 0  # samples since the slide clock last ticked (rg_sound.c's slide_clock)
   @rg_wobbles = Array.new(RG_WAVE_VOICE + 1) { RgWobble.new(0, 0, 0, false, 0, 0) } # by voice (rg_sound.c's wobbles)
   @rg_shapes = Array.new(RG_SQUARE_VOICES + 1) { RgShapeWalk.new(0, 0, false) } # by voice (rg_sound.c's shapes)
+  @rg_swells = Array.new(RG_SQUARE_VOICES + 1) { RgSwellWalk.new(false) } # by voice (rg_sound.c's swells)
   @rg_loaded_waveform = -1
   # the player
   @rg_wanted = -1
@@ -247,6 +248,7 @@ def rg_output_hz = @rg_game_sound_rules[3]
 def rg_full_level = @rg_game_sound_rules[4]
 def rg_level_shift = @rg_game_sound_rules[5]
 def rg_order_mask = @rg_game_sound_rules[RG_WAVE_QUARTERS + RG_VOLUMES]
+def rg_counted_a_frame = @rg_game_sound_rules[RG_WAVE_QUARTERS + RG_VOLUMES + 1]
 def rg_song_count = @rg_game_music[0]
 def rg_effect_count = @rg_game_effects[0]
 def rg_effects_play_wave = @rg_game_effects[1]
@@ -622,6 +624,7 @@ end
 def rg_shape_start(voice, note)
   return if voice > RG_SQUARE_VOICES
 
+  rg_swell_stop(voice)
   said = @rg_game_music[note + 5]
   bits = @rg_game_music[note + 1] != 0 && said.anybits?(RG_SAID_DUTY) ? said & RG_DUTY_BITS : 0
   @rg_shapes[voice] = RgShapeWalk.new(bits, 0, (1..3).any? { |frame| rg_shape_at(bits, frame) != rg_shape_at(bits, 0) })
@@ -629,6 +632,50 @@ end
 
 def rg_shape_stop(voice)
   @rg_shapes[voice].steps = false if voice <= RG_SQUARE_VOICES
+  rg_swell_stop(voice)
+end
+
+# A SONG'S SWELLING NOTE HELD UNDER THE MUSIC VOLUME, by its voice: rg_sound.c's swell_walk, and its
+# other swell functions.
+RgSwellWalk = Struct.new(:active, :step, :volume, :counted, :swelling, :wave_ticks, :eighths_high)
+RG_LOUDEST = RG_VOLUMES - 1
+
+def rg_swell_stop(voice)
+  @rg_swells[voice].active = false if voice <= RG_SQUARE_VOICES
+end
+
+def rg_swell_start(voice, note, eighths_high, volume, fade)
+  return if @rg_game_music[note + 1] == 0 || fade.nobits?(RG_FADE_UP) || fade.nobits?(RG_FADE_STEP_BITS)
+
+  @rg_swells[voice] = RgSwellWalk.new(true, fade & RG_FADE_STEP_BITS, volume, 0, true, @rg_game_music[note + 3], eighths_high)
+end
+
+def rg_step_swells
+  ceiling = (RG_LOUDEST * @rg_level) >> rg_level_shift
+  (1..RG_SQUARE_VOICES).each do |voice|
+    swell = @rg_swells[voice]
+    next unless swell.active
+
+    if swell.swelling ? swell.volume >= ceiling && ceiling < RG_LOUDEST : swell.volume > ceiling
+      swell.volume = ceiling
+      swell.counted = 0
+      swell.swelling = false
+      rg_sound_log("loudness #{voice} #{ceiling}")
+      rg_square_start(voice, swell.wave_ticks, swell.eighths_high, ceiling, 0, 0)
+    elsif !swell.swelling && swell.volume < ceiling
+      swell.counted = 0
+      swell.swelling = true
+      rg_sound_log("loudness #{voice} #{swell.volume} #{RG_FADE_UP | swell.step}")
+      rg_square_start(voice, swell.wave_ticks, swell.eighths_high, swell.volume, RG_FADE_UP | swell.step, 0)
+    end
+    next unless swell.swelling && swell.volume < RG_LOUDEST
+
+    swell.counted += rg_counted_a_frame
+    while swell.counted >= swell.step * 256 && swell.volume < RG_LOUDEST
+      swell.counted -= swell.step * 256
+      swell.volume += 1
+    end
+  end
 end
 
 def rg_step_shapes
@@ -815,6 +862,7 @@ def rg_play_note(part, note)
       rg_hold_note(RgHeldNote.new(part.voice, 0, written, ticks, rg_note_eighths(part, note), fade))
     end
     rg_square_start(part.voice, ticks, rg_note_eighths(part, note), sounded, fade, rg_note_slide(note))
+    rg_swell_start(part.voice, note, rg_note_eighths(part, note), sounded, fade) if @rg_level_variable && rg_note_slide(note) == 0
   end
 end
 
@@ -990,6 +1038,7 @@ def rg_music_frame
     rg_play_effect_frame(@rg_game_effects[by_rank + at])
     at += 1
   end
+  rg_step_swells
   rg_step_wobbles
   rg_step_shapes
 end

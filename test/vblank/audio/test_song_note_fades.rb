@@ -137,6 +137,82 @@ class TestSongNoteFades < Minitest::Test
                  "the bass is struck again at half; the fading lead is left to fade"
   end
 
+  # A pad swelling in from nothing, a step every 64th of a second, under the music volume the
+  # block sets.
+  private def swelling_pad_game(&volume)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      enable_sound
+      song(:tune) do
+        voice(:pad) { |v| v.volume 0; v.swell :fast; v.note :G4, :whole }
+      end
+      play_song :tune
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        instance_exec(count, &volume)
+        wait_vblank
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  private def loudness_of_pad(program, frames:)
+    game_player.run(program, frames: frames).audio.select { |entry| entry.first == :loudness && entry[1] == 1 }
+  end
+
+  # A SWELLING NOTE STOPS AT THE MUSIC VOLUME. The voice counts its loudness up by itself, as far as
+  # full, whatever the music volume is. So the player counts with it, and when the note reaches
+  # the loudest the music volume lets a note be, strikes it again there, holding.
+  def test_a_swelling_note_stops_at_the_music_volume
+    entries = loudness_of_pad(swelling_pad_game { |count| (count == 1).then { music_volume 50 } }, frames: 40)
+
+    assert_equal [:loudness, 1, 7], entries.last, "at half, the pad holds at 7 of 15"
+    assert_equal 1, entries.count { |entry| entry[2] == 7 }, "and is struck there once"
+  end
+
+  # ...AND FADES WITH THE MUSIC. While the music fades out, the pad held at the music volume is
+  # struck lower each time the volume drops below it, down to nothing.
+  def test_a_swelling_note_fades_out_with_the_music
+    entries = loudness_of_pad(swelling_pad_game { |count| (count == 30).then { fade_music_out frames: 20 } }, frames: 80)
+    struck_down = entries.drop(1).map { |entry| entry[2] } # past the note's own start, at nothing
+
+    assert_operator struck_down.first.to_i, :>, 7, "the pad had swelled up before the fade"
+    assert_equal struck_down.sort.reverse, struck_down, "and is only ever struck lower as the music fades"
+    assert_equal [:loudness, 1, 0], entries.last, "the pad is silent at the end of the fade"
+  end
+
+  # ...AND SWELLS ON when the music volume comes back up, from where it was held.
+  def test_a_held_swell_swells_on_when_the_music_comes_back
+    entries = loudness_of_pad(swelling_pad_game do |count|
+      (count == 1).then { music_volume 50 }
+      (count == 40).then { music_volume 100 }
+    end, frames: 60)
+
+    assert_equal [:loudness, 1, 7, NoteFade.swelling(1)], entries.last, "struck at 7 again, swelling"
+  end
+
+  # ...BUT A SWELLING NOTE THAT SLIDES IS LEFT ALONE, as the music volume leaves every sliding note:
+  # striking it again would start its slide over.
+  def test_a_swelling_note_that_slides_is_left_alone
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      enable_sound
+      song(:tune) { voice(:pad) { |v| v.volume 0; v.swell :fast; v.note :G4, :whole, slide_down: :slow } }
+      play_song :tune
+      music_volume 50
+      game_loop { wait_vblank }
+    end
+    b.finalize_program
+
+    assert_equal 1, loudness_of_pad(b.program, frames: 40).size, "struck once, as it starts"
+  end
+
   # --- what a fade cannot be said of ---
 
   def test_a_part_on_the_wave_voice_cannot_fade_its_notes

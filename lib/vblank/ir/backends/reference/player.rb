@@ -57,6 +57,7 @@ module VBlank
             @holders = Hash.new(0) # a console voice -> the rank of whoever holds it (IR::Tunes.song_rank)
             @wobbles = {}       # a console voice -> how the note it holds wobbles (IR::Tunes::Wobble)
             @stepping_shapes = {}        # a square voice -> the shapes its note steps through, and its frame (#step_shapes)
+            @swells = {}        # a square voice -> the song's swelling note it holds under the music volume (IR::Tunes::Swell)
           end
 
           # A `song`, `song_list` or `sound_effect_list` declaration was reached. Gathered up
@@ -132,6 +133,7 @@ module VBlank
           def game_sound_on(channel)
             @wobbles.delete(channel)
             @stepping_shapes.delete(channel)
+            @swells.delete(channel)
           end
 
           # No tune. Counted as well as said, so a stop and a play in the same frame still reach
@@ -175,6 +177,7 @@ module VBlank
             above.each { |name, rank| play_effect_frame(name, rank, asked) }
             play_song_frame(level) if @playing
             below.each { |name, rank| play_effect_frame(name, rank, asked) }
+            step_swells
             step_wobbles
             step_shapes
             @mixer.record_peak_voices
@@ -224,6 +227,7 @@ module VBlank
                 if kind == :noise || IR::Tunes.changes_by_itself?(part, event)
                   @sounding.delete(channel) # rings and fades by itself (IR::Tunes.changes_by_itself?)
                   log_loudness(channel, written)
+                  hold_swell_under_level(channel, part, event, written) if kind == :square
                 else
                   record_note_volume(channel, written)
                 end
@@ -254,6 +258,33 @@ module VBlank
               @wobbles.delete(channel)
             end
             duty&.steps? ? @stepping_shapes[channel] = [duty, 0] : @stepping_shapes.delete(channel)
+            @swells.delete(channel)
+          end
+
+          # A SONG'S SQUARE NOTE THAT SWELLS BY ITSELF, struck at +written+ under the music volume:
+          # counted from here, so it is held at the music volume (IR::Tunes::Swell). A note that slides
+          # is left alone, as the music volume leaves it: striking it again would start its slide over.
+          def hold_swell_under_level(channel, part, event, written)
+            fade = IR::Tunes.said_fade(part, event)
+            return unless event[1].positive? && fade&.swells_by_itself?
+            return if Audio::PitchSlide.moves?(IR::Tunes.said_slide(part, event))
+
+            @swells[channel] = IR::Tunes::Swell.starting(fade.step, IR::Tunes.scaled_volume(written, @level))
+          end
+
+          # EVERY SWELLING NOTE HELD UNDER THE MUSIC VOLUME, at the end of the player's frame and the
+          # voices in order, before the wobbles and the shapes, which put a note struck again back at
+          # its frame's pitch and shape: struck again when the music volume says (logged as
+          # [:loudness, channel, volume], with the swell after it when it swells on), then counted on
+          # a frame.
+          def step_swells
+            ceiling = IR::Tunes.ceiling(@level)
+            @swells.keys.sort.each do |channel|
+              swell, strike = @swells[channel].held_under(ceiling)
+              @log << [:loudness, channel, swell.volume] if strike == :hold
+              @log << [:loudness, channel, swell.volume, Audio::NoteFade.swelling(swell.step)] if strike == :swell
+              @swells[channel] = swell.stepped
+            end
           end
 
           # EVERY SQUARE NOTE THAT STEPS ITS SHAPE given the shape of the frame it is on, at the end of
@@ -428,6 +459,7 @@ module VBlank
             @log << [:stop_music]
             @wobbles.delete_if { |channel, _| (@holders[channel] & IR::Tunes::ORDER_MASK).zero? }
             @stepping_shapes.delete_if { |channel, _| (@holders[channel] & IR::Tunes::ORDER_MASK).zero? }
+            @swells.delete_if { |channel, _| (@holders[channel] & IR::Tunes::ORDER_MASK).zero? }
             @holders.each_key { |channel| @holders[channel] = 0 if (@holders[channel] & IR::Tunes::ORDER_MASK).zero? }
             @sounding.clear
             @mixer.release_all_music

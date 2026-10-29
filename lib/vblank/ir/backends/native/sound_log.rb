@@ -88,7 +88,9 @@ module VBlank
                                 duty: (Audio::Duty.from_bits(numbers[8]) if numbers[8]))
             when "wobble" then [:wobble, numbers[0], numbers[1]]
             when "duty" then [:duty, numbers[0], Audio::Duty::NAMES.fetch(numbers[1])]
-            when "loudness" then [:loudness, numbers[0], numbers[1]]
+            # A swell held under the music volume and struck again swelling on says how
+            # (Reference::Player#step_swells).
+            when "loudness" then [:loudness, numbers[0], numbers[1], *(Audio::NoteFade.from_bits(numbers[2]) if numbers[2])]
             when "mixer_loudness" then [:loudness, [:mixer, numbers[0]], numbers[1]]
             when "stop_music" then [:stop_music]
             when "sound_effect" then [:sound_effect, @sound_effects.fetch(numbers[0])]

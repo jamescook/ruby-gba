@@ -389,7 +389,19 @@ module VBlank
               asm.load(:h, :a)
               asm.xor_a(:a)
               asm.load([:hl], :a)
+              emit_end_song_swell(asm, memory) if Music.swells?(memory)
               asm.jump("rt_voice_write")
+            end
+
+            # ...nor a swell of the song's held under the music volume, on a square voice ([PART]).
+            def emit_end_song_swell(asm, memory)
+              asm.load(:a, [memory[Music::PART]])
+              (1..Music::SWELL_VOICES).each do |voice|
+                asm.cp_a(voice)
+                asm.jump_relative(:nz, "rt_sfx_swell_kept_#{voice}")
+                Music.emit_end_swell(asm, memory, voice)
+                asm.label("rt_sfx_swell_kept_#{voice}")
+              end
             end
           end
         end
