@@ -184,8 +184,10 @@ module VBlank
           # colours, sixteen to a list, in the order the lists are numbered; +banks+ are the
           # groups nothing else uses in any scene, which the lists take turns in. Which list
           # holds which group is worked out as the game runs (see
-          # SpriteDrawing#emit_lend_colors_routine).
-          LentColors = Data.define(:blob, :banks) do
+          # SpriteDrawing#emit_lend_colors_routine). +families+ is the blob holding each lent
+          # list's family, a word a list in the same order, or nil for a game with none (see
+          # ScreenLayout#lent_families).
+          LentColors = Data.define(:blob, :banks, :families) do
             # Where the colours of the group lent out as number +k+ are written.
             def group_at(k) = OBJ_PALETTE + (banks[k] * PaletteBanks::BANK_SIZE * 2)
 
@@ -2100,7 +2102,7 @@ module VBlank
             unless scene_palettes && nodes.all? { |node| recolor_banks_narrow?(node) }
               @lent_lists = lists_to_lend(nodes)
               scene_palettes = lay_out_object_tables(nodes, homes)
-              lend_spare_groups
+              lend_spare_groups(nodes)
             end
             nodes.each { |node| recolor_banks_fit!(node) }
             place_changing_color_lists(homes)
@@ -2149,8 +2151,9 @@ module VBlank
           end
 
           # The groups no table uses in any scene are the ones lent out, and the borrowed
-          # lists' colours go in the cartridge for the copy into them.
-          def lend_spare_groups
+          # lists' colours go in the cartridge for the copy into them, with each one's family when
+          # any sprite has one.
+          def lend_spare_groups(nodes)
             used = @obj_banks.each_value.flat_map(&:banks_used)
             spare = (0...PaletteBanks::BANKS).to_a - used
             return @lending = nil if spare.empty?
@@ -2158,7 +2161,30 @@ module VBlank
             blob = :__lent_colors
             @blobs[blob] = @lent_lists.keys.flat_map { |list| pad_to_bank(list) }.pack("v*")
             keep_unpacked!(blob) # read from the middle, by the list being lent
-            @lending = LentColors.new(blob: blob, banks: spare)
+            family = lent_families(nodes)
+            families = (:__lent_color_families unless family.empty?)
+            if families
+              @blobs[families] = @lent_lists.each_value.map { |number| family.fetch(number, 0) }.pack("V*")
+              keep_unpacked!(families) # read by the list's number
+            end
+            @lending = LentColors.new(blob: blob, banks: spare, families: families)
+          end
+
+          # LENT LISTS ONE SPRITE WEARS BY TURNS, AND NO OTHER SPRITE EVER DOES — the lists of its
+          # `draw_with` that borrow — are a FAMILY, numbered from 1. A sprite stepping through them
+          # a frame at a time (a fade done with lists) wears a new one every frame, and a group
+          # goes back only once a whole frame has passed without it, so every such sprite would
+          # hold two groups at once: the one it wears and the one it wore. With a family it takes
+          # back the one its family held the frame before instead (see
+          # SpriteDrawing#emit_lend_colors_routine). Since no other sprite wears the family's lists,
+          # that group was its own, and nothing drawn later in the frame loses its colours. A list
+          # two sprites can wear — a pool's things, two sprites drawn with the same lists — is in
+          # no family. A lent list's number -> its family's.
+          def lent_families(nodes)
+            worn = nodes.map { |node| node.recolors.grep(Array).select { |list| lent?(list) }.map { |list| @lent_lists.fetch(list) }.uniq }
+            wearers = worn.flatten.tally
+            own = worn.map { |numbers| numbers.select { |number| wearers[number] == 1 } }.select { |numbers| numbers.length > 1 }
+            own.each_with_index.with_object({}) { |(numbers, i), family| numbers.each { |number| family[number] = i + 1 } }
           end
 
           # Does the list of colours +list+ borrow its group?

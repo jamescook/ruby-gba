@@ -1219,6 +1219,7 @@ module VBlank
               emit(ASM.cmp_reg(3, 2))
               emit_branch(:bcond, free[k], cond: :lo)
             end
+            emit_take_family_group(lending, free) if lending.families
             load_var(3, LENT_COLORS_MISSED)
             emit(ASM.add_imm(3, 3, 1))
             store_var(3, LENT_COLORS_MISSED)
@@ -1254,6 +1255,43 @@ module VBlank
             # Where it ends, so a profile of the finished game can name it (see
             # GBA#lowered_routine_addresses).
             place_label(:"#{LEND_COLORS}_end")
+          end
+
+          # A list that found no group free, in a game where sprites step through lists of their
+          # own (ScreenLayout#lent_families): a group holding a list of its family that nothing was
+          # drawn with on this frame is its own from the frame before, and it takes that one
+          # (+free+, the labels that fill a group). A list of no family, or one whose family holds
+          # none, falls through to be counted.
+          #
+          #   r1  the list's number, r2 this frame's number, as the routine has them
+          #   r3  a group's list
+          #   r4  where the families are
+          #   r5  the family of the list asking
+          #   r6  a group's frame, then its list's family
+          def emit_take_family_group(lending, free)
+            none = gensym
+            emit_load_data_address(4, lending.families)
+            emit(ASM.lsl_imm(5, 1, 2))
+            emit(ASM.add_reg(5, 5, 4))
+            emit(ASM.ldr(5, 5))
+            emit(ASM.cmp_imm(5, 0))
+            emit_branch(:bcond, none, cond: :eq)
+            lending.banks.each_index do |k|
+              other = gensym
+              load_var(3, lending.holder_var(k))
+              emit(ASM.cmp_imm(3, 0))
+              emit_branch(:bcond, other, cond: :lt)
+              load_var(6, lending.last_drawn_var(k))
+              emit(ASM.cmp_reg(6, 2))
+              emit_branch(:bcond, other, cond: :eq)
+              emit(ASM.lsl_imm(6, 3, 2))
+              emit(ASM.add_reg(6, 6, 4))
+              emit(ASM.ldr(6, 6))
+              emit(ASM.cmp_reg(6, 5))
+              emit_branch(:bcond, free[k], cond: :eq)
+              place_label(other)
+            end
+            place_label(none)
           end
 
           def emit_shared_room_routine(rooms, part)
