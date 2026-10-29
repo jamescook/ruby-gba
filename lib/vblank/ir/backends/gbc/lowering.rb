@@ -96,6 +96,9 @@ module VBlank
           # How many bytes a slot of a list takes, by the width it was declared with.
           SLOT_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4, nil => 4 })
 
+          # The registers a number in BCDE is held in, its lowest byte first, as memory keeps it.
+          BCDE_LOW_FIRST = %i[e d c b].freeze
+
           # The runtime's sums on BCDE and the number at HL, by the operator of a binop.
           SUMS = Ractor.make_shareable({ :+ => "rt_add32", :- => "rt_sub32", :* => "rt_mul32", :/ => "rt_div32",
                                          :% => "rt_mod32", :& => "rt_and32", :| => "rt_or32", :^ => "rt_xor32",
@@ -628,8 +631,27 @@ module VBlank
           def emit_nothing(_node) = nil
           def emit_children(node) = node.children.each { |child| statement(child) }
 
-          # BCDE into the variable +name+.
+          # BCDE into the variable +name+. A variable a sprite is placed from marks the sprite changed
+          # (Runtime::KeptSprites) — when the number is another than the one there, so a pose said
+          # again every pass leaves the sprite as it is.
           def store(name)
+            return emit_store_number(name) if sprites_placed_from(name).empty?
+
+            same = fresh("same_number")
+            @asm.load(:hl, place_of(name))
+            BCDE_LOW_FIRST.each_with_index do |register, i|
+              @asm.load(:a, i == 3 ? [:hl] : [:hli])
+              @asm.cp_a(register)
+              @asm.jump(:nz, "#{same}_differs") unless i == 3
+            end
+            @asm.jump(:z, same)
+            @asm.label("#{same}_differs")
+            emit_store_number(name)
+            emit_sprites_changed(name)
+            @asm.label(same)
+          end
+
+          def emit_store_number(name)
             @asm.load(:hl, place_of(name))
             @asm.call("rt_store32")
           end
@@ -649,7 +671,11 @@ module VBlank
           # added to where they are, a dozen instructions and no call.
           def emit_sum(name, op, operand)
             amount = folded(operand)
-            return add_in_place(place_of(name), op == :- ? Int32.neg(amount) : amount) if amount
+            if amount
+              add_in_place(place_of(name), op == :- ? Int32.neg(amount) : amount)
+              emit_sprites_changed(name) unless amount.zero?
+              return
+            end
 
             sum_of_two(Build.var_ref(name), operand, SUMS.fetch(op))
             store(name)
@@ -1239,6 +1265,11 @@ module VBlank
             if (equal = equality_with_number(condition))
               compare_with_number(*equal)
               @asm.jump(condition.op == :== ? :nz : :z, label)
+            elsif (name = sign_tested_variable(condition))
+              # A variable at or above nought, or below it, is its top bit, where it is kept.
+              @asm.load(:a, [place_of(name) + 3])
+              @asm.bit(7, :a)
+              @asm.jump(condition.op == :>= ? :nz : :z, label)
             elsif binop?(condition, :and)
               # The interpreter works both sides out; the second is skipped here when the first does
               # not hold, which is the same thing, since nothing this lowering makes can stop the game.
@@ -1256,6 +1287,13 @@ module VBlank
           end
 
           def binop?(node, op) = node.is_a?(Node) && node.kind == :binop && node.op == op
+
+          # The variable +condition+ asks is at or above nought (>= 0), or below it (< 0), or nil.
+          def sign_tested_variable(condition)
+            return nil unless (binop?(condition, :>=) || binop?(condition, :<)) && folded(condition.rhs)&.zero?
+
+            variable_named(condition.lhs)
+          end
 
           # A variable said to equal (or not) a number written in the program: [its place, the
           # number], or nil for any other test.
@@ -1315,12 +1353,28 @@ module VBlank
             greater = fresh("greater")
             equal = fresh("equal")
             done = fresh("compared")
-            value(left)
-            @asm.bit(7, :b)
-            @asm.jump_relative(:nz, less)
-            emit_upper_bytes_or
-            @asm.jump_relative(:nz, greater)
-            @asm.load(:a, :e)
+            name = variable_named(left)
+            if name
+              # A variable is asked where it is, its top byte first: its sign, then whether its upper
+              # bytes are nought, then its lowest against the byte.
+              @asm.load(:hl, place_of(name) + 3)
+              @asm.load(:a, [:hld])
+              @asm.bit(7, :a)
+              @asm.jump_relative(:nz, less)
+              @asm.or_a([:hl])
+              @asm.dec(:hl)
+              @asm.or_a([:hl])
+              @asm.dec(:hl)
+              @asm.jump_relative(:nz, greater)
+              @asm.load(:a, [:hl])
+            else
+              value(left)
+              @asm.bit(7, :b)
+              @asm.jump_relative(:nz, less)
+              emit_upper_bytes_or
+              @asm.jump_relative(:nz, greater)
+              @asm.load(:a, :e)
+            end
             @asm.cp_a(byte)
             @asm.jump_relative(:c, less)
             @asm.jump_relative(:z, equal)
@@ -1400,8 +1454,30 @@ module VBlank
               return @asm.call(holds_when == :z ? "rt_bool_of_z" : "rt_bool_of_nz")
             end
             return if node.op == :* && (emit_product_by_power_of_two(node) || emit_product_by_byte(node))
+            return if node.op == :+ && emit_sum_with_byte(node)
 
             sum_of_two(node.lhs, node.rhs, SUMS.fetch(node.op))
+          end
+
+          # A number plus a byte written in the program — a pose picked by a number, plus where its
+          # row starts — added in BCDE where it is, the carry walked up the bytes: a dozen
+          # instructions rather than a call, and none at all for nought. True when it was done so.
+          def emit_sum_with_byte(node)
+            [[node.rhs, node.lhs], [node.lhs, node.rhs]].each do |by, other|
+              number = folded(by)
+              next unless number&.between?(0, 0xFF)
+
+              value(other)
+              return true if number.zero?
+
+              BCDE_LOW_FIRST.each_with_index do |register, i|
+                @asm.load(:a, register)
+                i.zero? ? @asm.add_a(number) : @asm.adc_a(0)
+                @asm.load(register, :a)
+              end
+              return true
+            end
+            false
           end
 
           def value_of_neg(node) = sum_of_one(node.operand, "rt_neg32")

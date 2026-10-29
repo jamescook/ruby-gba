@@ -13,6 +13,7 @@ require_relative "runtime/music"
 require_relative "runtime/effects"
 require_relative "runtime/clips"
 require_relative "runtime/rumble"
+require_relative "runtime/kept_sprites"
 require_relative "runtime/big_maps"
 require_relative "runtime/saving"
 
@@ -43,11 +44,14 @@ module VBlank
           # plays a recording (GBC::Clips#any?), and +dark+ that it counts the frames its screen is
           # off for (Lowering#counts_dark_frames?), and +rumble+ that it runs a cartridge's motor
           # (Lowering#rumbles?). +swells+ says a song's square note swells by itself in a game that
-          # moves the music volume (GBC::Music#swells?).
+          # moves the music volume (GBC::Music#swells?). +kept_sprites+ says a sprite placed as it was
+          # on the pass before is left as it is (Lowering::Picture#keeps_unchanged_sprites?).
           def reserve(memory, art:, effects: [], together: false, bar_rows: nil, slides: false, wobbles: false,
-                      shapes: false, swells: false, banked_songs: false, clips: false, dark: false, rumble: false)
+                      shapes: false, swells: false, banked_songs: false, clips: false, dark: false, rumble: false,
+                      kept_sprites: false)
             Clips.reserve(memory) if clips
             Rumble.reserve(memory) if rumble
+            KeptSprites.reserve(memory) if kept_sprites
             Frame.reserve(memory, together: together, dark: dark)
             Picture.reserve(memory, lends: art.lends?, groups: art.groups?, bar_rows: bar_rows, rooms: art.rooms.any?)
             BigMaps.reserve(memory)
@@ -102,6 +106,7 @@ module VBlank
             Saving.emit(asm, memory)
             Clips.emit(asm, memory, counts: clips.timer_counts) if shown
             Rumble.emit(asm, memory) if Rumble.any?(memory)
+            KeptSprites.emit(asm, memory, lends: art.lends?) if KeptSprites.any?(memory)
             emit_start(asm)
             emit_main(asm, main)
             emit_frame_begins(asm, frame_begins)

@@ -936,10 +936,13 @@ module VBlank
 
               # In a game that lends its lists, rt_sprite(list, picture, x, y, attributes): the list
               # handed first, so the other four keep their places, and lent as the first piece goes in.
+              # rt_sprite_args_set is the same with the numbers written where rt_take_args puts them
+              # already, by a caller that works each out with nothing that takes numbers of its own.
               asm.label("rt_sprite")
               asm.load_hl_sp(2)
               asm.load(:b, lends ? 20 : 16)
               asm.call("rt_take_args")
+              asm.label("rt_sprite_args_set")
               if lends
                 asm.load(:a, 1)
                 asm.load([memory[LENT] + LENT_PENDING], :a)
@@ -994,7 +997,10 @@ module VBlank
               # worked out in 16 bits, and an entry written unless it is wholly off the screen or the
               # table is full.
               asm.label("rt_gbc_place_piece")
-              # DE = x + dx, as a 16-bit number (x's low two bytes).
+              # On the screen only when -8 < x < 160 and -8 < y < 144: x + 8 and y + 16 (the table's
+              # places), worked out in 16 bits from the low halves of x and y, then fit a byte and
+              # are not past the screen.
+              # B = the table's x: x + dx + 8.
               asm.load_high(:a, args.call(1))
               asm.add_a([:hl])
               asm.load(:e, :a)
@@ -1002,54 +1008,49 @@ module VBlank
               asm.adc_a(0)
               asm.load(:d, :a)
               asm.inc(:hl)
-              asm.push(:de)
-              # BC = y + dy.
+              asm.load(:a, :e)
+              asm.add_a(8)
+              asm.load(:b, :a)
+              asm.load(:a, :d)
+              asm.adc_a(0)
+              asm.jump_relative(:nz, "rt_gbc_piece_off_dy")
+              asm.load(:a, :b)
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_gbc_piece_off_dy")
+              asm.cp_a(168)
+              asm.jump_relative(:nc, "rt_gbc_piece_off_dy")
+              # C = the table's y: y + dy + 16, on the screen when 9..159.
               asm.load_high(:a, args.call(2))
               asm.add_a([:hl])
-              asm.load(:c, :a)
+              asm.load(:e, :a)
               asm.load_high(:a, args.call(2) + 1)
               asm.adc_a(0)
-              asm.load(:b, :a)
+              asm.load(:d, :a)
               asm.inc(:hl)
-              asm.pop(:de)
-              # On the screen only when -8 < x < 160 and -8 < y < 144: x + 8 and y + 16 (the table's
-              # places) then fit a byte and are not past the screen.
-              asm.push(:hl)
-              asm.load(:hl, 8)
-              asm.add_hl(:de) # HL = x + 8
-              asm.load(:a, :h)
-              asm.and_a(:a)
+              asm.load(:a, :e)
+              asm.add_a(16)
+              asm.load(:c, :a)
+              asm.load(:a, :d)
+              asm.adc_a(0)
               asm.jump_relative(:nz, "rt_gbc_piece_off")
-              asm.load(:a, :l)
-              asm.and_a(:a)
-              asm.jump_relative(:z, "rt_gbc_piece_off")
-              asm.cp_a(168)
+              asm.load(:a, :c)
+              asm.cp_a(9)
+              asm.jump_relative(:c, "rt_gbc_piece_off")
+              asm.cp_a(160)
               asm.jump_relative(:nc, "rt_gbc_piece_off")
-              asm.load(:e, :a) # E = the table's x
-              asm.load(:hl, 8)
-              asm.add_hl(:bc) # HL = y + 8: on the screen when 1..151
-              asm.load(:a, :h)
-              asm.and_a(:a)
-              asm.jump_relative(:nz, "rt_gbc_piece_off")
-              asm.load(:a, :l)
-              asm.and_a(:a)
-              asm.jump_relative(:z, "rt_gbc_piece_off")
-              asm.cp_a(152)
-              asm.jump_relative(:nc, "rt_gbc_piece_off")
-              asm.add_a(8)
-              asm.load(:d, :a) # D = the table's y (y + 16)
               asm.load(:a, [memory[NEXT_SPRITE]])
               asm.cp_a(Console::GBCHardware::OAM_SIZE)
               asm.jump_relative(:nc, "rt_gbc_piece_off") # the table is full
+              asm.load(:d, :h)
+              asm.load(:e, :l) # DE = the piece's tile and bank
               asm.load(:l, :a)
               asm.add_a(4)
               asm.load([memory[NEXT_SPRITE]], :a)
               asm.load(:h, Memory::SHADOW_OAM >> 8)
-              asm.load(:a, :d)
-              asm.load([:hli], :a)
-              asm.load(:a, :e)
-              asm.load([:hli], :a)
-              asm.pop(:de) # DE = the piece's tile and bank
+              asm.load([:hl], :c)
+              asm.inc(:l)
+              asm.load([:hl], :b)
+              asm.inc(:l)
               asm.load(:a, [:de])
               asm.load([:hli], :a)
               asm.inc(:de)
@@ -1063,8 +1064,9 @@ module VBlank
               asm.load(:h, :d)
               asm.load(:l, :e)
               asm.ret
-              asm.label("rt_gbc_piece_off")
-              asm.pop(:hl)
+              asm.label("rt_gbc_piece_off_dy") # HL at the piece's dy
+              asm.inc(:hl)
+              asm.label("rt_gbc_piece_off") # HL at its tile
               asm.inc(:hl)
               asm.inc(:hl)
               asm.ret

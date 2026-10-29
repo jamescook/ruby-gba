@@ -85,6 +85,14 @@ module VBlank
               end
             end
 
+            # Are any sprites left as they were when nothing they are placed from changed? Asked by
+            # the build, to keep the runtime's room for it. A sprite is kept so when each number it is
+            # placed from is a variable, or a number written in the program, since a write of a
+            # variable is where it is marked changed (Lowering#store); one placed from a number worked
+            # out as the pass goes is placed every pass. Not in a game whose pictures come and go in
+            # groups, whose placing checks the picture is up.
+            def keeps_unchanged_sprites? = @picture_sets.empty? && !kept_sprites.empty?
+
             private
 
             # THE COLOUR THE GAME SHOWS WHEREVER NOTHING IS DRAWN (IR::SceneHandover#game_backdrop).
@@ -1509,7 +1517,7 @@ module VBlank
               @asm.call("rt_sprites_begin")
               unless_sprites_hidden do
                 front_first.each do |item|
-                  next sprite_placement(item) unless item.is_a?(Build::DrawOrder)
+                  next emit_placing_unless_unchanged(item) unless item.is_a?(Build::DrawOrder)
 
                   item.objects.each { |name| placings[name] ||= fresh("place_sprite") }
                   emit_ordered_run(item, placings)
@@ -1621,6 +1629,10 @@ module VBlank
               placed = fresh("sprites_placed")
               jump_unless(Build.var_ref(@sprites_hidden), shown)
               statement(Build.set(@sprites_hidden, 0))
+              if keeps_unchanged_sprites? # every entry moves: no sprite's is where it left it (Runtime::KeptSprites)
+                @asm.load(:hl, @memory[Runtime::KeptSprites::ROUND])
+                @asm.inc([:hl])
+              end
               @asm.jump(placed)
               @asm.label(shown)
               yield
@@ -1696,6 +1708,129 @@ module VBlank
                                    "places it only among the sprites of a frame."
             end
 
+            # A SPRITE PLACED AS IT WAS ON THE PASS BEFORE IS LEFT AS IT IS (Runtime::KeptSprites says
+            # how). A sprite with a block (#posed_sprite_block) is placed by rt_place_kept_sprite alone,
+            # its code three loads and a call: left as it is, changed where it is in the table, or
+            # placed afresh. Any other kept sprite asks rt_sprite_kept, which answers Z for one no
+            # write has changed since it was placed and whose place in the table is where it was, and
+            # is otherwise placed by its own code and noted by rt_sprite_placed.
+            def emit_placing_unless_unchanged(obj)
+              return sprite_placement(obj) unless keeps_unchanged_sprites? && kept_sprites.include?(obj.name)
+
+              block = posed_sprite_block(obj)
+              @asm.load(:hl, sprite_kept_at(obj))
+              if block
+                @asm.load(:de, block)
+                @bank_pose_tables ? @asm.load_bank_of(:a, block) : @asm.xor_a(:a)
+                return @asm.call("rt_place_kept_sprite")
+              end
+
+              done = fresh("sprite_left")
+              @asm.call("rt_sprite_kept")
+              @asm.jump(:z, done)
+              sprite_placement(obj)
+              @asm.load(:hl, sprite_kept_at(obj))
+              @asm.call("rt_sprite_placed")
+              @asm.label(done)
+            end
+
+            # A sprite kept as it was is placed afresh, when a number of it changed, by rt_sprite_posed
+            # (Runtime::KeptSprites) from a block in the cartridge saying where its numbers are, with
+            # its rows after it, rather than by code of its own working each out in 32 bits: the
+            # label of the block, or nil for a sprite a block cannot say (a list that holds other
+            # colours as the game runs, a sprite switched off for good, a place or a list written in
+            # the program, more than a byte of poses or lists). Its rows are what its tables hold
+            # (#pose_tables), side by side, so the block is read in one bank: the banks, in a game
+            # that keeps its pose tables there.
+            def posed_sprite_block(obj)
+              lists = Array(obj.recolors)
+              return nil if lists.any?(Symbol) || obj.poses.length > 0xFF || lists.length > 0xFF
+              return nil if (folded(obj.active) && folded(obj.active) != 1) ||
+                            [obj.pose, obj.x, obj.y, *(obj.recolor unless lists.empty?)].any? { |number| folded(number) }
+
+              pieces = single_pieces(obj)
+              rows = pose_rows(obj, sprite_level(obj)).each_slice(obj.poses.length).flat_map do |list_rows|
+                list_rows.each_with_index.flat_map do |row, pose|
+                  # Runtime::KeptSprites::ROW_BYTES, in its order.
+                  [*little_endian(row.picture, 2), *little_endian(Int32.wrap(row.attributes), 4),
+                   @art.lends? ? row.palette : 0, *(pieces ? @art.piece_entry(pieces[pose]) : [0, 0])]
+                end
+              end
+              place = ->(number) { little_endian(place_of(variable_named(value_node(number))), 2) }
+              head = [pieces ? 1 : 0, *(folded(obj.active) ? [0, 0] : place.call(obj.active)), *place.call(obj.pose),
+                      obj.poses.length, *place.call(obj.x), *place.call(obj.y),
+                      *(lists.empty? ? [0, 0] : place.call(obj.recolor)), lists.length]
+              drawing_table("posed_sprite", 1, head + rows, banked: @bank_pose_tables)
+            end
+
+            # The one piece each of a sprite's poses is drawn from, when every one is a single piece in
+            # the same place (rt_sprite_reposed changes such a sprite where it is in the table), or nil.
+            def single_pieces(obj)
+              return nil if obj.poses.any? { |name| picture_painting(name) }
+
+              pieces = obj.poses.map { |name| @art.sprite_picture(name, picture_named(name)).pieces }
+              return nil unless pieces.all? { |each| each.length == 1 }
+
+              pieces.flatten.then { |all| all if all.map { |piece| [piece.dx, piece.dy] }.uniq.length == 1 }
+            end
+
+            # The sprites a frame places one by one whose every number is a variable or written in
+            # the program, by name — a variable the game's code writes through Lowering#store or
+            # #emit_sum, which mark the sprite changed, and not one this lowering moves on by itself
+            # (#written_unmarked?). Not one drawn with a list that holds other colours as the game runs:
+            # which row it is drawn from follows what the list holds, which is none of its numbers.
+            def kept_sprites
+              @kept_sprites ||= @program.walk.select { |node| node.kind == :present_objects }.flat_map(&:names).uniq.select do |name|
+                obj = @objects.fetch(name)
+                Array(obj.recolors).none?(Symbol) &&
+                  sprite_numbers(obj).all? { |number| number.kind == :var_ref && !written_unmarked?(number.name) }
+              end
+            end
+
+            # A variable this lowering writes where it is, with no mark: the frames counted at each
+            # wait (Lowering#emit_wait_vblank), and the clock's readings (Lowering::Clock).
+            def written_unmarked?(name) = [Frames::COUNT, Frames::STEP].include?(name) || name.to_s.start_with?("clock.")
+
+            # The numbers a sprite is placed from that the game can change: whether it is on, its pose,
+            # its place, and the list it is drawn with.
+            def sprite_numbers(obj)
+              [obj.active, obj.pose, obj.x, obj.y, (obj.recolor unless Array(obj.recolors).empty?)]
+                .compact.map { |number| value_node(number) }.reject { |number| folded(number) }
+            end
+
+            # The sprites kept as they were (#kept_sprites) placed from variable +name+.
+            def sprites_placed_from(name)
+              return [] unless @picture_sets&.empty?
+
+              @sprites_by_number ||= kept_sprites.each_with_object(Hash.new { |all, key| all[key] = [] }) do |sprite, by|
+                sprite_numbers(@objects.fetch(sprite)).each { |number| by[number.name] << sprite }
+              end
+              @sprites_by_number.fetch(name, [])
+            end
+
+            # Each sprite placed from variable +name+ marked changed, to be placed again
+            # (Runtime::KeptSprites::PLACED): its place, when +name+ is where it is, and its other
+            # numbers, when +name+ is whether it is on, its pose or its list.
+            def emit_sprites_changed(name)
+              sprites_placed_from(name).uniq.each do |sprite|
+                obj = @objects.fetch(sprite)
+                names = ->(*numbers) { numbers.compact.map { |number| variable_named(value_node(number)) } }
+                bits = []
+                bits << Runtime::KeptSprites::PLACE_AS_PLACED if names.call(obj.x, obj.y).include?(name)
+                bits << Runtime::KeptSprites::NUMBERS_AS_PLACED if names.call(obj.active, obj.pose, obj.recolor).include?(name)
+                @asm.load(:hl, sprite_kept_at(obj) + Runtime::KeptSprites::PLACED)
+                bits.each { |bit| @asm.res(bit, [:hl]) }
+              end
+            end
+
+            # Where sprite +obj+ keeps what it was last placed with (Runtime::KeptSprites).
+            def sprite_kept_at(obj)
+              return Memory::FIRST if @measuring
+
+              @sprites_kept_at ||= {}
+              @sprites_kept_at[obj.name] ||= @memory.reserve("the sprite #{obj.name}'s last placing", Runtime::KeptSprites::BYTES)
+            end
+
             # Reference#objects_on_screen: a sprite is drawn when it is switched on and its pose names
             # one of its pictures. It is drawn behind the background when the background's layer is
             # in front of its own; the background's see-through pixels still show it.
@@ -1721,11 +1856,37 @@ module VBlank
                 end
                 if said.nil? || said.between?(0, obj.poses.length - 1)
                   picture, attributes, lent = picture_and_attributes_drawn(obj, pose, level)
-                  runtime_call("rt_sprite", [*lent, picture, obj.x, obj.y, attributes])
+                  emit_sprite_call([*lent, picture, obj.x, obj.y, attributes])
                 end
                 @asm.label(out_of_range) if out_of_range
               end
               @asm.label(hidden)
+            end
+
+            # rt_sprite handed +args+. When each is a number written in the program, a variable or a
+            # table entry read at one, none of them calls a routine that takes numbers of its own, so
+            # each is written straight where rt_take_args would copy it to, lowest byte first, and
+            # the copy is passed over (rt_sprite_args_set): two instructions a byte rather than a
+            # push and a copy, which is most of placing a sprite of one piece.
+            def emit_sprite_call(args)
+              return runtime_call("rt_sprite", args) unless args.all? { |arg| read_without_args?(arg) }
+
+              args.each_with_index do |arg, i|
+                value(arg)
+                at = Runtime::Calls.arg(@memory, i, args.length)
+                BCDE_LOW_FIRST.each_with_index do |register, byte|
+                  @asm.load(:a, register)
+                  @asm.load_high(at + byte, :a)
+                end
+              end
+              @asm.call("rt_sprite_args_set")
+            end
+
+            # Whether +operand+ is worked out without a runtime routine that takes numbers (#emit_sprite_call).
+            def read_without_args?(operand)
+              return true if folded(operand) || variable_named(operand)
+
+              operand.is_a?(Entry) && read_without_args?(operand.index)
             end
 
             # To +label+ unless BCDE, taken as a whole number of 32 bits, is below +count+: a number
@@ -1784,14 +1945,23 @@ module VBlank
             # borrows one of the eight for as the sprite's first piece goes in; nil otherwise.
             def picture_and_attributes_drawn(obj, pose, level)
               lists = Array(obj.recolors)
-              sets = [[nil], *lists.map { |colors| colors.is_a?(Symbol) ? sets_held_by(colors) : [colors] }]
-              rows = sets.flatten(1).flat_map do |colors|
-                obj.poses.map do |name|
-                  palette = palette_of(name, colors)
-                  PoseRow.new(picture: picture_number(name), palette: palette,
-                              attributes: said_attributes(obj, name, @art.lends? ? 0 : palette, level))
-                end
-              end
+              sets = sets_drawn_with(lists)
+              banked = @bank_pose_tables
+              pictures, palettes, lent_palettes = pose_tables(obj, level)
+              at = lists.empty? ? pose : emit_row_and_pose_kept(obj, lists, sets, pose)
+              lent = Entry.new(lent_palettes, 1, false, at, banked) if lent_palettes
+              [Entry.new(pictures, 2, true, at, banked), Entry.new(palettes, 4, true, at, banked), lent]
+            end
+
+            # The sets of colours a sprite drawn with +lists+ is drawn in, row by row: its own, then
+            # each list's (#picture_and_attributes_drawn).
+            def sets_drawn_with(lists) = [[nil], *lists.map { |colors| colors.is_a?(Symbol) ? sets_held_by(colors) : [colors] }]
+
+            # The labels of a sprite's tables (#picture_and_attributes_drawn): its pictures and its
+            # attributes, a row for each pose under each set of colours, and in a game whose sprites
+            # borrow the eight lists, the list each row is drawn in (nil otherwise).
+            def pose_tables(obj, level)
+              rows = pose_rows(obj, level)
               # A row for every pose under every list is poses times lists, which a sprite of a few poses
               # walking a fade of many lists makes thousands of bytes of. A game whose part of the
               # cartridge always in view cannot hold them keeps them in its banks (GBC#build), read with
@@ -1799,13 +1969,32 @@ module VBlank
               banked = @bank_pose_tables
               pictures = drawing_table("pose_pictures", 2, rows.map(&:picture), banked: banked)
               palettes = drawing_table("pose_attributes", 4, rows.map(&:attributes), banked: banked)
-              @art.note_lists_worn(obj.name, rows.map(&:palette).uniq) if @art.lends?
-              at = lists.empty? ? pose : Sum.new(:+, Sum.new(:*, row_drawn_with(obj, lists, sets), Build.int(obj.poses.length)), pose)
-              if @art.lends?
-                lent = Entry.new(drawing_table("pose_lent_palettes", 1, rows.map(&:palette), banked: banked), 1, false, at,
-                                 banked)
+              lent = drawing_table("pose_lent_palettes", 1, rows.map(&:palette), banked: banked) if @art.lends?
+              [pictures, palettes, lent]
+            end
+
+            # A sprite's rows (PoseRow), a row for each pose under each set of colours it is drawn in,
+            # the lists they are drawn in noted as worn in a game whose sprites borrow the eight.
+            def pose_rows(obj, level)
+              rows = sets_drawn_with(Array(obj.recolors)).flatten(1).flat_map do |colors|
+                obj.poses.map do |name|
+                  palette = palette_of(name, colors)
+                  PoseRow.new(picture: picture_number(name), palette: palette,
+                              attributes: said_attributes(obj, name, @art.lends? ? 0 : palette, level))
+                end
               end
-              [Entry.new(pictures, 2, true, at, banked), Entry.new(palettes, 4, true, at, banked), lent]
+              @art.note_lists_worn(obj.name, rows.map(&:palette).uniq) if @art.lends?
+              rows
+            end
+
+            # Where a sprite drawn with lists reads its tables: its row times its poses, plus its
+            # pose. Worked out once and kept, since every table of the sprite is read at the same
+            # place, and working out the row asks which list it is drawn with now and multiplies.
+            def emit_row_and_pose_kept(obj, lists, sets, pose)
+              kept = keep_local(:row_and_pose)
+              value(Sum.new(:+, Sum.new(:*, row_drawn_with(obj, lists, sets), Build.int(obj.poses.length)), pose))
+              store(kept)
+              Build.var_ref(kept)
             end
 
             # One row of a sprite's tables: the picture a pose is drawn from in one list of colours,

@@ -321,6 +321,14 @@ module VBlank
 
           # --- sprites ---
 
+          # The tile +piece+ (a Piece) is drawn from and its bank and flips, as an entry of the
+          # console's sprite table keeps them: the tile's number in its bank of 128, and the bank
+          # with the flips.
+          def piece_entry(piece)
+            tile = tile_number(piece.tile)
+            [tile % 128, piece.flips | ((tile / 128).zero? ? 0 : Console::GBCHardware::OBJ_TILE_BANK)]
+          end
+
           # The picture +name+ (an Assets::Image) as a sprite shows it: cut into pieces whose tiles
           # are kept once each. +colors+ is the picture's own list by place, see-through first.
           def sprite_picture(name, image)
@@ -889,12 +897,7 @@ module VBlank
             asm = SM83.new("art picture #{picture.number}", home: :banked, holds: PICTURE_TABLES)
             asm.label("art_pieces_#{picture.number}")
             asm.data_bytes(picture.pieces.length)
-            picture.pieces.each do |piece|
-              tile = tile_number(piece.tile)
-              bank = tile / 128
-              asm.data_bytes(piece.dx, piece.dy, tile % 128,
-                             piece.flips | (bank.zero? ? 0 : Console::GBCHardware::OBJ_TILE_BANK))
-            end
+            picture.pieces.each { |piece| asm.data_bytes(piece.dx, piece.dy, *piece_entry(piece)) }
             asm.label("art_mask_#{picture.number}")
             stride = (picture.width + 7) / 8
             asm.data_bytes(picture.width, picture.height, stride)
