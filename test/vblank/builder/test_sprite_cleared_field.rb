@@ -75,15 +75,16 @@ class TestSpriteClearedField < Minitest::Test
   # A clear inside an area clears that area and leaves the rest of the picture, so a sprite
   # outside it is still on the picture and still has to be rubbed out as it moves.
   def test_a_clear_inside_an_area_leaves_a_sprite_outside_it_alone
+    width, height = VBlank::Console.described(game_console).screen_size
     prog = field_program do |hero, step|
-      (step == 3).then { inside(120, 0, 120, 160) { clear_screen :blue } }
+      (step == 3).then { inside(120, 0, width - 120, height) { clear_screen :blue } }
       (step > 3).then { hero.move :down, by: 8 }
     end
 
     seen = colors_after(prog, 8)
 
     assert_equal ONE, seen[:red], "more than one block of red is a trail"
-    assert_equal (120 * VBlank::Console.described(game_console).screen_height) - ONE, seen[:white]
+    assert_equal (120 * height) - ONE, seen[:white]
   end
 
   # A sprite declared before its field was painted: it was drawn on the black screen the
