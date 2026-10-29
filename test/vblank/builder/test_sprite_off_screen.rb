@@ -32,16 +32,21 @@ class TestSpriteOffScreen < Minitest::Test
     b.program
   end
 
-  # A game over a plain floor, with +cast+ declaring what stands on it.
+  # A game over a plain floor that covers the whole screen of the console this run plays it on,
+  # with +cast+ declaring what stands on it.
   private def cast_on_floor(&cast)
+    cols, rows = screen_played.map { |pixels| pixels / 8 }
     program do
       screen :tiled
       image(:floor, "#" => :gray) { (["########"] * 8).join("\n") }
       tiles :floor, "#" => :floor
-      background :floor, tiles: :floor, map: ["#" * 30] * 20
+      background :floor, tiles: :floor, map: ["#" * cols] * rows
       instance_exec(&cast)
     end
   end
+
+  # The width and height of the screen of the console this run plays the game on.
+  private def screen_played = VBlank::Console.described(game_console).screen_size
 
   # One sprite of +width+ by +height+ at +at+, resized to +scale+ and turned to +angle+ when
   # those are given.
@@ -79,10 +84,17 @@ class TestSpriteOffScreen < Minitest::Test
 
   # --- a sprite that stands upright ---
 
+  # The places just past the bottom or the right edge are counted from that edge, so they are
+  # off whatever the size of the screen the run plays on. The rest are where the console's count
+  # of rows or columns comes round, which no screen's size moves: 191 to 193 are a sprite 64 rows
+  # tall whose far end reaches round past row 256, which only a screen shorter than them has below
+  # it.
   def test_a_sprite_far_below_the_screen_is_not_drawn
-    [[[100, 300], 16], [[100, 250], 16], [[100, 200], 64], [[100, 230], 64], [[100, 160], 16], [[100, 4000], 32],
-     [[100, 191], 64], [[100, 192], 64], [[100, 193], 64]].each do |at, size|
-      assert_nothing_drawn(one_sprite(at, size), name: "BELOW#{at[1]}")
+    bottom = screen_played.last
+    round_the_count = [[191, 64], [192, 64], [193, 64]].select { |row, _| row >= bottom }
+    ([[300, 16], [250, 16], [bottom + 40, 64], [bottom + 70, 64], [bottom, 16], [4000, 32]] + round_the_count)
+      .each do |row, size|
+      assert_nothing_drawn(one_sprite([100, row], size), name: "BELOW#{row}")
     end
   end
 
@@ -93,10 +105,9 @@ class TestSpriteOffScreen < Minitest::Test
   end
 
   def test_a_sprite_far_to_either_side_of_the_screen_is_not_drawn
-    [[[500, 60], 16], [[600, 60], 16], [[480, 60], 64], [[240, 60], 16], [[-300, 60], 16], [[-16, 60], 16],
-     [[-500, 60], 64], [[9000, 60], 32], [[447, 60], 64], [[448, 60], 64], [[449, 60], 64], [[-272, 60], 64],
-     [[-273, 60], 64]].each do |at, size|
-      assert_nothing_drawn(one_sprite(at, size), name: "SIDE#{at[0].abs}")
+    [[500, 16], [600, 16], [480, 64], [screen_played.first, 16], [-300, 16], [-16, 16], [-500, 64], [9000, 32],
+     [447, 64], [448, 64], [449, 64], [-272, 64], [-273, 64]].each do |x, size|
+      assert_nothing_drawn(one_sprite([x, 60], size), name: "SIDE#{x.abs}")
     end
   end
 
