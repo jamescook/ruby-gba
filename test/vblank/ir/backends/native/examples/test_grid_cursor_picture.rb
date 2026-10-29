@@ -22,6 +22,7 @@ class TestGridCursorPicture < Minitest::Test
 
     last = assert_native_matches_reference(program, frames: 22, buttons: TAPS)
 
-    assert_equal [(GridCursor::COLS / 2) - 2, (GridCursor::ROWS / 2) - 2], last.variables.values_at(:cx, :cy)
+    # The game as C is the Advance's, whose board is 30 cells by 20: the middle is (15, 10).
+    assert_equal [13, 8], last.variables.values_at(:cx, :cy)
   end
 end
