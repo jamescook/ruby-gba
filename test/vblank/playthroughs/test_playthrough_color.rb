@@ -97,9 +97,10 @@ class TestPlaythroughColor < Minitest::Test
     assert_equal looked[:ticks], looked[:passes]
   end
 
-  # WHILE THE BLOCK WALKS, the sprite stands where the last pass put it, two pixels behind the
-  # number the pass that is still to be shown has counted to — as on the Advance, and as the
-  # interpreter says it.
+  # WHILE THE BLOCK WALKS, the sprite stands where the last pass put it. The Color places each
+  # pass's sprites at the end of the pass, before its wait, so the picture is the pass just ended
+  # and the sprite stands at the number it counted to; the Advance would show it a step, two
+  # pixels, behind (Console::Description#sprites_placed_before_wait).
   def test_a_walking_sprite_stands_where_the_last_pass_put_it
     seen = nil
     VBlank.playthrough "walk" do
@@ -110,7 +111,8 @@ class TestPlaythroughColor < Minitest::Test
     end.play(color_cartridge) { |_, game| seen = [game.sprites(:block).first.x, game.var(:x)] }
 
     sprite_x, counted = seen
-    assert_equal counted - 2, sprite_x
+    lag = VBlank::Console.described(:gbc).sprites_placed_before_wait ? 0 : 1
+    assert_equal counted - (2 * lag), sprite_x
   end
 
   # The count of passes is the Color runtime's count of waits for the screen, which is one a pass
