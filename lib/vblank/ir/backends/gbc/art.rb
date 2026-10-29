@@ -332,6 +332,8 @@ module VBlank
           # The picture +name+ (an Assets::Image) as a sprite shows it: cut into pieces whose tiles
           # are kept once each. +colors+ is the picture's own list by place, see-through first.
           def sprite_picture(name, image)
+            return @sprite_pictures[name] ||= pieced_sprite_picture(name, image) if image.pieces
+
             @sprite_pictures[name] ||= begin
               pieces = ((image.width + 7) / 8) * ((image.height + 7) / 8)
               too_big = image.width > LARGEST_SPRITE || image.height > LARGEST_SPRITE
@@ -364,6 +366,32 @@ module VBlank
               SpritePicture.new(name: name, number: @sprite_pictures.size, width: image.width, height: image.height,
                                 pieces: pieces, places: places, mask: mask)
             end
+          end
+
+          # A PICTURE THE GAME MADE OF PIECES (Assets::Image#pieces) is shown from those pieces, each
+          # where the game put it and in its order, the first in front — not cut on the 8-pixel grid,
+          # which for pieces off the grid puts more of them on one line than the console shows. How
+          # big it is matters only to a test of its pixels against another's (Lowering::Picture
+          # #picture_collided); how many pieces it has, to the forty the console shows.
+          def pieced_sprite_picture(name, image)
+            if image.pieces.length > Console::GBCHardware::SPRITES
+              raise LoweringError, "the sprite picture #{name.inspect} is made of #{image.pieces.length} pieces, and a " \
+                                   "Game Boy Color shows #{Console::GBCHardware::SPRITES} at once. To fix this, " \
+                                   "make it of fewer pieces."
+            end
+
+            places = sprite_places(name, image)
+            refuse_sprite_colors!(name, image.pieces.map { |_, _, own| own.bytes.max }.max)
+            pieces = image.pieces.filter_map do |dx, dy, own|
+              piece = own.bytes
+              next if piece.all?(&:zero?)
+
+              tile, flips = @grouped.key?(name) ? grouped_tile(name, piece) : sprite_tile(piece)
+              Piece.new(dx: dx, dy: dy, tile: tile, flips: flips)
+            end
+            mask = Array.new(image.width * image.height) { |i| image.drawn_at?(i) }
+            SpritePicture.new(name: name, number: @sprite_pictures.size, width: image.width, height: image.height,
+                              pieces: pieces, places: places, mask: mask)
           end
 
           # A SPRITE'S PICTURE THE GAME PAINTS from a list (Nodes::TileRun with a picture): every 8×8

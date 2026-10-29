@@ -545,9 +545,11 @@ module VBlank
       # holding the SAME color apart, which the pixels themselves cannot.
       # +colors_name+ names the list of colours +colors+ is, where the game declared it with `colors`
       # (see Assets::Image#colors_name).
-      def bitmap(name, width:, height:, pixels:, transparent: nil, colors: nil, places: nil, colors_name: nil)
+      # +pieces+ is a picture made of 8x8 pieces, front-most first (Assets::Image#pieces), or nil.
+      def bitmap(name, width:, height:, pixels:, transparent: nil, colors: nil, places: nil, colors_name: nil, pieces: nil)
         Nodes.build(:bitmap, name: name, width: width, height: height,
-                          pixels: pixels, transparent: transparent, colors: colors, places: places, colors_name: colors_name)
+                          pixels: pixels, transparent: transparent, colors: colors, places: places, colors_name: colors_name,
+                          pieces: pieces)
       end
 
       # Draw a defined bitmap with its top-left at (x, y). x/y may be constants or

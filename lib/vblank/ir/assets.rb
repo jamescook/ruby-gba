@@ -31,12 +31,19 @@ module VBlank
       # apart are two lists even when they hold the same colours — a screen brought in from white
       # starts with every list white — so a background told to draw each of its lists with
       # another tells them apart by #list_drawn_from, the name and the colours together.
-      Image = Data.define(:width, :height, :transparent, :pixels, :colors, :places, :colors_name) do
-        def initialize(width:, height:, transparent:, pixels:, colors:, places:, colors_name: nil) = super
+      #
+      # +pieces+ is, for a picture the game made of 8x8 pieces (`image ..., pieces:`), each piece
+      # front-most first as [dx, dy, its 64 places]: where its top left is in the picture, and its
+      # pixels as places in the picture's list, row by row. The picture's own pixels are those pieces
+      # laid over each other, so a console that draws sprites from pieces can draw it from the same
+      # ones; nil for any other picture.
+      Image = Data.define(:width, :height, :transparent, :pixels, :colors, :places, :colors_name, :pieces) do
+        def initialize(width:, height:, transparent:, pixels:, colors:, places:, colors_name: nil, pieces: nil) = super
 
         def self.of(node)
           new(width: node.width, height: node.height, transparent: node.transparent,
-              pixels: node.pixels, colors: node.colors, places: node.places, colors_name: node.colors_name)
+              pixels: node.pixels, colors: node.colors, places: node.places, colors_name: node.colors_name,
+              pieces: (node.pieces if node.respond_to?(:pieces)))
         end
 
         # The list this picture was drawn from, as a background's recolouring keeps them apart.

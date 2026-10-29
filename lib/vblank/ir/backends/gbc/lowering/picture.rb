@@ -2125,8 +2125,21 @@ module VBlank
             # Which picture a sprite collides as: the one of +poses+ its pose names, counted back from
             # the last for a pose below nought (Reference#collision_sprite).
             def picture_collided(poses, pose)
+              poses.each { |name| refuse_too_big_to_collide!(name) }
               pictures = drawing_table("collision_pictures", 2, poses.map { |name| picture_number(name) })
               Entry.new(pictures, 2, true, RuntimeValue.new("rt_pose_place", [value_node(pose), Build.int(poses.length)]))
+            end
+
+            # A picture made of pieces can be bigger than the mask a test of its pixels walks (Art::
+            # LARGEST_SPRITE); one that is, is tested by its box.
+            def refuse_too_big_to_collide!(name)
+              image = picture_named(name)
+              return if image.width <= Art::LARGEST_SPRITE && image.height <= Art::LARGEST_SPRITE
+
+              raise LoweringError, "a sprite showing the picture #{name.inspect} is tested pixel by pixel for touching " \
+                                   "another, and it is #{image.width}×#{image.height}. A Game Boy Color tests the " \
+                                   "pixels of a picture of #{Art::LARGEST_SPRITE}×#{Art::LARGEST_SPRITE} at most. " \
+                                   "To fix this, give the sprite a hitbox:, which is tested as a box."
             end
 
             # --- fades and tints ---

@@ -299,7 +299,7 @@ module VBlank
         declaration!
         category :data
         operands name: :name, width: :int, height: :int, pixels: :text, transparent: :int,
-                 colors: :list, places: :text, colors_name: :name
+                 colors: :list, places: :text, colors_name: :name, pieces: :list
 
         # The list of colours it was drawn from, as a background's recolouring keeps them apart
         # (Assets::Image#list_drawn_from).

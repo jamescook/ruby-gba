@@ -81,6 +81,8 @@ module VBlank
         opts = opts.merge(colors: declared_colors_for_image!(name, colors_name)) if colors_name
         if block
           define_ascii_image(name, opts, colors_name: colors_name, &block)
+        elsif opts[:pieces]
+          define_pieced_image(name, pieces: opts[:pieces], colors: opts[:colors], colors_name: colors_name)
         elsif opts[:places]
           define_placed_image(name, places: opts[:places], width: opts[:width], height: opts[:height],
                                     colors: opts[:colors], colors_name: colors_name)
@@ -515,7 +517,7 @@ module VBlank
       # The picture still keeps colors for everything that draws it; the places ride along
       # beside them, and only the two things that read a pixel as a NUMBER — the console's
       # sprite and tile storage, and swapping in another list of colors — look at them.
-      def define_placed_image(name, places:, width:, height:, colors:, colors_name: nil)
+      def define_placed_image(name, places:, width:, height:, colors:, colors_name: nil, pieces: nil)
         positive_dims!(name, width, height)
         table = color_table(name, colors || [])
         refuse_bad_places!(name, places: places, width: width, height: height, table: table)
@@ -524,14 +526,70 @@ module VBlank
         marker = places.include?(0) ? TRANSPARENT_PIXEL : nil
         record_picture(Build.bitmap(name, width: width, height: height, pixels: drawn.pack("v*"),
                                             transparent: marker, colors: table.map { |value| value || 0x0000 },
-                                            places: places.pack("C*"), colors_name: colors_name))
+                                            places: places.pack("C*"), colors_name: colors_name, pieces: pieces))
         record_visible_bounds(name: name, width: width, height: height, cells: drawn, transparent: marker)
+      end
+
+      # A PICTURE MADE OF 8x8 PIECES, each where the game puts it, as a cartridge's own sprites are
+      # kept: a list of pieces, each [dx, dy, places] — where its top left sits in the picture, and
+      # its 64 pixels row by row as places in the `colors:` list, nought see-through. Pieces may
+      # overlap; where they do, the one earlier in the list is in front, as a console draws its
+      # sprites. The picture is as wide and tall as its pieces reach, to a whole piece. A console that draws sprites
+      # from pieces draws it from these ones, rather than cutting the picture on an 8-pixel grid,
+      # which can put more pieces on one line than it shows.
+      def define_pieced_image(name, pieces:, colors:, colors_name: nil)
+        refuse_bad_pieces!(name, pieces)
+        # Out to a multiple of a piece each way, see-through past the pieces: a console that cuts a
+        # picture into pieces itself takes one of whole pieces.
+        reach = ->(far) { (far + PIECE_SIZE + PIECE_SIZE - 1) / PIECE_SIZE * PIECE_SIZE }
+        width = reach.call(pieces.map { |dx, _, _| dx }.max)
+        height = reach.call(pieces.map { |_, dy, _| dy }.max)
+        places = Array.new(width * height, 0)
+        pieces.each do |dx, dy, own|
+          own.each_with_index do |place, i|
+            at = ((dy + (i / PIECE_SIZE)) * width) + dx + (i % PIECE_SIZE)
+            places[at] = place if places[at].zero?
+          end
+        end
+        kept = pieces.map { |dx, dy, own| [dx, dy, own.pack("C*")] }
+        define_placed_image(name, places: places, width: width, height: height, colors: colors,
+                                  colors_name: colors_name, pieces: kept)
+      end
+
+      # The side of a piece of a picture made of pieces.
+      PIECE_SIZE = 8
+
+      def refuse_bad_pieces!(name, pieces)
+        unless pieces.is_a?(Array) && !pieces.empty?
+          raise ArgumentError, "image :#{name} was given pieces: #{pieces.inspect}. Give a list of pieces, " \
+                               "each [dx, dy, places], like pieces: [[0, 0, places], [8, 0, places]]."
+        end
+        pieces.each_with_index do |piece, n|
+          dx, dy, own = piece if piece.is_a?(Array)
+          unless piece.is_a?(Array) && piece.length == 3 && [dx, dy].all? { |at| at.is_a?(Integer) && at.between?(0, 247) }
+            raise ArgumentError, "piece #{n} of image :#{name} is #{piece.inspect}. A piece is [dx, dy, places]: " \
+                                 "dx and dy are whole numbers from 0 to 247, where the piece's top left is in the picture."
+          end
+          unless own.is_a?(Array) && own.length == PIECE_SIZE * PIECE_SIZE
+            raise ArgumentError, "piece #{n} of image :#{name} has #{own.is_a?(Array) ? own.length : 'no'} places. " \
+                                 "A piece is 8x8, so give it 64 places, row by row."
+          end
+          next if own.all? { |place| place.is_a?(Integer) && place.between?(0, OWN_COLORS - 1) }
+
+          raise ArgumentError, "piece #{n} of image :#{name} has a place that is not a place in its colors: list. " \
+                               "A place is a whole number from 0 to #{OWN_COLORS - 1}."
+        end
       end
 
       # A picture says what its pixels are ONE way. Art in characters, colors and places are
       # three ways of saying it, and two of them would have to agree with nothing able to
       # check that they did.
       def one_source_of_pixels!(name, opts, block)
+        if opts[:pieces] && (block || %i[places data from width height].any? { |key| opts[key] })
+          raise ArgumentError,
+                "image :#{name} was given pieces: and another way to say its pixels or its size. A picture " \
+                "made of pieces takes its pixels and its size from the pieces. Give pieces: and colors: alone."
+        end
         return unless opts[:places]
 
         if block
