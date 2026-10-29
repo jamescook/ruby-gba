@@ -181,7 +181,7 @@ module VBlank
               def area_bottom = area + 6
             end
 
-            R = ->(n) { Memory.register(n) }
+            R = Ractor.make_shareable(->(n) { Memory.register(n) })
 
             module_function
 

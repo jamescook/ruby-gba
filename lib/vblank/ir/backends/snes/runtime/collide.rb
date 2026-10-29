@@ -22,7 +22,7 @@ module VBlank
           # that names none of them stops the game (PICTURE_NOT_THERE). Two sprites more than 4096
           # pixels apart either way do not touch, so everything below works in 16 bits.
           module Collide
-            R = ->(n) { Memory.register(n) }
+            R = Ractor.make_shareable(->(n) { Memory.register(n) })
             FAR = 4096
 
             # The direct page the routine works on: for each sprite, its picture's mask (three
