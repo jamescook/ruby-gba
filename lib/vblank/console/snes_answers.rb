@@ -160,6 +160,8 @@ module VBlank
         pressed: works("see `held`."),
         if_held: works("see `held`."),
         if_pressed: works("see `held`."),
+        rumble: works("nothing is felt. A Super Nintendo cartridge has no rumble motor, so the game plays " \
+                      "the same without it."),
 
         # --- randomness ---
         seed: works, randomize: works, roll: works, rand: works, chance: works, random_numbers: works,

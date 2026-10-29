@@ -56,7 +56,10 @@ module VBlank
                                                on_timer: :emit_nothing,
                                                # no light can be made on a Super Nintendo (REFUSED), and a game
                                                # without one works nothing out again
-                                               show_light_now: :emit_nothing
+                                               show_light_now: :emit_nothing,
+                                               # a Super Nintendo cartridge has no rumble motor, so nothing is felt
+                                               # (Console::Description#rumbles)
+                                               rumble: :emit_nothing
                                              }.merge(Picture::STATEMENTS).merge(Paint::STATEMENTS)
                                               .merge(Saving::STATEMENTS).merge(Sound::STATEMENTS)
                                               .merge(Nodes.of_role(:declaration).to_h { |kind| [kind, :emit_nothing] }))

@@ -73,6 +73,11 @@ module VBlank
           # of each pass, to say which were all black (#black_frames). It is a whole screen read each
           # frame, so only a test that asks for it pays for it.
           def initialize(save: SaveImage.new, watch_picture: false)
+            unless save.is_a?(SaveImage)
+              raise ArgumentError, "save: must be a VBlank::IR::SaveImage. To make an empty save memory, " \
+                                   "write VBlank::IR::SaveImage.new."
+            end
+
             @save = save
             @watch_picture = watch_picture
             @held = []
@@ -135,6 +140,9 @@ module VBlank
           def [](name) = @vars.fetch(name, 0)
 
           def stopped_at_budget? = false
+
+          # A Super Nintendo cartridge has no rumble motor, so it never runs (Reference#motor_on?).
+          def motor_on? = false
 
           # How many frames each pass answered for, by the pass's number, as the interpreter is told
           # it (Reference#frames_each_pass): one, for a game that keeps up.

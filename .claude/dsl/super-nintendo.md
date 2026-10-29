@@ -135,6 +135,7 @@ and a test fails when the two differ. The Advance's answers are in
 - `pressed` — works: see `held`.
 - `if_held` — works: see `held`.
 - `if_pressed` — works: see `held`.
+- `rumble` — works: nothing is felt. A Super Nintendo cartridge has no rumble motor, so the game plays the same without it.
 - `seed` — works: the same as on the Advance.
 - `randomize` — works: the same as on the Advance.
 - `roll` — works: the same as on the Advance.
