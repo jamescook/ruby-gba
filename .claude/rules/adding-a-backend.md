@@ -79,8 +79,9 @@ a console of its own needs beyond a lowering:
   (`Native::ConsoleNumbers`, `JS#console_text`, `Ruby::Lowering#console_text`): its screen size, its
   frame's length, whether it blends, whether its cartridge has a motor and whether its clock keeps
   the date. The rest the lowering decides from the program's console, as the interpreter does (the
-  game loop's order, `IR::Frames.loop_in_console_order`). `CONSOLE=gbc` plays those runs' games as
-  another console, which is how a gap between a runtime and the interpreter on that console is found.
+  game loop's order, `IR::Frames.loop_in_console_order`). Those runs play the suite once for each
+  console (`Lowering::Run#plays_any_console?`), which is how a gap between a runtime and the
+  interpreter on that console is found; `CONSOLE=gbc` keeps only the runs playing as one.
 - **No console by default.** A game names its consoles, a build (`VBlank.build(..., console:)`)
   and a Rakefile (`t.consoles`) name theirs, and a name is held as its Symbol however it was
   written (`Console.named`). Only an unbound program, a tree built for a test (a Builder told
@@ -251,7 +252,8 @@ game's own suite uses:
 - `Testing::TestTask` says how a run is started (every checked one in several processes, never in Ractors, since they start programs); `Testing::RakeTasks` makes `rake test:all` and a
   `test:lowering:<name>` task for each.
 - `TestSuites::LOWERING_FOLDERS` (test/support/suites.rb) names the folders only one lowering's
-  run loads: put the new backend's own tests in `test/all/vblank/ir/backends/<name>/`.
+  run loads: put the new backend's own tests in `test/lowering/<name>/`. `TestSuites::CONSOLE_FOLDERS`
+  names each console's, loaded by every run that plays games as it.
 - **What a checked run does differently** is asked as `Testing.checked?`, which a new lowering
   joins through its record's `checked`: `require_emulator!` in `test/test_helper.rb` (a test of the
   cartridge skips on every run but the GBA one), `Testing::Pictures` and `test/mixed_sound.rb`

@@ -31,14 +31,19 @@ module TestSuites
   def self.console_dir(console) = "test/console/#{console}"
   def self.lowering_dir(lowering) = "test/lowering/#{lowering}"
 
-  # THE FOLDERS EACH RUN OWNS: its lowering's, and its console's, and for the run whose player is
-  # the interpreter the interpreter's. A folder several runs own (the Advance's, by every run that
-  # plays games as the Advance) is loaded by each of them and by no other run; test/all is
-  # nobody's, so every run loads it.
+  # THE FOLDERS EACH LOWERING OWNS: its own, and for the run whose player is the interpreter the
+  # interpreter's. Only that lowering's run loads them.
   LOWERING_FOLDERS = Ractor.make_shareable(VBlank::Testing::Lowering::RUNS.to_h do |run|
-    own = [lowering_dir(run.name), console_dir(run.console)]
+    own = [lowering_dir(run.name)]
     own << INTERPRETER_DIR unless run.checked?
     [run.name, own]
+  end)
+
+  # THE FOLDER EACH CONSOLE OWNS, loaded by every run that plays games as that console (the
+  # Advance's by the GBA lowering's run and by the native, JavaScript and Ruby runs playing as the
+  # Advance) and by no other. test/all is nobody's, so every run loads it.
+  CONSOLE_FOLDERS = Ractor.make_shareable(VBlank::Testing::Lowering::RUNS.map(&:console).uniq.to_h do |console|
+    [console, [console_dir(console)]]
   end)
 
   NATIVE_DIR = "#{lowering_dir(:native)}/vblank/ir/backends/native".freeze
@@ -50,8 +55,8 @@ module TestSuites
   module_function
 
   # Every test file of the suite, and the desktop test only when +desktop+. The Rakefile hands
-  # these and LOWERING_FOLDERS to the library's rake tasks, which leave out of each run the
-  # folders it does not own (VBlank::Testing::Lowering.files_for).
+  # these, LOWERING_FOLDERS and CONSOLE_FOLDERS to the library's rake tasks, which leave out of
+  # each run the folders it does not own (VBlank::Testing::Lowering.files_for).
   def all_files(desktop: false)
     found = Dir.glob("test/**/test_*.rb").sort - ["test/test_helper.rb"]
     desktop ? found : found - [DESKTOP_TEST]

@@ -73,6 +73,40 @@ class TestSuitesSplit < Minitest::Test
     refute_includes files_for(:gbc), advance_test
   end
 
+  # A runtime's run played as the Color loads the Color's folder and its own, and leaves out the
+  # Advance's: the folders a run loads follow the console it plays games as, not the lowering.
+  def test_a_runtime_run_loads_the_folder_of_the_console_it_plays_as
+    advance_test = Dir.glob("#{TestSuites.console_dir(:gba)}/**/test_*.rb").first
+    color_test = Dir.glob("#{TestSuites.console_dir(:gbc)}/**/test_*.rb").first
+    native_as_color = files_for(:native, console: :gbc)
+
+    refute_nil color_test, "the Color's folder holds tests"
+    assert_includes native_as_color, color_test
+    assert_includes native_as_color, "test/lowering/native/vblank/ir/backends/native/test_native_picture.rb"
+    assert_includes native_as_color, "test/all/vblank/dsl/test_pool_walk_order.rb"
+    refute_includes native_as_color, advance_test
+    refute_includes files_for(:native), color_test
+  end
+
+  # The native, JavaScript and Ruby runs play the suite once for each console a game is for; the
+  # interpreter's and each cartridge's play their own console alone.
+  def test_a_runtime_run_plays_once_for_each_console_and_the_rest_once
+    lowering = VBlank::Testing::Lowering
+    consoles = %i[gba gbc snes]
+
+    %i[native js ruby].each { |name| assert_equal consoles, lowering.consoles_for(lowering.run_named(name), consoles), name }
+    assert_equal [:gba], lowering.consoles_for(lowering.run_named(:gba), consoles)
+    assert_equal [:gbc], lowering.consoles_for(lowering.run_named(:gbc), consoles)
+    assert_empty lowering.consoles_for(lowering.run_named(:gbc), %i[gba])
+  end
+
+  # The interpreter's run answers for the Advance alone, so CONSOLE cannot move it either.
+  def test_console_cannot_move_the_interpreters_run_to_another_console
+    interpreter = VBlank::Testing::Lowering.run_named(:gba)
+
+    assert_raises(ArgumentError) { VBlank::Testing::Lowering.console_from({ "CONSOLE" => "gbc" }, interpreter) }
+  end
+
   # A test makes its player and runs a game the same way whichever lowering hands it the player,
   # so every player takes the interpreter's words. One added to the interpreter and not the
   # others fails here, on every run, rather than on the first native run that meets it.
@@ -219,9 +253,12 @@ class TestSuitesSplit < Minitest::Test
     text.length
   end
 
-  # The files +lowering+'s run loads, worked out as the Rakefile has the library's rake tasks do it.
-  def files_for(lowering)
-    VBlank::Testing::Lowering.files_for(lowering, files: TestSuites.all_files, folders: TestSuites::LOWERING_FOLDERS)
+  # The files +lowering+'s run loads, playing games as +console+ (its own unless told), worked out
+  # as the Rakefile has the library's rake tasks do it.
+  def files_for(lowering, console: VBlank::Testing::Lowering.run_named(lowering).console)
+    VBlank::Testing::Lowering.files_for(lowering, console: console, files: TestSuites.all_files,
+                                                  folders: TestSuites::LOWERING_FOLDERS,
+                                                  console_folders: TestSuites::CONSOLE_FOLDERS)
   end
 
   def keywords_of(method) = method.parameters.filter_map { |kind, name| name if %i[key keyreq].include?(kind) }.sort

@@ -38,59 +38,88 @@ module VBlank
     # it is told the same list the games are, and it takes and refuses exactly what `consoles:` does,
     # a Rakefile that names none included.
     #
+    # A GAME FOR SEVERAL CONSOLES IS PLAYED AS EACH OF THEM on the native, JavaScript and Ruby
+    # lowerings, whose builds are told the console when they are made: `rake test:lowering:native`
+    # then plays the suite once per console, one after the other, and each is a task of its own
+    # too (`rake test:lowering:native:gbc`). CONSOLE=gbc, before any of these or `rake test:all`,
+    # plays only the runs that play games as that console, for a quicker look at one.
+    #
     # The GBA lowering's run is a plain test run, so a suite that puts its tests in Ractors
     # (--ractor in TESTOPTS) keeps doing so there. The native lowering's run cannot, and spreads
-    # its tests over several processes instead (TestTask says how). The two runs go one after the
+    # its tests over several processes instead (TestTask says how). The runs go one after the
     # other so they never compete for a core.
     #
     # A test about one lowering's own output — the C the game is built as, say — goes in a folder
-    # that lowering owns, and the other lowering's run never loads it:
-    # `t.lowering_folders = { native: ["test/native"] }`. Every other test plays on both.
+    # that lowering owns, and the other lowerings' runs never load it:
+    # `t.lowering_folders = { native: ["test/native"] }`. A test of what only one console's
+    # hardware can do goes in a folder that console owns, and only the runs playing games as that
+    # console load it: `t.console_folders = { gbc: ["test/gbc"] }`. Every other test plays on all.
     #
     # A game whose Rakefile keeps its own rake test, or a task for each group of its tests, does
     # not want this whole set: it makes the runs it wants out of TestTask, which defines nothing
     # but the task it is asked for.
     class RakeTasks < Rake::TaskLib
-      # What `rake test:all` calls each lowering's run in the lines it ends with, in the order it plays them.
-      LABELS = Lowering::RUNS.to_h { |run| [run.name, "#{run.title} lowering"] }.freeze
       OUTCOMES = { passed: "passed", failed: "FAILED", not_played: "does not play this file" }.freeze
 
       # The test files; the folders a test file can require from by bare name (the game's own code
-      # and its tests, lib and test unless told); the folders each lowering owns; and the consoles
-      # the game is for, which every Rakefile names.
-      attr_accessor :test_files, :libs, :lowering_folders, :consoles
+      # and its tests, lib and test unless told); the folders each lowering owns, and each console;
+      # and the consoles the game is for, which every Rakefile names.
+      attr_accessor :test_files, :libs, :lowering_folders, :console_folders, :consoles
 
       def initialize
         super
         @test_files = Rake::FileList["test/**/test_*.rb"]
         @libs = %w[lib test]
         @lowering_folders = {}
+        @console_folders = {}
         @consoles = nil
         yield self if block_given?
-        @lowerings = Lowering.lowerings_for(Console.refuse_unknown_consoles!(consoles, setting: "t.consoles"))
+        @consoles = Console.refuse_unknown_consoles!(consoles, setting: "t.consoles")
+        @lowerings = Lowering.lowerings_for(@consoles)
         define_lowering_tasks
         define_test_task
       end
 
-      # The test files +lowering+'s run loads.
-      def files(lowering)
-        Lowering.files_for(lowering, files: test_files.to_a, folders: lowering_folders)
+      # The test files +lowering+'s run loads, playing games as +console+.
+      def files(lowering, console = Lowering.run_named(lowering).console)
+        Lowering.files_for(lowering, console: console, files: test_files.to_a, folders: lowering_folders,
+                                     console_folders: console_folders)
       end
 
       private
+
+      # Every run of the suite, as a lowering and the console it plays games as, in the order
+      # `rake test:all` plays them.
+      def plays = @lowerings.flat_map { |lowering| plays_of(lowering) }
+
+      def plays_of(lowering)
+        Lowering.consoles_for(Lowering.run_named(lowering), @consoles).map { |console| [lowering, console] }
+      end
+
+      # The task one run is played by: the lowering's own name when it plays a single console, and
+      # the console's under it when it plays several.
+      def task_name(lowering, console)
+        plays_of(lowering).size == 1 ? "test:lowering:#{lowering}" : "test:lowering:#{lowering}:#{console}"
+      end
+
+      # What `rake test:all` calls a run in the lines it ends with: the console too, where its
+      # lowering plays several.
+      def label(lowering, console) = "#{Lowering.run_named(lowering).title} lowering#{as_console(lowering, console)}"
+
+      def as_console(lowering, console) = plays_of(lowering).size > 1 ? " as the #{Console.for(console).title}" : ""
 
       # `rake test:all` plays every lowering, which is long; `rake test` on its own plays nothing
       # and says what to type instead, so the long run is always chosen and never an accident.
       # With TEST= it plays that one file on every lowering whose run loads it, which is short.
       def define_test_task
         namespace :test do
-          desc "Run the tests on every lowering, one after the other"
-          task(:all) { play_every_lowering }
+          desc "Run the tests on every lowering, one after the other (CONSOLE= for one console)"
+          task(:all) { play_runs(plays) }
         end
 
         desc "Run one file on every lowering that plays it (TEST=test/test_foo.rb); see test:all"
         task :test do
-          ENV["TEST"] ? play_every_lowering : abort(choices_message)
+          ENV["TEST"] ? play_runs(plays) : abort(choices_message)
         end
       end
 
@@ -99,54 +128,86 @@ module VBlank
         ["`rake test` on its own runs no tests. Type one of these:", "",
          "  rake test:all                       every lowering, one after the other",
          *tasks.map { |line| format("%-37s one lowering", line) },
-         "  rake test TEST=test/test_thing.rb   one file, on every lowering that plays it"].join("\n")
+         "  rake test TEST=test/test_thing.rb   one file, on every lowering that plays it",
+         "  CONSOLE=gbc rake test:all           only the runs that play games as one console"].join("\n")
       end
 
-      # Every lowering, one after the other, ending with a line for each.
-      def play_every_lowering
-        labels = LABELS.slice(*@lowerings)
-        results = labels.map { |lowering, label| run_lowering(lowering, label) }
+      # The runs of +chosen+ that CONSOLE leaves, one after the other, ending with a line for each.
+      def play_runs(chosen)
+        chosen = chosen_by_console(chosen)
+        labels = chosen.map { |lowering, console| label(lowering, console) }
+        results = chosen.zip(labels).map { |(lowering, console), name| play_run(lowering, console, name) }
         puts
-        results.each do |label, outcome, seconds|
-          puts format("%-*s %s%s", labels.values.map(&:length).max, label, OUTCOMES.fetch(outcome),
+        results.each do |name, outcome, seconds|
+          puts format("%-*s %s%s", labels.map(&:length).max, name, OUTCOMES.fetch(outcome),
                       outcome == :not_played ? "" : format(" in %ds", seconds))
         end
         abort "rake test: a lowering's run failed" if results.any? { |_, outcome| outcome == :failed }
       end
 
-      # One lowering's run, inside `rake test:all`: whether it passed and how long it took. Every one
-      # is played whatever the one before found.
-      def run_lowering(lowering, label)
+      # Of +chosen+, the runs playing games as the console CONSOLE names; all of them when it names none.
+      def chosen_by_console(chosen)
+        named = ENV.fetch(Lowering::CONSOLE_SETTING, "")
+        return chosen if named.empty?
+
+        console = Console.named(named)
+        left = chosen.select { |_, played_as| played_as == console }
+        return left unless left.empty?
+
+        abort "#{Lowering::CONSOLE_SETTING} is #{console}, and none of these runs plays games as the " \
+              "#{Console.for(console).title}. Leave #{Lowering::CONSOLE_SETTING} out, or name one of " \
+              "#{Lowering.in_words(chosen.map(&:last).uniq)}."
+      end
+
+      # One run: whether it passed and how long it took. Every one is played whatever the one
+      # before found.
+      def play_run(lowering, console, name)
         named = ENV["TEST"]&.delete_prefix("./")
-        return [label, :not_played, 0] if named && !files(lowering).include?(named)
+        return [name, :not_played, 0] if named && !files(lowering, console).include?(named)
 
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         passed = begin
-          Rake::Task["test:lowering:#{lowering}"].invoke
+          Rake::Task[task_name(lowering, console)].invoke
           true
         rescue RuntimeError # a test task whose tests failed says so by raising
           false
         end
-        [label, passed ? :passed : :failed, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started]
+        [name, passed ? :passed : :failed, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started]
       end
 
-      # Each lowering's run is a TestTask, which says how a run for that lowering is played: one for
-      # each of Lowering::RUNS that plays the game's consoles, so a new lowering is a record there
-      # and not a task written here.
+      # Each run is a TestTask, which says how a run for that lowering is played: one for each of
+      # Lowering::RUNS that plays the game's consoles, and for each console it plays them as, so a
+      # new lowering is a record there and not a task written here. A lowering playing several
+      # consoles has a task of its own besides, playing them one after the other.
       def define_lowering_tasks
         namespace :test do
           namespace :lowering do
             @lowerings.each do |lowering|
               run = Lowering.run_named(lowering)
-              TestTask.new(lowering) do |t|
-                t.lowering = lowering
-                t.libs = libs.dup
-                t.test_files = files(lowering)
-                needs = run.needs&.then { |tool| "needs #{tool}; " }
-                t.description = "Run the tests on the #{run.title} lowering: #{run.does} (#{needs}one file with TEST=)"
-              end
+              runs = plays_of(lowering)
+              runs.size == 1 ? define_run_task(run, *runs.first, lowering) : define_runs_task(run, runs)
             end
           end
+        end
+      end
+
+      def define_runs_task(run, runs)
+        namespace run.name do
+          runs.each { |_, console| define_run_task(run, run.name, console, console) }
+        end
+        desc "Run the tests on the #{run.title} lowering as each console, one after the other (CONSOLE= for one)"
+        task(run.name) { play_runs(runs) }
+      end
+
+      def define_run_task(run, lowering, console, name)
+        TestTask.new(name) do |t|
+          t.lowering = lowering
+          t.console = console
+          t.libs = libs.dup
+          t.test_files = files(lowering, console)
+          needs = run.needs&.then { |tool| "needs #{tool}; " }
+          t.description = "Run the tests on the #{run.title} lowering#{as_console(lowering, console)}: " \
+                          "#{run.does} (#{needs}one file with TEST=)"
         end
       end
     end

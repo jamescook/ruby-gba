@@ -23,10 +23,10 @@ module VBlank
       #
       #   name     what VBLANK_LOWERING and `rake test:lowering:<name>` call it
       #   title    what a sentence calls it: "the GBA lowering", "this JavaScript run"
-      #   console  the console the run plays a game as (see Console::DESCRIPTIONS). The native and
-      #            JavaScript builds play an Advance game, laid out for the Advance's screen, so a
-      #            game for the Advance alone is played by the first three runs and a game for the
-      #            Color too by all four
+      #   console  the console the run plays a game as (see Console::DESCRIPTIONS). The native,
+      #            JavaScript and Ruby builds can be built as any console, and their runs play the
+      #            suite once for each console the game is for (Lowering.consoles_for); this is
+      #            the one they play as when told nothing else
       #   checked  whether the run plays the game itself, built for another machine and checked
       #            against the interpreter, rather than the interpreter alone. Such a run starts
       #            programs, so it is played in processes rather than Ractors, and it has no
@@ -47,6 +47,12 @@ module VBlank
 
         # The class `game_player` makes one of on this run.
         def player_class = player ? VBlank.const_get(player) : Testing::CartridgeCheckedPlayer.for(console)
+
+        # Whether the run can play a game as any console: one built for a runtime (C, JavaScript,
+        # Ruby), which is told the console when the game is built. The interpreter's run and a
+        # cartridge's play their own console alone. +console+ above is then the one it plays as
+        # when nothing says otherwise.
+        def plays_any_console? = checked && !player.nil?
       end
 
       # In the order `rake test` plays them.
@@ -86,8 +92,12 @@ module VBlank
       # The lowerings whose runs play a game for +consoles+ (Symbols), in the order `rake test`
       # plays them.
       def lowerings_for(consoles)
-        RUNS.select { |run| consoles.include?(run.console) }.map(&:name)
+        RUNS.select { |run| run.plays_any_console? || consoles.include?(run.console) }.map(&:name)
       end
+
+      # The consoles +run+ plays a game for +consoles+ as, one run of the suite each: every one of
+      # them on a runtime's run, and the run's own console on the rest.
+      def consoles_for(run, consoles) = run.plays_any_console? ? consoles : [run.console] & consoles
 
       # The lowering +env+ says, refusing one there is not.
       def from(env)
@@ -108,7 +118,7 @@ module VBlank
         return run.console if named.nil? || named.empty?
 
         console = Console.named(named)
-        return console if console == run.console || run.player
+        return console if console == run.console || run.plays_any_console?
 
         raise ArgumentError, "#{CONSOLE_SETTING} is #{console}, but the #{run.title} run plays only the " \
                              "#{Console.for(run.console).title}'s cartridge. Leave #{CONSOLE_SETTING} out, or " \
@@ -126,18 +136,19 @@ module VBlank
         most.empty? ? last : "#{most.join(', ')} or #{last}"
       end
 
-      # THE FILES +lowering+'s RUN LOADS: every one of +files+ but those in a folder another
-      # lowering owns. A test there is about that lowering's own output — the ARM a cartridge is
-      # made of, the C the game is built as — and the other lowering's run never loads it.
-      # +folders+ names them by lowering, `{ gba: [...], native: [...], js: [...] }`. Every test
-      # outside them is about the game, and every lowering's run loads it.
+      # THE FILES +lowering+'s RUN LOADS, playing games as +console+ (the run's own unless told):
+      # every one of +files+ but those in a folder another lowering or another console owns.
       #
-      # A folder several lowerings name is loaded by each of them and left out of the rest's runs:
-      # what only one CONSOLE can do is played by every lowering that plays a game for it (the
-      # Advance's folder is the GBA, native and JavaScript lowerings'), and never by the others.
-      def files_for(lowering, files:, folders: {})
-        own = folders.fetch(lowering, [])
-        others = folders.reject { |owner, _| owner == lowering }.values.flatten - own
+      # +folders+ names a lowering's own, `{ gba: [...], native: [...], js: [...] }`: a test there
+      # is about that lowering's output — the ARM a cartridge is made of, the C the game is built
+      # as — and no other lowering's run loads it. +console_folders+ names a console's own,
+      # `{ gba: [...], gbc: [...] }`: a test there asks what only that console's hardware can do,
+      # and every run playing games as that console loads it, whichever lowering it is, while a
+      # run playing them as another console never does. Every test outside them all is about the
+      # game, and every run loads it.
+      def files_for(lowering, console: run_named(lowering).console, files:, folders: {}, console_folders: {})
+        own = folders.fetch(lowering, []) + console_folders.fetch(console, [])
+        others = [*folders.values, *console_folders.values].flatten - own
         files.reject { |path| others.any? { |dir| path.start_with?("#{dir}/") } }
       end
     end

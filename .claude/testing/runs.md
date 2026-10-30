@@ -5,7 +5,9 @@ rake test:all                                                   # the suite, on 
 rake test TEST=test/all/vblank/dsl/test_thing.rb                    # one file, on each lowering that plays it
 rake test TEST=test/all/vblank/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test; -n /pat/ trips shell quoting
 rake test:lowering:gba                                          # the GBA lowering's run alone (TEST= too)
-rake test:lowering:native                                       # the native lowering's run alone (TEST= too)
+rake test:lowering:native                                       # the native lowering's runs alone, once per console (TEST= too)
+rake test:lowering:native:gbc                                   # the native lowering's run as one console (and js:, ruby:)
+CONSOLE=gbc rake test:all                                       # only the runs that play games as one console (any task)
 rake test:lowering:js                                           # the JavaScript lowering's run alone (TEST= too)
 rake test:lowering:ruby                                         # the Ruby lowering's run alone (TEST= too)
 rake test:lowering:gbc                                          # the Game Boy Color lowering's run alone (TEST= too)

@@ -15,7 +15,8 @@
 # not named. A test named for every run it was tried on belongs in test/all/; one named for some
 # runs may belong in a console's folder those runs share.
 #
-# Each file is played in a process of its own, a run's setting given as VBLANK_LOWERING, as many
+# A runtime's run (native, js, ruby) is tried as every console, since the suite plays it as each.
+# Each file is played in a process of its own, a run's settings given as VBLANK_LOWERING and CONSOLE, as many
 # at once as the computer has cores. It is slow, which is why it is a tool and not part of the
 # suite.
 require "etc"
@@ -31,9 +32,14 @@ only = ENV["ONLY"]
 every = TestSuites.all_files.reject { |path| path.start_with?("#{TestSuites::ALL_DIR}/") }
 every = every.select { |path| path.start_with?(only) } if only
 
-jobs = runs.flat_map do |run|
-  loaded = VBlank::Testing::Lowering.files_for(run, files: TestSuites.all_files, folders: TestSuites::LOWERING_FOLDERS)
-  (every - loaded).map { |path| [run, path] }
+jobs = runs.flat_map do |lowering|
+  run = VBlank::Testing::Lowering.run_named(lowering)
+  VBlank::Testing::Lowering.consoles_for(run, TestSuites::CONSOLE_FOLDERS.keys).flat_map do |console|
+    loaded = VBlank::Testing::Lowering.files_for(lowering, console: console, files: TestSuites.all_files,
+                                                           folders: TestSuites::LOWERING_FOLDERS,
+                                                           console_folders: TestSuites::CONSOLE_FOLDERS)
+    (every - loaded).map { |path| [lowering, console, path] }
+  end
 end
 puts "Playing #{jobs.size} files on runs that do not load them, #{Etc.nprocessors} at a time."
 
@@ -48,11 +54,11 @@ Array.new(Etc.nprocessors) do
     rescue ThreadError
       nil
     end)
-      run, path = job
-      out, = Open3.capture2e({ "VBLANK_LOWERING" => run.to_s }, "bundle", "exec", "ruby", "-Ilib", "-Itest",
-                             "-r#{PLAYED}", path, chdir: ROOT)
+      lowering, console, path = job
+      out, = Open3.capture2e({ "VBLANK_LOWERING" => lowering.to_s, "CONSOLE" => console.to_s },
+                             "bundle", "exec", "ruby", "-Ilib", "-Itest", "-r#{PLAYED}", path, chdir: ROOT)
       played = out.lines.filter_map { |line| line[/\APLAYED (\S+)/, 1] }
-      lock.synchronize { played.each { |test| found["#{path}  #{test}"] << run } }
+      lock.synchronize { played.each { |test| found["#{path}  #{test}"] << "#{lowering} as #{console}" } }
     end
   end
 end.each(&:join)

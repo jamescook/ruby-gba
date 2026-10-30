@@ -98,14 +98,18 @@ end
 # then the JavaScript lowering's (the game built as JavaScript and played by node, checked the same
 # way), then the Ruby lowering's (the game built as Ruby and played by a Ruby of its own, checked
 # the same way), then the Game Boy Color's (the game built as a Color cartridge, checked the same
-# way), and ends with a line for each. `rake test:lowering:gba`, `rake test:lowering:native`,
-# `rake test:lowering:js`, `rake test:lowering:ruby` and `rake test:lowering:gbc` play one. TEST= names one file, played by each lowering whose run loads
-# it (a file in one lowering's own folder is played by that one alone; see
-# TestSuites::LOWERING_FOLDERS).
+# way), and ends with a line for each. The native, JavaScript and Ruby lowerings play the suite
+# once for each console. `rake test:lowering:gba`, `rake test:lowering:native`,
+# `rake test:lowering:js`, `rake test:lowering:ruby` and `rake test:lowering:gbc` play one, and
+# `rake test:lowering:native:gbc` one console of one; CONSOLE=gbc keeps only the runs playing as
+# that console. TEST= names one file, played by each run that loads it (a file in one lowering's
+# own folder, or one console's, is played by those runs alone; see TestSuites::LOWERING_FOLDERS
+# and TestSuites::CONSOLE_FOLDERS).
 VBlank::Testing::RakeTasks.new do |t|
   # SDL=1 also builds and runs the desktop program, with its window (TestSuites::DESKTOP_TEST).
   t.test_files = TestSuites.all_files(desktop: ENV["SDL"] == "1")
   t.lowering_folders = TestSuites::LOWERING_FOLDERS
+  t.console_folders = TestSuites::CONSOLE_FOLDERS
   # The library builds for every console it has a kit for, so its suite plays every run there is.
   t.consoles = VBlank::Console::KITS.keys
 end

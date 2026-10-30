@@ -110,7 +110,8 @@ Ruby lowering's (every game built as Ruby, played by a Ruby of its own and check
 what its runtime cannot do yet skips saying what), then the
 Game Boy Color lowering's (every game built as a Color cartridge, played in the emulator and
 checked against the interpreter after every pass; a game the Color cannot play skips saying
-why). It ends
+why). The native, JavaScript and Ruby runs each play the suite once for every console, since
+their builds are told the console when they are made. It ends
 with a line for each and fails if any did. It needs zig 0.17 (`mise use zig@0.17.0`) and node
 18 or later as well as the emulator, and SDL3 (`brew install sdl3`) for the tests that open a window.
 
@@ -119,11 +120,12 @@ rake test:all                                                   # the suite, on 
 rake test TEST=test/all/vblank/dsl/test_thing.rb                    # one file, on every lowering that plays it
 rake test TEST=test/all/vblank/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test
 rake test:lowering:gba                                          # the GBA lowering's run alone (takes TEST= too)
-rake test:lowering:native                                       # the native lowering's run alone (takes TEST= too)
+rake test:lowering:native                                       # the native lowering's runs alone, once per console (takes TEST= too)
+rake test:lowering:native:gbc                                   # the native lowering's run as one console (and js:, ruby:)
 rake test:lowering:js                                           # the JavaScript lowering's run alone (takes TEST= too)
 rake test:lowering:ruby                                         # the Ruby lowering's run alone (takes TEST= too)
 rake test:lowering:gbc                                          # the Game Boy Color lowering's run alone (takes TEST= too)
-CONSOLE=gbc rake test:lowering:native TEST=...                  # the native, js or ruby run playing games as another console
+CONSOLE=gbc rake test:all                                       # only the runs that play games as one console (any task, TEST= too)
 rake test:playthroughs                                          # one module's tests: every file in test/lowering/gba/vblank/playthroughs/
 VBLANK_SUITE_LOCK=checkout rake test                            # in a worktree: go ahead beside another checkout's run
 ```

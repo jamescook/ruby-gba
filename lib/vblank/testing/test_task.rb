@@ -3,6 +3,8 @@
 require "etc"
 require "rake"
 require "rake/testtask"
+require_relative "../console/description"
+require_relative "../console/kit" # which names its parts and loads none of them
 require_relative "lowering"
 
 module VBlank
@@ -45,13 +47,19 @@ module VBlank
     # The name is required, since rake's own test task left without one is `rake test` — the
     # one task a game that keeps its own was making this to stay clear of.
     class TestTask < Rake::TestTask
-      # The lowering this task's run is for, :gba unless told.
+      # The lowering this task's run is for, :gba unless told; and the console it plays games as.
+      # Left untold, that is the one CONSOLE names, or the lowering's own: a runtime's run can play
+      # as any (Lowering::Run#plays_any_console?), and the rest refuse another.
       attr_reader :lowering
+      attr_writer :console
 
       def initialize(name)
         @lowering = :gba
+        @console = nil
         super
       end
+
+      def console = @console || Lowering.console_from(ENV, Lowering.run_named(lowering))
 
       # Said inside the block, where the task is being made: a native run is made with the
       # process runner loaded, which is settled as the task is defined.
@@ -85,6 +93,7 @@ module VBlank
         run = Lowering.run_named(lowering)
         refuse_native_run_without_zig! if run.needs == "zig"
         refuse_js_run_without_node! if run.needs == "node"
+        refuse_other_console!(run)
         print_heading(run)
         sh(run_settings, [FileUtils::RUBY, *yjit_switch, *args].join(" "), **options, &block)
       end
@@ -93,7 +102,8 @@ module VBlank
       # lowering's tests are going.
       def print_heading(run)
         rule = "=" * 92
-        $stdout.puts "", rule, " #{run.title} lowering: #{run.does}", rule
+        as = console == run.console ? "" : " as the #{Console.for(console).title}"
+        $stdout.puts "", rule, " #{run.title} lowering#{as}: #{run.does}", rule
         $stdout.flush
       end
 
@@ -116,11 +126,13 @@ module VBlank
 
       # What the run is handed. A checked run's own copy of TESTOPTS loses --ractor
       # too, since a test that starts a run of its own hands that copy on. YJIT as #yjit? says.
+      # The console is always said, so a CONSOLE the rake call was started with reaches only the
+      # runs it chose (RakeTasks), never one playing another.
       def run_settings
-        yjit = { "RUBY_YJIT_ENABLE" => yjit? ? "1" : nil }
-        return { Lowering::SETTING => "gba", **yjit } unless checked?
+        shared = { "RUBY_YJIT_ENABLE" => yjit? ? "1" : nil, Lowering::CONSOLE_SETTING => console.to_s }
+        return { Lowering::SETTING => "gba", **shared } unless checked?
 
-        { Lowering::SETTING => lowering.to_s, "MT_RACTOR" => nil, "MT_CPU" => "1", **yjit,
+        { Lowering::SETTING => lowering.to_s, "MT_RACTOR" => nil, "MT_CPU" => "1", **shared,
           "TESTOPTS" => ENV["TESTOPTS"] && without_ractor(ENV["TESTOPTS"]),
           "TEST_PROCESSES" => ENV.fetch("TEST_PROCESSES") { ENV.fetch("MT_RACTOR_WORKERS") { [Etc.nprocessors / 2, 1].max.to_s } } }
       end
@@ -130,6 +142,17 @@ module VBlank
 
         raise ArgumentError, "This test task is already made, so its lowering cannot change. " \
                              "Say the lowering inside the block that makes it."
+      end
+
+      # A CONSOLE the rake call was started with that names another console than this run's is
+      # refused, rather than overridden: the run asked for would not be the one played.
+      def refuse_other_console!(run)
+        named = ENV.fetch(Lowering::CONSOLE_SETTING, "")
+        return if named.empty? || Console.named(named) == console
+
+        abort "#{Lowering::CONSOLE_SETTING} is #{named}, but this #{run.title} run plays games as the " \
+              "#{Console.for(console).title}. Leave #{Lowering::CONSOLE_SETTING} out, or start the run " \
+              "for that console."
       end
 
       def refuse_native_run_without_zig!

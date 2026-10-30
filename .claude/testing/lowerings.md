@@ -6,7 +6,10 @@ interpreter, the cartridge checked in the emulator), the native run (the game bu
 game as JavaScript by `Backends::JS`, played by node, checked the same way), the Ruby run (the game
 as Ruby by `Backends::Ruby`, played by a Ruby of its own, checked the same way), and last the Game Boy
 Color run (the game built as a Color cartridge by `Backends::GBC`, played in the emulator and
-checked against the interpreter after every pass). A test that fails on any of them fails the run.
+checked against the interpreter after every pass). The native, JavaScript and Ruby runs are each
+played once for every console (`rake test:lowering:native:gbc` is one), since their builds are told
+the console when they are made; each loads `test/all/`, its console's folder and its lowering's.
+`CONSOLE=gbc` keeps only the runs that play games as that console. A test that fails on any of them fails the run.
 It needs zig 0.17 and node 18 or later besides the emulator.
 
 **The Game Boy Color run plays every test it can make work, and never sees the rest.** Its player
@@ -40,8 +43,9 @@ the run counts those skips by reason; `skip_on_snes` is there for a test it cann
 reason no folder says. `test/lowering/snes/vblank/ir/backends/snes/` is its own folder, and its `examples/`
 mirrors `examples/`: a test there plays one example built for the Super Nintendo too
 (`consoles: %i[gba snes]`).
-`test/console/gba/` is owned by the GBA, native, JavaScript and Ruby lowerings together; a folder several
-lowerings name in `TestSuites::LOWERING_FOLDERS` is loaded by each of them
+`test/console/gba/` is loaded by every run that plays games as the Advance: the GBA lowering's, and
+the native, JavaScript and Ruby runs playing as the Advance. A console's folder is named in
+`TestSuites::CONSOLE_FOLDERS` and a lowering's in `TestSuites::LOWERING_FOLDERS`
 (`Testing::Lowering.files_for`).
 
 **The JavaScript run is the native run's twin.** Its game is the native lowering's statements
