@@ -245,6 +245,33 @@ module VBlank
         object_node.layer_pick = layer_var
       end
 
+      # PUT SPRITES IN ANOTHER OF THE DECLARED LAYERS (see HardwareSprite#put_in_layer): one
+      # sprite, or every sprite a pool's things are drawn as (Pool#put_in_layer), which share one
+      # variable and so move together. +which+ is a layer name, or several picked by +showing+;
+      # +subject+ names who was told, for the friendly errors.
+      def put_objects_in_layer(nodes, layer_var, which, showing:, subject:)
+        names = Array(which)
+        refuse_unknown_layers!(names, subject)
+        if showing.nil? && names.length > 1
+          raise ArgumentError,
+                "#{subject} was told to put_in_layer #{names.length} layers and nothing to pick between " \
+                "them. Say which one with showing:, like put_in_layer [:#{names.first}, ...], showing: floor."
+        end
+        if showing && !which.is_a?(Array)
+          raise ArgumentError,
+                "#{subject} was told put_in_layer :#{which} and showing:, but that names one layer. " \
+                "showing: picks between several, so give it a list: put_in_layer [:#{which}, :other], showing: ..."
+        end
+
+        nodes.each { |node| make_object_layer_choosable(node, layer_var) }
+        start = layer_choice_offset(nodes, names)
+        choice = DSL::Value.new(self, Build.var_ref(layer_var), name: layer_var)
+        return choice.set!(start) if showing.nil?
+
+        write_picked_choice(choice, count: names.length, start: start, showing: showing,
+                                    outside: Build::DECLARED_LAYER, subject: subject, verb: "put_in_layer a layer")
+      end
+
       # Refuse a layer a sprite was told to go in that the stack does not have, naming it.
       def refuse_unknown_layers!(names, subject)
         if @layer_stack.empty?
@@ -310,6 +337,19 @@ module VBlank
       end
 
       private
+
+      # Where +names+ sit side by side among the layers +nodes+ can be put in, adding them at
+      # the end when they do not — so a set picked by a number is that number plus where the
+      # set starts, rather than a test per layer. Every node keeps the same list, since they
+      # read one variable.
+      def layer_choice_offset(nodes, names)
+        known = nodes.first.layers || []
+        found = (0..(known.length - names.length)).find { |at| known[at, names.length] == names }
+        return found if found
+
+        nodes.each { |node| node.layers = known + names }
+        known.length
+      end
 
       # A sprite turns and resizes about the middle of its picture, and poses of different
       # sizes each have a middle of their own, so one that turned would swing about another

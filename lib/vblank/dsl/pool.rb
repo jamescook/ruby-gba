@@ -322,6 +322,29 @@ module VBlank
       # The background's grid of solid cells, or nil if this pool was never blocked by one.
       attr_reader :solid_cells
 
+      # PUT EVERY THING OF THIS POOL IN ANOTHER OF THE DECLARED LAYERS, from now until it is told
+      # otherwise — the word a sprite has (HardwareSprite#put_in_layer), said once for all of
+      # them. A room whose things walk under its arches and a room whose things stand in front
+      # of its furniture can then share one pool, moved as each room takes over.
+      #
+      #   guards.put_in_layer :walking
+      #   guards.put_in_layer [:upper, :walking], showing: floor
+      #
+      # A number outside the list leaves them in the layer the pool was declared in. The change
+      # shows on the frame their positions and pictures next do. Every thing reads one variable,
+      # so moving them costs what moving one sprite does, however many there are.
+      def put_in_layer(which, showing: nil)
+        unless spriteful?
+          raise ArgumentError,
+                "pool :#{@name} was told to put_in_layer, but its instances draw nothing. " \
+                "Give the pool pictures with image:, facing: or frames:."
+        end
+
+        @builder.put_objects_in_layer(stacked_objects, :"__pool_#{@name}_layer", which, showing: showing,
+                                                                                       subject: "The pool :#{@name}")
+        self
+      end
+
       # The builder this pool was declared on — an instance reaches it to place the shared
       # tile-collision routine's call.
       attr_reader :builder
