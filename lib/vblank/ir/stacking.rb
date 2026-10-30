@@ -45,7 +45,7 @@ module VBlank
       # its +scenery+ and +objects+ in the order they are drawn, and the +depths+ each
       # one sits at. One call, so a backend, a build check and a report all get the same
       # answer without any of them knowing how it was reached.
-      Picture = Data.define(:stack, :scenery, :objects, :depths) do
+      Picture = Data.define(:stack, :shared, :scenery, :objects, :depths) do
         # The names in one layer, back to front — what that layer turned out to hold.
         def in_layer(name)
           (scenery + objects).select { |node| node.layer == name }.map(&:name)
@@ -53,11 +53,13 @@ module VBlank
       end
 
       def picture(program)
-        stack = program.walk.find { |node| node.kind == :layers }&.names || []
+        declared = program.walk.find { |node| node.kind == :layers }
+        stack = declared&.names || []
+        shared = declared&.shared || []
         scenery = order_by_stack(program.walk.select { |node| node.kind == :background }, stack, &:layer)
         objects = objects_in_draw_order(program)
-        Picture.new(stack: stack, scenery: scenery, objects: objects,
-                    depths: depths(scenery: scenery, objects: objects, stack: stack))
+        Picture.new(stack: stack, shared: shared, scenery: scenery, objects: objects,
+                    depths: depths(scenery: scenery, objects: objects, stack: stack, shared: shared))
       end
 
       # --- one screenful at a time ---
@@ -136,7 +138,7 @@ module VBlank
         scenery = whole.scenery.select { |node| node.scene.nil? || node.scene == scene }
         objects = whole.objects.select { |node| node.scene.nil? || node.scene == scene }
         Screenful.new(scene: scene, scenery: scenery, objects: objects,
-                      depths: depths(scenery: scenery, objects: objects, stack: whole.stack))
+                      depths: depths(scenery: scenery, objects: objects, stack: whole.stack, shared: whole.shared))
       end
 
       # Every declared object, in the order a frame draws them (later = in front). The
@@ -199,21 +201,37 @@ module VBlank
       # the scenery back to front, and the objects over all of it. That is not a special
       # case in the code — it is what the rule below produces when nothing names a
       # layer, which is why a picture that names none comes out byte for byte the same.
-      def depths(scenery:, objects:, stack: [])
+      #
+      # +shared+ is the runs of neighbouring layers the stack put at one level. Scenery
+      # that follows scenery of the same run opens no level: the two are told apart by
+      # which is painted first, the way a machine with stacking hardware tells apart two
+      # layers it was given the same depth. The builder keeps objects out of every layer
+      # of a run but its front one, so nothing comes between them.
+      def depths(scenery:, objects:, stack: [], shared: [])
         level = 0
         started = false
+        before = nil
         of = {}
 
         # A status bar takes no depth: it is in front of all the scenery and behind every
         # object, wherever they are stacked, so nothing about the stack moves for it.
         back_to_front(scenery.reject(&:bar?), objects, stack).each do |item, kind|
-          level += 1 if started && kind == :scenery
+          level += 1 if started && kind == :scenery && !same_shared_level?(before, item, shared)
           started = true
+          before = kind == :scenery ? item : nil
           of[item.name] = level
           of[Declaration.new(name: item.name, scene: item.scene)] = level if kind == :scenery
         end
 
         Depths.new(of: of, count: level + 1)
+      end
+
+      # Are +before+ and +scenery+, scenery next to each other in the sequence, in layers of
+      # one shared level? Two in one layer are not: only the stack's list says to share.
+      def same_shared_level?(before, scenery, shared)
+        return false if before.nil? || before.layer == scenery.layer
+
+        shared.any? { |group| group.include?(before.layer) && group.include?(scenery.layer) }
       end
 
       # Everything in one sequence, back to front, tagged with what it is. Scenery and

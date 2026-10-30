@@ -91,6 +91,48 @@ class TestLayerGuardrails < Minitest::Test
     assert_match(/takes names/, error.message)
   end
 
+  def test_a_shared_level_of_one_layer_is_refused
+    error = assert_raises(ArgumentError) { built { layers :sky, [:world], :ui } }
+
+    assert_match(/two layers or more/, error.message)
+  end
+
+  # A sprite at a shared level is in front of both backgrounds, so it cannot be in the
+  # back one's layer.
+  def test_a_sprite_in_the_back_layer_of_a_shared_level_is_refused
+    error = assert_raises(ArgumentError) do
+      built do
+        layers :sky, %i[ground scenery], :ui
+        layer(:ground) { sprite :red_guy, at: [10, 10] }
+      end
+    end
+
+    assert_match(/shares a level with :scenery/, error.message)
+    assert_match(/put the sprite in :scenery/, error.message)
+  end
+
+  def test_a_sprite_put_in_the_back_layer_of_a_shared_level_is_refused
+    error = assert_raises(ArgumentError) do
+      built do
+        screen :tiled
+        layers :sky, %i[ground scenery], :ui
+        guy = layer(:ui) { sprite :red_guy, at: [10, 10] }
+        game_loop { guy.put_in_layer :ground }
+      end
+    end
+
+    assert_match(/shares a level with :scenery/, error.message)
+  end
+
+  # A stack written as one list is still the stack, not one shared level.
+  def test_a_stack_written_as_one_list_shares_no_level
+    program, = built { layers %i[sky world ui] }
+    declared = program.walk.find { |node| node.kind == :layers }
+
+    assert_equal %i[sky world ui], declared.names
+    assert_empty declared.shared
+  end
+
   # --- opening a layer ---
 
   def test_a_layer_needs_a_block

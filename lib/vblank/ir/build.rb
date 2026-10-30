@@ -597,8 +597,9 @@ module VBlank
       # names a layer sits at that layer's place in this list, and two things in the
       # same layer keep the order they were declared in.
       # +see_through+ lists the layers you can see through (see #see_through_layer).
-      def layers(names, see_through: [])
-        Nodes.build(:layers, names: names, see_through: see_through)
+      # +shared+ lists runs of neighbouring names that share one level, each back to front.
+      def layers(names, see_through: [], shared: [])
+        Nodes.build(:layers, names: names, see_through: see_through, shared: shared)
       end
 
       # Layer +name+ can be seen through: +shows+ of itself and +behind+ of what is behind

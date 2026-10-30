@@ -8,6 +8,7 @@ require "all/vblank/ir/test_layer_allocation"
 # more levels than the console stacks, and the build report that says what each layer became.
 # What every run draws from a stack is in test/all/vblank/ir/test_layer_allocation.rb.
 class TestLayerAllocationCartridge < Minitest::Test
+  include Differential
   include LayerAllocationGames
 
   # --- the limit, spoken in the author's own names ---
@@ -34,6 +35,19 @@ class TestLayerAllocationCartridge < Minitest::Test
     error = assert_raises(GBA::LoweringError) { GBA.new.lower(deep_stack) }
 
     assert_match(/:ghosts, :l1, :l2, :l3, :l4/, error.message)
+  end
+
+  # The refusal names the other way out: two backgrounds that share a level.
+  def test_the_refusal_says_two_backgrounds_can_share_a_level
+    error = assert_raises(GBA::LoweringError) { GBA.new.lower(deep_stack) }
+
+    assert_match(/share a level/, error.message)
+  end
+
+  # Two backgrounds of one priority are told apart by their layer's number, the lower in
+  # front, so the front one of a shared pair has to get the lower number.
+  def test_a_shared_level_draws_on_the_cartridge_as_on_the_interpreter
+    assert_backends_agree(shared_level_stack, frames: 3, name: "SHLVL")
   end
 
   # --- the report ---

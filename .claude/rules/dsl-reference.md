@@ -63,7 +63,7 @@ Integer is a literal, a `Value` (from `var`) is an expression. Handles (`Value`,
 
 ## Layers — `.claude/dsl/layers.md`
 
-- `layers :sky, :world, :ui` — the stack, back to front; `layer :name do … end` puts what it declares at that depth.
+- `layers :sky, :world, :ui` — the stack, back to front (`[:a, :b]` inside it: two layers sharing one level); `layer :name do … end` puts what it declares at that depth.
 - `hero.put_in_layer`, `guards.put_in_layer` (a pool); `draw_in_order hero, guards` — sprites re-ordered each frame, lower on screen in front.
 
 ## Collision — `.claude/dsl/collision.md`

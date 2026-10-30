@@ -728,13 +728,44 @@ module VBlank
           #
           # There is always a slot to hand out, because #check_layers_fit! has already refused
           # a screenful asking for more than there are. It runs first for that reason.
+          #
+          # TWO BACKGROUNDS AT ONE LEVEL are the exception to "a slot is only registers". They
+          # get the same priority, and the console then draws the lower-numbered layer in
+          # front. So the backgrounds of a level take their slots front first, and the front one
+          # gets the lower number.
           def layer_slots
             slots = {}
             @screenfuls.each do |screenful|
               free = scrolling_slots(screenful) - screenful.scrolling.filter_map { |node| slots[node.name] }
-              screenful.scrolling.each { |node| slots[node.name] ||= free.shift }
+              front_first_within_levels(screenful).each { |node| slots[node.name] ||= free.shift }
+              refuse_shared_level_slots!(screenful, slots)
             end
             slots
+          end
+
+          # +screenful+'s scrolling backgrounds back to front, but front first among the ones
+          # that share a level.
+          def front_first_within_levels(screenful)
+            screenful.scrolling.chunk_while { |a, b| level_of(screenful, a) == level_of(screenful, b) }
+                     .flat_map(&:reverse)
+          end
+
+          def level_of(screenful, node) = node.bar? ? nil : screenful.depths.of_scenery(node)
+
+          # A background every screen shows keeps the slot it was given first, so on another
+          # screen it can have a higher number than the background in front of it at the same
+          # level, and be drawn in front of it.
+          def refuse_shared_level_slots!(screenful, slots)
+            screenful.scrolling.each_cons(2) do |back, front|
+              next if back.bar? || level_of(screenful, back) != level_of(screenful, front)
+              next if slots.fetch(front.name) < slots.fetch(back.name)
+
+              raise LoweringError,
+                    "#{whose_picture(screenful)} puts the backgrounds :#{back.name} and :#{front.name} at " \
+                    "one level, and the console cannot draw :#{front.name} in front of :#{back.name} there. " \
+                    "A background that every scene shows keeps its place in every scene. To fix this, " \
+                    "declare both backgrounds in the same scene, or do not share the level."
+            end
           end
 
           # The slots a screenful has to hand out — the same counts the check above refuses
@@ -1599,10 +1630,12 @@ module VBlank
               behind = backmost.map(&:layer).uniq.compact
               "The sprites in #{behind.map { |name| ":#{name}" }.join(', ')} sit behind every background, " \
                 "which takes a level of its own. To fix this, move that layer in front of one background, " \
-                "or use one background less."
+                "use one background less, or let two neighbouring layers share a level: " \
+                "`layers :back, [:ground, :scenery], :front`."
             else
               "Each background takes a level, and the sprites in front of it share that level. " \
-                "To fix this, use fewer backgrounds."
+                "To fix this, use fewer backgrounds, or let two neighbouring layers share a level: " \
+                "`layers :back, [:ground, :scenery], :front`."
             end
           end
 

@@ -35,6 +35,31 @@ module LayerAllocationGames
       game_loop { nil }
     end
   end
+
+  # The same four backgrounds and sprites behind them all, fitted in four levels by letting
+  # the middle two share one. White fills the back; the shared pair are green across the
+  # top half (the back one) and blue down the left half (the front one); the front layer
+  # holds one yellow cell. The red sprite stands where only the white and the green cover
+  # it.
+  private def shared_level_stack
+    program do
+      screen :tiled
+      image(:white_tile, "#" => :white) { (["#" * 8] * 8).join("\n") }
+      image(:green_tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
+      image(:blue_tile, "#" => :blue) { (["#" * 8] * 8).join("\n") }
+      image(:yellow_tile, "#" => :yellow) { (["#" * 8] * 8).join("\n") }
+      image(:guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      tiles :set, "w" => :white_tile, "g" => :green_tile, "b" => :blue_tile, "y" => :yellow_tile
+      layers :ghosts, :l1, [:l2, :l3], :l4
+
+      layer(:ghosts) { sprite :guy, at: [180, 20] }
+      layer(:l1) { background :bg1, tiles: :set, map: (0...20).map { "w" * 30 } }
+      layer(:l2) { background :bg2, tiles: :set, map: (0...20).map { |row| (row < 10 ? "g" : " ") * 30 } }
+      layer(:l3) { background :bg3, tiles: :set, map: (0...20).map { ("b" * 15) + (" " * 15) } }
+      layer(:l4) { background :bg4, tiles: :set, map: (0...20).map { |row| row == 19 ? "#{' ' * 29}y" : " " * 30 } }
+      game_loop { nil }
+    end
+  end
 end
 
 # What a stack becomes on the console: the arrangement that was impossible before, and
@@ -140,6 +165,15 @@ class TestLayerAllocation < Minitest::Test
     end
 
     assert_equal 2, Stacking.picture(prog).depths.count
+  end
+
+  # Two neighbouring layers written as one list in `layers` share a level, so four
+  # backgrounds and the sprites behind them all fit in four.
+  def test_two_backgrounds_in_one_list_share_a_level
+    picture = Stacking.picture(shared_level_stack)
+
+    assert_equal 4, picture.depths.count
+    assert_equal picture.depths[:bg2], picture.depths[:bg3]
   end
 
   # --- where "it named no layer" stops having an answer ---

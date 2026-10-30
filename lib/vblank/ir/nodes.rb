@@ -698,12 +698,14 @@ module VBlank
       # The stack of layers a picture is built from, backmost first — and which of them
       # you can see through (+see_through+, a list of SeeThroughLayer). A screen shows at
       # most one of those at a time, so a game has one for each screen that wants one.
+      # +shared+ lists runs of neighbouring names that share one level of depth, each back
+      # to front (see IR::Stacking#depths).
       class Layers
         include Node
         kind :layers
         declaration!
         category :data
-        operands names: :list, see_through: :list
+        operands names: :list, see_through: :list, shared: :list
       end
 
       # One layer you can see through, and by how much: +shows+ is how much of the layer

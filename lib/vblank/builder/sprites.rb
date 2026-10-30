@@ -280,11 +280,12 @@ module VBlank
                 "stack first, back to front: layers :stairs, :ground, :walking, :scenery, :upper."
         end
         unknown = names.reject { |name| @layer_stack.include?(name) }
-        return if unknown.empty?
-
-        raise ArgumentError,
-              "#{subject} was told to put_in_layer :#{unknown.first}, and the stack has no layer of that " \
-              "name. The stack is #{list_of(@layer_stack)}, back to front."
+        unless unknown.empty?
+          raise ArgumentError,
+                "#{subject} was told to put_in_layer :#{unknown.first}, and the stack has no layer of that " \
+                "name. The stack is #{list_of(@layer_stack)}, back to front."
+        end
+        names.each { |name| refuse_sprite_behind_shared_level!(subject, name) }
       end
 
       # A POSE PICKED BY A NUMBER THE GAME WORKS OUT (see HardwareSprite#face): +names+ are the
@@ -770,6 +771,7 @@ module VBlank
       # Remember a software sprite, and paint it where it is declared when that is a place
       # that runs one time (see #sprite_painting_state for the sprite that is not).
       def declare_software_sprite(handle, shown)
+        refuse_sprite_behind_shared_level!("A sprite", handle.layer) if handle.layer
         @sprites << handle
         if @building_routine
           @routine_sprites << handle

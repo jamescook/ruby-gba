@@ -126,18 +126,37 @@ module VBlank
       # Every layer a `layer` block names has to be in here. Declaring the stack changes
       # nothing on its own: it names depths, and things put themselves in them.
       #
-      # @param names [Array<Symbol>] the layers, back to front
+      # TWO NEIGHBOURS CAN SHARE A LEVEL, written as a list of their own inside the line:
+      #
+      #   layers :stairs, [:ground, :scenery], :walking, :panel
+      #
+      # Every background has a level of its own otherwise, and the console stacks only a
+      # few, so four backgrounds and sprites behind all of them is one level too many. The
+      # console can put two backgrounds at one level and still tell them apart (it draws
+      # one of them first), so the list still says which is in front: the later one, as
+      # anywhere else in the stack. What it cannot do is put a sprite between the two: a
+      # sprite at that level is drawn in front of both. So a sprite goes in the list's
+      # last layer or somewhere else in the stack, never in an earlier one of the list.
+      #
+      # A stack written as one list (`layers %i[sky world ui]`) is the stack, as it always
+      # was, not three layers sharing one level.
+      #
+      # @param names [Array<Symbol, Array<Symbol>>] the layers, back to front
       # @return [Array<Symbol>] the stack
       def layers(*names)
-        names = names.flatten
+        names = names.first if names.length == 1 && names.first.is_a?(Array)
         check_stack_not_declared!
+        shared = names.select { |name| name.is_a?(Array) }
+        shared.each { |group| check_shared_level!(group) }
+        names = names.flatten
         check_stack_names!(names)
 
         @layer_stack = names
+        @shared_levels = shared
         # Held so a `layer` block can say later that its layer is see-through: the stack
         # is one thing and it is declared here, but which of its layers you can see
         # through is written where that layer is opened.
-        @layers_node = record(Build.layers(names))
+        @layers_node = record(Build.layers(names, shared: shared))
         names
       end
 
@@ -239,7 +258,9 @@ module VBlank
         return refuse_deferred_layer!(node) unless @current_layer
 
         case IN_A_LAYER.fetch(node.kind, :free)
-        when :held then node.layer = @current_layer
+        when :held
+          refuse_sprite_behind_shared_level!("The sprite :#{node.name}", @current_layer) if node.kind == :object
+          node.layer = @current_layer
         when :painted then refuse_painting_in_layer!(node)
         when :whole_screen then refuse_whole_screen_in_layer!(node)
         end
@@ -453,6 +474,33 @@ module VBlank
         raise ArgumentError,
               "`layers` names #{list_of(repeated)} more than one time. Each layer has its " \
               "own name and its own place in the stack. To fix this, remove the repeat."
+      end
+
+      def check_shared_level!(group)
+        return if group.length >= 2 && group.all?(Symbol)
+
+        raise ArgumentError,
+              "A list inside `layers` names the layers that share one level, like " \
+              "`layers :stairs, [:ground, :scenery], :panel`. The list must name two layers or more, " \
+              "and only names. You gave #{group.inspect}."
+      end
+
+      # The layer in front of +name+ in a shared level, or nil when +name+ is the front one of
+      # its level or shares none. A sprite at a shared level is drawn in front of both
+      # backgrounds, so in any layer but the front one it would not be where the stack says.
+      def shared_layer_in_front_of(name)
+        group = @shared_levels.find { |names| names.include?(name) }
+        group && group.last != name ? group.last : nil
+      end
+
+      def refuse_sprite_behind_shared_level!(subject, name)
+        front = shared_layer_in_front_of(name)
+        return unless front
+
+        raise ArgumentError,
+              "#{subject} is in the layer :#{name}, and :#{name} shares a level with :#{front}. " \
+              "A sprite at a shared level is in front of both backgrounds. To fix this, put the " \
+              "sprite in :#{front}, or in a layer that does not share a level."
       end
 
       def check_layer_can_open!(name)
