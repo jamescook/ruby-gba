@@ -193,6 +193,31 @@ module VBlank
               end
             end
 
+            # A = the low byte of +operand+'s number, for a caller that needs only that byte (a
+            # column of a status bar, a byte compared with a small number). A sum or a bit
+            # operation with a number written in the program is done on A where it is, one
+            # instruction a step, and an AND with 0xFF is nothing at all; anything else is worked
+            # out by #low_value.
+            def emit_low_byte_in_a(operand)
+              name = variable_named(operand)
+              return @asm.load(:a, [place_of(name)]) if name && !folded(operand)
+
+              if operand.is_a?(Node) && operand.kind == :binop && LOW_SUMS.key?(operand.op)
+                left, right = operand.lhs, operand.rhs
+                left, right = right, left if operand.op != :- && folded(left)
+                number = folded(right)
+                if number && !folded(left)
+                  emit_low_byte_in_a(left)
+                  byte = number & 0xFF
+                  return if [[:&, 0xFF], [:|, 0], [:^, 0], [:+, 0], [:-, 0]].include?([operand.op, byte])
+
+                  return @asm.public_send(LOW_SUMS.fetch(operand.op).first, byte)
+                end
+              end
+              low_value(operand, 1)
+              @asm.load(:a, :e)
+            end
+
             # E (and D) = the +bytes+ bytes kept from +address+ up.
             def emit_low_bytes_at(address, bytes)
               if bytes == 1
@@ -287,6 +312,12 @@ module VBlank
             # with the top bytes' sign bits turned over so the negative numbers come below the rest.
             # A variable's bytes are read where it is kept. A clobbers HL.
             def emit_carry_when_below(operand, number)
+              if byte_valued?(operand) && number.between?(1, 0xFF)
+                # A byte from 0 to 255 is below a number up to 255 when its one byte is: one compare.
+                emit_low_byte_in_a(operand)
+                return @asm.cp_a(number)
+              end
+
               number &= 0xFFFF_FFFF
               bytes = Array.new(4) { |i| (number >> (8 * i)) & 0xFF }
               if (name = variable_named(operand))
@@ -318,6 +349,49 @@ module VBlank
               @asm.sbc_a(bytes[3] ^ 0x80)
             end
 
+            # An ordering of a value against a variable, either side: [the value, the variable, and
+            # whether the ordering holds when the value is below the variable (true) or when it is
+            # not], as #ordering_with_number. x <= v is v not below x, and x > v is v below x, so
+            # those two put the variable on the left. Nil for any other test.
+            def ordering_with_variable(condition)
+              return nil unless condition.is_a?(Node) && condition.kind == :binop && %i[< <= > >=].include?(condition.op)
+
+              left, right = condition.lhs, condition.rhs
+              case condition.op
+              when :< then [left, variable_named(right), true]
+              when :>= then [left, variable_named(right), false]
+              when :> then [right, variable_named(left), true]
+              else [right, variable_named(left), false]
+              end.then { |other, name, below| [other, name, below] if name && !folded(other) }
+            end
+
+            # The carry set when +operand+'s number is below the variable +name+'s, with their
+            # signs, and clear when not: the top bytes compared first with their sign bits turned
+            # over, which settles it unless they are the same, and then the three below them
+            # subtracted as they are. A clobbers H and L.
+            def emit_carry_when_below_variable(operand, name)
+              place = place_of(name)
+              decided = fresh("compared")
+              value(operand)
+              @asm.load(:a, [place + 3])
+              @asm.xor_a(0x80)
+              @asm.load(:h, :a)
+              @asm.load(:a, :b)
+              @asm.xor_a(0x80)
+              @asm.cp_a(:h)
+              @asm.jump_relative(:nz, decided)
+              @asm.load(:hl, place)
+              @asm.load(:a, :e)
+              @asm.sub_a([:hl])
+              @asm.inc(:hl)
+              @asm.load(:a, :d)
+              @asm.sbc_a([:hl])
+              @asm.inc(:hl)
+              @asm.load(:a, :c)
+              @asm.sbc_a([:hl])
+              @asm.label(decided)
+            end
+
             # Jump to +label+ unless +operand+'s number is below +number+ (or is not, when +below+ is false).
             def jump_unless_below(operand, number, below, label)
               emit_carry_when_below(operand, number)
@@ -328,6 +402,11 @@ module VBlank
             # and 0 when not. The loads move no flag, so the carry is asked after them.
             def emit_bool_of_below(operand, number, below)
               emit_carry_when_below(operand, number)
+              emit_bool_of_carry(below)
+            end
+
+            # BCDE = 1 when the carry is set (or clear, when +below+ is false), and 0 when not.
+            def emit_bool_of_carry(below)
               done = fresh("bool")
               @asm.load(:bc, 0)
               @asm.load(:de, 0)

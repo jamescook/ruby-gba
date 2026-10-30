@@ -240,6 +240,29 @@ module VBlank
             def emit_multiply_by_byte(asm, s)
               asm.label("rt_mul32_byte")
               asm.load(:l, :a)
+              # A byte times a byte, the most a sine times a speed's byte comes to, fits two bytes:
+              # added up in HL, which adds two bytes in one instruction, with the other byte
+              # walked down in A. Adding into HL leaves the zero flag as the walk left it.
+              asm.load(:a, :b)
+              asm.or_a(:c)
+              asm.or_a(:d)
+              asm.jump_relative(:nz, "rt_mul32_byte_wide")
+              asm.load(:a, :l)
+              asm.load(:hl, 0)
+              asm.label("rt_mul8_loop")
+              asm.srl(:a)
+              asm.jump_relative(:nc, "rt_mul8_shift")
+              asm.add_hl(:de)
+              asm.label("rt_mul8_shift")
+              asm.jump_relative(:z, "rt_mul8_done")
+              asm.sla(:e)
+              asm.rl(:d)
+              asm.jump_relative("rt_mul8_loop")
+              asm.label("rt_mul8_done")
+              asm.load(:d, :h)
+              asm.load(:e, :l)
+              asm.ret
+              asm.label("rt_mul32_byte_wide")
               asm.xor_a(:a)
               4.times { |i| asm.load_high(s.product + i, :a) }
               asm.label("rt_mul32_byte_loop")
@@ -273,6 +296,24 @@ module VBlank
             # as soon as no bits are left, so multiplying by a small number is quick.
             def emit_multiply(asm, s)
               asm.label("rt_mul32")
+              # Two bytes — a speed's byte times a sine's — go straight to the byte loop, with none
+              # of the copying and comparing below.
+              asm.load(:a, :b)
+              asm.or_a(:c)
+              asm.or_a(:d)
+              asm.jump_relative(:nz, "rt_mul32_general")
+              asm.inc(:hl)
+              asm.load(:a, [:hli])
+              asm.or_a([:hl])
+              asm.inc(:hl)
+              asm.or_a([:hl])
+              asm.dec(:hl)
+              asm.dec(:hl)
+              asm.dec(:hl)
+              asm.jump_relative(:nz, "rt_mul32_general")
+              asm.load(:a, [:hl])
+              asm.jump("rt_mul32_byte")
+              asm.label("rt_mul32_general")
               4.times do |i|
                 asm.load(:a, [:hli])
                 asm.load_high(s.mul_by + i, :a)

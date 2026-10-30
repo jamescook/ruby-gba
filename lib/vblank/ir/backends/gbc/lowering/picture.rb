@@ -1235,7 +1235,89 @@ module VBlank
               refuse_background!(bg, as_grid: true)
               cols, rows = map_size_of(bg)
               routine = bg.bar? ? "rt_bar_cell" : "rt_background_cell" # a status bar's is in the window's grid
-              runtime_call(routine, [node.col, node.row, Build.int(cols | (rows << 8)), cell])
+              row = folded(node.row)
+              if row && byte_valued?(node.col)
+                grid = bg.bar? ? Console::GBCHardware::TILE_MAP1 : Console::GBCHardware::TILE_MAP0
+                return emit_cell_at_known_row(routine, grid, node.col, row, [cols, rows], cell.value)
+              end
+
+              emit_cell_numbers(node.col, node.row, cols | (rows << 8), cell.value)
+              @asm.call("#{routine}_taken")
+            end
+
+            # A cell whose row and tile are written in the program and whose column can only be a
+            # byte — a status bar's text, written a cell at a time — has its place worked out here:
+            # the row's start in the grid, 32 cells a row, is known now, so only the column is
+            # added as the game runs, and the routine is handed the place and the cell. A row off
+            # the map writes nothing, and so does a column off it.
+            def emit_cell_at_known_row(routine, grid, col, row, (cols, rows), cell)
+              return unless row.between?(0, rows - 1)
+
+              off = fresh("cell_off_the_map")
+              emit_low_byte_in_a(col)
+              @asm.cp_a(cols)
+              @asm.jump_relative(:nc, off)
+              @asm.load(:e, :a)
+              @asm.load(:d, 0)
+              @asm.load(:hl, grid + (row * 32))
+              @asm.add_hl(:de)
+              @asm.load(:bc, cell)
+              @asm.call("#{routine}_at_hl")
+              @asm.label(off)
+            end
+
+            # A cell's four numbers written where rt_background_cell reads them once it has taken
+            # them off the stack, rather than pushed for it to copy: a status bar's text is written
+            # a cell at a time, many cells a pass. The column and the row are written whole, the
+            # row first if it is worked out, since working one out may use the same quick memory;
+            # of the map's size and the cell, numbers written in the program, only the two low
+            # bytes are read.
+            def emit_cell_numbers(col, row, size, cell)
+              at = ->(i) { Runtime::Calls.arg(@memory, i, 4) }
+              row_known = folded(row)
+              unless row_known
+                value(row)
+                @asm.push(:bc)
+                @asm.push(:de)
+              end
+              if byte_valued?(col)
+                # A column that can only be a byte: that byte, and nought above it.
+                emit_low_byte_in_a(col)
+                @asm.load_high(at.call(0), :a)
+                emit_number_at_high(at.call(0) + 1, 0, 3)
+              else
+                value(col)
+                emit_bcde_at_high(at.call(0))
+              end
+              if row_known
+                emit_number_at_high(at.call(1), row_known, 4)
+              else
+                @asm.pop(:de)
+                @asm.pop(:bc)
+                emit_bcde_at_high(at.call(1))
+              end
+              emit_number_at_high(at.call(2), size, 2)
+              emit_number_at_high(at.call(3), cell, 2)
+            end
+
+            # BCDE's four bytes into quick memory from +address+ up, lowest first.
+            def emit_bcde_at_high(address)
+              BCDE_LOW_FIRST.each_with_index do |register, i|
+                @asm.load(:a, register)
+                @asm.load_high(address + i, :a)
+              end
+            end
+
+            # The low +bytes+ bytes of +number+, written in the program, into quick memory from
+            # +address+ up; A is loaded only when the byte differs from the one before.
+            def emit_number_at_high(address, number, bytes)
+              held = nil
+              bytes.times do |i|
+                byte = (number >> (8 * i)) & 0xFF
+                (byte.zero? ? @asm.xor_a(:a) : @asm.load(:a, byte)) unless byte == held
+                held = byte
+                @asm.load_high(address + i, :a)
+              end
             end
 
             # Whether the game changes a big background's cells as it runs, so it is kept in work

@@ -87,6 +87,16 @@ class TestSumsWithWrittenNumbers < Minitest::Test
        [b.binop(op, b.binop(:>>, v, n[8]), n[k]), ->(x, _) { asked[x >> 8, op, k] }],
        [b.binop(op, b.binop(:+, v, w), n[k]), ->(x, y) { asked[Int32.add(x, y), op, k] }]]
     end
+    low_byte = b.binop(:&, b.binop(:+, v, w), n[0xFF])
+    compared += [[:<, 20], [:>=, 128], [:<=, 255], [:>, 0], [:<, 1], [:<, 256]].flat_map do |op, k|
+      [[b.binop(op, low_byte, n[k]), ->(x, y) { asked[Int32.add(x, y) & 0xFF, op, k] }],
+       [b.binop(op, byte_entry, n[k]), ->(x, _) { asked[BYTES[x & (BYTES.length - 1)], op, k] }]]
+    end
+    compared += %i[< <= > >=].flat_map do |op|
+      [[b.binop(op, v, w), ->(x, y) { asked[x, op, y] }],
+       [b.binop(op, b.binop(:+, v, n[1]), w), ->(x, y) { asked[Int32.add(x, 1), op, y] }],
+       [b.binop(op, w, b.binop(:>>, v, n[8])), ->(x, y) { asked[y, op, x >> 8] }]]
+    end
     shifts + halves + masks + low + products + compared
   end
 

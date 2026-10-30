@@ -1214,6 +1214,10 @@ module VBlank
               elsif !below
                 @asm.jump(label)
               end
+            elsif (ordered = ordering_with_variable(condition))
+              other, name, below = ordered
+              emit_carry_when_below_variable(other, name)
+              @asm.jump(below ? :nc : :c, label)
             elsif binop?(condition, :and)
               # The interpreter works both sides out; the second is skipped here when the first does
               # not hold, which is the same thing, since nothing this lowering makes can stop the game.
@@ -1396,6 +1400,11 @@ module VBlank
               if (ordered = ordering_with_number(node))
                 other, number, below = ordered
                 return number ? emit_bool_of_below(other, number, below) : load_constant(below ? 1 : 0)
+              end
+              if (ordered = ordering_with_variable(node))
+                other, name, below = ordered
+                emit_carry_when_below_variable(other, name)
+                return emit_bool_of_carry(below)
               end
 
               compare(node)

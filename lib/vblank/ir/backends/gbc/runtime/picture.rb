@@ -1318,6 +1318,10 @@ module VBlank
               asm.load_hl_sp(2)
               asm.load(:b, 16)
               asm.call("rt_take_args")
+              # Where the game comes in having written the numbers where they are read
+              # (Lowering::Picture#emit_cell_numbers): the column and the row whole, the map's size
+              # and the cell their two low bytes, which are all of them that are read.
+              asm.label("#{label}_taken")
               [0, 1].each do |i| # the column and the row: from nought, and short of the map's size
                 asm.load_high(:a, arg.call(i) + 1)
                 asm.load(:b, :a)
@@ -1343,6 +1347,7 @@ module VBlank
               asm.add_hl(:de)
               asm.load(:de, grid)
               asm.add_hl(:de)
+              asm.label("#{label}_place_found")
               asm.load(:a, 0xFF)
               asm.load([up], :a)
               # Into the cells for the blank, while there is room: HL where it goes, then the cell.
@@ -1385,6 +1390,15 @@ module VBlank
               asm.load_high(h::VBK, :a)
               asm.ei
               asm.ret
+              # Where the game comes in having worked the cell's place out itself, for a row and a
+              # cell written in the program and a column known to be on the map
+              # (Lowering::Picture#emit_cell_at_known_row): HL the place, BC the cell.
+              asm.label("#{label}_at_hl")
+              asm.load(:a, :c)
+              asm.load_high(arg.call(3), :a)
+              asm.load(:a, :b)
+              asm.load_high(arg.call(3) + 1, :a)
+              asm.jump_relative("#{label}_place_found")
             end
 
             # THE BACKGROUND. rt_background_put_up(grid) starts putting a grid up — its tiles

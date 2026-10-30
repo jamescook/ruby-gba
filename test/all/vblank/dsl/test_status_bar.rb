@@ -42,4 +42,24 @@ class TestStatusBarHandle < Minitest::Test
     assert_equal GREEN, picture(prog, 5).pixel(20, row), "the cell beside it"
     assert_backends_agree(prog, frames: 5, name: "BARCELL")
   end
+
+  # Cells along the bar's top row, a pair a pass, each column worked out as a byte that comes
+  # round (the way scrolling text finds its cells). One walks from 252: off the bar's 32 columns
+  # until it comes round to 0 and onto it. The other walks from 28 off the bar's right edge, and a
+  # column past it must not land on the start of the next row. A row past the bar's two changes
+  # nothing either.
+  def test_set_tile_at_a_column_worked_out_as_a_byte_changes_only_cells_on_the_bar
+    prog = bar_game do |bar, step|
+      bar.set_tile((step + 252) & 0xFF, 0, "o")
+      bar.set_tile((step + 28) & 0xFF, 0, "o")
+      bar.set_tile(step & 0xFF, 2, "o")
+    end
+    row = screen_height - 12
+    seen = picture(prog, 12)
+
+    (0..5).each { |column| assert_equal BLUE, seen.pixel((column * 8) + 4, row), "column #{column}" }
+    assert_equal GREEN, seen.pixel((9 * 8) + 4, row), "column 9 is not reached yet"
+    (0..9).each { |column| assert_equal GREEN, seen.pixel((column * 8) + 4, row + 8), "the second row's column #{column}" }
+    assert_backends_agree(prog, frames: 13, name: "BARBYTE")
+  end
 end
