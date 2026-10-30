@@ -47,9 +47,6 @@ module VBlank
     #                           packing and placement
     #   compared_side_by_side?  whether two of its cartridges can be compared side by side
     #                           (Playthroughs::Comparison lines screens up at the Advance's size)
-    #   drawn_by_runtimes?      whether the desktop program and the web page can be made from its
-    #                           build: the C and JavaScript runtimes draw one screen size, fixed
-    #                           when they are compiled, and it is the Advance's
     #   open_core(path, save_dir:)
     #                           the emulator its cartridges play in, opened on a cartridge file
     #   save_file_extension     how that emulator names the file it keeps battery-backed RAM in
@@ -84,7 +81,6 @@ module VBlank
       def title = description.title
       def measured_builds? = false
       def compared_side_by_side? = false
-      def drawn_by_runtimes? = false
       def inspector = nil
 
       # The emulator core its cartridges play in, opened on a cartridge file
@@ -149,7 +145,6 @@ module VBlank
       def reading = Diagnostics::AdvanceReading
       def measured_builds? = true
       def compared_side_by_side? = true
-      def drawn_by_runtimes? = true
       def inspector = Diagnostics::Inspector
     end
 
@@ -237,10 +232,6 @@ module VBlank
 
     # Every console's kit.
     def self.kits = KITS.values
-
-    # Of the consoles +names+, the first whose build the desktop and web runtimes draw
-    # (Kit#drawn_by_runtimes?), or nil when there is none.
-    def self.drawn_by_runtimes(names) = names.find { |name| self.for(name).drawn_by_runtimes? }
 
     # Every console setting there is, by name: a build setting only some consoles have
     # (Kit#console_settings).

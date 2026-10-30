@@ -54,29 +54,12 @@ module VBlank
         # what the console does not, and a game that only works there is not this library's.
         # Guardrail warnings are printed to +err+, as the cartridge build prints them.
         #
-        # The cartridge is for the console Native.console_for chooses, since the runtime draws one
-        # screen size (RG_SCREEN_WIDTH, RG_SCREEN_HEIGHT), and a game laid out for another console's
-        # would be drawn in one corner of it.
-        def checked_program(game, settings: {}, err: $stderr)
+        # The cartridge is for +console+, one the game names, and the first it names when that is
+        # left out. The program is then built as that console: the runtime's screen is its size
+        # (ConsoleNumbers), and the program does what the game does on it.
+        def checked_program(game, console: nil, settings: {}, err: $stderr)
           game.build_rom(profile: false, out: nil, err: err, settings: settings,
-                         console: Native.console_for(game, made: "A program for another machine")).source_program
-        end
-
-        # THE CONSOLE A GAME'S DESKTOP PROGRAM AND WEB PAGE ARE MADE AS: the first the game names
-        # whose build the runtimes draw (Console.drawn_by_runtimes). The C and JavaScript runtimes
-        # draw one screen size, fixed when they are compiled, and it is the Advance's, so a game
-        # for the Color alone is refused, saying what to write. +made+ names what was asked for
-        # ("A web page"), for the refusal.
-        def self.console_for(game, made:)
-          console = Console.drawn_by_runtimes(game.consoles)
-          return console if console
-
-          drawn = Console.kits.select(&:drawn_by_runtimes?)
-          titles = drawn.map(&:title).join(" or the ")
-          wanted = (game.consoles + drawn.map(&:name)).uniq.join(" ")
-          raise LoweringError, "#{made} is made only from a game for the #{titles}. #{game.title} is not for " \
-                               "the #{titles}. To fix this, write `consoles: %i[#{wanted}]` where the game is " \
-                               "named. Use `screen_width` and `screen_height` to place what the game draws."
+                         console: console || game.consoles.first).source_program
         end
 
         # The runtime's C files each kind of build compiles beside the game's. The desktop build
@@ -120,14 +103,15 @@ module VBlank
         # cartridge build checks it, written as C, and compiled with SDL3 by zig into an
         # executable that needs nothing installed beside it. The first build fetches SDL's source
         # and compiles it, which takes a while once; every build after that reuses it. +target+
-        # names another computer to build for (see TARGETS), and left out it is this one.
-        def build_desktop(game, path, settings: {}, target: nil, err: $stderr)
+        # names another computer to build for (see TARGETS), and left out it is this one. +console+
+        # is the one it plays the game as (#checked_program).
+        def build_desktop(game, path, console: nil, settings: {}, target: nil, err: $stderr)
           if File.directory?(path)
             raise LoweringError, "#{path} is a folder, so the program cannot be written there. Name a file instead."
           end
           refuse_unknown_target!(target)
 
-          program = checked_program(game, settings: settings, err: err)
+          program = checked_program(game, console: console, settings: settings, err: err)
           source = lower(program, title: game.title)
           Dir.mktmpdir("vblank-native") do |dir|
             src = File.join(dir, "src")

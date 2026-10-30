@@ -70,12 +70,17 @@ a console of its own needs beyond a lowering:
 - **A kit naming all of it** (`Console::Kit`, `Console.for(:gbc)`, in `console/kit.rb`): its
   description, its answers, the build that makes its cartridge (`Cartridge::LoweredBuild`, the one
   every console but the Advance shares, handed a `Cartridge::BuildRequest`), the cartridge kind,
-  its lowering and checked run (`Console::CheckedKit`), its part of the reader (`reading`), whether its
-  builds are measured, and whether the desktop and web runtimes can draw it (`drawn_by_runtimes?`;
-  they draw one screen size today, the Advance's, so `Console.drawn_by_runtimes` picks the console
-  those builds are made as). The build, the reader, the cartridge-file reader and the command line ask the kit, so a
+  its lowering and checked run (`Console::CheckedKit`), its part of the reader (`reading`), and whether its
+  builds are measured. The build, the reader, the cartridge-file reader and the command line ask the kit, so a
   console is added by describing it and giving it a kit. Nothing outside a console's own code
   compares console names (`test/all/vblank/console/test_kit.rb` fails the build if something does).
+- **The desktop, web and Ruby builds are made as any console.** The C, JavaScript and Ruby runtimes
+  read what they need of the console from numbers written ahead of them when the game is built
+  (`Native::ConsoleNumbers`, `JS#console_text`, `Ruby::Lowering#console_text`): its screen size, its
+  frame's length, whether it blends, whether its cartridge has a motor and whether its clock keeps
+  the date. The rest the lowering decides from the program's console, as the interpreter does (the
+  game loop's order, `IR::Frames.loop_in_console_order`). `CONSOLE=gbc` plays those runs' games as
+  another console, which is how a gap between a runtime and the interpreter on that console is found.
 - **No console by default.** A game names its consoles, a build (`VBlank.build(..., console:)`)
   and a Rakefile (`t.consoles`) name theirs, and a name is held as its Symbol however it was
   written (`Console.named`). Only an unbound program, a tree built for a test (a Builder told

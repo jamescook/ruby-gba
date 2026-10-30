@@ -317,8 +317,9 @@ module VBlank
         --format FORMAT          game, ir, native, ruby or web. Default: game.
         --console NAME           #{CONSOLE_CHOICES}: build that console's
                                  cartridge alone. Default: one for each console
-                                 the game names. With --format ruby: the console
-                                 to play the game as. Default: the first one.
+                                 the game names. With --format native, web or
+                                 ruby: the console to make the game as.
+                                 Default: the first one the game names.
         --variant NAME           The chip on the cartridge, such as superfx
                                  for a Super Nintendo cartridge with a Super
                                  FX 2, or none. Default: what the game names
@@ -360,10 +361,12 @@ module VBlank
         Ruby, the gem `fiddle` and SDL3. It does not need VBlank, the game's
         files or its pictures, so you can copy it to another computer.
 
-      --format ir prints the game's IR as Ruby, for work on VBlank itself.
+      --format ir prints the game's IR as Ruby, for work on VBlank itself. It is
+        the IR that the Advance's cartridge is made from, so the game must name
+        gba in consoles:.
 
-      A program, a web page and the IR are made from the game as the Advance
-      plays it. So for them, the game must name gba in consoles:.
+      A program, a web page and a Ruby file are made from the game as one
+      console plays it, with that console's screen.
     TEXT
     option :output, aliases: "-o", banner: "PATH"
     option :format, banner: "NAME", default: "game"
@@ -381,12 +384,6 @@ module VBlank
     option :data, default: "inline", enum: %w[inline separate]
     def build(game_file)
       refuse_web_options_out_of_place!
-      # (--format=gbc is let through here so that it gets its own message, below.)
-      if options[:console] && !%w[game gbc ruby].include?(options[:format])
-        raise Thor::Error, "--console works only with cartridges (--format=game) and --format=ruby. Remove " \
-                           "--console, or remove --format."
-      end
-
       case options[:format]
       when "game" then build_cartridges(game_file)
       when "ir" then build_ir(game_file)
@@ -1018,15 +1015,6 @@ module VBlank
     # The consoles +game+ is for, as a person names them: "Game Boy Advance and the Game Boy Color".
     def consoles_named(game) = game.consoles.map { |name| VBlank::Console.described(name).title }.join(" and the ")
 
-    # A web page, a desktop program and the IR dump are all made from the game as one console plays
-    # it, since the two runtimes draw one screen size (Native.console_for chooses which). A game for
-    # no such console is refused, saying what to write.
-    def console_drawn_by_runtimes(game, made)
-      VBlank::IR::Backends::Native.console_for(game, made: made)
-    rescue VBlank::BuildError => e
-      raise Thor::Error, e.message
-    end
-
     # The file a build that is not a cartridge writes, beside the game file: the cartridge's name
     # for +console+ with +ending+ in place of the cartridge's.
     def file_beside(game, game_file, console, ending)
@@ -1039,10 +1027,11 @@ module VBlank
     # of a cartridge. Built through the same full pipeline as --format=game (so a
     # guardrail error stops this exactly the way it stops a real build), then the
     # finished ROM's own source tree (rom.source_program) is what gets dumped — the
-    # ROM bytes themselves are simply not written anywhere.
+    # ROM bytes themselves are simply not written anywhere. The class it writes lowers the
+    # program as the Advance's cartridge (IR::Dump.class_source), so it is the Advance's build.
     def build_ir(game_file)
       game = load_game(game_file)
-      rom = game.build_rom(settings: given_settings, console: console_drawn_by_runtimes(game, "The IR"))
+      rom = game.build_rom(settings: given_settings, console: :gba)
       source = VBlank::IR::Dump.class_source(rom.source_program, class_name: "#{constantize(game.title)}IR",
                                             **rom.build_options)
       if options[:output]
@@ -1058,7 +1047,7 @@ module VBlank
     # the end where that name is already a folder, as a game split across files often has.
     def build_native(game_file)
       game = load_game(game_file)
-      console = console_drawn_by_runtimes(game, "A program for this computer")
+      console = console_to_play(game)
       target = options[:target]&.tr("-", "_")&.to_sym
       if target && !VBlank::IR::Backends::Native::TARGETS.key?(target)
         names = VBlank::IR::Backends::Native::TARGETS.keys.map { |name| name.to_s.tr("_", "-") }
@@ -1073,7 +1062,7 @@ module VBlank
       end
       say "Building #{File.basename(path)} for #{target ? options[:target] : 'this computer'} " \
           "(the first build compiles SDL, which takes a while)"
-      VBlank::IR::Backends::Native.new.build_desktop(game, path, settings: given_settings, target: target)
+      VBlank::IR::Backends::Native.new.build_desktop(game, path, console: console, settings: given_settings, target: target)
       say "Built #{path}"
     rescue VBlank::BuildError, VBlank::IR::Backends::Native::Zig::Error => e
       raise Thor::Error, e.message
@@ -1118,18 +1107,18 @@ module VBlank
     # the cartridge with the output's ending in place of .gba.
     def build_web(game_file)
       game = load_game(game_file)
-      console = console_drawn_by_runtimes(game, "A web page")
+      console = console_to_play(game)
       js = options[:js]
       path = options[:output] || file_beside(game, game_file, console, WEB_OUTPUTS.fetch(js))
       web = VBlank::IR::Backends::JS.new
       data = options[:data].to_sym
       case js
-      when "module" then web.build_module(game, path, settings: given_settings, data: data)
+      when "module" then web.build_module(game, path, console: console, settings: given_settings, data: data)
       when "script" then web.build_script(game, path, name: options[:global] || File.basename(path, ".*"),
-                                                      settings: given_settings, data: data)
+                                                      console: console, settings: given_settings, data: data)
       else
         template = options[:template] ? File.expand_path(options[:template]) : VBlank::IR::Backends::JS::Page::DEFAULT
-        web.build_page(game, path, settings: given_settings, template: template, data: data)
+        web.build_page(game, path, console: console, settings: given_settings, template: template, data: data)
       end
       say "Built #{path}"
     rescue VBlank::BuildError => e

@@ -47,6 +47,33 @@ class TestNativeDesktop < Minitest::Test
     end
   end
 
+  # A game for both consoles, built as the Color, plays on the Color's screen as the interpreter
+  # plays it there: its corner square is drawn from screen_width, so the picture says which
+  # screen it had.
+  def test_the_program_is_built_as_the_console_asked_for
+    game = VBlank.game("CORNERS", consoles: %i[gba gbc]) do
+      screen :bitmap
+      x = var :x, 0
+      game_loop do
+        clear_screen :black
+        fill_rect screen_width - 8, 0, 8, 8, :green
+        x.add! 1
+      end
+    end
+    Dir.mktmpdir do |dir|
+      exe = Native.new.build_desktop(game, File.join(dir, "corners"), console: :gbc, err: nil)
+      program = Native.new.checked_program(game, console: :gbc, err: nil)
+      frames = 6
+      input = "0\n" * frames
+      actual = parse_snapshots(Native::Zig.run_program(exe, args: ["--headless", frames, "--every-picture"], input: input), program)
+      expected = reference_snapshots(program, frames: frames, buttons: {})
+
+      assert_equal 160, program.described_console.screen_width
+      assert_equal expected.map(&:heading), actual.map(&:heading)
+      assert_same_moments(program, expected, actual, :desktop)
+    end
+  end
+
   # A press of A on two frames of a short run, for the game below.
   KEPT_RUN = Ractor.make_shareable({ 3 => %i[a], 7 => %i[a] })
   KEPT_FRAMES = 12

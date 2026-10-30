@@ -479,21 +479,40 @@ class TestCLI < Minitest::Test
     end
   GAME
 
-  # A web page and a desktop program draw the Advance's screen, so they are made from the
-  # Advance's game, and a game for the Color alone is refused saying what to write.
-  def test_web_and_native_refuse_a_game_for_the_color_alone
+  # A web page is made as the console the game is for, with that console's screen: a game for
+  # the Color alone plays on a canvas the Color's size.
+  def test_web_is_made_as_a_game_for_the_color_alone
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "coloronly.rb"), COLOR_ONLY)
 
-      %w[web native ir].each do |format|
-        out, status = cli("build", "coloronly.rb", "--format", format, dir: dir)
+      out, status = cli("build", "coloronly.rb", "--format", "web", dir: dir)
+      assert status.success?, out
+      page = File.read(File.join(dir, Dir.children(dir).find { |name| name.end_with?(".html") }))
+      assert_match(/<canvas id="screen" width="160" height="144"/, page)
+    end
+  end
 
-        refute status.success?, "#{format}: #{out}"
-        assert_match(/COLORONLY is not for the Game Boy Advance/i, out, format)
-        assert_match(/consoles: %i\[gbc gba\]/, out, format)
-        refute_match(/\.rb:\d+:in/, out, "#{format}: should not leak a backtrace")
-      end
-      assert_empty Dir.children(dir) - ["coloronly.rb"], "nothing is written"
+  # The IR dump is what the Advance's cartridge is made from, so a game for the Color alone has
+  # none, and is refused saying so.
+  def test_ir_refuses_a_game_for_the_color_alone
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "coloronly.rb"), COLOR_ONLY)
+      out, status = cli("build", "coloronly.rb", "--format", "ir", "-o", "coloronly_ir.rb", dir: dir)
+
+      refute status.success?, out
+      assert_match(/Game Boy Advance/, out)
+      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+    end
+  end
+
+  # --console picks the console a web page is made as, for a game of two.
+  def test_web_takes_the_console_to_make_the_page_as
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = cli("build", "demo.rb", "--format", "web", "--console", "gbc", "-o", "demo.html", dir: dir)
+
+      assert status.success?, out
+      assert_match(/<canvas id="screen" width="160" height="144"/, File.read(File.join(dir, "demo.html")))
     end
   end
 

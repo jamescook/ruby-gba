@@ -114,7 +114,7 @@ void rg_background_turn(int32_t background, int32_t angle, int32_t size, int32_t
  *   if (rg_bend_asked(2)) { row = rg_bend_line(); ...; rg_bend_answer(offset); }
  *
  * The block may change the game's variables, so it runs exactly as often as the interpreter runs
- * it: 160 times a pass. Before the first gap every line sits flat, as on the console. Where a
+ * it: once for each line of the screen, every pass. Before the first gap every line sits flat, as on the console. Where a
  * bend is written, the game asks for the picture to be built again with
  * rg_screen_request_rebuild. */
 void rg_screen_request_rebuild(void);
