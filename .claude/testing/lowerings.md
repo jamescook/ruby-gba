@@ -10,7 +10,7 @@ checked against the interpreter after every pass). A test that fails on any of t
 It needs zig 0.17 and node 18 or later besides the emulator.
 
 **The Game Boy Color run plays every test it can make work, and never sees the rest.** Its player
-(`GBCCheckedPlayer`, `GBC::CheckedRun`) plays each test's program as a Color program and compares
+(`Testing::CartridgeCheckedPlayer.for(:gbc)`, made from the Color's kit over `GBC::CheckedRun`) plays each test's program as a Color program and compares
 variables, lists, the picture, sprites, the sound log and save memory with the interpreter's —
 playing the interpreter as a Color, so a fade or a turned background the Color shows differently is
 checked as the Color shows it. The sound log is read off the cartridge that ships, with nothing
@@ -31,7 +31,7 @@ call its run cannot answer (`GBC::HeadlessRun::CannotAnswer`), counted by reason
 (`consoles: %i[gba gbc]`) is played there as a Color game, as `examples/pacman.rb` and
 `examples/breakout.rb` are; `examples/pong_gbc.rb` is a game for the Color alone, a copy of
 `examples/pong.rb` changed for it, since the Advance's title zooms on a screen the Color cannot turn.
-**The Super Nintendo run is built the way the Color's is.** Its player (`SNESCheckedPlayer`,
+**The Super Nintendo run is built the way the Color's is.** Its player (`CartridgeCheckedPlayer.for(:snes)`, over
 `SNES::CheckedRun`) plays each test's program as a Super Nintendo program in bsnes
 (ruby-snes-emulator, whose core `rake compile_snes_core` builds) and compares variables, lists,
 the picture and sprites with the interpreter's after every pass. A test whose program reaches a

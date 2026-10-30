@@ -35,7 +35,8 @@ module VBlank
       #   needs    the program it needs besides Ruby, or nil
       #   player   the class `game_player` makes one of on the run, by its name inside VBlank:
       #            the classes are loaded with the whole library, and a Rakefile reads these
-      #            records without it
+      #            records without it. Nil for a run that plays its console's own cartridge,
+      #            whose player is made from the console's kit (CartridgeCheckedPlayer.for)
       #   yjit     whether YJIT, Ruby's compiler of hot methods to machine code, makes the run
       #            faster, as measured: it does for the native and JavaScript runs and makes the
       #            Game Boy Color's slower. A run in Ractors is played without it whatever this
@@ -45,7 +46,7 @@ module VBlank
         alias_method :yjit?, :yjit
 
         # The class `game_player` makes one of on this run.
-        def player_class = VBlank.const_get(player)
+        def player_class = player ? VBlank.const_get(player) : Testing::CartridgeCheckedPlayer.for(console)
       end
 
       # In the order `rake test` plays them.
@@ -65,11 +66,11 @@ module VBlank
                                      Run.new(name: :gbc, title: "Game Boy Color", console: :gbc, checked: true,
                                              does: "the game built as a Game Boy Color cartridge, played in the " \
                                                    "emulator and checked against the interpreter",
-                                             needs: nil, player: "Testing::GBCCheckedPlayer", yjit: false),
+                                             needs: nil, player: nil, yjit: false),
                                      Run.new(name: :snes, title: "Super Nintendo", console: :snes, checked: true,
                                              does: "the game built as a Super Nintendo cartridge, played in bsnes " \
                                                    "and checked against the interpreter",
-                                             needs: nil, player: "Testing::SNESCheckedPlayer", yjit: true)
+                                             needs: nil, player: nil, yjit: true)
                                    ])
 
       # The setting a run's lowering is read from: each run but the GBA lowering's sets it to its

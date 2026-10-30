@@ -3,6 +3,14 @@
 module VBlank
   module IR
     module Backends
+      # WHAT A CARTRIDGE LOWERING DOES NOT MAKE YET, as opposed to what its console cannot do at
+      # all: a part of the build still to be written. A lowering's own error for that includes this,
+      # and says the +part+ that is missing ("the picture"), so a test run can skip on it and count
+      # its skips by part (Testing::CartridgeCheckedPlayer), whichever console's lowering raised it.
+      module NotMadeYet
+        attr_reader :part
+      end
+
       # WHAT A CARTRIDGE LOWERING WORKS OUT FROM A PROGRAM BEFORE IT WRITES ONE INSTRUCTION. The Color
       # and Super Nintendo lowerings (GBC::Lowering, SNES::Lowering) each turn a program into machine
       # code for a processor of their own, and both first have to answer the same questions about it:

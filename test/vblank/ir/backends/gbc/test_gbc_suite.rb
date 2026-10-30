@@ -12,7 +12,7 @@ class TestGBCSuite < Minitest::Test
   end
 
   def test_a_game_is_played_as_a_game_boy_color_cartridge_on_this_run
-    assert_kind_of VBlank::Testing::GBCCheckedPlayer, game_player
+    assert_kind_of VBlank::Testing::CartridgeCheckedPlayer.for(:gbc), game_player
   end
 
   # A file of tests about the game keeps its tests of the Advance's cartridge, which skip

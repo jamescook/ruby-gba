@@ -53,6 +53,8 @@ module VBlank
     #   open_core(path, save_dir:)
     #                           the emulator its cartridges play in, opened on a cartridge file
     #   save_file_extension     how that emulator names the file it keeps battery-backed RAM in
+    #   inspector               what prints one of its cartridges' header and first instructions
+    #                           (`vblank inspect`), or nil for a console with none yet
     #
     # What every console's cartridge answers, whichever kind it is, and all a caller that has not
     # asked which console it is for can ask of one:
@@ -83,6 +85,7 @@ module VBlank
       def measured_builds? = false
       def compared_side_by_side? = false
       def drawn_by_runtimes? = false
+      def inspector = nil
 
       # The emulator core its cartridges play in, opened on a cartridge file
       # (Diagnostics::Emulator), and how the file the core keeps battery-backed RAM in is named
@@ -125,23 +128,40 @@ module VBlank
       def measured_builds? = true
       def compared_side_by_side? = true
       def drawn_by_runtimes? = true
+      def inspector = Diagnostics::Inspector
+    end
+
+    # THE KIT OF A CONSOLE WHOSE LOWERING IS CHECKED BY A RUN OF ITS OWN: its cartridge is made by
+    # a lowering of the console's own, and a test run plays that cartridge in the emulator and holds
+    # it to the interpreter after every pass. What such a console has besides the rest:
+    #
+    #   lowering     the backend that lowers a program to its cartridge (IR::Backends::GBC, say),
+    #                which answers build(program, title:)
+    #   checked_run  the checked run that plays one of its cartridges against the interpreter
+    #                (that lowering's CheckedRun), which a test run's player is made from
+    #                (Testing::CartridgeCheckedPlayer)
+    #
+    # Its build is the one every such console shares (Cartridge::LoweredBuild), handed this kit.
+    class CheckedKit < Kit
+      def builder = Cartridge::LoweredBuild.new(self)
+      def checked_run = lowering::CheckedRun
     end
 
     # The Game Boy Color's.
-    class ColorKit < Kit
+    class ColorKit < CheckedKit
       def answers = ColorAnswers
       def answers_page = answers.reference(not_yet: IR::Backends::GBC::Lowering::NOT_LOWERED_YET)
-      def builder = Cartridge::ColorBuild
+      def lowering = IR::Backends::GBC
       def cartridge = Cartridge::GBCROM
       def reading = Diagnostics::ColorReading
     end
 
     # The Super Nintendo's. Its cartridges play in bsnes rather than libmgba, through
     # ruby-snes-emulator, which keeps battery-backed RAM in a file of its own kind.
-    class SNESKit < Kit
+    class SNESKit < CheckedKit
       def answers = SNESAnswers
       def answers_page = answers.reference(not_yet: IR::Backends::SNES::Lowering::NOT_LOWERED_YET)
-      def builder = Cartridge::SNESBuild
+      def lowering = IR::Backends::SNES
       def cartridge = Cartridge::SNESROM
       def reading = Diagnostics::SNESReading
       def open_core(path, save_dir:) = Diagnostics::Emulator.open_snes(path, save_dir: save_dir)

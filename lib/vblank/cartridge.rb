@@ -17,7 +17,6 @@ require_relative "cartridge/options" # how a game is built, as one value
 require_relative "cartridge/evaluated_game" # the one place a game's block becomes a program
 require_relative "cartridge/build_request" # what a console's build is handed, once the game is checked
 require_relative "cartridge/advance_build" # ...the Game Boy Advance's, which lowers it to ARM
-require_relative "cartridge/color_build" # ...and the Game Boy Color's
-require_relative "cartridge/snes_build" # ...and the Super Nintendo's
+require_relative "cartridge/lowered_build" # ...and the Game Boy Color's and the Super Nintendo's
 require_relative "cartridge/game"
 require_relative "cartridge/test_patterns"

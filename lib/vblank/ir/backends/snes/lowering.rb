@@ -32,7 +32,7 @@ module VBlank
           # A program refused because it reaches something the build does not make yet, with the
           # +part+ of the build that is missing ("the picture"), for a test run to count skips by.
           class NotMadeYet < LoweringError
-            attr_reader :part
+            include Backends::NotMadeYet
 
             def initialize(message, part:)
               super(message)

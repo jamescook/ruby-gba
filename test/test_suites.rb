@@ -15,10 +15,12 @@ class TestSuitesSplit < Minitest::Test
              VBlank::IR::Backends::Native::HeadlessRun, VBlank::Testing::JSCheckedPlayer,
              VBlank::IR::Backends::JS::CheckedRun, VBlank::IR::Backends::JS::HeadlessRun,
              VBlank::Testing::RubyCheckedPlayer, VBlank::IR::Backends::Ruby::CheckedRun,
-             VBlank::IR::Backends::Ruby::HeadlessRun,
-             VBlank::Testing::GBCCheckedPlayer, VBlank::IR::Backends::GBC::CheckedRun,
-             VBlank::IR::Backends::GBC::HeadlessRun,
-             VBlank::Testing::SNESCheckedPlayer, VBlank::IR::Backends::SNES::CheckedRun].freeze
+             VBlank::IR::Backends::Ruby::HeadlessRun, VBlank::IR::Backends::GBC::HeadlessRun,
+             # Every console whose own cartridge a run plays: its player, and the checked run it
+             # is made from.
+             *VBlank::Console.kits.grep(VBlank::Console::CheckedKit).flat_map do |kit|
+               [VBlank::Testing::CartridgeCheckedPlayer.for(kit.name), kit.checked_run]
+             end].freeze
   # SNES::HeadlessRun is left out: it also takes `watch_picture:`, which only the Super Nintendo
   # lowering's own tests ask for, and a test is never handed it as its player.
 

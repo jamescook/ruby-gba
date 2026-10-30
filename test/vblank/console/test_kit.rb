@@ -114,9 +114,9 @@ class TestKit < Minitest::Test
   # Where a console's own code lives: its lowering, its build and its own reader. Anywhere else, a
   # part that needs to know asks the console's kit.
   OWN = %w[lib/vblank/ir/backends/gba lib/vblank/ir/backends/gba.rb lib/vblank/ir/backends/gbc
-           lib/vblank/ir/backends/gbc.rb lib/vblank/cartridge/advance_build.rb lib/vblank/cartridge/color_build.rb
+           lib/vblank/ir/backends/gbc.rb lib/vblank/cartridge/advance_build.rb
            lib/vblank/cartridge/rom.rb lib/vblank/cartridge/gbc_rom.rb lib/vblank/ir/backends/snes
-           lib/vblank/ir/backends/snes.rb lib/vblank/cartridge/snes_build.rb lib/vblank/cartridge/snes_rom.rb
+           lib/vblank/ir/backends/snes.rb lib/vblank/cartridge/snes_rom.rb
            lib/vblank/console].freeze
 
   # `rom.console == :gbc`, `console.name != :gba` and the like: a console told apart by its name.
