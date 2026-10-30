@@ -97,6 +97,24 @@ module VBlank
         raise ArgumentError, "#{SETTING} is #{lowering}. A run can test #{in_words(NAMES)}."
       end
 
+      # The setting that plays a run's games as another console. Only a run whose game is built for
+      # a runtime (C, JavaScript, Ruby) can take it, since the runtime is told the console when the
+      # game is built; a cartridge's run plays its own console's cartridge and nothing else.
+      CONSOLE_SETTING = "CONSOLE"
+
+      # The console +run+ plays a game as, given +env+: the run's own, or the one CONSOLE names.
+      def console_from(env, run)
+        named = env[CONSOLE_SETTING]
+        return run.console if named.nil? || named.empty?
+
+        console = Console.named(named)
+        return console if console == run.console || run.player
+
+        raise ArgumentError, "#{CONSOLE_SETTING} is #{console}, but the #{run.title} run plays only the " \
+                             "#{Console.for(run.console).title}'s cartridge. Leave #{CONSOLE_SETTING} out, or " \
+                             "pick the native, js or ruby run."
+      end
+
       def refuse_unknown_lowering!(name)
         raise ArgumentError, "There is no lowering named #{name.inspect}. Name " \
                              "#{in_words(NAMES.map(&:inspect))}."

@@ -92,6 +92,37 @@ class TestSuitesSplit < Minitest::Test
     end
   end
 
+  # CONSOLE plays a runtime's run as another console, since the runtime is told the console when
+  # the game is built. Left out, or empty, the run plays its own.
+  def test_console_picks_the_console_a_runtime_run_plays_as
+    native = VBlank::Testing::Lowering.run_named(:native)
+
+    assert_equal :gbc, VBlank::Testing::Lowering.console_from({ "CONSOLE" => "gbc" }, native)
+    assert_equal :gba, VBlank::Testing::Lowering.console_from({ "CONSOLE" => "" }, native)
+    assert_equal :gba, VBlank::Testing::Lowering.console_from({}, native)
+  end
+
+  # A cartridge's run plays its own console's cartridge, so CONSOLE can only name that one.
+  def test_console_cannot_move_a_cartridge_run_to_another_console
+    color = VBlank::Testing::Lowering.run_named(:gbc)
+
+    assert_equal :gbc, VBlank::Testing::Lowering.console_from({ "CONSOLE" => "gbc" }, color)
+    error = assert_raises(ArgumentError) { VBlank::Testing::Lowering.console_from({ "CONSOLE" => "snes" }, color) }
+    assert_match(/native, js or ruby/, error.message)
+  end
+
+  # A runtime's player plays a program that names no console as one for the run's console, as a
+  # cartridge's player does.
+  def test_a_runtime_player_plays_an_unbound_program_as_the_runs_console
+    b = Builder.new
+    b.instance_eval { halt }
+    b.finalize_program
+
+    [VBlank::Testing::CheckedPlayer, VBlank::Testing::JSCheckedPlayer, VBlank::Testing::RubyCheckedPlayer].each do |player|
+      assert_equal VBlank::Testing.console, player.program_played(b.program).console, player
+    end
+  end
+
   # The guard for a test native cannot play yet skips on the native lowering's run and does
   # nothing on the GBA lowering's.
   def test_the_native_guard_skips_on_the_native_run_alone

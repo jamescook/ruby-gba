@@ -12,16 +12,37 @@ module VBlank
       end
     end
 
+    # A runtime's player plays a program that names no console as one for the run's console
+    # (Testing.console): the Advance, or whichever CONSOLE names. The runtime is built for that
+    # console's screen and clock, and the interpreter it is checked against reads the same one.
+    module PlaysRunConsole
+      def self.included(player) = player.extend(ClassMethods)
+
+      module ClassMethods
+        def program_played(program)
+          return program unless program.kind == :program && program.console.nil?
+
+          program.copy.tap { |copy| copy.console = Testing.console }
+        end
+      end
+
+      def run(program, max_steps: nil, frames: nil)
+        super(self.class.program_played(program), max_steps: max_steps, frames: frames)
+      end
+    end
+
     # What a test's player is on the native lowering's run: the game played as C and checked
     # against the interpreter on every frame (Native::CheckedRun says what it compares).
     class CheckedPlayer < IR::Backends::Native::CheckedRun
       include DisagreementFailsTest
+      include PlaysRunConsole
     end
 
     # The same, on the JavaScript lowering's run: the game played as JavaScript under node
     # (JS::CheckedRun), checked against the interpreter on every frame by the same check.
     class JSCheckedPlayer < IR::Backends::JS::CheckedRun
       include DisagreementFailsTest
+      include PlaysRunConsole
     end
 
     # The same, on the Ruby lowering's run: the game played as Ruby (Ruby::CheckedRun), checked
@@ -29,6 +50,7 @@ module VBlank
     # skip naming it, so the run's count of skips by reason says what is left to do.
     class RubyCheckedPlayer < IR::Backends::Ruby::CheckedRun
       include DisagreementFailsTest
+      include PlaysRunConsole
 
       def run(program, max_steps: nil, frames: nil)
         super

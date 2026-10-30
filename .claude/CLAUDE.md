@@ -123,6 +123,7 @@ rake test:lowering:native                                       # the native low
 rake test:lowering:js                                           # the JavaScript lowering's run alone (takes TEST= too)
 rake test:lowering:ruby                                         # the Ruby lowering's run alone (takes TEST= too)
 rake test:lowering:gbc                                          # the Game Boy Color lowering's run alone (takes TEST= too)
+CONSOLE=gbc rake test:lowering:native TEST=...                  # the native, js or ruby run playing games as another console
 rake test:playthroughs                                          # one module's tests: every file in test/lowering/gba/vblank/playthroughs/
 VBLANK_SUITE_LOCK=checkout rake test                            # in a worktree: go ahead beside another checkout's run
 ```
