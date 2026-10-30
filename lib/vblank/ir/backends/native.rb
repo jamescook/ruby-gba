@@ -5,6 +5,7 @@ require "fileutils"
 require "tmpdir"
 require_relative "native/zig"
 require_relative "native/names"
+require_relative "native/console_numbers"
 require_relative "native/c"
 require_relative "native/printer"
 require_relative "native/drawn_sprites"
@@ -101,8 +102,9 @@ module VBlank
         # path to it. See that file for how it is run and what it prints. Built with zig on
         # its own, with no SDL to fetch or compile, which is what keeps the tests quick.
         def build_headless(program, mode: :checked)
-          Zig.compile_without_sdl([write_source(lower(program)), *HEADLESS_RUNTIME.map { |file| File.join(Zig::RUNTIME_DIR, file) }],
-                                  mode: mode)
+          game = write_source(lower(program), ConsoleNumbers.header(program.described_console))
+          Zig.compile_without_sdl([game, *HEADLESS_RUNTIME.map { |file| File.join(Zig::RUNTIME_DIR, file) }],
+                                  include: [File.dirname(game)], mode: mode)
         end
 
         # THE OTHER COMPUTERS A GAME CAN BE BUILT FOR FROM THIS ONE, by the name a build asks for
@@ -125,11 +127,13 @@ module VBlank
           end
           refuse_unknown_target!(target)
 
-          source = lower(checked_program(game, settings: settings, err: err), title: game.title)
+          program = checked_program(game, settings: settings, err: err)
+          source = lower(program, title: game.title)
           Dir.mktmpdir("vblank-native") do |dir|
             src = File.join(dir, "src")
             FileUtils.mkdir_p(src)
             File.write(File.join(src, "game.c"), source)
+            File.write(File.join(src, ConsoleNumbers::FILE), ConsoleNumbers.header(program.described_console))
             File.write(File.join(src, MenuData::FILE), MenuData.source(menu: game.menu?))
             Dir.glob(File.join(Zig::RUNTIME_DIR, "*")).each { |file| FileUtils.cp(file, src) }
             exe = Zig.build_with_sdl(src, ["game.c", *DESKTOP_RUNTIME], name: "game", prefix: File.join(dir, "out"),
@@ -149,19 +153,22 @@ module VBlank
 
         private
 
-        # The C on disk, where the compiler can read it, in a folder named for what it holds so
-        # two programs never write over each other. Written under a name of its own and then
-        # renamed into place, so two threads building the same game at once — tests run side by
-        # side — each put down a whole file and never read half of the other's.
-        def write_source(text)
-          dir = File.join(Dir.tmpdir, "vblank-native", "src-#{Digest::SHA256.hexdigest(text)[0, 24]}")
+        # The C on disk, where the compiler can read it, with the console's numbers beside it
+        # (ConsoleNumbers), in a folder named for what it holds so two programs never write over
+        # each other. Each file is written under a name of its own and then renamed into place,
+        # so two threads building the same game at once — tests run side by side — each put down a
+        # whole file and never read half of the other's. Gives back the path of game.c.
+        def write_source(text, numbers)
+          dir = File.join(Dir.tmpdir, "vblank-native", "src-#{Digest::SHA256.hexdigest(text + numbers)[0, 24]}")
           path = File.join(dir, "game.c")
           return path if File.exist?(path)
 
           FileUtils.mkdir_p(dir)
-          writing = "#{path}.#{Process.pid}.#{rand(1 << 30)}"
-          File.write(writing, text)
-          File.rename(writing, path)
+          { ConsoleNumbers::FILE => numbers, "game.c" => text }.each do |name, body|
+            writing = File.join(dir, "#{name}.#{Process.pid}.#{rand(1 << 30)}")
+            File.write(writing, body)
+            File.rename(writing, File.join(dir, name))
+          end
           path
         end
       end

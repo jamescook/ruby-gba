@@ -124,6 +124,7 @@
 #include "rg_driver.h"
 #include "rg_mix.h"
 #include "rg_runtime.h"
+#include "rg_console.h"
 
 /* A song has at most a part for each of the console's own voices and one for each of the mixer's:
  * a game is checked the way a cartridge build checks it, and that refuses a song with more. */
@@ -205,11 +206,10 @@
  * what a sample holds, as two console voices at their loudest are. */
 #define MIX_STEP 128
 
-/* The console's clock for one frame, as rg_sdl.c has it: 280,896 ticks of a 2^24-a-second clock.
- * A frame's samples are that share of a second's, and the part of a sample left over is carried
- * to the next frame so no time is lost or made up. */
-#define FRAME_TICKS 280896
-#define TICKS_A_SECOND_BITS 24
+/* A frame is RG_CONSOLE_TICKS_A_FRAME ticks of the console's clock (rg_console.h), as rg_sdl.c
+ * has it. A frame's samples are that share of a second's, and the part of a sample left over is
+ * carried to the next frame so no time is lost or made up. The clock is not a power of two on
+ * every console, so the share is a division. */
 
 /* --- a loudness that fades --- */
 
@@ -514,9 +514,9 @@ static int16_t held_in_range(int32_t sum) {
 }
 
 int32_t rg_sound_render_frame(int16_t *left, int16_t *right) {
-  sample_carry += (uint64_t)RG_SOUND_RATE * FRAME_TICKS;
-  int32_t count = (int32_t)(sample_carry >> TICKS_A_SECOND_BITS);
-  sample_carry &= ((uint64_t)1 << TICKS_A_SECOND_BITS) - 1;
+  sample_carry += (uint64_t)RG_SOUND_RATE * RG_CONSOLE_TICKS_A_FRAME;
+  int32_t count = (int32_t)(sample_carry / RG_CONSOLE_TICKS_A_SECOND);
+  sample_carry %= RG_CONSOLE_TICKS_A_SECOND;
 
   /* The mixer's newest slice, at the mix's own rate, is stretched over the frame: each sample the
    * speaker plays holds the slice's sample at the same point of the frame, as the console's

@@ -1,8 +1,9 @@
 /*
  * WHAT PACES THE WINDOW'S FRAMES: the monitor, or the console's own clock.
  *
- * The console draws a frame every 280,896 ticks of a clock running at 2^24 ticks a second, which
- * is a little under sixty frames a second, and a game is written to that pace. A monitor shows a
+ * The console draws a frame every so many ticks of its clock (rg_console.h: on the Advance 280,896
+ * of 2^24 a second), which is a little under sixty frames a second, and a game is written to that
+ * pace. A monitor shows a
  * new picture only when it refreshes, and almost none refreshes at exactly the console's rate.
  * Timing the frames from the console's clock on a monitor that is very nearly as fast, sixty a
  * second say, lets the two drift past each other: for a stretch every few seconds a picture is
@@ -33,9 +34,8 @@
 #define RG_PACING_H
 
 #include <stdint.h>
+#include "rg_console.h"
 
-#define RG_CONSOLE_TICKS_A_SECOND 16777216
-#define RG_CONSOLE_TICKS_A_FRAME 280896
 #define RG_CONSOLE_FRAMES_A_SECOND ((double)RG_CONSOLE_TICKS_A_SECOND / RG_CONSOLE_TICKS_A_FRAME)
 
 /* The pictures a second a monitor may pace the game at: either side of the console's own rate

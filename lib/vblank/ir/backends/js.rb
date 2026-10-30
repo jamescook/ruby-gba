@@ -123,7 +123,7 @@ module VBlank
         # whatever wraps the text declares (see #data_beside_declaration).
         def factory_and_data_file(program, title: "VBlank", data: :inline)
           text, data_file = Lowering.new(program, title: title).text_and_data_file(data: data)
-          [["function createGame(host) {\n", *runtime_text(RUNTIME + ["rg_page.js"]), text,
+          [["function createGame(host) {\n", console_text(program.described_console), *runtime_text(RUNTIME + ["rg_page.js"]), text,
             "return page_create(host || {});\n}\n"].join, data_file]
         end
 
@@ -132,7 +132,8 @@ module VBlank
         # what it prints: the same as the native lowering's headless program. One game a run, so
         # it is not made through createGame.
         def build_headless(program)
-          write_program(WRITTEN_BY + in_own_function(*runtime_text(RUNTIME + ["rg_headless.js"]), lower(program),
+          write_program(WRITTEN_BY + in_own_function(console_text(program.described_console),
+                                                     *runtime_text(RUNTIME + ["rg_headless.js"]), lower(program),
                                                      "rg_driver_start();\n"))
         end
 
@@ -153,10 +154,10 @@ module VBlank
             raise LoweringError, "There is no page template at #{template}. Name an .html.erb file that exists."
           end
 
-          write_output(game, path, settings: settings, data: data, err: err) do |text, data_file|
+          write_output(game, path, settings: settings, data: data, err: err) do |text, data_file, console|
             script = WRITTEN_BY + in_own_function(data_beside_declaration(data_file, JSON.generate(data_file_name(path))),
                                                   text, *runtime_text(["rg_mount.js"]), "rg_mount_page(createGame);\n")
-            Page.html(title: game.title, script: script, scale: scale, template: template)
+            Page.html(title: game.title, script: script, scale: scale, template: template, screen: console.screen_size)
           end
         end
 
@@ -197,6 +198,16 @@ module VBlank
         # The runtime files of +names+, their text in that order.
         def runtime_text(names) = names.map { |name| File.read(File.join(RUNTIME_DIR, name), encoding: Encoding::UTF_8) }
 
+        # THE CONSOLE THE GAME IS BUILT AS, ahead of the runtime, which reads it: how big its screen
+        # is, and how its clock counts a frame, from +console+ (a Console::Description). As the
+        # native runtime has them (Native::ConsoleNumbers).
+        def console_text(console)
+          <<~JS
+            const RG_SCREEN_WIDTH = #{console.screen_width}, RG_SCREEN_HEIGHT = #{console.screen_height};
+            const RG_CONSOLE_TICKS_A_SECOND = #{console.cycles_a_second}, RG_CONSOLE_TICKS_A_FRAME = #{console.cycles_a_frame};
+          JS
+        end
+
         # +parts+ inside a function of their own, in strict mode, so nothing they declare leaks
         # into whatever loads them.
         def in_own_function(*parts) = ["(function () {\n\"use strict\";\n", *parts, "})();\n"].join
@@ -206,9 +217,9 @@ module VBlank
         # the data file beside it. Gives back +path+.
         def write_output(game, path, settings:, data:, err:)
           refuse_folder!(path)
-          text, data_file = factory_and_data_file(checked_program(game, settings: settings, err: err), title: game.title,
-                                                                                                      data: data)
-          File.write(path, yield(text, data_file))
+          program = checked_program(game, settings: settings, err: err)
+          text, data_file = factory_and_data_file(program, title: game.title, data: data)
+          File.write(path, yield(text, data_file, program.described_console))
           File.binwrite(File.join(File.dirname(path), data_file_name(path)), data_file) if data_file
           path
         end

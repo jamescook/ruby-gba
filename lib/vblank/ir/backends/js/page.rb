@@ -45,10 +45,12 @@ module VBlank
 
           module_function
 
-          # The page for +title+'s game, its +script+ inside, written by +template+. A template that
-          # leaves the game out is a LoweringError, as anything else that stops a web build is.
-          def html(title:, script:, scale: 3, template: DEFAULT)
-            pieces = pieces(title: title, script: script, scale: scale)
+          # The page for +title+'s game, its +script+ inside, written by +template+, its canvas
+          # +screen+ ([width, height] in pixels: the console the game is built as) +scale+ times
+          # over. A template that leaves the game out is a LoweringError, as anything else that
+          # stops a web build is.
+          def html(title:, script:, scale: 3, template: DEFAULT, screen: [Screen::WIDTH, Screen::HEIGHT])
+            pieces = pieces(title: title, script: script, scale: scale, screen: screen)
             page = ERB.new(File.read(template, encoding: Encoding::UTF_8), trim_mode: "-").result_with_hash(pieces)
             return page if page.include?(pieces[:game])
 
@@ -56,7 +58,7 @@ module VBlank
                                  "play it. Put <%= game %> in the template where the game goes."
           end
 
-          def pieces(title:, script:, scale:)
+          def pieces(title:, script:, scale:, screen: [Screen::WIDTH, Screen::HEIGHT])
             keys = <<~HTML.chomp
               <p class="keys">Arrows move. <kbd>X</kbd> is A, <kbd>Z</kbd> is B, <kbd>Enter</kbd> is Start, <kbd>Backspace</kbd> is
               Select, <kbd>A</kbd> and <kbd>S</kbd> are L and R, <kbd>F</kbd> fills the screen. Press a key or click
@@ -67,7 +69,7 @@ module VBlank
             pause = '<label><input type="checkbox" id="pause" checked> Pause when another window is in front</label>'
             touchpad = touchpad()
             message = '<p id="said" hidden></p>'
-            { title: CGI.escapeHTML(title.to_s), style: style(scale), game: game(script), keys: keys,
+            { title: CGI.escapeHTML(title.to_s), style: style(scale, screen), game: game(script, screen), keys: keys,
               controller: controller, fullscreen: fullscreen, pause: pause, touchpad: touchpad, message: message,
               extras: [touchpad, keys, controller, fullscreen, pause, message].join("\n") }
           end
@@ -91,23 +93,23 @@ module VBlank
              "</div>"].join("\n")
           end
 
-          def game(script)
+          def game(script, (width, height))
             <<~HTML.chomp
-              <canvas id="screen" width="#{Screen::WIDTH}" height="#{Screen::HEIGHT}" style="#{SQUARE_PIXELS}"></canvas>
+              <canvas id="screen" width="#{width}" height="#{height}" style="#{SQUARE_PIXELS}"></canvas>
               <script>
               #{script.gsub('</script', '<\/script')}
               </script>
             HTML
           end
 
-          def style(scale)
+          def style(scale, (width, height))
             <<~HTML.chomp
               <style>
                 :root { color-scheme: dark; }
                 body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center;
                        justify-content: center; gap: 12px; background: #111; color: #ccc;
                        font: 14px/1.4 system-ui, sans-serif; }
-                canvas { width: min(#{Screen::WIDTH * scale}px, 96vw); aspect-ratio: #{Screen::WIDTH} / #{Screen::HEIGHT};
+                canvas { width: min(#{width * scale}px, 96vw); aspect-ratio: #{width} / #{height};
                          background: #000; }
                 canvas:fullscreen { width: 100vw; height: 100vh; object-fit: contain; }
                 p { margin: 0 16px; text-align: center; }
@@ -115,7 +117,7 @@ module VBlank
                 button { font: inherit; color: inherit; background: #222; border: 1px solid #555; border-radius: 4px;
                          padding: 4px 12px; cursor: pointer; }
                 .touchpad { display: grid; grid-template: "l . r" "cross . face" "middle middle middle" / auto 1fr auto;
-                            gap: 16px; align-items: center; width: min(#{Screen::WIDTH * scale}px, 96vw);
+                            gap: 16px; align-items: center; width: min(#{width * scale}px, 96vw);
                             touch-action: none; user-select: none; -webkit-user-select: none; }
                 .touchpad[hidden] { display: none; }
                 .touchpad button { touch-action: none; padding: 0; min-width: 48px; min-height: 48px; font-size: 18px; }

@@ -20,8 +20,7 @@
 #include <stdint.h>
 #include "rg_list.h"
 
-#define RG_SCREEN_WIDTH 240
-#define RG_SCREEN_HEIGHT 160
+#include "rg_console.h"
 
 /* The kinds of screen a `screen` can name. Two of the same kind share a display; changing kind
  * replaces the whole display (see IR::SceneHandover). */
