@@ -33,7 +33,10 @@ module VBlank
         class Lists
           include Console::Hardware
 
-          def initialize(memory:, primitives:, emitter:, lowering:, call_cold:)
+          # +bookkeeping+ is a checked build's (PassBookkeeping), which stops on a list read or
+          # written past its end; nil for a cartridge for a player, which reads slot nought.
+          def initialize(memory:, primitives:, emitter:, lowering:, call_cold:, bookkeeping: nil)
+            @bookkeeping = bookkeeping
             @memory = memory
             @primitives = primitives
             @emitter = emitter
@@ -546,6 +549,7 @@ module VBlank
             info = list_info(node.name)
 
             @lowering.value(node.index)                     # r0 = index
+            @bookkeeping&.emit_refuse_index_past_length(length_var(node.name), info[:base])
             emit_slot_address(info, node.name)         # r1 = &slot[(head+index)&mask]
             @emitter.emit(ASM.push(TMP))
             @lowering.value(node.value)                     # r0 = value
@@ -557,6 +561,7 @@ module VBlank
           def eval_list_get(node)
             info = list_info(node.name)
             @lowering.value(node.index)                     # r0 = index
+            @bookkeeping&.emit_refuse_index_past_length(length_var(node.name), info[:base])
             emit_slot_address(info, node.name)         # r1 = &slot[(head+index)&mask]
             emit_load_element(info, ACC, TMP)                     # r0 = slot
           end

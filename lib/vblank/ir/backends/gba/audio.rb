@@ -22,8 +22,11 @@ module VBlank
           # Sound module, so the ROM and the interpreter play the same thing. A write
           # is just "put this 16-bit value at this register address."
 
+          # +bookkeeping+ is a checked build's count of the passes (PassBookkeeping), nil for a
+          # cartridge for a player.
           def initialize(emitter:, primitives:, lowering:, mixer:, memory:, sounds:, songs:, frames:, expressions:,
-                          raster:, drawing:, uses_pressed:, any_buffered:, end_of_pass:)
+                          raster:, drawing:, uses_pressed:, any_buffered:, end_of_pass:, bookkeeping: nil)
+            @bookkeeping = bookkeeping
             @emitter = emitter
             @primitives = primitives
             @lowering = lowering # works out a song's number when the game names it by one
@@ -1370,11 +1373,13 @@ module VBlank
             # What the pass has left to finish goes first, in time the console would otherwise
             # spend asleep (see the end_of_pass the lowering hands over).
             @end_of_pass.call
+            @bookkeeping&.emit_pass_ended
             # ...unless the pass ran late and its screen says to show its page at once.
             shown_late = @emitter.gensym
             @drawing.emit_skip_wait_for_late_page(shown_late)
             @emitter.emit(ASM.swi(SWI_VBLANK_INTR_WAIT << 16))
             @emitter.place_label(shown_late)
+            @bookkeeping&.emit_frames_taken
 
             # How many frames the pass that just ended really took. First thing after the wait,
             # because everything below is entitled to ask — and it is the difference between two
@@ -1417,6 +1422,7 @@ module VBlank
             # conversation over the cartridge's pins, so it waits behind everything above that the
             # gap between frames is short for.
             @drawing.emit_read_clock_after_wait
+            @bookkeeping&.emit_pass_shown
           end
 
           private

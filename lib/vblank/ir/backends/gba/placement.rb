@@ -278,7 +278,8 @@ module VBlank
             # The probe reports through the same object this one does, so the measuring pass
             # shows its own progress rather than going quiet for as long as a lowering takes.
             @progress.step(measuring_phase_name)
-            probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress, stack_room: @stack_room)
+            probe = self.class.new(fast_cartridge: @fast_cartridge, progress: @progress, stack_room: @stack_room,
+                                   checked: @checked)
             probe.lower(program, fast_funcs: Set.new, variables_first: variables_first, lists_to_roomy: @lists_to_roomy,
                                  scene_blocks: @scene_blocks, screen: @planned_screen)
             @planned_screen ||= probe.screen_layout

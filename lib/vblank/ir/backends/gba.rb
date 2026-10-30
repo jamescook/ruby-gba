@@ -46,6 +46,7 @@ require_relative "gba/primitives"
 require_relative "gba/collision"
 require_relative "gba/timers"
 require_relative "gba/frames" # how many frames a pass of the game loop really took
+require_relative "gba/pass_bookkeeping" # how the run stands, in a cartridge built to be checked
 require_relative "gba/clock_chip" # the cartridge's clock chip, read once a pass
 require_relative "gba/raster"
 require_relative "gba/mixer"
@@ -357,8 +358,13 @@ module VBlank
         # time is spent in here, so it names its own phases; the default says nothing.
         # +stack_room+ is the bytes the game said its stack wants, or nil for the build to decide
         # (see {TopOfQuickMemory}).
+        #
+        # +checked+ builds a cartridge that keeps how its run stands where a reader of it looks
+        # (Runtime::Frame, PassBookkeeping), and stops on a list read past its end as the interpreter
+        # does, for a run checked against the interpreter. A cartridge for a player is built without.
         def initialize(fast_cartridge: true, fast_code: true, progress: Messages::Progress.silent,
-                       routine_profile: nil, stack_room: nil)
+                       routine_profile: nil, stack_room: nil, checked: false)
+          @checked = checked
           @fast_cartridge = fast_cartridge
           @fast_code = fast_code
           @stack_room = stack_room
@@ -382,6 +388,7 @@ module VBlank
           @divide = Divide.new(emitter: @emit, memory: @memory, primitives: @primitives,
                                scales_objects: ScreenLayout.method(:scales?))
           @frames = Frames.new(emitter: @emit, primitives: @primitives)
+          @bookkeeping = (PassBookkeeping.new(emitter: @emit, primitives: @primitives, memory: @memory) if checked)
           @clock_chip = ClockChip.new(emitter: @emit, primitives: @primitives,
                                       call_cold_routine: method(:emit_call_cold_routine))
           # The kind-keyed dispatch that replaces eval_value's case. Every statement in the
@@ -408,7 +415,7 @@ module VBlank
           @expressions = Expressions.new(emitter: @emit, primitives: @primitives, lowering: @lowering,
                                          divide: @divide, tables: @tables)
           @lists = Lists.new(memory: @memory, primitives: @primitives, emitter: @emit, lowering: @lowering,
-                             call_cold: method(:emit_call_cold_routine))
+                             call_cold: method(:emit_call_cold_routine), bookkeeping: @bookkeeping)
           @primitives.roomy_counter_test = @lists.method(:roomy_counter?) # a collection's counters go where it went
           # `placement: self` — Placement is not its own object yet (see its class
           # comment); its methods live directly on this instance, so handing self in is
@@ -435,6 +442,7 @@ module VBlank
           @audio = Audio.new(emitter: @emit, primitives: @primitives, lowering: @lowering, mixer: @mixer,
                              memory: @memory, sounds: @defined_sounds, songs: @songs,
                              frames: @frames, expressions: @expressions, raster: @raster, drawing: self,
+                             bookkeeping: @bookkeeping,
                              uses_pressed: -> { @uses_pressed }, any_buffered: -> { @modes.any_buffered? },
                              # an EEPROM's last block of the pass is written back before the console sleeps
                              end_of_pass: -> { @save.emit_chip_end_of_pass if @uses_save })
@@ -509,7 +517,10 @@ module VBlank
             raw: @statements.method(:emit_raw),
             # A program that stops finishes what its pass left first, as one that waits for a
             # frame does: an EEPROM's last block is written back rather than lost.
-            halt: ->(node) { @save.emit_chip_end_of_pass if @uses_save; @statements.emit_halt(node) },
+            halt: lambda do |node|
+              @save.emit_chip_end_of_pass if @uses_save
+              @bookkeeping ? @bookkeeping.emit_halt : @statements.emit_halt(node)
+            end,
             wait_vblank: @audio.method(:emit_wait_vblank), screen: @drawing.method(:emit_screen),
             pixel: @drawing.method(:emit_pixel), fill_rect: @drawing.method(:emit_fill_rect),
             clear_screen: @drawing.method(:emit_clear_screen), dma_fill_rect: @drawing.method(:emit_dma_fill_rect),
@@ -594,6 +605,7 @@ module VBlank
         def build_record(program)
           VBlank::Cartridge::BuildRecord.new(source_program: program, placement: iwram_report,
                                    var_addresses: var_addresses, loop_shapes: loop_shapes,
+                                   runtime: @bookkeeping ? @bookkeeping.places(var_addresses) : {},
                                    palette_entries: palette_entries,
                                    column_stretches: @stretched_columns&.to_h || {},
                                    compression: compression_report,
@@ -1012,6 +1024,7 @@ module VBlank
           # rate, and the machine hung above one rate and ran below it with nothing else changed.
           emit_mixer_boot if @mixer.plays_samples? # start the sound DMA + clock; voices added by `play`
           @frames.emit_clear_frame_count if counts_from_power_on # ...before the interrupt that counts
+          @bookkeeping&.emit_at_power_on # a checked build's own counts, the frames' among them
           emit_irq_setup if uses_irq? # arm the interrupts the program needs (VBlank and/or timers)
           emit_input_init if @uses_pressed
           @clock_chip.emit_call_at_power_on # whether the cartridge has a clock, and its first reading
@@ -1047,6 +1060,7 @@ module VBlank
           emit_mix_routine # the mixer's inner loop, placed in ROM and copied to IWRAM at boot
           emit_divide_routine # likewise the divide routine, for a divisor worked out at run time
           emit_divide_fix_routine # and the one for dividing numbers that hold a fraction
+          @bookkeeping&.emit_stopping(frames: @uses_vblank) # where a checked build's game halts or goes wrong
           # The interrupt dispatcher itself, reached only via the vector. When it was worth
           # keeping in the quick memory it has already been emitted inside the moved block.
           while_emitting_interrupt { emit_irq_handler } if uses_irq? && !irq_runs_fast?

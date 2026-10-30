@@ -114,12 +114,14 @@ module VBlank
                                     :roomy_memory, :timer_handlers, :voices, :sound_drops,
                                     :sprite_slots, :sprite_offsets, :streamed_sprite_pose_vars,
                                     :video_copies, :late_pages, :lists, :sprite_runs, :scene_sets,
-                                    :missed_routine_parts, :colors_short_at, :sprite_turns, :held_sprites)
+                                    :missed_routine_parts, :colors_short_at, :sprite_turns, :held_sprites,
+                                    :runtime)
       def initialize(findings: [], emitted: nil, routines: {}, video_memory: nil,
                      roomy_memory: nil, timer_handlers: {}, voices: nil, sound_drops: nil,
                      sprite_slots: {}, sprite_offsets: {}, streamed_sprite_pose_vars: {},
                      video_copies: [], late_pages: [], lists: {}, sprite_runs: [], scene_sets: nil,
-                     missed_routine_parts: {}, colors_short_at: nil, sprite_turns: {}, held_sprites: nil, **rest)
+                     missed_routine_parts: {}, colors_short_at: nil, sprite_turns: {}, held_sprites: nil, runtime: {},
+                     **rest)
         super
       end
 

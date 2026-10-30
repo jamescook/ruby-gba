@@ -100,6 +100,15 @@ module VBlank
                                              built: backend.build_record(program))
       end
 
+      # ...and the same built to be checked against the interpreter: it keeps how its run stands
+      # where a reader of it looks, and stops on a list read past its end (GBA.new(checked: true)).
+      # Where each of those is kept is the record's +runtime+.
+      def checked_cartridge_for(program, title:)
+        backend = IR::Backends::GBA.new(checked: true)
+        ROM.assemble(backend.lower(program), title: title, code: "TEST", maker: "01",
+                                             built: backend.build_record(program))
+      end
+
       # A PROFILE THAT HAS DRIFTED FROM ITS GAME still decides what goes in the quick memory, and
       # would go on doing it, quietly and increasingly wrongly, as the game moved on. So a routine
       # the profile names that the program no longer has is said out loud.
