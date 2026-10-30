@@ -96,17 +96,22 @@ module VBlank
         Lowering.consoles_for(Lowering.run_named(lowering), @consoles).map { |console| [lowering, console] }
       end
 
+      def several_consoles?(lowering) = plays_of(lowering).size > 1
+
       # The task one run is played by: the lowering's own name when it plays a single console, and
       # the console's under it when it plays several.
       def task_name(lowering, console)
-        plays_of(lowering).size == 1 ? "test:lowering:#{lowering}" : "test:lowering:#{lowering}:#{console}"
+        several_consoles?(lowering) ? "test:lowering:#{lowering}:#{console}" : "test:lowering:#{lowering}"
       end
 
       # What `rake test:all` calls a run in the lines it ends with: the console too, where its
-      # lowering plays several.
+      # lowering plays several or plays another than its own (a runtime's, for a game for the Color alone).
       def label(lowering, console) = "#{Lowering.run_named(lowering).title} lowering#{as_console(lowering, console)}"
 
-      def as_console(lowering, console) = plays_of(lowering).size > 1 ? " as the #{Console.for(console).title}" : ""
+      def as_console(lowering, console)
+        named = several_consoles?(lowering) || console != Lowering.run_named(lowering).console
+        named ? " as the #{Console.for(console).title}" : ""
+      end
 
       # `rake test:all` plays every lowering, which is long; `rake test` on its own plays nothing
       # and says what to type instead, so the long run is always chosen and never an accident.
@@ -147,15 +152,14 @@ module VBlank
 
       # Of +chosen+, the runs playing games as the console CONSOLE names; all of them when it names none.
       def chosen_by_console(chosen)
-        named = ENV.fetch(Lowering::CONSOLE_SETTING, "")
-        return chosen if named.empty?
+        console = Lowering.named_console(ENV)
+        return chosen if console.nil?
 
-        console = Console.named(named)
         left = chosen.select { |_, played_as| played_as == console }
         return left unless left.empty?
 
-        abort "#{Lowering::CONSOLE_SETTING} is #{console}, and none of these runs plays games as the " \
-              "#{Console.for(console).title}. Leave #{Lowering::CONSOLE_SETTING} out, or name one of " \
+        abort "#{Lowering::CONSOLE_SETTING} is #{console}, and no run here plays games as the " \
+              "#{Console.for(console).title}. Leave #{Lowering::CONSOLE_SETTING} out, or set it to " \
               "#{Lowering.in_words(chosen.map(&:last).uniq)}."
       end
 
@@ -185,7 +189,7 @@ module VBlank
             @lowerings.each do |lowering|
               run = Lowering.run_named(lowering)
               runs = plays_of(lowering)
-              runs.size == 1 ? define_run_task(run, *runs.first, lowering) : define_runs_task(run, runs)
+              several_consoles?(lowering) ? define_runs_task(run, runs) : define_run_task(run, *runs.first, lowering)
             end
           end
         end

@@ -117,6 +117,15 @@ module VBlank
       raise MissingFeature, "#{run.title} cannot play this yet: #{why}" if Testing.lowering == lowering
     end
 
+    # A test of something +console+'s HARDWARE cannot do skips on every run playing games as that
+    # console, saying +why+: the console's own cartridge run and a runtime's run built as it alike
+    # (`skip_on_console :gbc, "it cannot loop a recording"`). skip_on_<lowering> is for what one
+    # lowering does not make, which a runtime built as the same console can still play.
+    def skip_on_console(console, why)
+      named = Console.named(console)
+      raise MissingFeature, "#{Console.for(named).title} cannot do this: #{why}" if Testing.console == named
+    end
+
     # THE ONE KIND OF SKIP A RUN TAKES: its lowering lacks the feature the test plays — its build
     # does not make it yet, or its hardware cannot. A checked player raises it for what its
     # lowering does not make or answer, and skip_on_<run> for what a test says it cannot play.

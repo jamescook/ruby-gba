@@ -35,7 +35,7 @@ class TestSampleLoop < Minitest::Test
   end
 
   def test_a_looping_sample_replays
-    skip_on_gbc LOOP_ON_THE_COLOR
+    skip_on_console :gbc, LOOP_ON_THE_COLOR
     b = Builder.new
     clip = short_clip
     b.instance_eval do
@@ -50,7 +50,7 @@ class TestSampleLoop < Minitest::Test
   end
 
   def test_stopping_a_loop_ends_the_replays
-    skip_on_gbc LOOP_ON_THE_COLOR
+    skip_on_console :gbc, LOOP_ON_THE_COLOR
     b = Builder.new
     clip = short_clip
     b.instance_eval do

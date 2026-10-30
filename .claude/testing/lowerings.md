@@ -29,7 +29,9 @@ Color. Don't bend a test to make it play on both: one about the Advance's pictur
 Advance's. What the Color could do and its build does not make yet (`GBC::Lowering::NOT_LOWERED_YET`)
 fails on the Color run until it is made — that failure is the work still owed. The one skip is a
 call its run cannot answer (`GBC::HeadlessRun::CannotAnswer`), counted by reason at the end;
-`skip_on_gbc` is there for a test the Color cannot play for a reason no folder says, and
+`skip_on_gbc` is there for a test the Color's build cannot play for a reason no folder says
+(`skip_on_console :gbc` when it is the Color's hardware that cannot, so the runtimes' runs built
+as the Color skip it too), and
 `test/lowering/gbc/vblank/ir/backends/gbc/` is its own folder. A game built for both consoles
 (`consoles: %i[gba gbc]`) is played there as a Color game, as `examples/pacman.rb` and
 `examples/breakout.rb` are; `examples/pong_gbc.rb` is a game for the Color alone, a copy of

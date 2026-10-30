@@ -59,7 +59,10 @@ module VBlank
         super
       end
 
-      def console = @console || Lowering.console_from(ENV, Lowering.run_named(lowering))
+      def console
+        run = Lowering.run_named(lowering)
+        @console || (run.plays_any_console? && Lowering.named_console(ENV)) || run.console
+      end
 
       # Said inside the block, where the task is being made: a native run is made with the
       # process runner loaded, which is settled as the task is defined.
@@ -93,7 +96,8 @@ module VBlank
         run = Lowering.run_named(lowering)
         refuse_native_run_without_zig! if run.needs == "zig"
         refuse_js_run_without_node! if run.needs == "node"
-        refuse_other_console!(run)
+        return say_nothing_played(run) if other_console_named?
+
         print_heading(run)
         sh(run_settings, [FileUtils::RUBY, *yjit_switch, *args].join(" "), **options, &block)
       end
@@ -144,15 +148,17 @@ module VBlank
                              "Say the lowering inside the block that makes it."
       end
 
-      # A CONSOLE the rake call was started with that names another console than this run's is
-      # refused, rather than overridden: the run asked for would not be the one played.
-      def refuse_other_console!(run)
-        named = ENV.fetch(Lowering::CONSOLE_SETTING, "")
-        return if named.empty? || Console.named(named) == console
+      # Does CONSOLE name a console other than the one this run plays games as? Then the run plays
+      # nothing, as `rake test:all` leaves out every run that does not play as that console.
+      def other_console_named?
+        named = Lowering.named_console(ENV)
+        !named.nil? && named != console
+      end
 
-        abort "#{Lowering::CONSOLE_SETTING} is #{named}, but this #{run.title} run plays games as the " \
-              "#{Console.for(console).title}. Leave #{Lowering::CONSOLE_SETTING} out, or start the run " \
-              "for that console."
+      def say_nothing_played(run)
+        named = Console.for(Lowering.named_console(ENV)).title
+        $stdout.puts "The #{run.title} run plays games as the #{Console.for(console).title}. " \
+                     "#{Lowering::CONSOLE_SETTING} names the #{named}, so this run plays no tests."
       end
 
       def refuse_native_run_without_zig!

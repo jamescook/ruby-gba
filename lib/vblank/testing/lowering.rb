@@ -112,17 +112,23 @@ module VBlank
       # game is built; a cartridge's run plays its own console's cartridge and nothing else.
       CONSOLE_SETTING = "CONSOLE"
 
+      # The console CONSOLE names in +env+, as its Symbol, or nil when it is unset or empty. A name
+      # no console has is refused.
+      def named_console(env)
+        named = env[CONSOLE_SETTING]
+        Console.named(named) unless named.nil? || named.empty?
+      end
+
       # The console +run+ plays a game as, given +env+: the run's own, or the one CONSOLE names.
       def console_from(env, run)
-        named = env[CONSOLE_SETTING]
-        return run.console if named.nil? || named.empty?
-
-        console = Console.named(named)
+        console = named_console(env)
+        return run.console if console.nil?
         return console if console == run.console || run.plays_any_console?
 
+        others = RUNS.select(&:plays_any_console?).map(&:name)
         raise ArgumentError, "#{CONSOLE_SETTING} is #{console}, but the #{run.title} run plays only the " \
-                             "#{Console.for(run.console).title}'s cartridge. Leave #{CONSOLE_SETTING} out, or " \
-                             "pick the native, js or ruby run."
+                             "#{Console.for(run.console).title}. Leave #{CONSOLE_SETTING} out, or pick the " \
+                             "#{in_words(others)} run."
       end
 
       def refuse_unknown_lowering!(name)

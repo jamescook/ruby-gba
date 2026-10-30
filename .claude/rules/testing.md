@@ -43,8 +43,9 @@ but `test/all/` on the runs that do not load it and names each test that passed 
 playing a game: a test that could come back to `test/all/` (narrow it with `ONLY=` and `RUNS=`).
 
 **A skip means one thing: the run's lowering lacks the feature** — its build does not make it
-yet (the player raises that itself), or its hardware cannot (`skip_on_gbc "why"` and its
-siblings, naming the feature). Any other skip fails the run (`Testing::SkipsByReason`). Reading
+yet (the player raises that itself, or `skip_on_gbc "why"` and its siblings for what that one
+lowering's build lacks), or the console's hardware cannot (`skip_on_console :gbc, "why"`, which
+skips on every run playing games as that console, a runtime's built as it included). Any other skip fails the run (`Testing::SkipsByReason`). Reading
 the Advance's cartridge (`require_emulator!`, `assert_emulator_loads_rom`) outside the gba run
 fails too, saying it belongs in `test/lowering/gba/`. A step budget (`max_steps:`) is fine
 anywhere: every run plays it as the frames it covers.
