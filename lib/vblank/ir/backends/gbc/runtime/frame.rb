@@ -174,6 +174,7 @@ module VBlank
               asm.inc([:hl])
               asm.jump_relative("rt_vblank_music_done")
               asm.label("rt_vblank_music")
+              asm.call("rt_clip_lap") if Clips.laps?(memory) # the mix's frame before the tune's
               asm.call("rt_music_tick")
               asm.call("rt_rumble_tick") if rumble # the motor moves on with the music (Runtime::Rumble)
               asm.label("rt_vblank_music_done")
@@ -230,6 +231,7 @@ module VBlank
               asm.jump_relative(:z, "rt_wait_vblank_paid")
               asm.dec(:a)
               asm.load([memory[MUSIC_OWED]], :a)
+              asm.call("rt_clip_lap") if Clips.laps?(memory)
               asm.call("rt_music_tick")
               asm.call("rt_rumble_tick") if rumble
               asm.jump_relative("rt_wait_vblank_owed")

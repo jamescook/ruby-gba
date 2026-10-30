@@ -71,7 +71,7 @@ module VBlank
         # groups up together that up_together does not allow (TogetherCheck) — by its number, so a
         # run one stops says what stopped it in the interpreter's words.
         Places = Data.define(:variables, :lists, :runtime, :source_program, :code, :routines, :sound_tables, :notes,
-                             :music_follows_level, :sound_effects, :picture_checks, :together_checks) do
+                             :music_follows_level, :sound_effects, :recordings, :picture_checks, :together_checks) do
           # THE SPRITES THE GAME PLACED IN ITS LAST PASS, as the interpreter says them
           # (Reference#sprites): who each is, which picture it shows and where, back to front. The
           # runtime keeps them in a table of its own (Runtime::Picture::DRAWN), front-most first as
@@ -160,6 +160,7 @@ module VBlank
                                   wobbles: lowering.music.wobbles?, shapes: lowering.music.shapes?,
                                   swells: lowering.holds_swells?,
                                   banked_songs: lowering.music.banked?, clips: lowering.clips.any?,
+                                  clip_laps: lowering.clips.loops?,
                                   dark: lowering.counts_dark_frames?, rumble: lowering.rumbles?,
                                   kept_sprites: lowering.keeps_unchanged_sprites?)
           game = lowering.sections
@@ -194,7 +195,8 @@ module VBlank
                              source_program: program, code: linked.places, routines: routines,
                              sound_tables: lowering.sound_tables, notes: lowering.music.notes,
                              music_follows_level: !lowering.music_level.nil?,
-                             sound_effects: lowering.music.effects.map(&:name), picture_checks: lowering.picture_checks,
+                             sound_effects: lowering.music.effects.map(&:name), recordings: lowering.clips.recordings,
+                             picture_checks: lowering.picture_checks,
                              together_checks: lowering.together_checks)
           save_bytes = SaveLayout.named_by?(program) ? Runtime::Saving::SIZE : 0
           Cartridge::GBCROM.new(linked.banks, title: title, save_bytes: save_bytes, clock: lowering.clock?,

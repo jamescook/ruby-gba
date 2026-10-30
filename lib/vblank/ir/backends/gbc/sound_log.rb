@@ -53,7 +53,7 @@ module VBlank
           SWELLS_ON = (1..Runtime::Music::SWELL_VOICES).to_h { |voice| ["rt_swell_struck_swelling_#{voice}", voice] }.freeze
 
           ROUTINES = (%w[rt_sound_writes rt_music_note rt_music_note_voice rt_music_quiet rt_music_from_the_top
-                         rt_wait_vblank_buttons rt_sfx_note] + RELEVELS.keys + WOBBLE_TURNS.keys + SHAPE_CHANGES.keys +
+                         rt_wait_vblank_buttons rt_sfx_note rt_clip_came_round] + RELEVELS.keys + WOBBLE_TURNS.keys + SHAPE_CHANGES.keys +
                       SWELLS_HELD.keys + SWELLS_ON.keys).freeze
 
           # +places+ is the build record (GBC::Places).
@@ -85,6 +85,7 @@ module VBlank
             @routines.merge!(@effects_starting.keys.to_h { |pc| [pc, :effect_starting] },
                              @voices_let_go.keys.to_h { |pc| [pc, :voice_let_go] })
             @follows_level = places.music_follows_level
+            @recordings = places.recordings
             @entries = []
             @music = [] # what the player did since the last wait ended, logged where the next one ends
             @playing = false
@@ -128,6 +129,7 @@ module VBlank
               when *SWELLS_HELD.keys then @music << [:loudness, SWELLS_HELD.fetch(@routines[pc]), bc >> 8]
               when *SWELLS_ON.keys
                 @music << [:loudness, SWELLS_ON.fetch(@routines[pc]), bc >> 8, VBlank::Audio::NoteFade.from_bits(bc & 0xFF)]
+              when "rt_clip_came_round" then @music << [:sample, @recordings.fetch(af >> 8)] # a loop round again
               when "rt_sfx_note" then effect_note(@notes.fetch(note_key(0, hl - 2))) # in view, past the note's frame
               when :effect_starting then @music << [:sound_effect, @effects_starting.fetch(pc)]
               when :voice_let_go then voice_let_go(*@voices_let_go.fetch(pc))

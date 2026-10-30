@@ -11,8 +11,9 @@ require "sound_comparison"
 class TestGBCClips < Minitest::Test
   include SoundComparison
 
-  # A square wave of 256Hz, recorded at 8192 samples a second: +waves+ of them.
-  private def square_recording(waves) = ([80] * 16 + [-80] * 16) * waves
+  # A square wave of 256Hz, recorded at 8192 samples a second: +waves+ of them. Each half +half+
+  # samples long, for a lower note.
+  private def square_recording(waves, half: 16) = ([80] * half + [-80] * half) * waves
 
   # The pitch most of +frames+ hold, as one note: a frame here and there is read as no one note
   # even with nothing but a held note sounding, so a pitch is asked of a stretch, not a frame.
@@ -22,18 +23,19 @@ class TestGBCClips < Minitest::Test
     pitches.sort[pitches.size / 2]
   end
 
-  # A Color game playing the recording on its third pass, at +volume+, and stopping it on pass
+  # A Color game playing the recording on its third pass, at +volume+ and note +pitch+ (its own, for
+  # nil), looping it if +loop+, and stopping it on pass
   # +stop_at+ (never, for nil).
-  private def clip_game(waves:, stop_at: nil, volume: :full)
+  private def clip_game(waves:, stop_at: nil, volume: :full, loop: false, pitch: nil, half: 16)
     b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
-    recording = square_recording(waves)
+    recording = square_recording(waves, half: half)
     b.instance_eval do
       screen :tiled
       hum = sample :hum, pcm: recording
       count = var :count, 0
       game_loop do
         count.add! 1
-        (count == 3).then { hum.play(volume: volume) }
+        (count == 3).then { hum.play(volume: volume, loop: loop, pitch: pitch) }
         (count == stop_at).then { hum.stop } if stop_at
       end
     end
@@ -61,6 +63,56 @@ class TestGBCClips < Minitest::Test
     half = console_voice(clip_game(waves: 200, volume: :half), :wave, frames: 20)
 
     assert_in_delta 0.5, half.height(15) / full.height(15), 0.1
+  end
+
+  # The wave voice has no three quarters, and plays a recording asked for at three quarters at full,
+  # as it plays a song's wave part.
+  def test_a_recording_played_at_three_quarters_is_as_tall_as_at_full
+    full = console_voice(clip_game(waves: 200), :wave, frames: 20)
+    most = console_voice(clip_game(waves: 200, volume: :three_quarter), :wave, frames: 20)
+
+    assert_in_delta 1.0, most.height(15) / full.height(15), 0.1
+  end
+
+  # A LOOPING RECORDING goes round again at its end, at its own pitch, until the game stops it.
+  def test_a_looping_recording_sounds_on_past_its_end
+    heard = console_voice(clip_game(waves: 100, loop: true), :wave, frames: 70)
+
+    assert_operator heard.loudness(40), :>=, SoundComparison::HEARD, "the second time round"
+    assert_operator heard.loudness(65), :>=, SoundComparison::HEARD, "the third"
+    assert_in_delta 256, pitch_held_through(heard, 50..60), 4
+  end
+
+  def test_stopping_a_looping_recording_quiets_the_wave_voice
+    heard = console_voice(clip_game(waves: 100, loop: true, stop_at: 35), :wave, frames: 50)
+
+    assert_operator heard.loudness(30), :>=, SoundComparison::HEARD
+    assert_operator heard.loudness(45), :<, SoundComparison::HEARD
+  end
+
+  # A RECORDING AT ANOTHER NOTE: an octave up is read twice as fast, so it sounds an octave up and
+  # is over in half the time — 100 waves a little under 12 frames. A square of 128Hz is heard at
+  # 256: a bit a sample, a higher note's waves are a sample longer or shorter by turns, and the
+  # listener reads no one note in them.
+  def test_a_recording_played_an_octave_up_sounds_an_octave_up
+    heard = console_voice(clip_game(waves: 100, half: 32, pitch: :C5), :wave, frames: 30)
+
+    assert_in_delta 256, pitch_held_through(heard, 6..14), 4
+  end
+
+  def test_a_recording_played_an_octave_up_is_over_in_half_the_time
+    heard = console_voice(clip_game(waves: 100, pitch: :C5), :wave, frames: 30)
+
+    assert_operator heard.loudness(10), :>=, SoundComparison::HEARD
+    assert_operator heard.loudness(22), :<, SoundComparison::HEARD
+  end
+
+  # Played at another note, a recording is a clip of its own, and stopping it by name stops that clip.
+  def test_stopping_a_recording_played_at_another_note_quiets_the_wave_voice
+    heard = console_voice(clip_game(waves: 400, pitch: :G4, stop_at: 10), :wave, frames: 25)
+
+    assert_operator heard.loudness(7), :>=, SoundComparison::HEARD
+    assert_operator heard.loudness(20), :<, SoundComparison::HEARD
   end
 
   # A SONG WITH A PART ON THE WAVE VOICE, AND A RECORDING OVER IT: the recording has the voice while

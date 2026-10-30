@@ -9,10 +9,6 @@ require "test_helper"
 # Advance's speaker plays is heard in the emulator in
 # test/lowering/gba/vblank/dsl/test_sample_loop_cartridge.rb.
 class TestSampleLoop < Minitest::Test
-  # A Game Boy Color has no way to loop a recording, and its build refuses one.
-  LOOP_ON_THE_COLOR = "a Game Boy Color plays a recording once, as it was recorded, on its wave voice, " \
-                      "and cannot loop it"
-
   # A one-frame-ish clip, so a few game frames cross its end several times.
   private def short_clip
     [50, -50] * 8 # 16 samples ~ a fraction of a frame at 8000 Hz
@@ -35,7 +31,6 @@ class TestSampleLoop < Minitest::Test
   end
 
   def test_a_looping_sample_replays
-    skip_on_console :gbc, LOOP_ON_THE_COLOR
     b = Builder.new
     clip = short_clip
     b.instance_eval do
@@ -50,7 +45,6 @@ class TestSampleLoop < Minitest::Test
   end
 
   def test_stopping_a_loop_ends_the_replays
-    skip_on_console :gbc, LOOP_ON_THE_COLOR
     b = Builder.new
     clip = short_clip
     b.instance_eval do

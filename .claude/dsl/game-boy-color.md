@@ -149,7 +149,7 @@ and a test fails when the two differ. The Advance's answers are in
 - `noise` — works: the same as on the Advance.
 - `wave` — works: the same as on the Advance.
 - `stop_wave` — works: the same as on the Advance.
-- `song` — works: on the square, wave and noise voices. A part played on a recording (`voice ..., plays:`) is refused. A Game Boy Color plays a recording only at its own note (see `sample`).
+- `song` — works: on the square, wave and noise voices. A part played on a recording (`voice ..., plays:`) is refused. A Game Boy Color plays one recording at a time, and the game's own recordings use it (see `sample`).
 - `play_song` — works: the same as on the Advance.
 - `stop_music` — works: the same as on the Advance.
 - `music_volume` — works: the same as on the Advance.
@@ -157,8 +157,8 @@ and a test fails when the two differ. The Advance's answers are in
 - `fade_music_out` — works: the same as on the Advance.
 - `songs` — works: see `song` for recordings.
 - `sound_effects` — works: see `song` for recordings.
-- `sample` — works: it plays one recording at a time, as it was recorded, on the wave voice. Each sample turns the voice full on or off, so the sound is rough, as a Color game's voice clips are. A play while a recording sounds is not heard. A recording cannot loop, play at another note (`pitch:`), play at three quarters of its volume, or have a shape (`envelope:`). The wave voice is the recording's while it plays: a `wave` or `stop_wave` said then takes effect as the recording ends, a wave the game was sounding comes back then, and so does a wave note a song is holding. A sound effect's wave part is not heard while a recording plays, and its next note after the recording sounds.
-- `instrument` — **refused**: an instrument plays a recording at many notes. A Game Boy Color plays a recording only at its own note (see `sample`). Write the part for the square or wave voice.
+- `sample` — works: it plays one recording at a time, on the wave voice. Each sample turns the voice full on or off, so the sound is rough, as a Color game's voice clips are. A play while a recording sounds is not heard. A recording can loop and play at another note (`pitch:`). The wave voice has no three quarters, so a recording at three quarters of its volume plays at full. A recording with a shape (`envelope:`) is refused. The wave voice is the recording's while it plays: a `wave` or `stop_wave` said then takes effect as the recording ends, a wave the game was sounding comes back then, and so does a wave note a song is holding. A sound effect's wave part is not heard while a recording plays, and its next note after the recording sounds.
+- `instrument` — **refused**: an instrument plays a recording as a part of a song, and a Game Boy Color plays a song's parts on its square, wave and noise voices only (see `song`). Write the part for the square or wave voice.
 
 ## Not made yet
 

@@ -48,10 +48,10 @@ module VBlank
     # the next sample is due counts in +sample_timer_step+ of those cycles at a time, and at most
     # +sample_timer_counts+ of them, so it can only wait a whole number of steps up to that many.
     # +recordings_at_once+ is how many recordings sound together; a play past that is dropped.
-    # +mixes_recordings+ says whether a recording can be looped, read faster for a higher note,
-    # scaled and shaped: the processor adds them up into a stream of its own, or the sound chip's
-    # voices do all that themselves. One that does neither plays a recording as it was recorded, a
-    # sample at a time, on a voice of the sound chip. +recording_voice_hz+ is, for a console whose
+    # +mixes_recordings+ says whether a recording can be shaped (`envelope:`), its loudness moved
+    # sample by sample: the processor adds them up into a stream of its own, or the sound chip's
+    # voices do that themselves. One that does neither plays a recording a sample at a time, all
+    # or nothing, on a voice of the sound chip. +recording_voice_hz+ is, for a console whose
     # sound chip plays each recording on a voice of its own rather than having the processor mix
     # them, how many samples a second those voices read; nil elsewhere. +voice_output_hz+ is how
     # often it hands its sound chip's voices on to the speaker, which matters to the noise voice alone:

@@ -62,22 +62,16 @@ module VBlank
         end
       end
 
-      # A recording, and the parts of playing one that only a console that mixes them can do
+      # A recording, and the part of playing one that only a console that mixes them can do
       # (Console::Description#mixes_recordings): one that plays them as recorded, a sample at a
-      # time, has no way to loop one, read it at another note, scale it by three quarters or
-      # shape it. Half, a quarter and nothing a sound chip's voice does itself.
+      # time, has no way to shape one, since its loudness is all or nothing. Looping one, or
+      # reading it at another note, it does by where and how fast it reads.
       def recording_question(node, console)
-        mixes = console.mixes_recordings
-        asked = if node.kind == :sample
-                  "This recording has a shape (`envelope:`)" if node.envelope && !node.envelope.plain?
-                elsif node.loop
-                  "This line plays a recording over and over (`loop: true`)"
-                elsif node.pitch
-                  "This line plays a recording at another note (`pitch:`)"
-                elsif node.volume == :three_quarter
-                  "This line plays a recording at three quarters of its volume"
-                end
-        asked ? Question.new(:sample, asked, mixes) : Question.new(:sample, "This game plays a recording", nil)
+        if node.kind == :sample && node.envelope && !node.envelope.plain?
+          Question.new(:sample, "This recording has a shape (`envelope:`)", console.mixes_recordings)
+        else
+          Question.new(:sample, "This game plays a recording", nil)
+        end
       end
 
       # Whether +console+ has the button +button+ names; any button at all, every console has.

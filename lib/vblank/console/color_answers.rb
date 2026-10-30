@@ -223,8 +223,8 @@ module VBlank
         wave: works,
         stop_wave: works,
         song: works("on the square, wave and noise voices. A part played on a recording " \
-                    "(`voice ..., plays:`) is refused. A Game Boy Color plays a recording only at its " \
-                    "own note (see `sample`)."),
+                    "(`voice ..., plays:`) is refused. A Game Boy Color plays one recording at a " \
+                    "time, and the game's own recordings use it (see `sample`)."),
         play_song: works,
         stop_music: works,
         music_volume: works,
@@ -232,18 +232,19 @@ module VBlank
         fade_music_out: works,
         songs: works("see `song` for recordings."),
         sound_effects: works("see `song` for recordings."),
-        sample: works("it plays one recording at a time, as it was recorded, on the wave voice. Each sample " \
+        sample: works("it plays one recording at a time, on the wave voice. Each sample " \
                       "turns the voice full on or off, so the sound is rough, as a Color game's voice " \
-                      "clips are. A play while a recording sounds is not heard. A recording cannot " \
-                      "loop, play at another note (`pitch:`), play at three quarters of its volume, or " \
-                      "have a shape (`envelope:`). The wave voice is the recording's while it plays: a " \
+                      "clips are. A play while a recording sounds is not heard. A recording can loop " \
+                      "and play at another note (`pitch:`). The wave voice has no three quarters, so a " \
+                      "recording at three quarters of its volume plays at full. A recording with a shape " \
+                      "(`envelope:`) is refused. The wave voice is the recording's while it plays: a " \
                       "`wave` or `stop_wave` said then takes effect as the recording ends, a wave the " \
                       "game was sounding comes back then, and so does a wave note a song is holding. A " \
                       "sound effect's wave part is not heard while a recording plays, and its next note " \
                       "after the recording sounds."),
-        instrument: refused("an instrument plays a recording at many notes. A Game Boy Color plays a " \
-                            "recording only at its own note (see `sample`). Write the part for the " \
-                            "square or wave voice.")
+        instrument: refused("an instrument plays a recording as a part of a song, and a Game Boy " \
+                            "Color plays a song's parts on its square, wave and noise voices only (see " \
+                            "`song`). Write the part for the square or wave voice.")
       })
 
       # WHAT .claude/dsl/game-boy-color.md SAYS: every answer, in the order ANSWERS gives them, and

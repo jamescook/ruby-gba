@@ -50,14 +50,16 @@ module VBlank
               @sound_tables = {}
             end
 
-            # Reference::Mixer#start: the recording from its start, unless one is playing
-            # (Runtime::Clips), at the wave voice's level for the volume named. Logged either way, as
-            # the interpreter logs a play it drops; the log goes through a table of no writes, which is
-            # how every sound the game makes reaches the run's log (GBC::SoundLog).
+            # Reference::Mixer#start: the recording's clip at the note named from its start, unless one
+            # is playing (Runtime::Clips), at the wave voice's level for the volume named, looping or
+            # not. Logged either way, as the interpreter logs a play it drops; the log goes through a
+            # table of no writes, which is how every sound the game makes reaches the run's log
+            # (GBC::SoundLog).
             def emit_play_sample(node)
               sound_writes([], [:sample, node.name])
-              @asm.load(:a, @clips.number(node.name))
+              @asm.load(:a, @clips.entry(node.name, node.pitch))
               @asm.load(:b, Runtime::Clips::LEVELS.fetch(node.volume))
+              @asm.load(:d, node.loop ? 1 : 0) if @clips.loops?
               @asm.call("rt_clip_play")
             end
 
@@ -67,7 +69,7 @@ module VBlank
               sound_writes([], [:stop_sample])
               return if node.name && !@clips.plays?(node.name)
 
-              @asm.load(:a, node.name ? @clips.number(node.name) : Runtime::Clips::ALL)
+              @asm.load(:a, node.name ? @clips.recording(node.name) : Runtime::Clips::ALL)
               @asm.call("rt_clip_stop")
             end
 

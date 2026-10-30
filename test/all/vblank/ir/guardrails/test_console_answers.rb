@@ -59,7 +59,8 @@ class TestConsoleAnswers < Minitest::Test
     game_loop { wait_vblank }
   end
 
-  # ...and each part of playing a recording that a clip player has no way to do, a game apiece.
+  # ...and each way of playing a recording that the Color plays too: looped, at another note, at
+  # three quarters of its volume (played at full).
   CLIP_PARTS = {
     loop: VBlank.game("CLIPLOOP", consoles: %i[gba gbc]) do
       sample(:hum, pcm: [60, -60] * 200).play(loop: true)
@@ -72,12 +73,14 @@ class TestConsoleAnswers < Minitest::Test
     volume: VBlank.game("CLIPVOL", consoles: %i[gba gbc]) do
       sample(:hum, pcm: [60, -60] * 200).play(volume: :three_quarter)
       game_loop { wait_vblank }
-    end,
-    envelope: VBlank.game("CLIPSHAPE", consoles: %i[gba gbc]) do
-      sample(:hum, pcm: [60, -60] * 200, envelope: { release: 0.2 }).play
-      game_loop { wait_vblank }
     end
   }.freeze
+
+  # A shaped recording, which a clip player has no way to play: its loudness is all or nothing.
+  SHAPED_CLIP = VBlank.game("CLIPSHAPE", consoles: %i[gba gbc]) do
+    sample(:hum, pcm: [60, -60] * 200, envelope: { release: 0.2 }).play
+    game_loop { wait_vblank }
+  end
 
   # The game's own wave beside a recording: it takes effect as the recording ends.
   CLIP_AND_WAVE = VBlank.game("CLIPWAVE", consoles: %i[gba gbc]) do
@@ -155,17 +158,21 @@ class TestConsoleAnswers < Minitest::Test
     assert_empty findings(CLIP, :gbc)
   end
 
-  # Each is one error, naming what the line asks for; the Advance's build hears none of them.
-  def test_what_a_clip_player_cannot_do_is_refused_on_the_color
-    said = { loop: /`loop: true`/, pitch: /`pitch:`/, volume: /three quarters/, envelope: /`envelope:`/ }
+  # Neither console's build hears anything of these.
+  def test_a_looped_pitched_or_three_quarter_recording_plays_on_the_color
     CLIP_PARTS.each do |part, game|
-      found = findings(game, :gbc)
-
-      assert_equal [:error], found.map(&:severity), part.to_s
-      assert_match said.fetch(part), found.first.message
-      assert_match(/one recording at a time/, found.first.message)
+      assert_empty findings(game, :gbc), part.to_s
       assert_empty findings(game, :gba), part.to_s
     end
+  end
+
+  def test_a_shaped_recording_is_refused_on_the_color
+    found = findings(SHAPED_CLIP, :gbc)
+
+    assert_equal [:error], found.map(&:severity)
+    assert_match(/`envelope:`/, found.first.message)
+    assert_match(/one recording at a time/, found.first.message)
+    assert_empty findings(SHAPED_CLIP, :gba)
   end
 
   def test_a_layer_seen_through_by_a_fixed_amount_is_refused_in_plain_words
