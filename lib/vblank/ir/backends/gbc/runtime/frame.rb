@@ -27,17 +27,9 @@ module VBlank
             HALTED = 1
             WENT_WRONG = 2
 
-            # What went wrong, in Fault's first byte (see GBC::HeadlessRun for the words).
-            INDEX_OUT_OF_RANGE = 1
-            LIST_FULL = 2
-            LIST_EMPTY = 3
-            COPY_TOO_LONG = 4
-            COPY_PAST_TABLE = 5
-            PICTURE_NOT_THERE = 6
-            SAVE_READ_OUTSIDE = 7
-            SAVE_WRITE_OUTSIDE = 8
-            PICTURE_NOT_UP = 9 # the numbers: which check stopped it (GBC::Places#picture_checks), and the pose
-            GROUPS_NOT_TOGETHER = 10 # the number: which set of picture groups (GBC::Places#together_checks)
+            # What went wrong, in Fault's first byte: the number every cartridge console's runtime
+            # keeps for it (Backends::CartridgeFaults, Frame::LIST_FULL and the rest).
+            include CartridgeFaults
 
             # Where the reader finds each of them: the place in work memory each was given.
             STATE = "rt state" # RUNNING, HALTED or WENT_WRONG

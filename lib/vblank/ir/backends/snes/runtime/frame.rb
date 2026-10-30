@@ -29,14 +29,9 @@ module VBlank
             HALTED = 1
             WENT_WRONG = 2
 
-            # What went wrong, in FAULT's first word (see SNES::HeadlessRun for the words).
-            INDEX_OUT_OF_RANGE = 1
-            LIST_FULL = 2
-            LIST_EMPTY = 3
-            SAVE_READ_OUTSIDE = 7
-            SAVE_WRITE_OUTSIDE = 8
-            CELLS_FULL = 11 # more cells of a background changed in one pass than the queue holds
-            PICTURE_NOT_THERE = 12 # a sprite showing a picture its list does not have: the pose, the count
+            # What went wrong, in FAULT's first word: the number every cartridge console's runtime
+            # keeps for it (Backends::CartridgeFaults, Frame::LIST_FULL and the rest).
+            include CartridgeFaults
 
             # FAULT: what went wrong (a word), the list's place (three bytes and a spare), and two
             # numbers that say how (four bytes each).

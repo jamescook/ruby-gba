@@ -5,72 +5,11 @@ module VBlank
     module Backends
       class GBC
         # A Game Boy Color cartridge played in the emulator with nobody watching, driven and read back
-        # through the calls a test makes on Backends::Reference — so a test written against the
-        # interpreter can be handed this instead and never know. It makes the Moments every checked
-        # run compares (RunComparison), which is what lets the checked run compare the two with the
-        # interpreter's words.
-        #
-        # HOW A PASS IS READ. The emulator plays a frame at a time and stops as the console begins its
-        # vertical blank. The runtime keeps, where this can read it, how many passes of the game loop
-        # have ended, whether the game is waiting at the end of one, and which pass the console's
-        # picture shows (Runtime::Frame) — the picture of a pass is copied to the console in the blank
-        # after it, so it is on the screen one frame after the pass's numbers are final. So each pass's
-        # numbers are read when the game is found waiting at its end, and its picture from the first
-        # frame drawn showing it, and the two make the pass's moment. The buttons for the next pass are
-        # set before the emulator plays on, and the game reads them in the blank.
-        class HeadlessRun
-          CannotAnswer = RunComparison::CannotAnswer
-          Moment = RunComparison::Moment
-
-          # How many frames a pass may take before the game is taken to be stuck.
-          LONGEST_PASS_FRAMES = 600
-
-          # The picture at one moment of a run, read the way the interpreter's screen is: #pixel gives
-          # the colour at (x, y), nil off the screen, #shown every pixel row by row. #camera_x and
-          # #camera_y are where the view sits over a painted picture (nought on a tiled screen, as the
-          # interpreter's are).
-          Picture = Data.define(:shown, :width, :height, :camera_x, :camera_y) do
-            def pixel(x, y) = on_screen?(x, y) ? shown[(y * width) + x] : nil
-            def stored_pixel(x, y) = pixel(x, y)
-            def to_a = shown.dup
-
-            private
-
-            def on_screen?(x, y) = x.between?(0, width - 1) && y.between?(0, height - 1)
-          end
-
-          attr_reader :vars, :moments, :rom, :save
-
-          def initialize(save: SaveImage.new)
-            unless save.is_a?(SaveImage)
-              raise ArgumentError, "save: must be a VBlank::IR::SaveImage. To make an empty save memory, " \
-                                   "write VBlank::IR::SaveImage.new."
-            end
-
-            @save = save
-            @held = []
-            @vars = {}
-            @lists = {}
-            @declared_lists = []
-          end
-
-          include Reference::ReadingBack
-
-          def hold(*buttons)
-            @held = buttons
-            self
-          end
-
-          def input_each_frame(&block)
-            @input_script = block
-            self
-          end
-
-          def each_vblank(&block)
-            @on_vblank = block
-            self
-          end
-
+        # through the calls a test makes on Backends::Reference (CartridgeHeadlessRun says how a pass
+        # is read). What is the Color's own: its memory read over the bus, the sound log read off
+        # the processor as it plays (GBC::SoundLog), the clock chip, the rumble motor, the frames
+        # its screen was off for before the first, and the faults of picture groups not up.
+        class HeadlessRun < CartridgeHeadlessRun
           # Give the cartridge's clock chip, which counts days and keeps no date, the time of day
           # +time+ says and a count of nought days when the game first reads it, moved on a frame of
           # the console's each frame, as the interpreter's #clock_at does on a console whose chip is
@@ -87,43 +26,6 @@ module VBlank
             self
           end
 
-          # The picture the run ended on, or the one at the frame boundary an input script or a
-          # watching block is asked at.
-          def screen = @screen
-
-          # Plays +program+ for +frames+ frames — as many as the interpreter plays when it is not told
-          # — or until it halts. Gives back self.
-          def run(program, max_steps: nil, frames: nil)
-            raise CannotAnswer, "a Game Boy Color cartridge keeps no step budget, so it cannot run with max_steps" if max_steps
-
-            @rom = GBC.new.build(program, title: "CHECKED")
-            @places = @rom.built
-            @drawn_sprites = SpriteNames.new(program)
-            @declared_lists = program.walk.select { |node| node.kind == :list_new }.map(&:name).uniq
-            @sound_log = SoundLog.new(@places)
-            @sounds = 0
-            @audio = []
-            @audio_handed = 0
-            @frames_took = {}
-            @dark_frames = nil
-            @motor = false
-            @deciding = false
-            @decided = nil
-            @moments = []
-            @vars = {}
-            @lists = {}
-            play(frames || Reference::DEFAULT_FRAMES)
-            self
-          end
-
-          def [](name) = @vars.fetch(name, 0)
-
-          def stopped_at_budget? = false
-
-          # How many frames each pass answered for, by the pass's number, as the interpreter is told
-          # it (Reference#frames_each_pass): one, for a game that keeps up.
-          def frames_took(pass) = @frames_took.fetch(pass, 1)
-
           # How many frames the screen was off for before the first, as the runtime counted them
           # (Runtime::Frame::DARK_FRAMES), as the interpreter is told it (Reference#frames_setting_up):
           # none, for a game that does not count them.
@@ -131,14 +33,6 @@ module VBlank
 
           # Whether the cartridge's motor runs on the frame the run's picture is (Reference#motor_on?).
           def motor_on? = @motor
-
-          # The rest of what the interpreter answers, each refused by name.
-          # What it drew at the moment the run ended, as the interpreter says it (Reference#sprites):
-          # every sprite, back to front, or the ones the game declared as +name+.
-          def sprites(name = nil)
-            rows = @sprites || []
-            name ? @drawn_sprites.rows_named(rows, name) : rows
-          end
 
           # The sound log up to the moment the run ended, or the one at the frame boundary an input
           # script or a watching block is asked at, in the interpreter's words (GBC::SoundLog). It is
@@ -157,40 +51,29 @@ module VBlank
           # on after the last pass compared play the music on.
           def whole_audio = @sound_log.entries.dup
 
-          %i[mixed_sound active_samples peak_voices sound_drops sound_owners frame log screen_mode
-             buffered].each do |name|
-            define_method(name) { |*| refuse_unanswered!(name) }
-          end
-          def volume_of(*) = refuse_unanswered!(:volume_of)
-          def level_of(*) = refuse_unanswered!(:level_of)
-          def frames_each_pass(&) = refuse_unanswered!(:frames_each_pass)
-          def write_save_copy(*) = refuse_unanswered!(:write_save_copy)
-          def write_save_vars(*) = refuse_unanswered!(:write_save_vars)
+          # The rest of what the interpreter answers, each refused by name.
+          refuses :mixed_sound, :active_samples
 
           private
 
-          def refuse_unanswered!(name)
-            raise CannotAnswer, "the Game Boy Color lowering cannot answer `#{name}` yet, which this test asks the " \
-                                "interpreter. Say `skip_on_gbc` in this one test."
+          def kit = Console.for(:gbc)
+
+          def start_run(_program)
+            @sound_log = SoundLog.new(@places)
+            @sounds = 0
+            @audio = []
+            @audio_handed = 0
+            @dark_frames = nil
+            @motor = false
           end
 
-          # THE SAVE MEMORY goes in as the file the emulator keeps a cartridge's battery-backed
-          # memory in, and what the run left there comes back into the same image when the console
-          # is off again — so one image handed to two runs is a power cycle, as it is for the
-          # interpreter.
-          def play(frames)
-            saves = SaveLayout.named_by?(@rom.built.source_program)
-            refuse_power_cut! if saves
-            Diagnostics::Emulator.with_cartridge(@rom, file_name: "game.gbc", save: (@save if saves)) do |core|
-              @core = core
-              start_clock if @rom.clock?
-              @core.set_keys(IR::Buttons.mask(@held))
-              @core.record_arrivals(@sound_log.addresses) if @sound_log.any?
-              play_passes(frames)
-            ensure
-              @core = nil
-            end
+          def power_on
+            start_clock if @rom.clock?
+            set_buttons(@held)
+            @core.record_arrivals(@sound_log.addresses) if @sound_log.any?
           end
+
+          def set_buttons(buttons) = @core.set_keys(IR::Buttons.mask(buttons))
 
           # The emulator gives every cartridge whose header says it has a clock chip one that reads
           # the computer's clock, so a run never told a time has the chip taken away, and one told
@@ -208,89 +91,30 @@ module VBlank
             @core.use_counting_clock((said.to_r * 1000).to_i, counters.pack("C*"), !@clock_counters.nil?)
           end
 
-          def refuse_power_cut!
-            return unless @save.power_left
-
-            raise CannotAnswer, "a Game Boy Color cartridge keeps no count of its steps, so it cannot have its power " \
-                                "cut after #{@save.power_left} of them"
-          end
-
-          # Pass by pass until +frames+ have ended or the game stops: each pass's numbers when the game
-          # is found waiting at its end, its picture once the screen shows it. The interpreter, told
-          # to play +frames+ frames, plays one pass more and stops as that one ends, without a frame
-          # boundary for it: the end of the run is that pass.
-          def play_passes(frames)
-            pending = nil # [pass, variables, lists, sprites, sounds] whose picture is not on the screen yet
-            waited = 0
-            loop do
-              play_frame
-              waited += 1
-              refuse_stuck_game! if waited > LONGEST_PASS_FRAMES
-              if pending && shown_pass == pending.first
-                pass, variables, lists, @sprites, sounds = pending
-                pending = nil
-                return record_moment(:end, variables, lists, picture_now, sounds) if pass > frames
-
-                record_moment(pass, variables, lists, picture_now, sounds_after_pass(pass))
-              end
-              case state
-              when Runtime::Frame::HALTED then return finish_after_halt
-              when Runtime::Frame::WENT_WRONG then raise_fault
-              end
-              next unless pending.nil? && waiting? && passes > @moments.size
-
-              pending = [passes, read_variables, read_lists, read_sprites, @sound_log.entries.size]
-              note_dark_frames if passes == 1
-              note_frames_took(passes - 1) if passes > 1
-              mark_last_pass_taken if passes == frames
-              hold_after_this_pass if passes > frames
-              waited = 0
-              @deciding = passes <= frames
-            end
-          end
-
-          # THE BUTTONS ARE DECIDED A SCREEN FRAME AT A TIME, numbered as the runtime counts the
-          # frames it draws, since the runtime reads them in the screen's interrupt on every one
-          # (Runtime::Frame) — so a pass that spans several frames reads each of them, as the
-          # interpreter's does. They are decided from the first pass's end, before the blank the
-          # game first reads them in: until then they are the ones held from power-on.
-          def decide_buttons
-            return unless @deciding
-
-            frame = word(runtime_place(Runtime::Frame::FRAMES)) + 1
-            return if frame == @decided
-
-            @decided = frame
-            buttons = @input_script ? @input_script.call(frame) : @held
-            @core.set_keys(IR::Buttons.mask(buttons))
-          end
-
-          # How many frames pass +pass+ took, as the runtime counted them where its wait ended
-          # (Runtime::Frame::STEPS) — read once the game waits at the end of the pass after it. The
-          # real number, and not the one the game reads, which is held at IR::Frames::MOST: the
-          # music and the buttons take every frame.
-          def note_frames_took(pass)
-            kept = Runtime::Frame::STEPS_KEPT
-            @frames_took[pass] = @core.bus_read8(runtime_place(Runtime::Frame::STEPS) + (pass % kept))
-          end
-
           # Read once the first pass has ended, by when the screen is on and the count is done.
-          def note_dark_frames
+          def first_pass_ended
             dark = @places.runtime[Runtime::Frame::DARK_FRAMES]
             @dark_frames = dark ? half(dark) : 0
           end
 
+          # How many entries the sound log held as the game was found waiting.
+          def read_sounds = @sound_log.entries.size
+
           # The moment of +frame+ — a pass's number, or :end for the moment the run ended on, which
-          # is no frame boundary and so is not shown to a block watching each one.
+          # is no frame boundary and so is not shown to a block watching each one. A pass's sounds
+          # are the log's entries as far as the frame boundary after it (#sounds_after_pass); the end
+          # of the run has no boundary after it, so its moment counts the log as the game was found
+          # waiting.
           def record_moment(frame, variables, lists, picture, sounds)
+            sounds = sounds_after_pass(frame) unless frame == :end
             @vars = variables
             @lists = lists
             @screen = picture
             @sounds = sounds
             @motor = @core.motor_on? # as the frame the picture is was shown
-            @moments << Moment.new(frame: frame, variables: variables, picture: picture_check(picture), sounds: sounds,
-                                   sprites: @sprites, collections: game_state.except(:vars), sounding: [],
-                                   motor: @motor)
+            @moments << Moment.new(frame: frame, variables: variables, picture: RunComparison.picture_check(picture.shown),
+                                   sounds: sounds, sprites: @sprites, collections: game_state.except(:vars),
+                                   sounding: [], motor: @motor)
             @on_vblank&.call(frame) unless frame == :end
           end
 
@@ -307,12 +131,11 @@ module VBlank
             end
             play_frame
             @sprites = read_sprites
-            record_moment(:end, read_variables, read_lists, picture_now, sounds)
+            record_moment(:end, read_variables, read_lists, picture_now(nil), sounds)
           end
 
           # How many entries of the sound log are pass +pass+'s, the frame boundary after it included
-          # (GBC::SoundLog). The end of the run has no boundary after it, so its moment counts the log
-          # as the game was found waiting.
+          # (GBC::SoundLog).
           def sounds_after_pass(pass) = @sound_log.any? ? @sound_log.size_after_pass(pass) : 0
 
           # One frame of the emulator, with its buttons decided, and what the cartridge played in it
@@ -323,10 +146,10 @@ module VBlank
             @sound_log.read(@core.take_arrivals) if @sound_log.any?
           end
 
-          def picture_check(picture) = RunComparison.picture_check(picture.shown)
-
           # The emulator's picture, each pixel turned back into the 15-bit colour the console holds.
-          def picture_now
+          # The view over a painted picture is read as the picture is, from the scroll the pass
+          # shown asked for.
+          def picture_now(_camera)
             buffer = @core.video_buffer
             width = @core.width
             height = @core.height
@@ -342,94 +165,38 @@ module VBlank
           # (Runtime::Picture::SCROLL), each a byte read as a whole number from -128, or nought on a
           # screen drawn from tiles.
           def view_over_painting
-            return [0, 0] unless @core.bus_read8(runtime_place(Runtime::Paint::SCREEN_KIND)) == Runtime::Paint::PAINTED
+            return [0, 0] unless byte(runtime_place(Runtime::Paint::SCREEN_KIND)) == Runtime::Paint::PAINTED
 
             at = runtime_place(Runtime::Picture::SCROLL)
             [0, 1].map do |i|
-              byte = @core.bus_read8(at + i)
-              byte >= 0x80 ? byte - 0x100 : byte
+              value = byte(at + i)
+              value >= 0x80 ? value - 0x100 : value
             end
           end
-
-          def read_variables = @places.variables.transform_values { |address| word(address) }
 
           # The sprites the game placed in its last pass, back to front (GBC::Places#drawn_sprite_rows).
           def read_sprites = @places.drawn_sprite_rows(@drawn_sprites, @core.method(:bus_read8))
 
-          # The +width+ bytes at +address+ as one number, lowest byte first, as the Color keeps them.
-          def little(address, width) = (0...width).sum { |i| @core.bus_read8(address + i) << (8 * i) }
+          # The Color's memory, read and written over its bus.
+          def byte(address) = @core.bus_read8(address)
+          def read32(address) = @core.bus_read32(address)
+          def write32(address, value) = @core.bus_write32(address, value)
 
-          def read_lists
-            @places.lists.to_h do |name, (address, _capacity, width, _label)|
-              capacity = half(address + Runtime::Lists::CAPACITY)
-              front = half(address + Runtime::Lists::FRONT)
-              length = half(address + Runtime::Lists::LENGTH)
-              items = Array.new(length) do |i|
-                slot = (front + i) % capacity
-                read_slot(address + Runtime::Lists::HEADER + (slot * width), width)
-              end
-              [name, items]
-            end
-          end
+          def state = byte(runtime_place(Runtime::Frame::STATE))
+          def waiting? = byte(runtime_place(Runtime::Frame::WAITING)) == 1
 
-          def read_slot(address, width)
-            raw = little(address, width)
-            top = 1 << ((8 * width) - 1)
-            raw >= top ? raw - (top << 1) : raw
-          end
-
-          def word(address) = IR::Int32.wrap(@core.bus_read32(address))
-          def half(address) = little(address, 2)
-
-          def runtime_place(name) = @places.runtime.fetch(name)
-
-          # The last pass the run reads: the game is told to show it and go no further.
-          def hold_after_this_pass = @core.bus_write32(runtime_place(Runtime::Frame::HOLD), 1)
-          # The interpreter stops a run at the boundary after the last pass compared, before it
-          # moves its timers on (Runtime::Frame::LAST_PASS_TAKEN).
-          def mark_last_pass_taken = @core.bus_write32(runtime_place(Runtime::Frame::LAST_PASS_TAKEN), 1)
-          def state = @core.bus_read8(runtime_place(Runtime::Frame::STATE))
-          def waiting? = @core.bus_read8(runtime_place(Runtime::Frame::WAITING)) == 1
-          def passes = word(runtime_place(Runtime::Frame::PASSES))
-          def shown_pass = @core.bus_read32(runtime_place(Runtime::Frame::SHOWN))
-
-          # --- what ReadingBack reads #list, #pool and #game_state from ---
-
-          def list_items(name) = @lists.fetch(name) { @declared_lists.include?(name) ? [] : nil }&.dup
-          def list_names = @declared_lists | @lists.keys
-          def variables_now = @vars
-
-          def refuse_stuck_game!
-            raise CannotAnswer, "the Game Boy Color cartridge had not reached the end of a pass in " \
-                                "#{LONGEST_PASS_FRAMES} frames, and was stopped"
-          end
-
-          # The game went wrong: the interpreter's words for what went wrong, from what the runtime
-          # kept of it.
-          def raise_fault
+          # Fault: what went wrong (a byte), the list's place (two bytes), and two numbers that say
+          # how (four bytes each).
+          def read_fault
             at = runtime_place(Runtime::Frame::FAULT)
-            code = @core.bus_read8(at)
-            list = @places.lists.find { |_, (address, *)| address == half(at + 1) }&.first
-            first = word(at + 3)
-            second = word(at + 7)
-            raise ProgramError, fault_message(code, list, first, second)
+            [byte(at), half(at + 1), word(at + 3), word(at + 7)]
           end
 
-          # The sentence for the fault the runtime kept as +code+, with the two numbers it kept
-          # beside it and the list it named, if any.
-          def fault_message(code, list, first, second)
+          def console_fault_message(code, first, second)
             case code
-            when Runtime::Frame::INDEX_OUT_OF_RANGE then Faults.index_out_of_range(list, first, second)
-            when Runtime::Frame::LIST_FULL then Faults.list_full(list, first)
-            when Runtime::Frame::LIST_EMPTY then Faults.list_empty(list, first.zero? ? :back : :front)
-            when Runtime::Frame::COPY_TOO_LONG then Faults.copy_too_long(list, first, second)
-            when Runtime::Frame::COPY_PAST_TABLE then Faults.copy_past_table(first, second)
-            when Runtime::Frame::PICTURE_NOT_THERE then Faults.picture_missing(first, second)
-            when Runtime::Frame::SAVE_READ_OUTSIDE then Faults.save_outside("read", first, second)
-            when Runtime::Frame::SAVE_WRITE_OUTSIDE then Faults.save_outside("wrote to", first, second)
-            when Runtime::Frame::PICTURE_NOT_UP then picture_not_up_message(@places.picture_checks.fetch(first), second)
-            when Runtime::Frame::GROUPS_NOT_TOGETHER then groups_not_together_message(@places.together_checks.fetch(first))
-            else "the game went wrong (#{code})"
+            when CartridgeFaults::PICTURE_NOT_UP then picture_not_up_message(@places.picture_checks.fetch(first), second)
+            when CartridgeFaults::GROUPS_NOT_TOGETHER then groups_not_together_message(@places.together_checks.fetch(first))
+            else super
             end
           end
 
