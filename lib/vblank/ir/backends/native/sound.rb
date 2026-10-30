@@ -116,14 +116,17 @@ module VBlank
           # for the rate the game's recordings ask for, as the interpreter takes it.
           def mix_clock = @mix_clock ||= @program.described_console.sample_clock(Mixing.requested_rate(@program))
 
-          # How the mix runs (see the layout atop runtime/rg_mix.c).
+          # How the mix runs (see the layout atop runtime/rg_mix.c). Its voices are as many as the
+          # console sounds recordings together (Console::Description#recordings_at_once), as the
+          # interpreter's mixer has.
           def mix_table
             sound = VBlank::Audio::Sound
             envelope = VBlank::Audio::Envelope
             mixes = Mixing.mixes?(@program)
             samples = mixes ? mix_clock.samples_a_frame : 0
             sound_table("mix", [mixes ? 1 : 0, samples, Mixing.shapes_any_note?(@program) ? 1 : 0,
-                                mixes ? Mixing.slide_share(samples) : 0, sound::MIXER_VOICES, sound::VOL_SHIFT,
+                                mixes ? Mixing.slide_share(samples) : 0, @program.described_console.recordings_at_once,
+                                sound::VOL_SHIFT,
                                 sound::STEP_SHIFT, sound::GAIN_FRACTION, sound::RAMP_SPLIT, envelope::FULL, envelope::SCALE,
                                 sound::LOUDNESS_TO_GAIN, envelope::WHOLE_GAIN_SHIFT])
           end

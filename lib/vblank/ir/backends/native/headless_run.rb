@@ -263,7 +263,7 @@ module VBlank
 
           def sound_drops
             dropped, held = @mix_drops
-            Diagnostics::SoundDrops::Reading.new(dropped: dropped, music_held: held, voices: VBlank::Audio::Sound::MIXER_VOICES)
+            Diagnostics::SoundDrops::Reading.new(dropped: dropped, music_held: held, voices: @console.recordings_at_once)
           end
 
           def volume_of(name)

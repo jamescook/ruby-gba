@@ -44,6 +44,26 @@ class TestDirectSound < Minitest::Test
                  i.audio.select { |event| %i[sample stop_sample].include?(event.first) }
   end
 
+  # Three recordings played on one pass sound together as far as the console has room: all three
+  # on the Advance and the Super Nintendo, one on the Color, whose sound chip plays one at a time.
+  def test_recordings_played_together_sound_as_many_as_the_console_holds
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      clips = %i[one two three].map { |name| sample name, pcm: ([80] * 16 + [-80] * 16) * 100 }
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 2).then { clips.each(&:play) }
+      end
+    end
+    b.finalize_program
+    i = game_player.run(b.program, frames: 5)
+
+    held = VBlank::Console.described(game_console).recordings_at_once
+    assert_equal [3, held].min, i.active_samples.compact.size
+  end
+
   # A song with a part on the wave voice, and a recording played over it: every note of the song is
   # still played, by the log, on every lowering, while the recording sounds and after it.
   def test_a_recording_over_a_songs_wave_part_leaves_the_song_playing
