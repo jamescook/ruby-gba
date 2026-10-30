@@ -25,8 +25,16 @@ module VBlank
         # called through bank 0 (Runtime::Calls's rt_far_call).
         #
         # It makes the kinds in its two tables, and refuses by name a program that reaches one it does
-        # not make yet (NOT_LOWERED_YET) or one a Color cannot do at all (REFUSED).
+        # not make yet (NOT_LOWERED_YET), and one a Color cannot do at all in the words its answers
+        # have (Console::Answers#refusals).
         class Lowering
+          # A program refused because it reaches something the build does not make yet, with the
+          # +part+ of the build that is missing, for a test run to count skips by — the Super
+          # Nintendo's the same (Backends::NotMadeYet).
+          class NotMadeYet < LoweringError
+            include Backends::NotMadeYet
+          end
+
           STATEMENTS = Ractor.make_shareable({
                                                program: :emit_children, set: :emit_set, add: :emit_add,
                                                sub: :emit_sub, copy: :emit_copy, negate: :emit_negate,
@@ -74,11 +82,6 @@ module VBlank
           # day the Color does it; test_gbc_kind_coverage.rb holds the list and the tables above to
           # every kind there is.
           NOT_LOWERED_YET = Ractor.make_shareable({})
-
-          # The kinds the Color's hardware cannot do at all, refused in the words its answers have
-          # (LoweringPlan#refuse_what_console_lacks!): a layer seen through another, a light, a mosaic, a turned
-          # or resized background.
-          REFUSED = %i[see_through shade_outside pixelate affine_background].freeze
 
           # How many bytes of save memory a read or a write moves, by the width it names.
           SAVE_BYTES = Ractor.make_shareable({ byte: 1, half: 2, word: 4 })
@@ -245,13 +248,7 @@ module VBlank
           # yet. A step in a routine nothing calls never runs, and is not refused.
           def refuse_unlowered_kinds!
             @plan.refuse_hardware_only_kinds!
-            kinds = @reachable.map(&:kind).uniq
-            missing = NOT_LOWERED_YET.select { |_, listed| listed.intersect?(kinds) }
-            return if missing.empty?
-
-            uses = missing.values.flatten & kinds
-            raise LoweringError, "this program uses #{uses.map(&:inspect).join(', ')}, which the Game Boy Color build " \
-                                 "cannot make yet (#{missing.keys.join(', ')})."
+            @plan.refuse_kinds_not_made_yet!(NOT_LOWERED_YET, NotMadeYet)
           end
 
 

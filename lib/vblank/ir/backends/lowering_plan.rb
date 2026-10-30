@@ -9,6 +9,11 @@ module VBlank
       # its skips by part (Testing::CartridgeCheckedPlayer), whichever console's lowering raised it.
       module NotMadeYet
         attr_reader :part
+
+        def initialize(message, part:)
+          super(message)
+          @part = part
+        end
       end
 
       # WHAT A CARTRIDGE LOWERING WORKS OUT FROM A PROGRAM BEFORE IT WRITES ONE INSTRUCTION. The Color
@@ -155,14 +160,30 @@ module VBlank
                         "for the Game Boy Advance alone."
         end
 
-        # What the console cannot do at all, and the layers one screen cannot have, refused as a
-        # game's build refuses them (Checks::ConsoleAnswers, Checks::LayerRefusals). A program handed
-        # straight to a lowering, as a test's is, never passes the build's checks; and one that names
-        # no console, or another, is asked about as this one's.
+        # What a run can reach that the lowering does not make yet, refused naming the part it is
+        # in: +not_lowered_yet+ is the lowering's table of kinds by part, and +not_made_yet+ its
+        # error for it (one that includes Backends::NotMadeYet), which a test run skips on.
+        def refuse_kinds_not_made_yet!(not_lowered_yet, not_made_yet)
+          kinds = @reachable.map(&:kind).uniq
+          missing = not_lowered_yet.select { |_, listed| listed.intersect?(kinds) }
+          return if missing.empty?
+
+          uses = missing.values.flatten & kinds
+          raise not_made_yet.new(
+            "This game uses #{uses.map(&:inspect).join(', ')}, part of #{missing.keys.join(' and ')}. The " \
+            "#{@console.title} build does not make that yet. To fix this, build the game for the Game Boy " \
+            "Advance alone for now (`consoles: %i[gba]`).", part: missing.keys.join(" and ")
+          )
+        end
+
+        # What the console cannot do at all, and the layers one screen cannot have, refused in the
+        # words a game's build refuses them in (Console::Answers#refusals, Checks::LayerRefusals). A
+        # program handed straight to a lowering, as a test's is, never passes the build's checks;
+        # and one that names no console, or another, is asked about as this one's.
         def refuse_what_console_lacks!
+          refused = Console.for(@console.name).answers.refusals(@program.walk.to_a, @console).first
           asked = @program.console == @console.name ? @program : @program.copy.tap { |copy| copy.console = @console.name }
-          refused = Guardrails::Checks::ConsoleAnswers.new.detect(asked).find { |finding| finding.severity == :error }
-          refusal = refused&.message || Guardrails::Checks::LayerRefusals.message(asked)
+          refusal = refused&.words || Guardrails::Checks::LayerRefusals.message(asked)
           raise @error, refusal if refusal
         end
 

@@ -29,18 +29,25 @@ class TestGBCKindCoverage < Minitest::Test
     assert_equal not_yet.uniq, not_yet
   end
 
-  # Every kind that can run on a Color is made, listed as not made yet, or refused: none reaches the
-  # lowering with no row to make it.
-  def test_every_kind_is_made_or_listed
-    assert_empty portable_kinds - made - not_yet - Lowering::REFUSED - %i[else]
+  # The kinds a Color cannot do at all, as its answers say of the conformance fixture, which touches
+  # every kind: the build refuses them by those words, so the lowering never meets one.
+  private def refused
+    VBlank::Console::ColorAnswers.refusals(ConformanceFixture.program.walk.to_a, VBlank::Console.described(:gbc))
+                                 .map { |refusal| refusal.node.kind }.uniq
   end
 
-  def test_no_kind_is_both_made_and_listed
-    assert_empty made & (not_yet + Lowering::REFUSED)
+  # Every kind that can run on a Color is made, listed as not made yet, or refused: none reaches the
+  # lowering with no row to make it.
+  def test_every_kind_is_made_listed_or_refused
+    assert_empty portable_kinds - made - not_yet - refused - %i[else]
+  end
+
+  def test_no_kind_is_both_made_and_not_made_yet
+    assert_empty made & not_yet
   end
 
   def test_no_kind_is_both_refused_and_not_made_yet
-    assert_empty Lowering::REFUSED & not_yet
+    assert_empty refused & not_yet
   end
 
   # The conformance fixture touches every kind, some of which the Color's hardware cannot do, so

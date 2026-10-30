@@ -42,10 +42,15 @@ Don't bend a test to make it play everywhere; move it. `rake test:misplaced` pla
 but `test/all/` on the runs that do not load it and names each test that passed there while
 playing a game: a test that could come back to `test/all/` (narrow it with `ONLY=` and `RUNS=`).
 
-**A skip means one thing: the run's lowering lacks the feature** — its build does not make it
-yet (the player raises that itself, or `skip_on_gbc "why"` and its siblings for what that one
-lowering's build lacks), or the console's hardware cannot (`skip_on_console :gbc, "why"`, which
-skips on every run playing games as that console, a runtime's built as it included). Any other skip fails the run (`Testing::SkipsByReason`). Reading
+**Skips are for the machine, not the console.** A test that cannot run on the machine playing the
+suite skips saying why — "this test is for macOS only", a tool that is not installed. A test of
+something one console cannot do is never a skip: it is in the wrong place, and moves to the folders
+of the consoles that can (`test/console/<console>/`), its game and tests kept once in a module the
+files include (`test/clock_tests.rb`). The one lowering skip there is: **a part the run's build does
+not make yet** (the player raises that itself, naming the part, or `skip_on_gbc "why"` and its
+siblings), and only while the work to make it is tracked; the skip names the part, never the
+tracker. `skip_on_console` is what is left of the old rule, and each use of it is a test to move.
+Any other skip fails the run (`Testing::SkipsByReason`). Reading
 the Advance's cartridge (`require_emulator!`, `assert_emulator_loads_rom`) outside the gba run
 fails too, saying it belongs in `test/lowering/gba/`. A step budget (`max_steps:`) is fine
 anywhere: every run plays it as the frames it covers.
@@ -84,6 +89,7 @@ again in another language is held to), `runtime_sounds.rb` (the sound such a run
 to, sample for sample against the native one's), `midpoint_circle.rb` (the answer key for a light's
 rows), `many_rooms_game.rb` (a scene of many rooms with sprite pictures grouped by room),
 `status_bar_games.rb` (small games with a status bar, for the verb's and its handle's tests),
+`clock_tests.rb` (the clock's tests, played by each console that has one),
 `screen_backdrop_games.rb` (small tiled games for `screen ... backdrop:`),
 `first_pass_presses.rb` (presses counted from a game's first pass, for a game that sets up save
 records first),

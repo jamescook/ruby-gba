@@ -1,15 +1,64 @@
 # frozen_string_literal: true
 
-require "test_helper"
+# THE DATE AND TIME, READ AND SET BY THE GAME, on every console whose cartridge carries a clock: the
+# Advance's and the Color's (a Super Nintendo cartridge built here carries none, and its build
+# refuses `clock`). Each console's folder has a test file that includes these, so they are written
+# once and played on every run that plays games as either console:
+#
+#   test/console/gba/vblank/builder/test_clock.rb, test/console/gbc/vblank/builder/test_clock_on_the_color.rb
+#   test/console/gba/vblank/dsl/test_clock_set_to.rb, test/console/gbc/vblank/dsl/test_clock_set_to_on_the_color.rb
+
+# `clock` hands back the clock a cartridge carries, and its readings are numbers like any
+# variable's. A test says what time the clock starts at, the way it says which buttons are held.
+# What a chip that keeps the date reads with nothing set is the Advance's alone
+# (test/console/gba/vblank/builder/test_clock_on_the_advance.rb); the Color's chip keeps none, and
+# its game reads a date once it sets one (ClockSetToTests).
+module ClockTests
+  include SharedConstants
+
+  # A game that keeps 1 in :present and :set while the clock says so, and its hour.
+  private def asking_program
+    b = Builder.new
+    b.instance_eval do
+      now = clock
+      present = var :present, 0
+      set = var :set, 0
+      hour = var :hour, -1
+      game_loop do
+        now.present?.then { present.set! 1 }
+        now.set?.then { set.set! 1 }
+        hour.set! now.hour
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  private def answers(player) = { present: player[:present], set: player[:set], hour: player[:hour] }
+
+  # A run never given a time is a cartridge with no clock chip: the game is told so, and every
+  # reading is 0 rather than a time that looks right.
+  def test_with_no_clock_the_game_is_told_so_and_reads_zeros
+    assert_equal({ present: 0, set: 0, hour: 0 }, answers(game_player.run(asking_program, frames: 2)))
+  end
+
+  # A clock whose battery ran out is there and was never set: the game is told that instead.
+  def test_a_clock_never_set_is_there_and_reads_zeros
+    assert_equal({ present: 1, set: 0, hour: 0 },
+                 answers(game_player.clock_at(Time.new(2000, 1, 1, 5), set: false).run(asking_program, frames: 2)))
+  end
+end
 
 # SETTING THE CLOCK. `clock.set_to` keeps how far the time set is from the clock's own, in two
 # saved numbers, and every reading adds it on: so the time set is read at once, moves on as the
 # clock does, and is there the next time the game is switched on.
-class TestClockSetTo < Minitest::Test
+module ClockSetToTests
+  include SharedConstants
+
   # A Thursday evening, as the clock starts...
-  THURSDAY = Time.new(2026, 10, 22, 21, 7, 5)
+  THURSDAY = Ractor.make_shareable(Time.new(2026, 10, 22, 21, 7, 5))
   # ...and a Saturday morning five years on, as the game sets it.
-  SATURDAY = { year: 2031, month: 5, day: 17, hour: 8, minute: 9, second: 10 }.freeze
+  SATURDAY = Ractor.make_shareable({ year: 2031, month: 5, day: 17, hour: 8, minute: 9, second: 10 })
   TIME = VBlank::IR::Clock::TIME
 
   # A game that sets the clock to +to+ on its third pass, and otherwise keeps each reading in a
@@ -65,7 +114,6 @@ class TestClockSetTo < Minitest::Test
 
   # On a cartridge with no clock, setting it does nothing: it reads zeros still.
   def test_setting_a_missing_clock_does_nothing
-    skip_on_snes "a Super Nintendo cartridge built here has no clock chip, so its build refuses `clock`"
     player = game_player.run(setting_program, frames: 4)
 
     assert_equal [0, 0, 0], [player[:set], player[:year], player[:hour]]

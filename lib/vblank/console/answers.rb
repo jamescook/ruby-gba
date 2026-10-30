@@ -17,9 +17,10 @@ module VBlank
     # not while playing.
     #
     # A verb that works may still have a part the console lacks — the Color reads `held`, but not
-    # for a shoulder button it does not have. Which part a line asks for is
-    # Guardrails::Checks::ConsoleAnswers's to work out, from the console's description; the
-    # verb's answer has the words it is refused in.
+    # for a shoulder button it does not have. Which part a line asks for is Console::Questions's
+    # to work out, from the console's description; the verb's answer has the words it is refused
+    # in. #refusals puts the two together for a whole program, and it is the one place that does:
+    # the build's checks report it, and each lowering asks it of a program handed to it straight.
     #
     # A console's table is a module that extends this one and holds:
     #
@@ -50,6 +51,25 @@ module VBlank
 
       # The answer for +verb+, or nil for a verb nobody has decided yet.
       def answer(verb) = self::ANSWERS[verb.to_sym]
+
+      # A line a console cannot do, and the words it is refused in.
+      Refusal = Data.define(:node, :words)
+
+      # EVERY LINE OF +nodes+ (a program's steps) THAT +console+ CANNOT DO, as Refusals in this
+      # table's words, in the program's order. Empty for a program the console plays.
+      def refusals(nodes, console)
+        asked = nodes.filter_map do |node|
+          question = Questions.question_for(node, console) or next
+          verdict = answer(question.verb)
+          next if question.can.nil? ? verdict.works? : question.can
+
+          Refusal.new(node, "#{question.words}, and a #{console.title} cannot: #{verdict.words}")
+        end
+        asked + Questions.wave_beside_recordings(nodes, console).map do |node|
+          Refusal.new(node, "This line uses the wave voice in a game that plays a recording, and a " \
+                            "#{console.title} cannot: #{answer(:sample).words}")
+        end
+      end
 
       # The reference's line for the answer to each verb in +verbs+, in the order ANSWERS gives them.
       def answer_lines(verbs = self::ANSWERS.keys)

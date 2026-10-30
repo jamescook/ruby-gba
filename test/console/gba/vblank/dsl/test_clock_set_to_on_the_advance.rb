@@ -6,7 +6,7 @@ require "test_helper"
 # saved offset comes back is the chip's own date and time; the Color's keeps none, and a game there
 # reads nothing then (test/lowering/gbc/vblank/ir/backends/gbc/test_gbc_clock.rb). And it sets the clock in a
 # pass of one frame, so which frame the second turns over on can be said. The rest of setting the
-# clock is the same on both, in test/all/vblank/dsl/test_clock_set_to.rb.
+# clock is the same on both, in test/clock_tests.rb (ClockSetToTests).
 class TestClockSetToOnTheAdvance < Minitest::Test
   THURSDAY = Time.new(2026, 10, 22, 21, 7, 5)
 

@@ -95,7 +95,51 @@ class TestConsoleAnswers < Minitest::Test
     game_loop { wait_vblank }
   end
 
+  # A game that reads the clock, and one that sets it.
+  CLOCKED = VBlank.game("CLOCKED", consoles: %i[gba gbc snes]) do
+    hour = var :hour, 0
+    game_loop { hour.set! clock.hour }
+  end
+
+  SETTING_CLOCK = VBlank.game("SETCLOCK", consoles: %i[gba gbc snes]) do
+    clock.set_to(year: 2026, month: 10, day: 30, hour: 9, minute: 0)
+    game_loop { wait_vblank }
+  end
+
+  # A layer seen through by an amount the game works out, which is told to the console again
+  # before every frame.
+  FADING_GHOST = VBlank.game("FADEGHOST", consoles: %i[gba snes]) do
+    screen :tiled
+    image(:ghost, "#" => :white) { "########\n" * 8 }
+    image(:dark, "#" => :black) { "########\n" * 8 }
+    tiles :floor, "#" => :dark
+    see = var :see, 50
+    layers :world, :ghosts
+    layer(:world) { background :ground, tiles: :floor, map: ["#" * 32] * 32 }
+    layer(:ghosts, transparency: see) { background :mist, tiles: :floor, map: ["#" * 32] * 32 }
+    game_loop { see.set! 52 }
+  end
+
   private def findings(game, console) = CHECK.detect(game.program(console: console))
+
+  def test_reading_or_setting_the_clock_is_refused_on_the_super_nintendo_in_its_words
+    [CLOCKED, SETTING_CLOCK].each do |game|
+      found = findings(game, :snes)
+
+      assert_equal [:error], found.map(&:severity).uniq, game.title
+      assert_match(/no clock chip/, found.first.message)
+      assert_empty findings(game, :gba), game.title
+      assert_empty findings(game, :gbc), game.title
+    end
+  end
+
+  def test_a_see_through_amount_the_game_works_out_is_refused_on_the_super_nintendo
+    found = findings(FADING_GHOST, :snes)
+
+    assert_equal [:error], found.map(&:severity).uniq
+    assert_match(/only by half/, found.first.message)
+    assert_empty findings(FADING_GHOST, :gba)
+  end
 
   def test_a_songs_wave_part_beside_a_recording_works_on_the_color
     assert_empty findings(CLIP_AND_SONG, :gbc)

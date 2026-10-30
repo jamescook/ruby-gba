@@ -11,15 +11,16 @@ class TestSNESConformance < Minitest::Test
   SNES = VBlank::IR::Backends::SNES
   Build = VBlank::IR::Build
 
-  UNMADE = (SNES::Lowering::NOT_LOWERED_YET.values.flatten + SNES::Lowering::REFUSED).freeze
+  UNMADE = SNES::Lowering::NOT_LOWERED_YET.values.flatten.freeze
 
   # The fixture's top-level parts that reach no kind the build does not make, that ask nothing a
-  # Super Nintendo's answers refuse (Checks::ConsoleAnswers, which the build asks too), and that the
-  # build does not refuse alone as not made yet (a painted screen, say).
+  # Super Nintendo's answers refuse (Console::Answers#refusals, which the build asks too), and that
+  # the build does not refuse alone as not made yet (a painted screen, say).
   private def made_parts
+    snes = VBlank::Console.described(:snes)
     kept = ConformanceFixture.program.children.reject do |part|
       alone = Build.program(part).tap { |program| program.console = :snes }
-      refused = VBlank::IR::Guardrails::Checks::ConsoleAnswers.new.detect(alone).any? { |found| found.severity == :error }
+      refused = VBlank::Console::SNESAnswers.refusals(alone.walk.to_a, snes).any?
       refused || part.walk.any? { |node| UNMADE.include?(node.kind) } || not_made_yet?(alone)
     end
     # ...and the parts that change a background or place its bar, place a sprite or play a song whose

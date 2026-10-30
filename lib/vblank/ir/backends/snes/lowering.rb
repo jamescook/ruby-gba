@@ -27,17 +27,13 @@ module VBlank
         # be in any bank of the cartridge.
         #
         # It makes the kinds in its two tables, and refuses by name a program that reaches one it does
-        # not make yet (NOT_LOWERED_YET) or one a Super Nintendo cannot do at all (REFUSED).
+        # not make yet (NOT_LOWERED_YET), and one a Super Nintendo cannot do at all in the words its
+        # answers have (Console::Answers#refusals).
         class Lowering
           # A program refused because it reaches something the build does not make yet, with the
           # +part+ of the build that is missing ("the picture"), for a test run to count skips by.
           class NotMadeYet < LoweringError
             include Backends::NotMadeYet
-
-            def initialize(message, part:)
-              super(message)
-              @part = part
-            end
           end
 
           STATEMENTS =Ractor.make_shareable({
@@ -54,7 +50,7 @@ module VBlank
                                                timer_start: :emit_timer_start, timer_stop: :emit_timer_stop,
                                                # a timer's handler runs as its timer ticks, not where it is written
                                                on_timer: :emit_nothing,
-                                               # no light can be made on a Super Nintendo (REFUSED), and a game
+                                               # no light can be made on a Super Nintendo (its answers refuse one), and a game
                                                # without one works nothing out again
                                                show_light_now: :emit_nothing,
                                                # a Super Nintendo cartridge has no rumble motor, so nothing is felt
@@ -90,17 +86,6 @@ module VBlank
                                                                         color_list_holds
                                                                         data_byte]
                                                   })
-
-          # The kinds the Super Nintendo cannot do at all, refused in the words its answers have
-          # (#refuse_what_snes_lacks!): a layer's see-through amount told to the console again as the
-          # game runs, a light, a mosaic over the sprites, a turned or resized background, and a
-          # clock chip. (A layer seen through at an even half is made, with nothing told again:
-          # Picture#refuse_see_through_amounts! says in its own words why another is not.)
-          REFUSED = %i[see_through shade_outside pixelate affine_background set_clock clock].freeze
-
-          # The verb whose answer (Console::SNESAnswers) says why, for each refused kind.
-          REFUSED_VERBS = Ractor.make_shareable({ see_through: :layers, shade_outside: :spotlight, pixelate: :pixelate,
-                                                  affine_background: :background, set_clock: :clock, clock: :clock })
 
           # How the runtime's list copy knows each way of keeping an entry (Runtime::Lists::KEPT), by
           # its bytes and its sign (LoweringPlan#table_keeping).
@@ -204,29 +189,16 @@ module VBlank
           # does not make yet. A step in a routine nothing calls never runs, and is not refused.
           def refuse_unlowered_kinds!
             @plan.refuse_hardware_only_kinds!
-            kinds = @reachable.map(&:kind).uniq
-            missing = NOT_LOWERED_YET.select { |_, listed| listed.intersect?(kinds) }
-            return if missing.empty?
-
-            uses = missing.values.flatten & kinds
-            raise NotMadeYet.new(
-              "This game uses #{uses.map(&:inspect).join(', ')}, part of #{missing.keys.join(' and ')}. The Super " \
-              "Nintendo build does not make that yet. To fix this, build the game for the Game Boy Advance alone " \
-              "for now (`consoles: %i[gba]`).", part: missing.keys.join(" and ")
-            )
+            @plan.refuse_kinds_not_made_yet!(NOT_LOWERED_YET, NotMadeYet)
           end
 
           # What a Super Nintendo cannot do at all, as a game's build refuses it
-          # (LoweringPlan#refuse_what_console_lacks!), then a kind its answers cannot catch by the verb.
+          # (LoweringPlan#refuse_what_console_lacks!), then the see-through amounts it cannot mix:
+          # an even half is made, and Picture#refuse_see_through_amounts! says in its own words why
+          # another is not.
           def refuse_what_snes_lacks!
             @plan.refuse_what_console_lacks!
             refuse_see_through_amounts!
-            lacking = REFUSED & @reachable.map(&:kind)
-            return if lacking.empty?
-
-            verb = REFUSED_VERBS.fetch(lacking.first)
-            raise LoweringError, "This game uses `#{verb}`, and a Super Nintendo cannot: " \
-                                 "#{Console::SNESAnswers.answer(verb).words}"
           end
 
           # --- the data ---
