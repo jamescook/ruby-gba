@@ -237,13 +237,13 @@ module VBlank
 
           # SOUND EFFECTS, played once over the tune.
           #
-          # Each has a place in a table in memory: whether it is waiting to start (the game's one
-          # store), sounding, or neither; how far into it the player is; and each of its lanes'
-          # next event. The player walks the table once a frame, so an effect that is not sounding
-          # costs a load and a compare. The table is in RANK ORDER, highest first
-          # (IR::Tunes.effects_by_rank), and the tune's parts are played at their own rank's place
-          # among the effects — so whoever writes a voice first on a frame keeps it, and a note
-          # never has to be written and then covered.
+          # Each has a place in a table in memory: whether it is waiting to start (written by the
+          # game), sounding, or neither; how far into it the player is; and each of its lanes' next
+          # event. The player walks the table once a frame while any effect has something to do
+          # (EFFECTS_BUSY), and an effect that is not sounding costs a load and a compare. The table
+          # is in RANK ORDER, highest first (IR::Tunes.effects_by_rank), and the tune's parts are
+          # played at their own rank's place among the effects — so whoever writes a voice first on
+          # a frame keeps it, and a note never has to be written and then covered.
           #
           # An effect's lanes are the voices it shares with the tune: the two square voices, the wave
           # voice and the noise voice, whichever of them any effect uses. Who holds each such voice
@@ -307,6 +307,15 @@ module VBlank
 
           # The tune's rank, kept when it starts, for its parts to compare with a voice's holder.
           MUSIC_RANK = :__music_rank
+
+          # WHETHER ANY EFFECT HAS SOMETHING TO DO: not 0 from the moment the game asks for one
+          # until a frame's walk finds every effect quiet again. Most frames of most games sound
+          # no effect at all, and on those the walk is skipped, rather than reading every
+          # effect's place in the table to find each one quiet. The game writes it, with an
+          # effect's state, while the screen's interrupt is held off, so the interrupt never sees
+          # one written without the other; the interrupt clears it before it walks, and every
+          # effect still sounding after its frame writes it again.
+          EFFECTS_BUSY = :__effects_busy
 
           # Who holds the console voice numbered +channel+: a rank, or 0 for nobody.
           def self.voice_rank(channel) = :"__voice_rank_#{channel}"
@@ -526,16 +535,24 @@ module VBlank
             @emitter.place_label(none)
           end
 
-          # Ask for the effect whose place in the table is at the address in TMP: one store — and,
-          # `this_frame: true`, start it here.
+          # Ask for the effect whose place in the table is at the address in TMP: its state and
+          # EFFECTS_BUSY, stored with the interrupt held off — and, `this_frame: true`, start it
+          # here.
           def emit_request_effect(this_frame)
-            @emitter.emit(ASM.load_immediate(ACC, EFFECT_ASKED))
-            @emitter.emit(ASM.str_offset(ACC, TMP, EFFECT_STATE))
+            @emitter.emit(ASM.mov_reg(ASKED_PLACE, TMP))
+            @mixer.holding_off_interrupts do
+              @emitter.emit(ASM.load_immediate(ACC, EFFECT_ASKED))
+              @emitter.emit(ASM.str_offset(ACC, ASKED_PLACE, EFFECT_STATE))
+              @primitives.store_var(ACC, EFFECTS_BUSY)
+            end
             return unless this_frame
 
-            @emitter.emit(ASM.mov_reg(ACC, TMP))
+            @emitter.emit(ASM.mov_reg(ACC, ASKED_PLACE))
             emit_call_start_effect_here
           end
+
+          # Where the effect asked for is kept while the interrupt is held off, which takes TMP.
+          ASKED_PLACE = 2
 
           # Is any sound effect asked for `this_frame: true` (START_EFFECT_HERE)?
           def starts_effects_here? = @starts_effects_here
@@ -687,6 +704,9 @@ module VBlank
               e.emit(ASM.mov_imm_cond(:ne, ASK_STATE, EFFECT_ASKED))
               e.emit(ASM.str_offset(ASK_STATE, ADDR, EFFECT_STATE))
               e.place_label(done)
+              # Every way here may have written a state, and one that wrote none costs a walk.
+              e.emit(ASM.load_immediate(ASK_STATE, EFFECT_ASKED))
+              @primitives.store_var(ASK_STATE, EFFECTS_BUSY)
               e.emit(ASM.pop(*ASK_KEEPS))
             end
             return unless this_frame
@@ -920,7 +940,7 @@ module VBlank
             @emitter.place_label(play)
             if effects # ...the effects that outrank the tune
               @primitives.load_var(EFFECT_OUTRANKS, MUSIC_RANK)
-              emit_point_at_first_effect
+              emit_point_at_busy_effects
               @emitter.emit(ASM.push(frame))
               @emitter.emit_branch(:bl, SOUND_EFFECTS)
               @emitter.emit(ASM.pop(frame))
@@ -938,7 +958,7 @@ module VBlank
             if effects # no tune: every effect
               @emitter.emit_load_data_address(base, MUSIC_SCORE)
               @emitter.emit(ASM.load_immediate(EFFECT_OUTRANKS, 0))
-              emit_point_at_first_effect
+              emit_point_at_busy_effects
               @emitter.emit_branch(:bl, SOUND_EFFECTS)
             end
             @emitter.place_label(finished)
@@ -1053,6 +1073,24 @@ module VBlank
             @primitives.emit_add_const(EFFECT_ENTRY, 2, @effects_at, ACC)
           end
 
+          # ...and for the frame's walk: at the end of the table when no effect has anything to do
+          # (EFFECTS_BUSY), so each run of it stops on its first compare; otherwise at the first,
+          # with EFFECTS_BUSY cleared for the walk to set again. Keeps r2.
+          def emit_point_at_busy_effects
+            quiet = @emitter.gensym
+            onward = @emitter.gensym
+            emit_point_at_first_effect
+            @primitives.load_var(ACC, EFFECTS_BUSY)
+            @emitter.emit(ASM.cmp_imm(ACC, 0))
+            @emitter.emit_branch(:bcond, quiet, cond: :eq)
+            @emitter.emit(ASM.load_immediate(ACC, 0))
+            @primitives.store_var(ACC, EFFECTS_BUSY)
+            @emitter.emit_branch(:b, onward)
+            @emitter.place_label(quiet)
+            @emitter.emit(ASM.load_immediate(EFFECT_SLOT, effect_table_end))
+            @emitter.place_label(onward)
+          end
+
           def effect_table_end = @effect_table + (@effects.size * @effect_slot_bytes)
 
           # PLAY A RUN OF THE SOUND EFFECTS TABLE, from EFFECT_SLOT until an effect that does not
@@ -1091,6 +1129,10 @@ module VBlank
             e.emit(ASM.cmp_imm(ACC, 0))
             e.emit_branch(:bcond, onward, cond: :eq)           # neither asked for nor sounding
             @drawing.emit_call_cold_routine(SOUND_EFFECT_STEP)
+            e.emit(ASM.ldr_offset(ACC, slot, EFFECT_STATE))
+            e.emit(ASM.cmp_imm(ACC, 0))
+            e.emit_branch(:bcond, onward, cond: :eq)           # done with this frame
+            @primitives.store_var(ACC, EFFECTS_BUSY)           # still going: walk it next frame
             e.place_label(onward)
             e.emit(ASM.add_imm(slot, slot, @effect_slot_bytes))
             e.emit(ASM.add_imm(entry, entry, effect_entry_bytes))
