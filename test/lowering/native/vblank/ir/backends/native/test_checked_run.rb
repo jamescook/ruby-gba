@@ -13,7 +13,7 @@ class TestCheckedRun < Minitest::Test
   include NativeComparison
 
   CheckedRun = VBlank::IR::Backends::Native::CheckedRun
-  CannotAnswer = VBlank::IR::Backends::Native::HeadlessRun::CannotAnswer
+  AsksTheInterpreter = VBlank::IR::Backends::RunComparison::AsksTheInterpreter
   Moment = CheckedRun::Moment
   LIB = VBlank.root.join("lib").to_s
 
@@ -155,7 +155,7 @@ class TestCheckedRun < Minitest::Test
     builder.finalize_program
     program = builder.program
 
-    error = assert_raises(CannotAnswer) { CheckedRun.new.run(program, max_steps: 60) }
+    error = assert_raises(AsksTheInterpreter) { CheckedRun.new.run(program, max_steps: 60) }
 
     assert_match(/before it first waits for the screen/, error.message)
   end
@@ -171,7 +171,7 @@ class TestCheckedRun < Minitest::Test
     builder.finalize_program
     program = builder.program
 
-    error = assert_raises(CannotAnswer) { CheckedRun.new.run(program, frames: 4) }
+    error = assert_raises(AsksTheInterpreter) { CheckedRun.new.run(program, frames: 4) }
 
     assert_match(/never waits for the screen/, error.message)
   end

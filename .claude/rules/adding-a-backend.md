@@ -191,9 +191,10 @@ What a new lowering needs for this, following Native:
   or listed. `test/all/vblank/ir/test_kind_coverage.rb` holds Reference and the GBA lowering to
   every kind the same way.
 - **The conformance fixture.** `test/conformance_fixture.rb` is one program that touches every
-  kind and every operator. `test/all/vblank/ir/test_cross_backend_conformance.rb` plays it on the
-  lowering under test (`test_the_lowering_under_test_plays_the_whole_fixture`); a new lowering
-  joins that test rather than getting a copy of it.
+  kind and every operator. `test/console/gba/vblank/ir/test_cross_backend_conformance_on_the_advance.rb`
+  plays it on the lowering under test (`test_the_lowering_under_test_plays_the_whole_fixture`) on
+  every run that plays games as the Advance, since its song sounds a recording, which the Color
+  refuses; a new lowering joins that test rather than getting a copy of it.
 - **`Node#source`** is the DSL line that made a node (`"file.rb:12"`), where the builder knew it.
   Keep it in what you write out, so an error in generated code points at the game.
 

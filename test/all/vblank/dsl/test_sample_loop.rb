@@ -5,9 +5,14 @@ require "test_helper"
 # Looping a sample: `s.play(loop: true)` replays a clip seamlessly (background music),
 # where the default `s.play` plays it once (a one-shot effect). On the console the
 # end-of-clip interrupt restarts the sound instead of stopping it; on the interpreter the
-# clip re-triggers when it plays out, so the loop shows up in the audio log. Pinned on
-# both backends.
+# clip re-triggers when it plays out, so the loop shows up in the audio log. What the
+# Advance's speaker plays is heard in the emulator in
+# test/lowering/gba/vblank/dsl/test_sample_loop_cartridge.rb.
 class TestSampleLoop < Minitest::Test
+  # A Game Boy Color has no way to loop a recording, and its build refuses one.
+  LOOP_ON_THE_COLOR = "a Game Boy Color plays a recording once, as it was recorded, on its wave voice, " \
+                      "and cannot loop it"
+
   # A one-frame-ish clip, so a few game frames cross its end several times.
   private def short_clip
     [50, -50] * 8 # 16 samples ~ a fraction of a frame at 8000 Hz
@@ -30,6 +35,7 @@ class TestSampleLoop < Minitest::Test
   end
 
   def test_a_looping_sample_replays
+    skip_on_gbc LOOP_ON_THE_COLOR
     b = Builder.new
     clip = short_clip
     b.instance_eval do
@@ -44,6 +50,7 @@ class TestSampleLoop < Minitest::Test
   end
 
   def test_stopping_a_loop_ends_the_replays
+    skip_on_gbc LOOP_ON_THE_COLOR
     b = Builder.new
     clip = short_clip
     b.instance_eval do
@@ -56,27 +63,5 @@ class TestSampleLoop < Minitest::Test
     i = game_player.run(b.program, max_steps: 2000)
     assert_equal 1, i.audio.count { |e| e == [:sample, :m] }, "a stopped loop does not replay"
     assert_includes i.audio, [:stop_sample]
-  end
-
-  # --- hardware: the loop really plays on the console ---
-  #
-  # A ~2-frame clip looped over 6 frames makes the end-of-clip interrupt fire and restart
-  # the sound a few times, so this exercises the loop-restart path on real hardware (not
-  # just that it boots) — if the restart wedged the interrupt dispatcher, the frames would
-  # not advance and the audio would die.
-  def test_a_looping_sample_plays_real_audio_on_the_console
-    b = Builder.new
-    wave = ([100] * 4 + [-100] * 4) * 32 # 256 samples ~ 2 frames at 8000 Hz
-    b.instance_eval do
-      screen :bitmap
-      clear_screen :black
-      music = sample :music, pcm: wave, rate: 8000
-      music.play(loop: true)
-      game_loop { wait_vblank }
-    end
-    b.finalize_program
-    rom = ROM.assemble(GBA.new.lower(b.program), title: "LOOP")
-    v = assert_emulator_loads_rom(rom, frames: 6)
-    assert v.sound?, "a looping sample should keep the speaker going (energy #{v.audio_energy})"
   end
 end

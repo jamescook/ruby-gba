@@ -8,14 +8,40 @@ require "test_helper"
 # What is under test here is the MODEL: which layer each declaration ended up in. The
 # friendly errors and warnings a layer brings with it are a set of their own, in
 # test_layer_guardrails.rb. What each layer becomes on a console, and the drawing order
-# that follows from it, is asserted with the backends.
-class TestLayers < Minitest::Test
+# that follows from it, is asserted with the backends. What the Advance's cartridge shows and
+# holds is read back in test/lowering/gba/vblank/builder/test_layers_cartridge.rb, which plays
+# the game kept here in LayersGames.
+module LayersGames
+  include SharedConstants # Builder, which the games below name from inside the module
+
+  OVERLAP = [60, 60].freeze
+
   private def program(&block)
     b = Builder.new
     b.instance_eval(&block)
     b.finalize_program
     b.program
   end
+
+  # Two sprites overlapping in layers that REVERSE the order they were declared in.
+  private def two_reversed_sprites(kind)
+    program do
+      screen kind
+      image(:pillar, "#" => :green) { (["#" * 8] * 8).join("\n") }
+      image(:heart, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      clear_screen :blue if kind == :bitmap
+      layers :behind, :front
+      # The pillar declared FIRST but placed at the FRONT, so declaration order and the
+      # stack disagree on purpose.
+      layer(:front) { sprite :pillar, at: OVERLAP }
+      layer(:behind) { sprite :heart, at: OVERLAP }
+      game_loop { nil }
+    end
+  end
+end
+
+class TestLayers < Minitest::Test
+  include LayersGames
 
   # Every node of a kind, anywhere in the tree (a scene's declarations live in a func
   # body, so a top-level scan would miss them).
@@ -262,23 +288,6 @@ class TestLayers < Minitest::Test
   # they were declared in: the one in front must be the one the stack put there, and both
   # screen kinds must agree on which that is.
 
-  OVERLAP = [60, 60].freeze
-
-  private def two_reversed_sprites(kind)
-    program do
-      screen kind
-      image(:pillar, "#" => :green) { (["#" * 8] * 8).join("\n") }
-      image(:heart, "#" => :red) { (["#" * 8] * 8).join("\n") }
-      clear_screen :blue if kind == :bitmap
-      layers :behind, :front
-      # The pillar declared FIRST but placed at the FRONT, so declaration order and the
-      # stack disagree on purpose.
-      layer(:front) { sprite :pillar, at: OVERLAP }
-      layer(:behind) { sprite :heart, at: OVERLAP }
-      game_loop { nil }
-    end
-  end
-
   private def shown_where_they_overlap(kind)
     game_player.run(two_reversed_sprites(kind), frames: 3)
              .screen.pixel(OVERLAP[0] + 3, OVERLAP[1] + 3)
@@ -295,15 +304,6 @@ class TestLayers < Minitest::Test
 
   def test_the_two_screens_agree
     assert_equal shown_where_they_overlap(:bitmap), shown_where_they_overlap(:tiled)
-  end
-
-  # ...and the console draws what the interpreter says.
-  def test_the_console_shows_the_front_layer_too
-    rom = assemble_rom(two_reversed_sprites(:bitmap), name: "STACK")
-    v = assert_emulator_loads_rom(rom, frames: 6)
-
-    assert v.green?(OVERLAP[0] + 3, OVERLAP[1] + 3),
-           "console showed #{format('0x%04x', v.pixel_gba(OVERLAP[0] + 3, OVERLAP[1] + 3))}"
   end
 
   # --- the classification is complete ---
@@ -326,24 +326,6 @@ class TestLayers < Minitest::Test
     stray = VBlank::Builder::Layers::IN_A_LAYER.keys - drawing
 
     assert_empty stray, "these are classified but are not drawing kinds: #{stray.inspect}"
-  end
-
-  # --- it survives the whole build ---
-
-  def test_a_layered_game_builds_a_rom
-    rom = VBlank.build("LAYERS", console: :gba, code: "BLYR", maker: "01") do
-      screen :tiled
-      layers :scenery, :actors
-      image(:grass, "#" => :green) { (["#" * 8] * 8).join("\n") }
-      image(:guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
-      tiles :terrain, "." => :grass
-
-      layer(:scenery) { background :world, tiles: :terrain, map: (0...20).map { "." * 30 } }
-      hero = layer(:actors) { sprite :guy, at: [100, 60] }
-      game_loop { hero.move :right, by: 1 }
-    end
-
-    assert VBlank::Cartridge::ROMValidator.check(rom).ok?
   end
 
   # The interpreter has to make a picture out of a layered program, not choke on the

@@ -8,14 +8,14 @@ require "test_helper"
 # counted loop guarded by a flag, every step after the answer still runs: it tests the flag,
 # branches, and does nothing. A ray that hits a third of the way through pays for the other two
 # thirds, and a first-person view casts one of these per strip across the screen.
-class TestRepeatStopWhen < Minitest::Test
-  include EmulatorSupport
+#
+# Where the Advance's cartridge stops, and the shape its ARM loop takes, are in
+# test/lowering/gba/vblank/builder/test_repeat_stop_when_cartridge.rb.
 
-  Build = VBlank::IR::Build
-  LoopForm = VBlank::IR::Backends::GBA::LoopForm
-
+# The games both files play.
+module RepeatStopWhenGames
   private def program(&block)
-    b = Builder.new
+    b = VBlank::Builder.new
     b.instance_eval(&block)
     b.finalize_program
     b.program
@@ -36,6 +36,10 @@ class TestRepeatStopWhen < Minitest::Test
       end
     end
   end
+end
+
+class TestRepeatStopWhen < Minitest::Test
+  include RepeatStopWhenGames
 
   def test_it_stops_the_pass_after_the_answer_arrives
     assert_equal 5, game_player.run(marching, frames: 2)[:steps]
@@ -62,28 +66,5 @@ class TestRepeatStopWhen < Minitest::Test
     end, frames: 2)
 
     assert_equal 0, run[:n]
-  end
-
-  def test_the_console_stops_where_the_interpreter_stops
-    backend = GBA.new
-    rom = ROM.assemble(backend.lower(marching), title: "STOP", code: "ASTP", maker: "01")
-    gba = assert_emulator_loads_rom(rom, frames: 4, vars: backend.var_addresses)
-
-    assert_equal game_player.run(marching, frames: 2)[:steps], gba.var(:steps)
-    assert_equal 5, gba.var(:steps)
-  end
-
-  # A loop that can stop early works its condition out in the two registers the fast shape keeps
-  # its counter and limit in, so it takes the safe shape instead. Dearer per pass, and far
-  # cheaper than the passes it does not make.
-  def test_an_early_exit_loop_gives_up_the_fast_shape_and_a_plain_one_keeps_it
-    plain = Build.repeat(Build.int(4), :i, Build.set(:n, Build.int(1)))
-    early = Build.repeat(Build.int(4), :i, Build.set(:n, Build.int(1)),
-                         stop_when: Build.var_ref(:done))
-
-    assert LoopForm.counter_in_registers?(plain), "a plain counted loop keeps the registers"
-    refute LoopForm.counter_in_registers?(early), "one that can stop early cannot"
-    refute LoopForm.stops_early?(plain), "a zero stop condition is nothing to stop for"
-    assert LoopForm.stops_early?(early)
   end
 end

@@ -2,13 +2,9 @@
 
 require "test_helper"
 
-# The backing-store primitive: save the pixels under a patch of the screen, draw
-# over them, then paint them back — so a moving object leaves no trail. This is
-# the low-level op the `sprite` helper is built on, tested here on its own at the
-# IR level (no DSL sugar) against both backends: the interpreter, and the console
-# via the emulator. The proof is "after cover-then-restore, every pixel is exactly what
-# it was before" — including a patch hanging off a screen edge.
-class TestBackingStore < Minitest::Test
+# The cover-and-restore program, shared with the Advance's cartridge's test
+# (test/lowering/gba/vblank/ir/test_backing_store_cartridge.rb).
+module BackingStoreGames
   include VBlank::IR::Build
 
   # A scene with a distinctive patch, save an 8x8 area over it, cover that area
@@ -25,6 +21,19 @@ class TestBackingStore < Minitest::Test
       halt
     )
   end
+end
+
+# The backing-store primitive: save the pixels under a patch of the screen, draw
+# over them, then paint them back — so a moving object leaves no trail. This is
+# the low-level op the `sprite` helper is built on, tested here on its own at the
+# IR level (no DSL sugar) against both backends: the interpreter, and the console
+# IR level (no DSL sugar) on every run; the same round-trip on the Advance's cartridge is in
+# test/lowering/gba/vblank/ir/test_backing_store_cartridge.rb. The proof is "after
+# cover-then-restore, every pixel is exactly what it was before" — including a patch hanging
+# off a screen edge.
+class TestBackingStore < Minitest::Test
+  include VBlank::IR::Build
+  include BackingStoreGames
 
   # ---- interpreter: restore puts back exactly what was captured ----
 
@@ -95,17 +104,6 @@ class TestBackingStore < Minitest::Test
     assert_equal Color.resolve(:blue), s.pixel(11, 12)
     # the object is at its new spot
     assert_equal Color.resolve(:green), s.pixel(15, 12)
-  end
-
-  # ---- hardware: the same round-trip on the console ----
-
-  def test_restore_reinstates_the_patch_on_the_console
-    rom = ROM.assemble(GBA.new.lower(cover_and_restore([10, 10], [10, 10])),
-                       title: "BACKSTOR", code: "BBKS", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 2)
-    assert v.red?(12, 12), "the red patch wasn't restored on hardware — got #{v.pixel_gba(12, 12).to_s(16)}"
-    assert v.blue?(10, 10), "the blue surround wasn't restored on hardware"
-    refute v.pixel_is?(14, 14, :green), "green survived the restore on hardware"
   end
 
   # ---- misuse ----

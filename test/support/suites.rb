@@ -12,6 +12,10 @@
 #                              games as that console
 #   test/lowering/<lowering>/  that lowering's own output — the ARM, the C, the cartridge read
 #                              back in the emulator: that lowering's run
+#   test/interpreter/          what only the interpreter answers — its step budget, its count of
+#                              steps, a pass told to take several frames: the run whose player
+#                              is the interpreter, since every other run's player is a lowered
+#                              game checked against it
 #
 # A NEW TEST GOES IN test/all/. One that fails on a run whose console cannot do what it asks is
 # written again for each run that can, in that console's or that lowering's folder, with the
@@ -21,16 +25,20 @@
 # and FileList reads a constant of rake's that a Ractor may not.
 module TestSuites
   ALL_DIR = "test/all"
+  INTERPRETER_DIR = "test/interpreter"
 
   # The folder of +console+'s own tests, and of +lowering+'s.
   def self.console_dir(console) = "test/console/#{console}"
   def self.lowering_dir(lowering) = "test/lowering/#{lowering}"
 
-  # THE FOLDERS EACH RUN OWNS: its lowering's, and its console's. A folder several runs own (the
-  # Advance's, by every run that plays games as the Advance) is loaded by each of them and by no
-  # other run; test/all is nobody's, so every run loads it.
+  # THE FOLDERS EACH RUN OWNS: its lowering's, and its console's, and for the run whose player is
+  # the interpreter the interpreter's. A folder several runs own (the Advance's, by every run that
+  # plays games as the Advance) is loaded by each of them and by no other run; test/all is
+  # nobody's, so every run loads it.
   LOWERING_FOLDERS = Ractor.make_shareable(VBlank::Testing::Lowering::RUNS.to_h do |run|
-    [run.name, [lowering_dir(run.name), console_dir(run.console)]]
+    own = [lowering_dir(run.name), console_dir(run.console)]
+    own << INTERPRETER_DIR unless run.checked?
+    [run.name, own]
   end)
 
   NATIVE_DIR = "#{lowering_dir(:native)}/vblank/ir/backends/native".freeze

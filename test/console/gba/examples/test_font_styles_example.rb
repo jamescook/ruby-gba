@@ -6,8 +6,8 @@ require VBlank.root.join("examples/font_styles").to_s
 
 # The font-styles example: the same word in three fonts, two defined inline with
 # `font :name do glyph … end`. Asserts each renders in its own colour, that the two
-# custom fonts really are different (distinct glyph pixels), and that it renders on
-# the emulator.
+# custom fonts really are different (distinct glyph pixels). That it renders on the
+# emulator is in test/lowering/gba/examples/test_font_styles_example_cartridge.rb.
 class TestFontStylesExample < Minitest::Test
   # The lit pixels of the word band drawn at (8, y), height h — relative coords.
   private def word_pixels(screen, y, h, color)
@@ -40,11 +40,4 @@ class TestFontStylesExample < Minitest::Test
     assert_empty word_pixels(screen, 45, 3, :green), "the lowercase font should be 5px tall"
   end
 
-  def test_it_renders_on_hardware
-    rom = ROM.assemble(GBA.new.lower(FontStyles.program), title: "FONTSTY", code: "BFSY", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 3)
-    assert (8..60).any? { |x| (12..18).any? { |y| v.white?(x, y) } }, "default HELLO missing on hardware"
-    assert (8..60).any? { |x| (40..44).any? { |y| v.green?(x, y) } }, "lowercase hello missing on hardware"
-    assert (8..60).any? { |x| (64..68).any? { |y| v.pixel_is?(x, y, :cyan) } }, "script hello missing on hardware"
-  end
 end

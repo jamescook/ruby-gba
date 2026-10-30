@@ -2,14 +2,12 @@
 
 require "test_helper"
 
-# A spriteful pool: give a pool an image: and each live instance draws itself as a
-# hardware sprite at its x/y (spawn shows one, remove hides it), and gains a collision
-# box — overlaps? / the screen-edge tests / clamp_to_screen work per instance. Behind
-# the scenes it's one hardware-sprite object per slot, bound to the field lists, drawn by
-# the console's sprite hardware. Pinned on the interpreter and on the emulator.
-class TestPoolSprites < Minitest::Test
+# The pools these tests play, shared with the Advance's cartridge's tests
+# (test/lowering/gba/vblank/dsl/test_pool_sprites_cartridge.rb).
+module PoolSpritesGames
+  include SharedConstants
+
   GREEN = Color.resolve(:green)
-  BLACK = 0
 
   # A tiled program with an :ufo image (8x8 green) and an enemy pool; the block spawns
   # instances and adds per-frame behavior via the pool handle.
@@ -25,6 +23,44 @@ class TestPoolSprites < Minitest::Test
     b.finalize_program
     b.program
   end
+
+  # A POOL TAKES ITS DECLARED PLACE AMONG THE SPRITES, the same rule two sprites follow:
+  # declared later is in front. A red pool and a green sprite overlap at (44, 44); whichever
+  # was declared second is the colour there, on the interpreter and on the console.
+  private def overlap_program(pool_first:)
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image(:red_square, "#" => :red) { "########\n" * 8 }
+      image(:green_square, "#" => :green) { "########\n" * 8 }
+      crowd = nil
+      declare_pool = -> { crowd = pool :crowd, x: 0, y: 0, capacity: 1, image: :red_square }
+      declare_pool.call if pool_first
+      sprite :green_square, at: [40, 40]
+      declare_pool.call unless pool_first
+      placed = var :placed, 0
+      game_loop do
+        (placed == 0).then do
+          crowd.spawn(x: 40, y: 40)
+          placed.set! 1
+        end
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+end
+
+# A spriteful pool: give a pool an image: and each live instance draws itself as a
+# hardware sprite at its x/y (spawn shows one, remove hides it), and gains a collision
+# box — overlaps? / the screen-edge tests / clamp_to_screen work per instance. Behind
+# the scenes it's one hardware-sprite object per slot, bound to the field lists, drawn by
+# the console's sprite hardware. Pinned on every run here, and on the Advance's cartridge in
+# test/lowering/gba/vblank/dsl/test_pool_sprites_cartridge.rb.
+class TestPoolSprites < Minitest::Test
+  include PoolSpritesGames
+
+  BLACK = 0
 
   def test_spawn_shows_a_sprite_per_live_instance
     prog = enemy_program do |b, enemies|
@@ -178,60 +214,16 @@ class TestPoolSprites < Minitest::Test
     assert_match(/image :missing/, err.message)
   end
 
-  # --- hardware ---
-
-  def test_a_spriteful_pool_draws_on_the_console
-    prog = enemy_program do |b, enemies|
-      enemies.spawn x: 30, y: 30
-      enemies.spawn x: 80, y: 80
-      b.game_loop { b.wait_vblank }
-    end
-    rom = ROM.assemble(GBA.new.lower(prog), title: "PSPR", code: "BPSP", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 6)
-    assert v.green?(33, 33), "a pooled sprite drew on the console, got 0x#{format('%04X', v.pixel_gba(33, 33))}"
-    assert v.green?(83, 83), "and the second one too"
-  end
-
   # --- where a pool stands among the sprites ---
 
-  # A POOL TAKES ITS DECLARED PLACE AMONG THE SPRITES, the same rule two sprites follow:
-  # declared later is in front. A red pool and a green sprite overlap at (44, 44); whichever
-  # was declared second is the colour there, on the interpreter and on the console.
-  private def overlap_program(pool_first:)
-    b = Builder.new
-    b.instance_eval do
-      screen :tiled
-      image(:red_square, "#" => :red) { "########\n" * 8 }
-      image(:green_square, "#" => :green) { "########\n" * 8 }
-      crowd = nil
-      declare_pool = -> { crowd = pool :crowd, x: 0, y: 0, capacity: 1, image: :red_square }
-      declare_pool.call if pool_first
-      sprite :green_square, at: [40, 40]
-      declare_pool.call unless pool_first
-      placed = var :placed, 0
-      game_loop do
-        (placed == 0).then do
-          crowd.spawn(x: 40, y: 40)
-          placed.set! 1
-        end
-      end
-    end
-    b.finalize_program
-    b.program
-  end
-
-  # [interpreter, console]: whether the overlap shows the sprite's green.
-  private def green_in_front(prog)
-    rom = ROM.assemble(GBA.new.lower(prog), title: "PORD", code: "BPOR", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 6)
-    [game_player.run(prog, frames: 4).screen.pixel(44, 44) == GREEN, v.green?(44, 44)]
-  end
+  # Whether the overlap shows the sprite's green.
+  private def green_in_front(prog) = game_player.run(prog, frames: 4).screen.pixel(44, 44) == GREEN
 
   def test_a_sprite_declared_after_a_pool_is_in_front_of_it
-    assert_equal [true, true], green_in_front(overlap_program(pool_first: true))
+    assert green_in_front(overlap_program(pool_first: true))
   end
 
   def test_a_pool_declared_after_a_sprite_is_in_front_of_it
-    assert_equal [false, false], green_in_front(overlap_program(pool_first: false))
+    refute green_in_front(overlap_program(pool_first: false))
   end
 end

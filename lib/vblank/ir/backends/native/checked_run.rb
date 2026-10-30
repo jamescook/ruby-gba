@@ -45,9 +45,6 @@ module VBlank
           # that differs there.
           Disagreement = RunComparison::Disagreement
 
-          # Why a game the interpreter stops only by its step budget cannot be played as C.
-          NO_STEP_COUNT = "the native lowering keeps no count of its steps"
-
           # Every frame's buttons reach the native run through one script, which keeps them for
           # the replay: the test's own script when it gave one, else whatever it held for the
           # whole run. +save+ is the save memory the game starts with, as the interpreter takes
@@ -133,8 +130,7 @@ module VBlank
                                                         .run(program, max_steps: max_steps)
             return lead.frame unless lead.frame.zero? && lead.stopped_at_budget?
 
-            raise HeadlessRun::CannotAnswer, "this game spends the whole step budget before it first waits for the " \
-                                             "screen, so the budget is all that stops it, and #{NO_STEP_COUNT}"
+            raise RunComparison::AsksTheInterpreter, "its step budget to stop a game before it first waits for the screen"
           end
 
           # A game that never waits for the screen has no frames for a count of them to stop. The
@@ -151,8 +147,7 @@ module VBlank
             return if program.walk.any? { |node| node.kind == :wait_vblank }
             return unless interpreter_from(save_as_handed_over).run(program, max_steps: max_steps).stopped_at_budget?
 
-            raise HeadlessRun::CannotAnswer, "this game never waits for the screen, so it has no frames to count: the " \
-                                             "interpreter's step budget is all that stops it, and #{NO_STEP_COUNT}"
+            raise RunComparison::AsksTheInterpreter, "its step budget to stop a game that never waits for the screen"
           end
 
           # The interpreter starting from +save+, with the buttons held for the whole run down

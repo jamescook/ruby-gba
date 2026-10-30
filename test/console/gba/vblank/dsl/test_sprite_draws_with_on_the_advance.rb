@@ -3,6 +3,39 @@
 require "test_helper"
 require "differential"
 
+# The ship and the game that walks it through fifteen lists of colours, kept once for this file
+# and for the test of the same game on the Advance's cartridge
+# (test/lowering/gba/vblank/dsl/test_sprite_draws_with_on_the_advance_cartridge.rb).
+module SpriteDrawsWithOnTheAdvanceGames
+  OWN = [:transparent, :red, :green].freeze
+
+  # An 8x8 ship, left half the first colour of its list and right half the second, so a
+  # swapped colour shows at a known place.
+  SHIP = Array.new(64) { |i| (i % 8) < 4 ? :red : :green }.freeze
+
+  # The ship walks through every list, a new one each pass, so whichever of them landed in
+  # the first group is shown. The screen has no scenery, so everywhere but the ship is the
+  # backdrop, which is a colour of the scenery's table and has to stay as it was. Each list
+  # is written with magenta first, the place that means see-through: that is the colour
+  # sitting on the first entry of the sprites' table, where nothing draws it.
+  private def ship_drawn_with_fifteen_lists
+    builder = VBlank::Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image :ship, width: 8, height: 8, data: SHIP, colors: OWN
+      names = (1..15).map { |n| colors :"pulse#{n}", [:magenta, VBlank::Graphics::Color.rgb(n * 2, 31 - n, n), :white] }
+      ship = sprite :ship, at: [40, 40]
+      step = var :step, -1
+      game_loop do
+        ship.draw_with names, showing: step
+        step.add! 1
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+end
+
 # THE TESTS OF vblank/dsl/test_sprite_draws_with.rb THAT ONLY THE GAME BOY ADVANCE CAN PLAY, kept apart so that the
 # Game Boy Color's run never loads them (test/console/gba); the rest are in that file.
 #
@@ -12,102 +45,9 @@ require "differential"
 # places show are swapped for the ones in another list.
 class TestSpriteDrawsWithOnTheAdvance < Minitest::Test
   include Differential
+  include SpriteDrawsWithOnTheAdvanceGames
 
-  OWN = [:transparent, :red, :green].freeze
   HURT = [:transparent, :yellow, :white].freeze
-
-  # An 8x8 ship, left half the first colour of its list and right half the second, so a
-  # swapped colour shows at a known place.
-  SHIP = Array.new(64) { |i| (i % 8) < 4 ? :red : :green }.freeze
-
-  private def program(&game)
-    builder = Builder.new
-    builder.instance_eval do
-      screen :tiled
-      image :ship, width: 8, height: 8, data: SHIP, colors: OWN
-      colors :hurt, HURT
-      ship = sprite :ship, at: [40, 40]
-      game_loop { instance_exec(ship, &game) }
-    end
-    builder.finalize_program
-    builder.program
-  end
-
-  # A picture the game paints from a list keeps its pixels as places, so another list swaps
-  # its colours by place the same way. A save file's name wears its panel's colours like this.
-  private def painted_program
-    builder = Builder.new
-    builder.instance_eval do
-      screen :tiled
-      colors :ink, OWN
-      colors :hurt, HURT
-      canvas = list :canvas, capacity: 32, width: :byte
-      repeat(8) { [0x11, 0x11, 0x22, 0x22].each { |two_pixels| canvas.push two_pixels } }
-      tag = image :tag, from: canvas, width: 8, height: 8, colors: :ink
-      tag.changed
-      ship = sprite :tag, at: [40, 40]
-      step = var :step, 0
-      game_loop do
-        ship.draw_with [:ink, :hurt], showing: step
-        step.add! 1
-      end
-    end
-    builder.finalize_program
-    builder.program
-  end
-
-  # A sprite told to draw with another list before its picture is first painted: the picture is
-  # blank to start with, and once it is painted it shows the other list's colours, by the
-  # places it holds then.
-  private def painted_late_program
-    builder = Builder.new
-    builder.instance_eval do
-      screen :tiled
-      colors :ink, OWN
-      colors :hurt, HURT
-      canvas = list :canvas, capacity: 32, width: :byte
-      repeat(8) { [0x11, 0x11, 0x22, 0x22].each { |two_pixels| canvas.push two_pixels } }
-      tag = image :tag, from: canvas, width: 8, height: 8, colors: :ink
-      ship = sprite :tag, at: [40, 40]
-      pass = var :pass, 0
-      game_loop do
-        ship.draw_with :hurt
-        pass.add! 1
-        (pass == 3).then { tag.changed }
-      end
-    end
-    builder.finalize_program
-    builder.program
-  end
-
-  # --- picked by a number the game works out ---
-
-  # A pulse: a counter walks through two lists and past them, and the ship steps right on
-  # the same frames, so a colour a frame early or late shows against the position.
-  private def pulse_program
-    builder = Builder.new
-    builder.instance_eval do
-      screen :tiled
-      image :ship, width: 8, height: 8, data: SHIP, colors: OWN
-      colors :warm, [:transparent, :yellow, :white]
-      colors :hot, [:transparent, :orange, :blue]
-      ship = sprite :ship, at: [40, 40]
-      step = var :step, 0
-      game_loop do
-        ship.draw_with [:warm, :hot], showing: step
-        ship.x.add! 1
-        step.add! 1
-      end
-    end
-    builder.finalize_program
-    builder.program
-  end
-
-  # The colour of the ship's left edge, wherever it has got to.
-  private def left_edge_color(frames)
-    i = game_player.run(pulse_program, frames: frames)
-    i.screen.pixel((40..).find { |col| i.screen.pixel(col, 41) != 0 }, 41)
-  end
 
   # The console writes a sprite's table entry four ways — upright in one pose, upright in a
   # pose the game picks, turning, and poses that came out different sizes (a mirrored one
@@ -147,82 +87,15 @@ class TestSpriteDrawsWithOnTheAdvance < Minitest::Test
     assert_backends_agree(every_draw_program, frames: 3)
   end
 
-  # --- every instance of a pool on its own ---
-
-  # Two ships in a pool, and only the one on the right is hurt. After a few frames the hurt
-  # one is removed and a new one spawned into its slot, which must not inherit its colours.
-  private def pool_program(respawn_at: nil)
-    builder = Builder.new
-    builder.instance_eval do
-      screen :tiled
-      image :ship, width: 8, height: 8, data: SHIP, colors: OWN
-      colors :hurt, HURT
-      ships = pool :ship, x: 0, y: 0, capacity: 2, image: :ship
-      ships.spawn x: 40, y: 40
-      ships.spawn x: 80, y: 40
-      frame = var :frame, 0
-      game_loop do
-        frame.add! 1
-        ships.each do |ship|
-          (frame == 1).then { (ship.x == 80).then { ship.draw_with :hurt } }
-          (frame == respawn_at).then { (ship.x == 80).then { ship.remove } } if respawn_at
-        end
-        (frame == respawn_at).then { ships.spawn x: 80, y: 40 } if respawn_at
-      end
-    end
-    builder.finalize_program
-    builder.program
-  end
-
-  # --- friendly errors ---
-
-  private def built(&block)
-    VBlank.build("COLORS", console: :gba, code: "BCOL", maker: "01", out: StringIO.new, err: StringIO.new, &block)
-  end
-
-  private def refused(error = ArgumentError, &block)
-    assert_raises(error) { built(&block) }
-  end
-
   # SIXTEEN IS EXACTLY ENOUGH: the ship's own colours and fifteen lists, one group each, with
   # nothing left over. The first group of the table is one of the sixteen. Its first entry is
-  # never drawn, as in every group, so sprites can have it.
-  #
-  # The ship walks through every list, a new one each pass, so whichever of them landed in
-  # the first group is shown. The screen has no scenery, so everywhere but the ship is the
-  # backdrop, which is a colour of the scenery's table and has to stay as it was. Each list
-  # is written with magenta first, the place that means see-through: that is the colour
-  # sitting on the first entry of the sprites' table, where nothing draws it.
-  private def ship_drawn_with_fifteen_lists
-    builder = Builder.new
-    builder.instance_eval do
-      screen :tiled
-      image :ship, width: 8, height: 8, data: SHIP, colors: OWN
-      names = (1..15).map { |n| colors :"pulse#{n}", [:magenta, VBlank::Graphics::Color.rgb(n * 2, 31 - n, n), :white] }
-      ship = sprite :ship, at: [40, 40]
-      step = var :step, -1
-      game_loop do
-        ship.draw_with names, showing: step
-        step.add! 1
-      end
-    end
-    builder.finalize_program
-    builder.program
-  end
-
+  # never drawn, as in every group, so sprites can have it. The groups the ship wears on the
+  # Advance's cartridge are read in
+  # test/lowering/gba/vblank/dsl/test_sprite_draws_with_on_the_advance_cartridge.rb.
   def test_a_sprite_and_fifteen_lists_take_all_sixteen_groups
     walking = ship_drawn_with_fifteen_lists
     # Pass 1 shows the ship's own colours and passes 2 to 16 a list each.
     (2..17).each { |frames| assert_backends_agree(walking, frames: frames) }
-
-    console = assert_emulator_loads_rom(assemble_rom(walking, name: "SIXTEEN"), frames: 2)
-    worn = Array.new(17) do
-      console.step
-      console.sprites(:ship).first.palette
-    end
-
-    assert_equal 16, worn.uniq.size, "the ship wore sixteen different groups"
-    assert_equal Color.resolve(:black), console.pixel_gba(120, 120), "the colour behind everything is as it was"
   end
 
   # --- scenes take turns with the groups ---

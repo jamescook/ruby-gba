@@ -11,6 +11,9 @@ require "test_helper"
 # (This is the surface + static rendering; the hardware tile-mode lowering that
 # makes it efficient and scrollable is the next slice. The user code here does not
 # change when that lands.)
+#
+# The same board on the Advance's cartridge, read in the emulator, is in
+# test/lowering/gba/vblank/builder/test_tiled_background_cartridge.rb.
 class TestTiledBackground < Minitest::Test
   # A 4x4 solid tile of one color, as ASCII art (small, so the grid math is easy
   # to read: cell (c, r) covers x 4c..4c+3, y 4r..4r+3).
@@ -210,27 +213,5 @@ class TestTiledBackground < Minitest::Test
     b.finalize_program
     err = assert_raises(GBA::LoweringError) { GBA.new.lower(b.program) }
     assert_match(/8x8 tiles/, err.message)
-  end
-
-  # --- Hardware: the same board renders on the console ---
-
-  def test_the_board_renders_on_the_console
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      clear_screen :black
-    end
-    solid_tile(b, :red_tile, :red)
-    solid_tile(b, :blue_tile, :blue)
-    b.instance_eval do
-      tiles :checker, "R" => :red_tile, "B" => :blue_tile
-      background :board, tiles: :checker, map: "RB\nBR"
-      halt
-    end
-    b.finalize_program
-    rom = ROM.assemble(GBA.new.lower(b.program), title: "TILES", code: "BTIL", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 2)
-    assert v.red?(1, 1),  "the red tile renders in cell (0,0)"
-    assert v.blue?(5, 1), "the blue tile renders in cell (1,0)"
   end
 end

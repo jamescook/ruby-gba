@@ -6,6 +6,9 @@ require "test_helper"
 # game says. `start` takes the first step there and then, on the pass that calls it, and the
 # rest one a pass after it until `stop` — which is how a game being copied steps its effects, in
 # its own passes, however many frames a slow one takes.
+#
+# A pass told to take several frames is the interpreter's alone to be told, so that test is in
+# test/interpreter/vblank/builder/test_each_pass_interpreter.rb.
 class TestEachPass < Minitest::Test
   # A white bitmap room whose loop counts its turns and runs +each+ after the count; +before+
   # runs before the loop. Read at the end of each turn: the steps taken and the turn.
@@ -64,25 +67,6 @@ class TestEachPass < Minitest::Test
     seen = steps_by_turn(6, before: restarting) { |turn| (turn == 2).then { each_pass(:restarting).start } }
 
     assert_equal [0, 0, 1, 2, 3, 4], seen
-  end
-
-  # A pass that takes three frames takes one step, where `once_a_frame` would take three.
-  def test_a_slow_pass_takes_one_step
-    skip_on_native "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
-    skip_on_js "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
-    skip_on_ruby "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      steps = var :steps, 0
-      job = each_pass { steps.add! 1 }
-      job.start
-      game_loop {}
-    end
-    b.finalize_program
-    run = game_player.frames_each_pass { 3 }.run(b.program, frames: 4)
-
-    assert_equal 5, run[:steps], "one step as it starts, and one for each of four passes"
   end
 
   def test_each_pass_needs_a_block_to_make_a_step

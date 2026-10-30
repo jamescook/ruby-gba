@@ -5,14 +5,17 @@ require "test_helper"
 # repeat(n) { |i| } — the runtime counted loop. Assert its behavior: the body
 # runs n times with the index counting 0..n-1, on the reference interpreter (the
 # oracle) and on the console. The index is a Value, so it drives real positions.
-class TestRepeat < Minitest::Test
-  include VBlank::Console::Hardware
+#
+# The Advance's cartridge drawing the marks in the emulator is in
+# test/lowering/gba/vblank/builder/test_repeat_cartridge.rb.
 
+# The game both files play.
+module RepeatGames
   # One green 2px mark per iteration, spaced 4 apart (2 drawn, 2 gap) so the
   # marks stay discrete: column = i * 4. After repeat(n) there are marks at
   # x = 0, 4, ... 4*(n-1); the gaps and the absence past the last prove the count.
   private def marching_program(count)
-    builder = Builder.new
+    builder = VBlank::Builder.new
     builder.instance_eval do
       screen :bitmap
       clear_screen :black
@@ -23,6 +26,11 @@ class TestRepeat < Minitest::Test
     builder.finalize_program
     builder.program
   end
+end
+
+class TestRepeat < Minitest::Test
+  include VBlank::Console::Hardware
+  include RepeatGames
 
   def test_interpreter_runs_the_body_once_per_index
     screen = game_player.run(marching_program(4)).screen
@@ -52,16 +60,5 @@ class TestRepeat < Minitest::Test
 
     [0, 8, 16].each { |x| assert_equal Color.resolve(:green), screen.pixel(x, 40), "mark at x=#{x}" }
     assert_equal Color.resolve(:black), screen.pixel(4, 40), "gap between the i*8 marks"
-  end
-
-  def test_runs_on_hardware
-    rom = VBlank::Cartridge::ROM.assemble(
-      VBlank::IR::Backends::GBA.new.lower(marching_program(4)),
-      title: "REPEAT", code: "BRPT", maker: "01",
-    )
-    v = assert_emulator_loads_rom(rom)
-    assert v.green?(0, 40),  "first mark"
-    assert v.green?(12, 40), "last mark (index 3)"
-    assert v.black?(16, 40), "nothing past the last index"
   end
 end

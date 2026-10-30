@@ -4,6 +4,44 @@ require "test_helper"
 require "differential"
 require "midpoint_circle"
 
+# The game whose loop waits for frames under a shaped light, kept once for the console's own
+# count of it (test/lowering/gba/vblank/dsl/test_spotlight_show_now_cartridge.rb).
+module SpotlightShowNowGames
+  include SharedConstants
+
+  # A white room under a shaped light, whose loop opens the light three times a turn, waiting for
+  # the next frame after each, and counts its turns and its waits.
+  private def loop_waiting_under_a_shaped_light
+    waiting = Builder.new
+    waiting.instance_eval do
+      screen :tiled
+      image(:white_tile, "#" => :white) { (["#" * 8] * 8).join("\n") }
+      tiles :set, "#" => :white_tile
+      background :room, tiles: :set, map: ["#" * 32] * 32
+      light = spotlight at: [120, 80], radius: 10, dark: 100
+      loops = var :shape_loops, 2
+      light.shape do |row|
+        steps = var :shape_steps, 0
+        repeat(loops) { steps.add! 1 }
+        light.circle(row) + steps - 2
+      end
+      waited = var :waited, 0
+      turns = var :turns, 0
+      game_loop do
+        turns.add! 1
+        repeat(3) do
+          light.radius.add! 5
+          waited.add! 1
+          wait_vblank
+        end
+        light.radius.set! 10
+      end
+    end
+    waiting.finalize_program
+    waiting.program
+  end
+end
+
 # `light.show_now`: the light as it stands, on the picture being drawn rather than the next one.
 # A light's rows are otherwise worked out in the gap before a frame, so a change made during a
 # pass shows a picture later, the way a sprite's place does. A game that copies its rows to the
@@ -12,6 +50,7 @@ require "midpoint_circle"
 class TestSpotlightShowNow < Minitest::Test
   include Differential
   include MidpointCircle
+  include SpotlightShowNowGames
 
   OPENS = 5
 
@@ -105,43 +144,11 @@ class TestSpotlightShowNow < Minitest::Test
   end
 
   # ...and so does the gap between frames, where the same working out runs: a loop that waits for
-  # the next frame inside itself makes all its passes.
+  # the next frame inside itself makes all its passes. (The console's own count of its turns and
+  # waits, read in the emulator, is in
+  # test/lowering/gba/vblank/dsl/test_spotlight_show_now_cartridge.rb.)
   def test_a_loop_waiting_for_frames_keeps_its_count_under_a_shaped_light
-    waiting = Builder.new
-    waiting.instance_eval do
-      screen :tiled
-      image(:white_tile, "#" => :white) { (["#" * 8] * 8).join("\n") }
-      tiles :set, "#" => :white_tile
-      background :room, tiles: :set, map: ["#" * 32] * 32
-      light = spotlight at: [120, 80], radius: 10, dark: 100
-      loops = var :shape_loops, 2
-      light.shape do |row|
-        steps = var :shape_steps, 0
-        repeat(loops) { steps.add! 1 }
-        light.circle(row) + steps - 2
-      end
-      waited = var :waited, 0
-      turns = var :turns, 0
-      game_loop do
-        turns.add! 1
-        repeat(3) do
-          light.radius.add! 5
-          waited.add! 1
-          wait_vblank
-        end
-        light.radius.set! 10
-      end
-    end
-    waiting.finalize_program
-    assert_backends_agree(waiting.program, frames: 2..8, name: "WAITLOOP")
-    return if VBlank::Testing.checked?
-
-    rom = assemble_rom(waiting.program, name: "WAITLOOP")
-    console = assert_emulator_loads_rom(rom, frames: 30, vars: rom.var_addresses)
-    turns = console.var(:turns)
-
-    assert_operator turns, :>=, 5, "the game made its turns"
-    assert_includes ((turns - 1) * 3)..(turns * 3), console.var(:waited), "three waits a turn, as the loop says"
+    assert_backends_agree(loop_waiting_under_a_shaped_light, frames: 2..8, name: "WAITLOOP")
   end
 
   # A scene that sees through a layer has the light off. The scene after it shows the light now

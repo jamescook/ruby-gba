@@ -66,12 +66,7 @@ module VBlank
           end
 
           def run(program, max_steps: nil, frames: nil)
-            if max_steps
-              raise HeadlessRun::CannotAnswer, "a Game Boy Color cartridge keeps no step budget, so it cannot run " \
-                                               "with max_steps"
-            end
-
-            frames ||= Reference::DEFAULT_FRAMES
+            frames ||= max_steps ? frames_within(program, max_steps) : Reference::DEFAULT_FRAMES
             refuse_endless_game_without_frames!(program)
             before = @save.dup # the interpreter starts from the save memory the cartridge started from
             @cartridge.run(program, frames: frames)
@@ -109,9 +104,19 @@ module VBlank
             return if program.walk.any? { |node| node.kind == :wait_vblank }
             return unless Reference.new(save: @save.dup).hold(*@held).run(program).stopped_at_budget?
 
-            raise HeadlessRun::CannotAnswer, "this game never waits for the screen, so it has no frames to count: the " \
-                                             "interpreter's step budget is all that stops it, and a Game Boy Color " \
-                                             "cartridge keeps no count of its steps"
+            raise RunComparison::AsksTheInterpreter, "its step budget to stop a game that never waits for the screen"
+          end
+
+          # A STEP BUDGET IS PLAYED AS THE FRAMES IT COVERS, as the native lowering's checked run
+          # plays it: the interpreter plays the game first with the test's buttons and stops at the
+          # frame boundary after the budget runs out, and the cartridge then plays that many frames.
+          # A game that spends the whole budget before it first waits has no frame to stop at.
+          def frames_within(program, max_steps)
+            lead = Reference.new(save: @save.dup).hold(*@held).input_each_frame { |frame| buttons_for(frame) }
+                            .run(program, max_steps: max_steps)
+            return lead.frame unless lead.frame.zero? && lead.stopped_at_budget?
+
+            raise RunComparison::AsksTheInterpreter, "its step budget to stop a game before it first waits for the screen"
           end
 
           # The interpreter is told how many frames each pass took on the cartridge, so whatever

@@ -136,11 +136,12 @@ class TestSuitesSplit < Minitest::Test
   def test_every_test_file_sits_in_a_folder_that_says_which_runs_load_it
     consoles = VBlank::Testing::Lowering::RUNS.map(&:console).uniq
     lowerings = VBlank::Testing::Lowering::NAMES
-    homes = [TestSuites::ALL_DIR, *consoles.map { |c| TestSuites.console_dir(c) },
+    homes = [TestSuites::ALL_DIR, TestSuites::INTERPRETER_DIR, *consoles.map { |c| TestSuites.console_dir(c) },
              *lowerings.map { |l| TestSuites.lowering_dir(l) }]
     stray = TestSuites.all_files(desktop: true).reject { |path| homes.any? { |home| path.start_with?("#{home}/") } }
 
-    assert_empty stray, "each test file goes in #{TestSuites::ALL_DIR}/, test/console/<console>/ or test/lowering/<lowering>/"
+    assert_empty stray, "each test file goes in #{TestSuites::ALL_DIR}/, #{TestSuites::INTERPRETER_DIR}/, " \
+                        "test/console/<console>/ or test/lowering/<lowering>/"
   end
 
   private

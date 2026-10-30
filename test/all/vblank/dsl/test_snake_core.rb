@@ -2,6 +2,36 @@
 
 require "test_helper"
 
+# The snake drawn from its lists, shared with the Advance cartridge's own test of it
+# (test/lowering/gba/vblank/dsl/test_snake_core_cartridge.rb).
+module SnakeCoreGames
+  # Cells (3,5),(4,5),(5,5) at grid 4 -> x = 12,16,20 ; y = 20. Vacated (2,5) -> x=8.
+  BODY_MARKS = { 12 => :green, 16 => :green, 20 => :green, 8 => :black }.freeze
+
+  # A 3-cell snake slid right once, then drawn a cell at a time from its two lists.
+  private def body_drawing_program
+    grid = 4
+    builder = VBlank::Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      xs = list :xs, capacity: 64
+      ys = list :ys, capacity: 64
+      [[2, 5], [3, 5], [4, 5]].each { |cx, cy| xs.push cx; ys.push cy }
+      # slide right once -> body [(3,5),(4,5),(5,5)]
+      set! :hx, xs.last + 1
+      xs.push :hx
+      ys.push 5
+      xs.shift
+      ys.shift
+      repeat(xs.length) { |i| draw_rect_at xs[i] * grid, ys[i] * grid, grid, grid, :green }
+      halt
+    end
+    builder.finalize_program
+    builder.program
+  end
+end
+
 # The Snake move/collision core — the focused integration test for the list
 # feature. It isn't the whole game (that's examples/snake.rb); it's the part that
 # leans on everything the `list` work delivered at once, written in the DSL a
@@ -13,10 +43,12 @@ require "test_helper"
 #   * the expression DSL to compute the new head and test a self-collision
 #     (xs[i] == head_x) & (ys[i] == head_y).
 #
-# The collision logic is checked on the reference interpreter (the oracle — the whole
-# point is that game logic is testable headlessly), and the same drawing stack is
-# checked on real hardware via the emulator, so the core is proven on both backends.
+# The collision logic is checked on every run (the whole point is that game logic is
+# testable headlessly), and the same drawing stack is checked on the Advance's cartridge
+# in test/lowering/gba/vblank/dsl/test_snake_core_cartridge.rb.
 class TestSnakeCore < Minitest::Test
+  include SnakeCoreGames
+
   # Build a snake whose body starts at +start_cells+ (an array of [x, y]) and then
   # walks +moves+ (an array of [dx, dy]). If +grow+ is true the body keeps every
   # cell (push only); otherwise it slides (push a head, shift the tail). Before
@@ -116,45 +148,14 @@ class TestSnakeCore < Minitest::Test
     assert_equal 6, result[:head_x], "the head advanced two steps"
   end
 
-  def test_the_body_draws_the_same_on_both_backends
-    # The list-driven draw loop (repeat over the body, draw each cell by index)
-    # must render identically headless and on the console. Slide a 3-cell snake
-    # right once, then draw it; assert the three cells are green and the vacated
-    # tail cell is background — on the interpreter AND in the emulator.
-    grid = 4
-    builder = Builder.new
-    builder.instance_eval do
-      screen :bitmap
-      clear_screen :black
-      xs = list :xs, capacity: 64
-      ys = list :ys, capacity: 64
-      [[2, 5], [3, 5], [4, 5]].each { |cx, cy| xs.push cx; ys.push cy }
-      # slide right once -> body [(3,5),(4,5),(5,5)]
-      set! :hx, xs.last + 1
-      xs.push :hx
-      ys.push 5
-      xs.shift
-      ys.shift
-      repeat(xs.length) { |i| draw_rect_at xs[i] * grid, ys[i] * grid, grid, grid, :green }
-      halt
-    end
-    builder.finalize_program
-    prog = builder.program
-
-    # cells (3,5),(4,5),(5,5) at grid 4 -> x = 12,16,20 ; y = 20. Vacated (2,5) -> x=8.
-    marks = { 12 => :green, 16 => :green, 20 => :green, 8 => :black }
-
-    screen = game_player.run(prog).screen
-    marks.each do |x, color|
+  # The list-driven draw loop (repeat over the body, draw each cell by index) must
+  # render the body where the lists say. Slide a 3-cell snake right once, then draw
+  # it; assert the three cells are green and the vacated tail cell is background.
+  def test_the_body_draws_where_the_lists_say
+    screen = game_player.run(body_drawing_program).screen
+    BODY_MARKS.each do |x, color|
       assert_equal Color.resolve(color), screen.pixel(x, 20),
-                   "interpreter: (#{x}, 20) should be #{color}"
-    end
-
-    rom = VBlank::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "SNAKE", code: "BSNK", maker: "01")
-    v = assert_emulator_loads_rom(rom)
-    marks.each do |x, color|
-      assert v.pixel_is?(x, 20, color),
-             "console: (#{x}, 20) should be #{color}, got 0x#{format('%04X', v.pixel_gba(x, 20))}"
+                   "the game: (#{x}, 20) should be #{color}"
     end
   end
 end

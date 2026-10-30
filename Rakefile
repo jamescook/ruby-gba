@@ -162,6 +162,14 @@ namespace :emitted do
   end
 end
 
+namespace :test do
+  desc "Tests kept out of test/all that pass, playing a game, on runs that do not load them " \
+       "(rake test:misplaced ONLY=test/console/gba RUNS=gbc,snes)"
+  task misplaced: :compile_emulator do
+    ruby "tools/misplaced_tests.rb"
+  end
+end
+
 namespace :speed do
   desc "How fast each example plays as Ruby, with no JIT, YJIT and ZJIT (rake speed:ruby ONLY=pong PICTURES=600; " \
        "GAMES=path.rb GAME_SETTINGS=name=value)"

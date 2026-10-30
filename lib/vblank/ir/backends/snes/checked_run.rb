@@ -52,12 +52,7 @@ module VBlank
           end
 
           def run(program, max_steps: nil, frames: nil)
-            if max_steps
-              raise HeadlessRun::CannotAnswer, "a Super Nintendo cartridge keeps no step budget, so it cannot run " \
-                                               "with max_steps"
-            end
-
-            frames ||= Reference::DEFAULT_FRAMES
+            frames ||= max_steps ? frames_within(program, max_steps) : Reference::DEFAULT_FRAMES
             refuse_endless_game_without_frames!(program)
             before = @save.dup # the interpreter starts from the save memory the cartridge started from
             @near = HeadlessRun.near_pictures?(program)
@@ -92,9 +87,16 @@ module VBlank
             return if program.walk.any? { |node| node.kind == :wait_vblank }
             return unless Reference.new(save: @save.dup).hold(*@held).run(program).stopped_at_budget?
 
-            raise HeadlessRun::CannotAnswer, "this game never waits for the screen, so it has no frames to count: the " \
-                                             "interpreter's step budget is all that stops it, and a Super Nintendo " \
-                                             "cartridge keeps no count of its steps"
+            raise RunComparison::AsksTheInterpreter, "its step budget to stop a game that never waits for the screen"
+          end
+
+          # A step budget is played as the frames it covers, as GBC::CheckedRun#frames_within plays it.
+          def frames_within(program, max_steps)
+            lead = Reference.new(save: @save.dup).hold(*@held).input_each_frame { |frame| buttons_for(frame) }
+                            .run(program, max_steps: max_steps)
+            return lead.frame unless lead.frame.zero? && lead.stopped_at_budget?
+
+            raise RunComparison::AsksTheInterpreter, "its step budget to stop a game before it first waits for the screen"
           end
 
           # The interpreter is told how many frames each pass took on the cartridge, so whatever keeps

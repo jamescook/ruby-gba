@@ -3,27 +3,18 @@
 require "test_helper"
 require "mixed_sound"
 
-# The tests of test_scores.rb whose games bring in recorded instruments for their songs to play,
-# which a Game Boy Color's hardware cannot play, so they play on the Advance's runs alone.
-class TestScoresOnTheAdvance < Minitest::Test
-  include MixedSound
-
+# The game these tests play and a song for it, kept once for this file and for the test of the
+# same songs on the Advance's cartridge
+# (test/lowering/gba/vblank/audio/test_scores_on_the_advance_cartridge.rb).
+module ScoresOnTheAdvanceGames
   Score = VBlank::Audio::Score
   Part = Score::Part
   Note = Score::Note
-  NOTES = VBlank::Audio::Music::NOTE_FREQUENCIES
-
-  # At 150 beats a minute and 24 ticks a beat, a tick is one frame — so a note's tick is the
-  # frame it sounds on, counted from the frame the song starts.
-  private def notes_every_ten_ticks(*keys, plays: nil, tempo: 150)
-    notes = keys.each_with_index.map { |key, n| Note.new(at: n * 10, key: key) }
-    Score.new(tempo: tempo, parts: [Part.new(plays: plays, notes: notes)])
-  end
 
   # A game that hands over +scores+, names one each pass with the block, and otherwise does
   # nothing. The block is handed the song list and how many passes have run.
   private def game(scores, &body)
-    b = Builder.new
+    b = VBlank::Builder.new
     b.instance_eval do
       screen :bitmap
       enable_sound
@@ -38,6 +29,39 @@ class TestScoresOnTheAdvance < Minitest::Test
     end
     b.finalize_program
     b.program
+  end
+
+  # One note held for the whole of a song twenty frames long.
+  private def held_note(plays: nil, **options)
+    Score.new(tempo: 150, length: 20, **options, parts: [Part.new(plays: plays, notes: [Note.new(at: 0, key: :C5)])])
+  end
+
+  # A held note in a song that plays once, with the music volume halved on pass 8 and put back
+  # on pass 40, after the song has ended.
+  private def volume_moved_on_a_song_played_once
+    game([held_note(plays_once: true)]) do |music, pass|
+      music.play 0
+      (pass == 8).then { music_volume 50 }
+      (pass == 40).then { music_volume 100 }
+    end
+  end
+end
+
+# The tests of test_scores.rb whose games bring in recorded instruments for their songs to play,
+# which a Game Boy Color's hardware cannot play, so they play on the Advance's runs alone. What
+# the Advance's cartridge itself sounds like is heard in
+# test/lowering/gba/vblank/audio/test_scores_on_the_advance_cartridge.rb.
+class TestScoresOnTheAdvance < Minitest::Test
+  include MixedSound
+  include ScoresOnTheAdvanceGames
+
+  NOTES = VBlank::Audio::Music::NOTE_FREQUENCIES
+
+  # At 150 beats a minute and 24 ticks a beat, a tick is one frame — so a note's tick is the
+  # frame it sounds on, counted from the frame the song starts.
+  private def notes_every_ten_ticks(*keys, plays: nil, tempo: 150)
+    notes = keys.each_with_index.map { |key, n| Note.new(at: n * 10, key: key) }
+    Score.new(tempo: tempo, parts: [Part.new(plays: plays, notes: notes)])
   end
 
   # Which notes sounded on which frame.
@@ -58,11 +82,6 @@ class TestScoresOnTheAdvance < Minitest::Test
   private def two_notes_once(**options)
     Score.new(tempo: 150, length: 20, plays_once: true, **options,
               parts: [Part.new(notes: [Note.new(at: 0, key: :C4), Note.new(at: 10, key: :E4)])])
-  end
-
-  # One note held for the whole of a song twenty frames long.
-  private def held_note(plays: nil, **options)
-    Score.new(tempo: 150, length: 20, **options, parts: [Part.new(plays: plays, notes: [Note.new(at: 0, key: :C5)])])
   end
 
   # A RECORDED NOTE CAN BE GIVEN A VOLUME WITH A FRACTION, for music whose engine works its
@@ -252,17 +271,9 @@ class TestScoresOnTheAdvance < Minitest::Test
   # The music volume reaches it like any song while it plays: halved on pass 8, the held note
   # is set again at half. Moved after the song has ended, it sets nothing, since nothing is held.
   def test_the_music_volume_reaches_a_song_that_plays_once_until_it_ends
-    program = game([held_note(plays_once: true)]) do |music, pass|
-      music.play 0
-      (pass == 8).then { music_volume 50 }
-      (pass == 40).then { music_volume 100 }
-    end
-    set = game_player.run(program, frames: 60).audio.select { |entry| entry[0] == :loudness }.map { |entry| entry.drop(1) }
+    set = game_player.run(volume_moved_on_a_song_played_once, frames: 60)
+                     .audio.select { |entry| entry[0] == :loudness }.map { |entry| entry.drop(1) }
     assert_equal [[1, 12], [1, 6]], set, "the first square voice, at the written 12 and then at half"
-
-    energy = assert_emulator_loads_rom(assemble_rom(program, name: "SCOREVOL"), frames: 60).audio_energy_by_frame
-    assert_operator energy[13..19].max, :<, energy[4..8].min, "quieter on the console too (#{energy.inspect})"
-    assert_operator energy[45..].max, :<, energy[13..19].min / 4, "and silent after the end (#{energy.inspect})"
   end
 
   def test_a_note_with_a_length_goes_quiet_when_it_runs_out

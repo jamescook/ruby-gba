@@ -631,13 +631,13 @@ class TestCLI < Minitest::Test
     end
   end
 
-  # `vblank run` on SDL's dummy drivers, skipped where SDL3 is not installed, with a settings file
+  # `vblank run` on SDL's dummy drivers, failing where SDL3 is not installed, with a settings file
   # of its own, so it plays the same whatever the person running the tests has chosen.
   private def run_in_dummy_window(dir, *args)
     drivers = { "SDL_VIDEODRIVER" => "dummy", "SDL_AUDIODRIVER" => "dummy", "RUBY_YJIT_ENABLE" => nil }
     args += ["--settings-file", File.join(dir, "settings.txt")] unless args.include?("--settings-file")
     out, status = Open3.capture2e(drivers, RUBY, BIN, "run", *args, chdir: dir)
-    skip out.lines.first.chomp if out.include?("cannot find SDL3")
+    flunk out.lines.first.chomp if out.include?("cannot find SDL3")
     [out, status]
   end
 

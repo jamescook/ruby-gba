@@ -2,20 +2,14 @@
 
 require "test_helper"
 
-# The tests of test_draw_column_at.rb whose games paint more colours into one 8×8 square of the
-# screen than a Game Boy Color's square holds — the bars alone are four, with the screen behind
-# them besides. So they play on the Advance's runs alone.
-class TestDrawColumnAtOnTheAdvance < Minitest::Test
-  include EmulatorSupport
-
+# The games these tests play, kept once for this file and for the test of the same games on the
+# Advance's cartridge (test/lowering/gba/vblank/builder/test_draw_column_at_on_the_advance_cartridge.rb).
+module DrawColumnAtOnTheAdvanceGames
   # Four rows, each its own color, so a stretch is readable row by row.
   BARS = %i[red red green green blue blue white white].freeze
-  NAMES = { VBlank::Graphics::Color.resolve(:red) => :red, VBlank::Graphics::Color.resolve(:green) => :green,
-            VBlank::Graphics::Color.resolve(:blue) => :blue, VBlank::Graphics::Color.resolve(:white) => :white,
-            0 => nil }.freeze
 
   private def program(&block)
-    b = Builder.new
+    b = VBlank::Builder.new
     b.instance_eval do
       screen :bitmap
       image :bars, width: 2, height: 4, data: BARS
@@ -24,6 +18,27 @@ class TestDrawColumnAtOnTheAdvance < Minitest::Test
     b.finalize_program
     b.program
   end
+
+  # Eight columns side by side, drawn in a loop.
+  private def columns_in_a_loop
+    program do
+      game_loop do
+        repeat(8) { |c| draw_column_at :bars, slice: 0, x: c, top: 0, height: 4 }
+      end
+    end
+  end
+end
+
+# The tests of test_draw_column_at.rb whose games paint more colours into one 8×8 square of the
+# screen than a Game Boy Color's square holds — the bars alone are four, with the screen behind
+# them besides. So they play on the Advance's runs alone. The same games on the Advance's
+# cartridge are in test/lowering/gba/vblank/builder/test_draw_column_at_on_the_advance_cartridge.rb.
+class TestDrawColumnAtOnTheAdvance < Minitest::Test
+  include DrawColumnAtOnTheAdvanceGames
+
+  NAMES = { VBlank::Graphics::Color.resolve(:red) => :red, VBlank::Graphics::Color.resolve(:green) => :green,
+            VBlank::Graphics::Color.resolve(:blue) => :blue, VBlank::Graphics::Color.resolve(:white) => :white,
+            0 => nil }.freeze
 
   private def column_on_screen(run, x, from, to)
     (from...to).map { |y| NAMES.fetch(run.screen.pixel(x, y), :other) }
@@ -93,21 +108,9 @@ class TestDrawColumnAtOnTheAdvance < Minitest::Test
   # and a stretched column needs them twice over — it works in them, and it calls the divide
   # routine to find its step. Undeclared, the first column drew and the loop then walked off.
   def test_columns_drawn_in_a_loop_all_arrive
-    prog = program do
-      game_loop do
-        repeat(8) { |c| draw_column_at :bars, slice: 0, x: c, top: 0, height: 4 }
-      end
-    end
-
-    interp = game_player.run(prog, frames: 2)
+    interp = game_player.run(columns_in_a_loop, frames: 2)
     drawn = (0...8).count { |x| interp.screen.pixel(x, 0) == VBlank::Graphics::Color.resolve(:red) }
-    assert_equal 8, drawn, "the interpreter should draw every column"
-
-    rom = ROM.assemble(GBA.new.lower(prog), title: "LOOP")
-    gba = assert_emulator_loads_rom(rom, frames: 4)
-    on_console = (0...8).count { |x| gba.pixel_gba(x, 0) == VBlank::Graphics::Color.resolve(:red) }
-
-    assert_equal 8, on_console, "the console should draw every column too"
+    assert_equal 8, drawn, "the game should draw every column"
   end
 
   # A depth record — what keeps a guard from showing through a wall — needs nothing new: a list
@@ -140,33 +143,6 @@ class TestDrawColumnAtOnTheAdvance < Minitest::Test
 
     assert_equal [true] * 4 + [false] * 4, seen,
                  "the thing shows over the far wall and is hidden by the near one"
-  end
-
-  # The two backends have to land every pixel in the same place, or the interpreter is no use
-  # for debugging a renderer built on this.
-  def test_the_console_draws_the_same_pixels_as_the_interpreter
-    prog = program do
-      tall = var :tall, 0
-      game_loop do
-        tall.set! 40
-        draw_column_at :bars, slice: 0, x: 10, top: 10, height: tall
-        draw_column_at :bars, slice: 1, x: 12, top: 10, height: 2
-        draw_column_at :bars, slice: 0, x: 14, top: 10, height: 0
-        draw_column_at :bars, slice: 0, x: 16, top: -8, height: 24
-        draw_column_at :bars, slice: 0, x: 18, top: 150, height: 40
-        draw_column_at :bars, slice: 9, x: 20, top: 10, height: 8
-      end
-    end
-
-    interp = game_player.run(prog, frames: 2)
-    rom = ROM.assemble(GBA.new.lower(prog), title: "COLUMN", code: "ACOL", maker: "01")
-    gba = assert_emulator_loads_rom(rom, frames: 4)
-
-    differ = (0...240).to_a.product((0...160).to_a).reject do |x, y|
-      interp.screen.pixel(x, y) == gba.pixel_gba(x, y)
-    end
-
-    assert_empty differ.first(8), "these pixels differ between the interpreter and the console"
   end
 
   # A STRIP IS ONE WALK. Its pixels all show the same picture column at the same height, so

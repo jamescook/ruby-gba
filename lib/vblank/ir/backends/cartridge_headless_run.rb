@@ -103,7 +103,7 @@ module VBlank
         # Plays +program+ for +frames+ frames — as many as the interpreter plays when it is not told
         # — or until it halts. Gives back self.
         def run(program, max_steps: nil, frames: nil)
-          raise CannotAnswer, "a #{kit.title} cartridge keeps no step budget, so it cannot run with max_steps" if max_steps
+          raise RunComparison::AsksTheInterpreter, "a step budget (`max_steps:`)" if max_steps
 
           @rom = kit.lowering.new.build(program, title: "CHECKED")
           @places = @rom.built
@@ -135,7 +135,11 @@ module VBlank
 
         # The rest of what the interpreter answers that no console's run can, each refused by name.
         refuses :peak_voices, :sound_drops, :sound_owners, :frame, :log, :screen_mode, :buffered, :volume_of,
-                :level_of, :frames_each_pass, :frames_setting_up, :write_save_copy, :write_save_vars
+                :level_of, :write_save_copy, :write_save_vars
+
+        # Two the interpreter is told rather than asked, and no console's run will ever take.
+        def frames_each_pass(&) = raise(RunComparison::AsksTheInterpreter, "for a pass to take several frames (`frames_each_pass`)")
+        def frames_setting_up(*) = raise(RunComparison::AsksTheInterpreter, "how many frames setting up takes (`frames_setting_up`)")
 
         private
 
@@ -169,8 +173,7 @@ module VBlank
         def refuse_power_cut!
           return unless @save.power_left
 
-          raise CannotAnswer, "a #{kit.title} cartridge keeps no count of its steps, so it cannot have its power " \
-                              "cut after #{@save.power_left} of them"
+          raise RunComparison::AsksTheInterpreter, "for the power to be cut after #{@save.power_left} steps"
         end
 
         # Pass by pass until +frames+ have ended or the game stops: each pass's numbers when the game

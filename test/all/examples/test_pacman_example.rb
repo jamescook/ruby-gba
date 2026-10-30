@@ -9,13 +9,11 @@ require VBlank.root.join("examples/pacman").to_s
 # The Pac-Man example (examples/pacman.rb): the tiled-mode flagship. Pac, the
 # pellets, and the ghost are HARDWARE sprites composited over a TILED room; Pac
 # faces the way he moves, eats pellets on contact, and the ghost chases him. Asserts
-# the whole stack renders and behaves — on the interpreter oracle and on real
-# hardware. (Facing correctness itself is pinned in test_hardware_sprite_facing.rb.)
+# the whole stack renders and behaves, on every run's player; the Advance's cartridge
+# read back in the emulator is in test/lowering/gba/examples/test_pacman_example_cartridge.rb.
+# (Facing correctness itself is pinned in test_hardware_sprite_facing.rb.)
 class TestPacmanExample < Minitest::Test
-  include VBlank::Console::Hardware
   include Differential
-
-  START_X, START_Y = Pacman::START
 
   # Is there a pixel of +color+ anywhere in the box (x0..x1, y0..y1)?
   private def any_pixel?(screen, color, x_range, y_range)
@@ -27,10 +25,6 @@ class TestPacmanExample < Minitest::Test
   private def program = Pacman::GAME.program(console: game_console)
   private def screen_size = VBlank::Console.described(game_console).screen_size
   private def layout = Pacman::Layout.new(width: screen_size[0], height: screen_size[1])
-
-  def test_it_builds_a_rom
-    assert_operator Pacman.build_rom(err: StringIO.new).size, :>, 0, "the built ROM should be non-empty"
-  end
 
   # Pac (yellow), a pellet (white), and the ghost (red) all render over the room —
   # three hardware sprites of different colors composited on the tiled background.
@@ -85,7 +79,7 @@ class TestPacmanExample < Minitest::Test
     assert_equal Color.resolve(:yellow), pac_centre(game_player.run(program, frames: blinked_back).screen)
   end
 
-  # --- Hardware (the emulator): it renders and steers on the console ---
+  # --- the whole picture, as the run's own player draws it ---
 
   def test_the_console_blinks_him_white_too
     oracle, console, = backend_pictures(program, frames: caught_and_white)
@@ -94,13 +88,6 @@ class TestPacmanExample < Minitest::Test
     assert_empty mismatched_pixels(oracle, console)
   end
 
-  def test_it_renders_and_steers_on_hardware
-    rom = ROM.assemble(GBA.new.lower(Pacman.program), title: "PACMAN", code: "BPAC", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 10, keys: KEY_LEFT)
-    moved = (40...START_X).any? { |x| (START_Y...START_Y + Pacman::SIZE).any? { |y| v.pixel_is?(x, y, :yellow) } }
-    assert moved, "Pac-Man should be found in yellow left of centre on hardware"
-    gx, gy = Pacman::GHOST_START
-    ghost_there = (gx...gx + Pacman::SIZE).any? { |x| (gy...gy + Pacman::SIZE).any? { |y| v.red?(x, y) } }
-    assert ghost_there, "the ghost should render on hardware"
-  end
+  # Building the cartridge, and Pac rendering and steering on it in the emulator, are in
+  # test/lowering/gba/examples/test_pacman_example_cartridge.rb.
 end

@@ -7,14 +7,17 @@ require "test_helper"
 # sprites can't do reliably), and can be hidden and shown. Asserted on the
 # interpreter oracle and on real hardware. Still no OAM, tile indices, or palette
 # banks in the game code.
-class TestHardwareSpritesMulti < Minitest::Test
-  include VBlank::Console::Hardware
+#
+# The same games on the Advance's cartridge, read in the emulator, are in
+# test/lowering/gba/vblank/dsl/test_hardware_sprites_multi_cartridge.rb.
 
-  FLOOR_MAP = Array.new(20, "#" * 30).freeze # a white floor filling the screen
+# The games both files play.
+module HardwareSpritesMultiGames
+  include SharedConstants
 
-  private def rom_for(program)
-    ROM.assemble(GBA.new.lower(program), title: "MULTISPR", code: "BMSP", maker: "01")
-  end
+  # A white floor filling the screen. Shareable, as a test class's constant is made for it, so a
+  # test in a Ractor can read it.
+  FLOOR_MAP = Ractor.make_shareable(Array.new(20, "#" * 30))
 
   # Two overlapping sprites: a red one declared first, a blue one declared second,
   # each a different color (so this also proves they share one palette without
@@ -37,20 +40,6 @@ class TestHardwareSpritesMulti < Minitest::Test
     end
     builder.finalize_program
     builder.program
-  end
-
-  def test_later_declared_sprite_draws_in_front_and_colors_do_not_clobber
-    screen = game_player.run(overlapping_pair).screen
-    assert_equal Color.resolve(:red),  screen.pixel(41, 41), "the red sprite keeps its own color"
-    assert_equal Color.resolve(:blue), screen.pixel(50, 50), "the blue sprite keeps its own color"
-    assert_equal Color.resolve(:blue), screen.pixel(46, 46), "the later sprite sits in front in the overlap"
-  end
-
-  def test_layering_and_shared_palette_on_the_console
-    v = assert_emulator_loads_rom(rom_for(overlapping_pair), frames: 3)
-    assert v.red?(41, 41),  "red renders, got 0x#{format('%04X', v.pixel_gba(41, 41))}"
-    assert v.blue?(50, 50), "blue renders, got 0x#{format('%04X', v.pixel_gba(50, 50))}"
-    assert v.blue?(46, 46), "the later sprite is in front, got 0x#{format('%04X', v.pixel_gba(46, 46))}"
   end
 
   # One red sprite over a white floor that flips visibility once, on frame 1. A
@@ -77,6 +66,18 @@ class TestHardwareSpritesMulti < Minitest::Test
     builder.finalize_program
     builder.program
   end
+end
+
+class TestHardwareSpritesMulti < Minitest::Test
+  include VBlank::Console::Hardware
+  include HardwareSpritesMultiGames
+
+  def test_later_declared_sprite_draws_in_front_and_colors_do_not_clobber
+    screen = game_player.run(overlapping_pair).screen
+    assert_equal Color.resolve(:red),  screen.pixel(41, 41), "the red sprite keeps its own color"
+    assert_equal Color.resolve(:blue), screen.pixel(50, 50), "the blue sprite keeps its own color"
+    assert_equal Color.resolve(:blue), screen.pixel(46, 46), "the later sprite sits in front in the overlap"
+  end
 
   private def spot_color(program)
     game_player.run(program).screen.pixel(44, 44)
@@ -94,13 +95,5 @@ class TestHardwareSpritesMulti < Minitest::Test
                  "a shown: false sprite starts invisible"
     assert_equal Color.resolve(:red),   spot_color(visibility_program(shown: false, frames: 4)),
                  "after show, the sprite appears"
-  end
-
-  def test_hide_and_show_on_the_console
-    hidden = assert_emulator_loads_rom(rom_for(visibility_program(shown: true, frames: 4)), frames: 6)
-    assert hidden.white?(44, 44), "a hidden sprite shows the floor, got 0x#{format('%04X', hidden.pixel_gba(44, 44))}"
-
-    shown = assert_emulator_loads_rom(rom_for(visibility_program(shown: false, frames: 4)), frames: 6)
-    assert shown.red?(44, 44), "a shown sprite appears, got 0x#{format('%04X', shown.pixel_gba(44, 44))}"
   end
 end

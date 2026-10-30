@@ -61,8 +61,6 @@ class TestTestTask < Minitest::Test
   # Plays a run of +lowering+ over one file that writes down whether YJIT is on in the Ruby
   # playing it. +ruby_options+ stands for whatever YJIT switch the caller's RUBYOPT has.
   private def yjit_in_a_run_of(lowering, test_options:, ruby_options: nil)
-    skip "This Ruby is built without YJIT." unless defined?(RubyVM::YJIT)
-
     Dir.mktmpdir do |dir|
       record = File.join(dir, "yjit")
       probe = File.join(dir, "probe.rb")

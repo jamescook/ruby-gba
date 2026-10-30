@@ -5,7 +5,11 @@ require "test_helper"
 # A TEST WRITES A save_var's NUMBER INTO SAVE MEMORY, so a game starts with a high score it
 # chose rather than being played until it reaches one. The game's own code writes it, so the
 # game reads it back as its own.
-class TestSaveVarsInto < Minitest::Test
+#
+# The Advance's cartridge starting from a written save_var, read in the emulator, is in
+# test/lowering/gba/vblank/ir/backends/reference/test_save_vars_into_cartridge.rb, which plays
+# the game kept here in SaveVarsIntoGames.
+module SaveVarsIntoGames
   # A best score and a count of games played, both kept through power-off. A raises the best
   # to 50.
   private def scores_game(save_memory: nil)
@@ -17,6 +21,10 @@ class TestSaveVarsInto < Minitest::Test
     end
     save_memory ? VBlank.game("SAVEVARS", consoles: %i[gba], save_memory: save_memory, &block) : VBlank.game("SAVEVARS", consoles: %i[gba], &block)
   end
+end
+
+class TestSaveVarsInto < Minitest::Test
+  include SaveVarsIntoGames
 
   private def scores(save_memory: nil) = scores_game(save_memory: save_memory).program
 
@@ -30,26 +38,6 @@ class TestSaveVarsInto < Minitest::Test
 
     assert_equal 9999, run[:best]
     assert_equal 0, run[:played], "a save_var the test leaves out starts at its default"
-  end
-
-  # --- the console starts from a written save_var too ---
-
-  private def console_best(save_memory: nil)
-    game = scores_game(save_memory: save_memory)
-    rom = game.build_rom(out: nil, err: nil, profile: false)
-    [1234, 9999].map do |best|
-      image = Reference.save_vars_into(SaveImage.new, game.program, best: best, played: 7)
-      v = assert_emulator_loads_rom(rom, frames: 6, save: image, vars: rom.var_addresses)
-      [v.var(:best), v.var(:played)]
-    end
-  end
-
-  def test_the_console_starts_from_a_written_save_var
-    assert_equal [[1234, 7], [9999, 7]], console_best
-  end
-
-  def test_the_console_starts_from_a_written_save_var_on_flash
-    assert_equal [[1234, 7], [9999, 7]], console_best(save_memory: 64)
   end
 
   # --- what a test cannot write ---

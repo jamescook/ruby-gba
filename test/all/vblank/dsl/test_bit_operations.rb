@@ -2,20 +2,13 @@
 
 require "test_helper"
 
-# Reading and writing the bits of a number: `& | ^ ~ << >>` on a Value.
-#
-# What these are FOR is packed data — a background map cell, a row of a collision
-# shape, a word of state flags — so the tests are written as that: a real packed
-# format taken apart and put back together, checked against a plain-Ruby model of
-# the same thing. A test that restated the operator ("x & 3 is x & 3") would pass
-# on a backend that had them all subtly wrong together.
-#
-# Every program here runs on BOTH backends and both must agree with Ruby's answer.
-# The two could differ in exactly the places the model can't see — a mask too big to
-# ride inside an instruction, a shift count worked out as the game runs, a count past
-# the end of the number — so those are what the programs are built out of.
-class TestBitOperations < Minitest::Test
-  Int32 = VBlank::IR::Int32
+# The programs these tests compute, each with the answers Ruby gives for it, shared with the
+# Advance's cartridge's tests (test/lowering/gba/vblank/dsl/test_bit_operations_cartridge.rb). A
+# case is [expected, program block]: the variables it must end with, and the game that works
+# them out.
+module BitOperationsCases
+  include SharedConstants
+
   B = VBlank::IR::Build
 
   # A 16x16 solidity shape: one bit per pixel, sixteen 16-bit rows, the top bit of a
@@ -27,15 +20,11 @@ class TestBitOperations < Minitest::Test
   # bits, then flip-across and flip-down, then which group of colours it draws from.
   CELL = (3 << 12) | (1 << 11) | (0 << 10) | 0x123
 
-  # ---------------------------------------------------------------------------
-  # what a program COMPUTES, on both backends
-  # ---------------------------------------------------------------------------
-
   # Walk every pixel of a collision shape and ask whether it is solid — the thing a
   # game does four times per moving thing per frame, and the reason this feature
   # exists. Counting the solid ones catches a wrong mask; adding up where they are
   # catches bits read in the wrong order, which a count alone would not.
-  def test_reading_one_bit_per_pixel_out_of_a_collision_shape
+  private def collision_shape_case
     want_solid = 0
     want_where = 0
     256.times do |i|
@@ -45,7 +34,7 @@ class TestBitOperations < Minitest::Test
       want_where += i
     end
 
-    assert_both_backends_compute(solid: want_solid, where: want_where) do
+    game = proc do
       screen :bitmap
       shape = table :shape, SHAPE, width: :half
       solid = var :solid, 0
@@ -60,19 +49,20 @@ class TestBitOperations < Minitest::Test
       end
       halt
     end
+    [{ solid: want_solid, where: want_where }, game]
   end
 
   # Take a packed map cell apart into its four fields and build the same cell back up
   # from them. Every field but the first needs a shift AND a mask, and the tile number
   # needs a mask too big to ride inside an instruction — so this is the one that would
   # catch a backend that only handled small masks.
-  def test_a_packed_map_cell_comes_apart_and_goes_back_together
+  private def packed_cell_case
     expected = {
       tile: CELL & 0x3FF, across: (CELL >> 10) & 1, down: (CELL >> 11) & 1,
       bank: (CELL >> 12) & 15, rebuilt: CELL,
     }
 
-    assert_both_backends_compute(expected) do
+    game = proc do
       screen :bitmap
       cell = var :cell, CELL
       tile = var :tile, 0
@@ -88,19 +78,20 @@ class TestBitOperations < Minitest::Test
       rebuilt.set!((bank << 12) | (down << 11) | (across << 10) | tile)
       halt
     end
+    [expected, game]
   end
 
   # Flags packed into one word: set one, clear one, turn one over, and test two that
   # are not next to each other. That last is the case with no arithmetic form at all —
   # no amount of dividing and wrapping can ask about bits 2 and 7 in one go.
-  def test_setting_clearing_and_testing_flags_in_one_word
+  private def flags_case
     hurt = 0x04
     armed = 0x80
     packed = hurt | armed | 0x01
 
     expected = { flags: (packed & ~hurt) ^ 0x01, both: hurt | armed, cleared: packed & ~hurt }
 
-    assert_both_backends_compute(expected) do
+    game = proc do
       screen :bitmap
       flags = var :flags, 0
       both = var :both, 0
@@ -116,19 +107,20 @@ class TestBitOperations < Minitest::Test
       flags.set! flags ^ 0x01           # turn one over
       halt
     end
+    [expected, game]
   end
 
   # The ends of the range, where the chip and Ruby have different instincts and the
   # two backends could quietly disagree. A count of 32 or more empties the number, and
   # so does a negative count — it does NOT turn round and shift the other way, which is
   # what Ruby itself would do with one.
-  def test_a_shift_past_the_end_of_the_number_empties_it
+  private def shift_past_end_case
     expected = {
       up_far: 0, down_far: -1, up_back: 0, down_back: 0,
       down_negative: -4, up_round: 0, down_round: -1,
     }
 
-    assert_both_backends_compute(expected) do
+    game = proc do
       screen :bitmap
       far = var :far, 40
       back = var :back, -1
@@ -156,13 +148,15 @@ class TestBitOperations < Minitest::Test
       set! :down_round, low >> round
       halt
     end
+    [expected, game]
   end
 
   # The same rule with the count WRITTEN DOWN. The DSL turns that away (a count nobody
   # can have meant — see below), so this goes through the IR directly: a backend has to
   # honour the contract for any tree it is handed, whatever the surface happens to
   # allow, and the build settles a written-down count instead of emitting a shift.
-  def test_a_written_down_count_past_the_end_is_settled_by_the_build
+  # [expected, program].
+  private def written_down_count_case
     program = B.program(
       B.screen(:bitmap),
       B.set(:up, B.binop(:<<, B.int(1), B.int(40))),            # 0 — off the top end
@@ -170,15 +164,63 @@ class TestBitOperations < Minitest::Test
       B.set(:down_positive, B.binop(:>>, B.int(255), B.int(-1))), # 0 — a negative count
       B.halt,
     )
-    expected = { up: 0, down: -1, down_positive: 0 }
+    [{ up: 0, down: -1, down_positive: 0 }, program]
+  end
+
+  private def build_program(&block)
+    builder = Builder.new
+    builder.instance_eval(&block)
+    builder.finalize_program
+    builder.program
+  end
+end
+
+# Reading and writing the bits of a number: `& | ^ ~ << >>` on a Value.
+#
+# What these are FOR is packed data — a background map cell, a row of a collision
+# shape, a word of state flags — so the tests are written as that: a real packed
+# format taken apart and put back together, checked against a plain-Ruby model of
+# the same thing. A test that restated the operator ("x & 3 is x & 3") would pass
+# on a backend that had them all subtly wrong together.
+#
+# Every program here runs on every run and must agree with Ruby's answer, and the Advance's
+# cartridge is held to the same answers in
+# test/lowering/gba/vblank/dsl/test_bit_operations_cartridge.rb. The two could differ in
+# exactly the places the model can't see — a mask too big to ride inside an instruction, a
+# shift count worked out as the game runs, a count past the end of the number — so those are
+# what the programs are built out of.
+class TestBitOperations < Minitest::Test
+  include BitOperationsCases
+
+  # ---------------------------------------------------------------------------
+  # what a program COMPUTES (the programs are in BitOperationsCases, above)
+  # ---------------------------------------------------------------------------
+
+  def test_reading_one_bit_per_pixel_out_of_a_collision_shape
+    expected, game = collision_shape_case
+    assert_computes(expected, &game)
+  end
+
+  def test_a_packed_map_cell_comes_apart_and_goes_back_together
+    expected, game = packed_cell_case
+    assert_computes(expected, &game)
+  end
+
+  def test_setting_clearing_and_testing_flags_in_one_word
+    expected, game = flags_case
+    assert_computes(expected, &game)
+  end
+
+  def test_a_shift_past_the_end_of_the_number_empties_it
+    expected, game = shift_past_end_case
+    assert_computes(expected, &game)
+  end
+
+  def test_a_written_down_count_past_the_end_is_settled_by_the_build
+    expected, program = written_down_count_case
 
     interpreter = game_player.run(program)
     expected.each { |name, want| assert_equal want, interpreter[name], "the interpreter's #{name}" }
-
-    backend = GBA.new
-    rom = ROM.assemble(backend.lower(program), title: "BITEDGE", code: "BBTE", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 3, vars: backend.var_addresses)
-    expected.each { |name, want| assert_equal want, Int32.wrap(v.var(name)), "the console's #{name}" }
   end
 
   # A count written into the program that throws the whole number away is a mistake the
@@ -222,15 +264,6 @@ class TestBitOperations < Minitest::Test
       set! :xored, 0xFF ^ value
       halt
     end
-  end
-
-  # ...and costs the same either way round, which it would not if the build put both
-  # sides through the stack just because the number was written first.
-  def test_a_number_on_the_left_costs_what_it_costs_on_the_right
-    left = emitted { |value| set! :masked, 0x0F & value }
-    right = emitted { |value| set! :masked, value & 0x0F }
-
-    assert_equal right, left, "a mask written on the left emitted more code than the same mask on the right"
   end
 
   # Ruby routes `& | ^` through #coerce and does not route `<< >>` that way, so the
@@ -300,25 +333,6 @@ class TestBitOperations < Minitest::Test
 
   private
 
-  # How many bytes of code one expression came out as. The block is handed a variable
-  # to work on, so only the expression differs between two of these.
-  def emitted(&shape)
-    program = build_program do
-      screen :bitmap
-      value = var :value, 0x3C
-      var :masked, 0
-      instance_exec(value, &shape)
-      halt
-    end
-    GBA.new.lower(program).bytesize
-  end
-
-  def build_program(&block)
-    builder = Builder.new
-    builder.instance_eval(&block)
-    builder.finalize_program
-    builder.program
-  end
 
   # Run one program through the reference interpreter and assert each named variable.
   def assert_computes(expected, &block)
@@ -327,20 +341,5 @@ class TestBitOperations < Minitest::Test
       assert_equal want, interpreter[name], "the interpreter's #{name}"
     end
     interpreter
-  end
-
-  # ...and then through the real console, which is where a lowering that took a
-  # shortcut shows up. The console hands a variable back as a plain 32 bits, so it is
-  # read as a signed number before the two are compared.
-  def assert_both_backends_compute(expected, &block)
-    assert_computes(expected, &block)
-
-    program = build_program(&block)
-    backend = GBA.new
-    rom = ROM.assemble(backend.lower(program), title: "BITOPS", code: "BBIT", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 3, vars: backend.var_addresses)
-    expected.each do |name, want|
-      assert_equal want, Int32.wrap(v.var(name)), "the console's #{name}"
-    end
   end
 end

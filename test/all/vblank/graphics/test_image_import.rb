@@ -2,6 +2,47 @@
 
 require "test_helper"
 
+# The fixtures and the games that import them, kept once for this file and for the tests of the
+# same games on the Advance's cartridge (test/lowering/gba/vblank/graphics/test_image_import_cartridge.rb).
+module ImageImportGames
+  FIXTURES = VBlank.root.join("test/fixtures").to_s.freeze
+  # The 2x2 fixture is red / green / blue / white, row-major (top-left first).
+  TWO_BY_TWO = File.join(FIXTURES, "import_2x2.png").freeze
+  # A 2x2 with an alpha channel: opaque red/green on top, transparent bottom row.
+  ALPHA_2X2  = File.join(FIXTURES, "import_alpha_2x2.png").freeze
+
+  # ---- the whole path: import -> embed -> blit ------------------------------
+
+  private def photo_program(x, y)
+    fixture = TWO_BY_TWO
+    builder = VBlank::Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      image :photo, from: fixture, width: 2, height: 2 # imported and embedded
+      blit :photo, x, y
+      halt
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # Import the alpha fixture as transparent over a solid blue field.
+  private def cutout_program(x, y)
+    fixture = ALPHA_2X2
+    builder = VBlank::Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      clear_screen :blue
+      image :head, from: fixture, width: 2, height: 2, transparent: true
+      blit :head, x, y
+      halt
+    end
+    builder.finalize_program
+    builder.program
+  end
+end
+
 # The image importer (VBlank::Graphics::Image): turn a real image file on the host machine
 # into GBA-ready pixels, behind a swappable adapter.
 #
@@ -13,17 +54,16 @@ require "test_helper"
 # The ImageMagick tests do NOT skip when the tool is missing — importing is the
 # whole point of the feature, so its absence is a real failure with a message
 # that names the install (not a silent green run).
+#
+# The whole path on the Advance's cartridge — import, embed, blit, read back in the emulator — is
+# in test/lowering/gba/vblank/graphics/test_image_import_cartridge.rb.
 class TestImageImport < Minitest::Test
   include VBlank::IR::Build
+  include ImageImportGames
 
   Image = VBlank::Graphics::Image
 
-  FIXTURES = VBlank.root.join("test/fixtures").to_s
-  # The 2x2 fixture is red / green / blue / white, row-major (top-left first).
-  TWO_BY_TWO = File.join(FIXTURES, "import_2x2.png")
   SOLID_RED  = File.join(FIXTURES, "import_solid_red_4x4.png")
-  # A 2x2 with an alpha channel: opaque red/green on top, transparent bottom row.
-  ALPHA_2X2  = File.join(FIXTURES, "import_alpha_2x2.png")
   EXPECTED   = [0x001F, 0x03E0, 0x7C00, 0x7FFF].freeze # red, green, blue, white
   MARKER     = VBlank::Graphics::Image::TRANSPARENT             # 0x8000, the see-through marker
 
@@ -139,53 +179,11 @@ class TestImageImport < Minitest::Test
     assert_equal MARKER, bmp.transparent
   end
 
-  # ---- the whole path: import -> embed -> blit ------------------------------
-
-  private def photo_program(x, y)
-    fixture = TWO_BY_TWO
-    builder = VBlank::Builder.new
-    builder.instance_eval do
-      screen :bitmap
-      clear_screen :black
-      image :photo, from: fixture, width: 2, height: 2 # imported and embedded
-      blit :photo, x, y
-      halt
-    end
-    builder.finalize_program
-    builder.program
-  end
-
-  def test_imported_image_draws_on_hardware
-    rom = VBlank::Cartridge::ROM.assemble(
-      VBlank::IR::Backends::GBA.new.lower(photo_program(10, 20)),
-      title: "PHOTO", code: "BPHT", maker: "01",
-    )
-    v = assert_emulator_loads_rom(rom)
-    assert v.red?(10, 20),   "top-left red"
-    assert v.green?(11, 20), "top-right green"
-    assert v.blue?(10, 21),  "bottom-left blue"
-    assert v.white?(11, 21), "bottom-right white"
-  end
-
   # ---- the whole path for a CUTOUT: the background shows through -------------
 
   # Import the alpha fixture as transparent over a solid blue field. The opaque
   # top row draws; the transparent bottom row must let the blue show through —
   # proving it's a see-through cutout, not a rectangle.
-  private def cutout_program(x, y)
-    fixture = ALPHA_2X2
-    builder = VBlank::Builder.new
-    builder.instance_eval do
-      screen :bitmap
-      clear_screen :blue
-      image :head, from: fixture, width: 2, height: 2, transparent: true
-      blit :head, x, y
-      halt
-    end
-    builder.finalize_program
-    builder.program
-  end
-
   def test_cutout_shows_background_through_transparent_pixels_on_the_interpreter
     screen = game_player.run(cutout_program(10, 20)).screen
 
@@ -193,17 +191,5 @@ class TestImageImport < Minitest::Test
     assert_equal Color.resolve(:green), screen.pixel(11, 20), "opaque top-right"
     assert_equal Color.resolve(:blue),  screen.pixel(10, 21), "transparent -> field shows"
     assert_equal Color.resolve(:blue),  screen.pixel(11, 21), "transparent -> field shows"
-  end
-
-  def test_cutout_shows_background_through_transparent_pixels_on_hardware
-    rom = VBlank::Cartridge::ROM.assemble(
-      VBlank::IR::Backends::GBA.new.lower(cutout_program(10, 20)),
-      title: "CUTOUT", code: "BCUT", maker: "01",
-    )
-    v = assert_emulator_loads_rom(rom)
-    assert v.red?(10, 20),   "opaque top-left"
-    assert v.green?(11, 20), "opaque top-right"
-    assert v.blue?(10, 21),  "transparent -> field shows"
-    assert v.blue?(11, 21),  "transparent -> field shows"
   end
 end

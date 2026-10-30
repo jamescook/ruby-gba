@@ -7,9 +7,12 @@ require "first_pass_presses"
 # being played until it saves one. The copy is the one the game itself would have written,
 # so the game treats it the same as its own: good, read by peek and load, saved over, erased
 # and copied like any other.
-class TestSaveInto < Minitest::Test
-  include FirstPassPresses
+#
+# The Advance's cartridge starting from a written copy, read in the emulator, is in
+# test/lowering/gba/vblank/ir/backends/reference/test_save_into_cartridge.rb.
 
+# The game both files write saves for.
+module SaveIntoGames
   private def built(save_memory: nil, &block)
     save_memory ? VBlank.game("PUTSAVE", consoles: %i[gba], save_memory: save_memory, &block) : VBlank.game("PUTSAVE", consoles: %i[gba], &block)
   end
@@ -46,6 +49,11 @@ class TestSaveInto < Minitest::Test
       end
     end
   end
+end
+
+class TestSaveInto < Minitest::Test
+  include FirstPassPresses
+  include SaveIntoGames
 
   private def boot(program, image, pressing: {}, frames: 3)
     game_player(save: image).input_each_frame(&presses_from_first_pass(pressing)).run(program, frames: frames)
@@ -154,30 +162,6 @@ class TestSaveInto < Minitest::Test
     run = boot(program, image)
 
     assert_equal [9, 0.25 * (1 << 16)], [run[:hearts], run[:volume]]
-  end
-
-  # --- the console starts from a written copy too ---
-
-  # The cartridge built from the same game, booted on each image: the copy is good, and the
-  # game loads what was written. Nothing is rebuilt between the two.
-  private def console_starts_from(save_memory: nil)
-    game = files_game(save_memory: save_memory)
-    rom = game.build_rom(out: nil, err: nil, profile: false)
-    [3, 15].map do |hearts|
-      image = Reference.save_into(SaveImage.new, game.program, :file, 0, hearts: hearts, name: [1, 2, 3])
-      Reference.save_into(image, game.program, :file, 1, hearts: hearts + 1)
-      v = assert_emulator_loads_rom(rom, frames: 6, save: image, vars: rom.var_addresses)
-      [v.var(:first_good), v.var(:hearts), v.var(:second_hearts)]
-    end
-  end
-
-  # Copy 0 loaded, and copy 1 peeked at without loading it.
-  def test_the_console_starts_from_a_written_copy
-    assert_equal [[1, 3, 4], [1, 15, 16]], console_starts_from
-  end
-
-  def test_the_console_starts_from_a_written_copy_on_flash
-    assert_equal [[1, 3, 4], [1, 15, 16]], console_starts_from(save_memory: 64)
   end
 
   # The random numbers a record keeps are written like a variable, and loaded back.

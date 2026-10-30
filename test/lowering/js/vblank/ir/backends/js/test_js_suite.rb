@@ -18,11 +18,11 @@ class TestJSSuite < Minitest::Test
     assert_kind_of VBlank::Testing::JSCheckedPlayer, game_player
   end
 
-  # A file of tests about the game keeps its tests of the cartridge, which skip themselves here.
-  def test_a_test_of_the_cartridge_skips_itself_on_a_js_run_and_says_why
-    skipped = assert_raises(Minitest::Skip) { require_emulator! }
+  # A test of the Advance's cartridge belongs in test/lowering/gba/; reached here, it fails saying so.
+  def test_a_test_of_the_cartridge_fails_on_a_js_run_and_says_where_it_goes
+    failed = assert_raises(Minitest::Assertion) { require_emulator! }
 
-    assert_match(/emulator/, skipped.message)
+    assert_match(%r{test/lowering/gba/}, failed.message)
   end
 
   # A test that asks whether the console draws what the interpreter draws has no console to ask

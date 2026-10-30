@@ -68,33 +68,6 @@ class TestMusicVolumeOnTheAdvance < Minitest::Test
     heard
   end
 
-  # --- fading the music out and back in ---
-
-  # The volume the console's first square voice was set to, frame by frame, with a run of the
-  # same volume counted once.
-  private def console_volumes(rom, frames:)
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "volumes.gba")
-      rom.write(path)
-      probe = VBlank::Diagnostics::Emulator.probe(path)
-      volumes = Array.new(frames) do
-        probe.step(1)
-        (probe.read32(VBlank::Console::Hardware::REG_SOUND1CNT_H) >> 12) & 0xF
-      end
-      probe.close
-      volumes.chunk_while { |a, b| a == b }.map(&:first).drop_while(&:zero?)
-    end
-  end
-
-  # --- guardrails ---
-
-  private def warnings(&block)
-    b = Builder.new
-    b.instance_eval(&block)
-    b.finalize_program
-    VBlank::IR::Guardrails::Validator.new.run(b.program, autofix: false).warnings.map(&:check)
-  end
-
   # --- a part that plays a recording ---
 
   # A recorded part sounds on a voice of the mixer, whose loudness runs 0..512 rather than 0..15 —
@@ -118,33 +91,4 @@ class TestMusicVolumeOnTheAdvance < Minitest::Test
     assert_operator peaks[5..15].min, :>, 0, "the note sounds at its own volume (#{peaks.inspect})"
     assert_equal [0], peaks[25..].uniq, "and is silent once the music volume is 0 (#{peaks.inspect})"
   end
-
-  # --- a part on the noise voice ---
-
-  # A drum part: a hit every second, at volume 12.
-  private def drum_game(&body)
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      enable_sound
-      song :drums do
-        tempo 60
-        voice(:kit, plays: :noise) do
-          volume 12
-          4.times { note :C4, :quarter }
-        end
-      end
-      pass = var :pass, 0
-      game_loop do
-        pass.add! 1
-        play_song :drums
-        instance_exec(pass, &body)
-      end
-    end
-    b.finalize_program
-    b.program
-  end
-
-  # --- a part on the wave voice ---
-
 end

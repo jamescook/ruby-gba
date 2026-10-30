@@ -4,7 +4,8 @@ require "test_helper"
 
 # A font is a named collection of glyphs plus metrics; the Fonts registry hands out
 # fonts by name and a draw picks one. These cover the default 5x7 font's glyph data
-# and layout, and the registry / a second font.
+# and layout, and the registry / a second font. Text drawn into the Advance's cartridge is in
+# test/lowering/gba/vblank/graphics/test_font_cartridge.rb.
 class TestFont < Minitest::Test
   # Registers into the library itself, which changes the whole process — so on the
   # main Ractor, not in the pool. See test_helper.
@@ -95,31 +96,5 @@ class TestFont < Minitest::Test
     assert_equal 5, tiny.height
     assert_operator tiny.text_width("42"), :<, F.text_width("42")     # narrower
     assert_operator tiny.text_pixels("8"), :<, F.text_pixels("8")     # fewer lit pixels
-  end
-
-  # ---- draw_text through the builder ----
-
-  private def build(validate: false, &block)
-    VBlank.build("FONTEST", console: :gba, code: "BFNT", maker: "01", validate: validate, &block)
-  end
-
-  def test_draw_text_builds_and_emits_pixels
-    rom = build do
-      screen :bitmap
-      draw_text "I", 0, 0, :white
-      halt
-    end
-    assert_operator rom.size, :>, 0
-  end
-
-  def test_draw_text_runs_in_mgba
-    rom = build do
-      screen :bitmap
-      clear_screen :black
-      draw_text "PONG", 96, 40, :white
-      draw_text "PRESS START", 64, 100, :gray
-      halt
-    end
-    assert_emulator_loads_rom(rom, frames: 5)
   end
 end

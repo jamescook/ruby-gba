@@ -10,19 +10,11 @@ require "test_helper"
 # The scene machinery it rides on already exists (scene + case_var + a state variable);
 # this adds that a scene's declared sprites/HUD are scoped to it. Here a :playing scene
 # owns a red block and a :over scene owns a blue block; only the active scene's block
-# shows, on the interpreter oracle and on the console.
-class TestScenePresentation < Minitest::Test
-  include VBlank::Console::Hardware
-
-  RED = Color.resolve(:red)
-  BLUE = Color.resolve(:blue)
-  WHITE = Color.resolve(:white)
-
-  # Is there a white pixel anywhere in a small box — for finding a HUD glyph without
-  # pinning the font's exact pixels.
-  private def white_in?(screen, x, y, w, h)
-    (y...y + h).any? { |py| (x...x + w).any? { |px| screen.pixel(px, py) == WHITE } }
-  end
+# shows. On the Advance's cartridge, read in the emulator, that is in
+# test/lowering/gba/vblank/test_scene_presentation_cartridge.rb, which plays the game kept here
+# in ScenePresentationGames.
+module ScenePresentationGames
+  include SharedConstants # Builder, which the game below names from inside the module
 
   # A :playing scene owning a red block (top-left), a :over scene owning a blue block
   # (lower-right); START switches playing -> over. Tiled throughout — one display mode.
@@ -54,6 +46,20 @@ class TestScenePresentation < Minitest::Test
     b.finalize_program
     b.program
   end
+end
+
+class TestScenePresentation < Minitest::Test
+  include ScenePresentationGames
+
+  RED = Color.resolve(:red)
+  BLUE = Color.resolve(:blue)
+  WHITE = Color.resolve(:white)
+
+  # Is there a white pixel anywhere in a small box — for finding a HUD glyph without
+  # pinning the font's exact pixels.
+  private def white_in?(screen, x, y, w, h)
+    (y...y + h).any? { |py| (x...x + w).any? { |px| screen.pixel(px, py) == WHITE } }
+  end
 
   # The oracle: while :playing is active only its red block shows; the :over scene's blue
   # block is hidden even though it's declared, because :over isn't the active scene.
@@ -80,19 +86,5 @@ class TestScenePresentation < Minitest::Test
 
     over = game_player.input_each_frame { |_f| [:start] }.run(two_scene_program)
     assert white_in?(over.screen, 58, 58, 24, 12), "the over banner shows once :over is active"
-  end
-
-  # The same scene-gated presentation renders on the console: the red block on the title
-  # scene, the blue block after START — proof the GBA lowering honors the scene gate for
-  # free (it rides the object's existing per-frame `active` value).
-  def test_it_renders_each_scene_on_the_console
-    rom = assemble_rom(two_scene_program, name: "SCN")
-
-    title = assert_emulator_loads_rom(rom, frames: 4) # no input: :playing
-    assert title.pixel_is?(43, 43, :red), "playing block, got 0x#{format('%04X', title.pixel_gba(43, 43))}"
-    refute title.pixel_is?(103, 103, :blue), "over block should be hidden on :playing"
-
-    switched = assert_emulator_loads_rom(rom, frames: 6, keys: KEY_START)
-    assert switched.pixel_is?(103, 103, :blue), "over block, got 0x#{format('%04X', switched.pixel_gba(103, 103))}"
   end
 end

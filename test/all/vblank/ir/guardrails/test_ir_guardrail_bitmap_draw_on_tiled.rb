@@ -4,21 +4,10 @@ require "test_helper"
 
 require "stringio"
 
-# A drawing call the tiled screen can never show, inside a game that is otherwise
-# a working tiled game.
-#
-# `fill_rect` writes pixels into the bitmap framebuffer. The tiled screen never
-# reads that framebuffer — it paints tiles and composites sprites — so the call
-# runs every frame and changes nothing. What makes this one nasty is that the rest
-# of the game is fine: the background is right there on screen, so the display is
-# obviously working, and the missing drawing looks like a bug in your own code.
-#
-# The first test PROVES that on the emulated console before any guardrail is
-# involved. It builds the ROM straight from the builder's IR, not through
-# VBlank.build, so it bypasses the validation pass and keeps proving the hardware
-# behavior now that the guardrail stops such a program from being built.
-class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
-  Check = VBlank::IR::Guardrails::Checks::BitmapDrawOnTiled
+# The tiled game that also fills, shared with the proof on the Advance's cartridge
+# (test/lowering/gba/vblank/ir/guardrails/test_ir_guardrail_bitmap_draw_on_tiled_cartridge.rb).
+module BitmapDrawOnTiledGames
+  include SharedConstants
 
   FIELD = (["##############################"] * 20).freeze
 
@@ -40,23 +29,23 @@ class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
       game_loop { fill_rect 100, 70, 40, 20, :red }
     end
   end
+end
 
-  # --- Proof that the footgun is real ---
-
-  # The background paints and the fill does not. Both points come back the same
-  # blue, so the red rectangle the game draws every frame simply is not there —
-  # and the build that produced this ROM said nothing at all.
-  def test_the_fill_never_reaches_the_console_but_the_background_does
-    rom = ROM.assemble(GBA.new.lower(tiled_game_that_also_fills),
-                       title: "GAP", code: "BGAP", maker: "01")
-
-    v = assert_emulator_loads_rom(rom, frames: 6)
-    assert v.blue?(20, 20), "the background should show"
-    assert v.blue?(120, 80),
-           "the middle of the fill_rect should still be background blue — a tiled screen " \
-           "never reads the framebuffer, got 0x#{format('%04X', v.pixel_gba(120, 80))}"
-    refute v.red?(120, 80), "red at (120, 80) would mean the fill landed after all"
-  end
+# A drawing call the tiled screen can never show, inside a game that is otherwise
+# a working tiled game.
+#
+# `fill_rect` writes pixels into the bitmap framebuffer. The tiled screen never
+# reads that framebuffer — it paints tiles and composites sprites — so the call
+# runs every frame and changes nothing. What makes this one nasty is that the rest
+# of the game is fine: the background is right there on screen, so the display is
+# obviously working, and the missing drawing looks like a bug in your own code.
+#
+#
+# The proof of that on the emulated console, before any guardrail is involved, is in
+# test/lowering/gba/vblank/ir/guardrails/test_ir_guardrail_bitmap_draw_on_tiled_cartridge.rb.
+class TestIRGuardrailBitmapDrawOnTiled < Minitest::Test
+  Check = VBlank::IR::Guardrails::Checks::BitmapDrawOnTiled
+  include BitmapDrawOnTiledGames
 
   # --- the check ---
 

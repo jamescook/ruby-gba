@@ -1,0 +1,48 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+# Each built-in test-pattern ROM drawing its picture, read back in the emulator. That each one
+# builds and passes the ROM checks is in test_patterns_test.rb beside this file.
+class TestTestPatternsRendering < Minitest::Test
+  def setup
+    require_emulator!
+  end
+
+  def test_solid_fill_renders_red
+    # Full-screen fill = ~150K instructions; needs several frames to complete
+    rom = VBlank::Cartridge::TestPatterns.solid_fill(:red)
+    v = VBlank::Diagnostics::Verifier.new(rom, frames: 10)
+    assert v.red?(0, 0), "Top-left should be red, got #{v.pixel(0, 0)}"
+    assert v.red?(120, 80), "Center should be red, got #{v.pixel(120, 80)}"
+    assert v.red?(239, 159), "Bottom-right should be red, got #{v.pixel(239, 159)}"
+  end
+
+  def test_color_bars_renders_rgb
+    # Three 80x160 bars = ~150K instructions total
+    rom = VBlank::Cartridge::TestPatterns.color_bars
+    v = VBlank::Diagnostics::Verifier.new(rom, frames: 10)
+    assert v.red?(40, 80), "Left third should be red, got #{v.pixel(40, 80)}"
+    assert v.green?(120, 80), "Middle third should be green, got #{v.pixel(120, 80)}"
+    assert v.blue?(200, 80), "Right third should be blue, got #{v.pixel(200, 80)}"
+  end
+
+  def test_corners_renders
+    rom = VBlank::Cartridge::TestPatterns.corners
+    v = VBlank::Diagnostics::Verifier.new(rom)
+    assert v.red?(5, 5), "Top-left corner should be red"
+    assert v.green?(235, 5), "Top-right corner should be green"
+    assert v.blue?(5, 155), "Bottom-left corner should be blue"
+    assert v.white?(235, 155), "Bottom-right corner should be white"
+    assert v.black?(120, 80), "Center should be black"
+  end
+
+  def test_crosshair_renders
+    rom = VBlank::Cartridge::TestPatterns.crosshair
+    v = VBlank::Diagnostics::Verifier.new(rom)
+    assert v.red?(120, 80), "Center should be red, got #{v.pixel(120, 80)}"
+    assert v.white?(10, 79), "Horizontal line should be white"
+    assert v.white?(119, 10), "Vertical line should be white"
+    assert v.black?(0, 0), "Corner should be black"
+  end
+end

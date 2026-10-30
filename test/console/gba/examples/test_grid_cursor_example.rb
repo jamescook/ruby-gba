@@ -4,12 +4,9 @@ require "test_helper"
 
 require VBlank.root.join("examples/grid_cursor").to_s
 
-# The grid-cursor example: a single lit cell steered around a board with the d-pad,
-# leaving no trail. It's the worked demonstration of `grid` — the game moves in
-# cell coordinates, and each tap erases the old cell and paints the new one. These
-# assert BEHAVIOR (the cursor lights the right cell and leaves nothing behind) on
-# the interpreter, plus an emulator check that it renders and steers on the console.
-class TestGridCursorExample < Minitest::Test
+# Where the cursor starts, shared with the Advance cartridge's own tests of the example
+# (test/lowering/gba/examples/test_grid_cursor_example_cartridge.rb).
+module GridCursorPlaces
   include VBlank::Console::Hardware
 
   CELL = GridCursor::CELL
@@ -18,6 +15,16 @@ class TestGridCursorExample < Minitest::Test
   START_ROW = SCREEN_HEIGHT / CELL / 2
   START_PX = START_COL * CELL
   START_PY = START_ROW * CELL
+end
+
+# The grid-cursor example: a single lit cell steered around a board with the d-pad,
+# leaving no trail. It's the worked demonstration of `grid` — the game moves in
+# cell coordinates, and each tap erases the old cell and paints the new one. These
+# assert BEHAVIOR (the cursor lights the right cell and leaves nothing behind) on
+# every run that plays the Advance's games; the cartridge it builds, rendering and steering in
+# the emulator, is in test/lowering/gba/examples/test_grid_cursor_example_cartridge.rb.
+class TestGridCursorExample < Minitest::Test
+  include GridCursorPlaces
 
   private def assert_cell_is(screen, col, row, color)
     want = Color.resolve(color)
@@ -52,20 +59,5 @@ class TestGridCursorExample < Minitest::Test
             .input_each_frame { |f| f.even? ? [:left] : [] } # a tap every other frame
             .run(GridCursor.program, max_steps: 20_000)
     assert_operator i[:cx], :>=, 0, "cursor walked off the left edge"
-  end
-
-  def test_it_builds_a_rom
-    rom = GridCursor.build_rom
-    assert rom.size.positive?
-  end
-
-  def test_it_renders_and_steers_on_hardware
-    rom = ROM.assemble(GBA.new.lower(GridCursor.program), title: "GRIDCURS", code: "BGRC", maker: "01")
-    # Hold left: one down-edge, so the cursor steps one cell left and lights it.
-    v = assert_emulator_loads_rom(rom, frames: 6, keys: KEY_LEFT)
-    left_px = START_PX - CELL
-    assert v.pixel_is?(left_px + 2, START_PY + 2, :cyan),
-           "cursor didn't light the cell left of center — got #{v.pixel_gba(left_px + 2, START_PY + 2).to_s(16)}"
-    assert v.black?(START_PX + 2, START_PY + 2), "the start cell should be erased (no trail)"
   end
 end

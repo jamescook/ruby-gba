@@ -2,17 +2,9 @@
 
 require "test_helper"
 
-# Sprite collision hugs the visible art. A sprite's `overlaps?` box is, by default, the
-# rectangle around its non-transparent pixels — not the whole image — so it collides on
-# the drawn art, not a transparent pixel or two of margin early (the pacman "the ghost
-# catches you off the yellow" surprise). It's still an axis-aligned rectangle, not a
-# per-pixel or per-shape test. `hitbox:` overrides it: :full for the old whole-image box,
-# a number to shrink the image on every side, or an explicit rectangle. Collision is pure
-# DSL codegen, so both backends run the same test — asserted on the interpreter oracle
-# here, with one hardware check.
-class TestHitbox < Minitest::Test
-  include VBlank::Console::Hardware
-
+# The art these tests collide, shared with the Advance cartridge's own test of the same box
+# (test/lowering/gba/vblank/dsl/test_hitbox_cartridge.rb).
+module HitboxGames
   # An 8x8 dot with a 4x4 visible block in the middle (columns/rows 2..5) and a 2px
   # transparent border. So its visible box is [2, 2, 4, 4]; its full image is [0,0,8,8].
   DOT_ART = <<~ART
@@ -25,6 +17,19 @@ class TestHitbox < Minitest::Test
     ........
     ........
   ART
+end
+
+# Sprite collision hugs the visible art. A sprite's `overlaps?` box is, by default, the
+# rectangle around its non-transparent pixels — not the whole image — so it collides on
+# the drawn art, not a transparent pixel or two of margin early (the pacman "the ghost
+# catches you off the yellow" surprise). It's still an axis-aligned rectangle, not a
+# per-pixel or per-shape test. `hitbox:` overrides it: :full for the old whole-image box,
+# a number to shrink the image on every side, or an explicit rectangle. Collision is pure
+# DSL codegen, so every run plays the same test — with one hardware check, on the Advance's
+# cartridge, in test/lowering/gba/vblank/dsl/test_hitbox_cartridge.rb.
+class TestHitbox < Minitest::Test
+  include VBlank::Console::Hardware
+  include HitboxGames
 
   # Two dots at ax and bx (same y), asked whether they overlap; returns the :hit flag
   # (1 if they collided). Both get the same +hitbox+ so the box rule under test is what
@@ -45,7 +50,7 @@ class TestHitbox < Minitest::Test
       end
     end
     b.finalize_program
-    game_player.run(b.program, max_steps: 2_000)[:hit] == 1
+    game_player.run(b.program, frames: 3)[:hit] == 1
   end
 
   # Full 8x8 boxes at x100 (100..107) and x105 (105..112) overlap, but the 4x4 visible
@@ -118,28 +123,7 @@ class TestHitbox < Minitest::Test
     b.finalize_program
     # The union includes the wide pose (full 8 wide), so the box reaches x108 and touches
     # the bar even though the sprite currently shows the narrow pose.
-    assert_equal 1, game_player.run(b.program, max_steps: 2_000)[:hit],
+    assert_equal 1, game_player.run(b.program, frames: 3)[:hit],
                  "the collision box covers the widest pose, not just the one on screen"
-  end
-
-  # --- hardware: visible-box collision fires on the console ---
-
-  def test_visible_collision_on_the_console
-    b = Builder.new
-    b.instance_eval do
-      screen :tiled
-      image(:dot, "." => :transparent, "#" => :white) { DOT_ART }
-      a = sprite :dot, at: [100, 60]
-      hit_me = sprite :dot, at: [103, 60] # its visible block meets a's, so they collide
-      game_loop do
-        wait_vblank
-        a.overlaps?(hit_me).then { hit_me.move_to 0, 0 } # on a real hit, snap it to the corner
-      end
-    end
-    b.finalize_program
-    rom = ROM.assemble(GBA.new.lower(b.program), title: "HITBOX", code: "BHIT", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 8)
-    # It collided and snapped to (0,0), so its visible block (offset 2,2) is white there.
-    assert v.white?(3, 3), "the sprite snapped to the corner on a visible-pixel hit, got 0x#{format('%04X', v.pixel_gba(3, 3))}"
   end
 end

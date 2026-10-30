@@ -15,7 +15,7 @@ class TestRubyScript < Minitest::Test
             "BUNDLE_GEMFILE" => nil, "BUNDLER_SETUP" => nil, "BUNDLER_VERSION" => nil, "RUBY_YJIT_ENABLE" => nil }.freeze
 
   private def play_alone(game, console, *arguments)
-    skip "SDL3 is not installed: #{VBlank::Live::SDL::INSTALL_LINE}" unless VBlank::Live::SDL.available?
+    flunk "SDL3 is not installed: #{VBlank::Live::SDL::INSTALL_LINE}" unless VBlank::Live::SDL.available?
 
     Dir.mktmpdir do |dir|
       path = Ruby.new.build_script(game, File.join(dir, "game-ruby.rb"), console: console, err: StringIO.new)

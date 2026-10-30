@@ -7,8 +7,92 @@ require "test_helper"
 # pong's CPU paddle makes. It's a composite over the value model (a clamped
 # delta), so it behaves the same on every backend; these tests assert the value
 # it lands on, both in the interpreter and on real hardware.
+#
+# The same games on the Advance's cartridge, read in the emulator, are in
+# test/lowering/gba/vblank/dsl/test_approach_cartridge.rb.
+
+# The games both files play.
+module ApproachGames
+  # A FLOOR ABOVE ITS CEILING: every value held between 50 and 10, by the word that changes the
+  # variable and by the word that hands back a new number.
+  private def floor_above_its_ceiling
+    builder = VBlank::Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      floor = var :floor, 50
+      ceiling = var :ceiling, 10
+      below = var :below, 0
+      between = var :between, 30
+      above = var :above, 90
+      [below, between, above].each { |v| v.clamp! floor, ceiling }
+      source = var :source, 0
+      made = var :made, 0
+      made.set! source.clamp(floor, ceiling)
+      halt
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # A green marker whose x is the approached value: it starts at 0 and homes in
+  # on 100, so where it ends up on screen reveals the number approach computed.
+  private def marker_program(frames:)
+    builder = VBlank::Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      x = var :x, 0
+      f = var :f, 0
+      game_loop do
+        wait_vblank
+        clear_screen :black
+        x.approach! 100, 7
+        draw_rect_at :x, 50, 2, 2, :green
+        f.add! 1
+        (f >= frames).then { halt }
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # The same marker, but the step and the limit are variables, so it runs the lowering
+  # that EVALUATES a bound instead of loading a fixed one.
+  #
+  # Read two moments, and pick them so no single wrong answer can pass both. Early, the
+  # marker is mid-journey at a spot that is neither the target nor the limit — only the
+  # right step arithmetic puts it there. Later it is pinned against the limit — so a
+  # lowering that ignored the bound would sail past. A lowering that dropped the value
+  # it was clamping and kept the bound would sit on the limit from the first frame, and
+  # fail the early reading.
+  private def limited_marker_program(frames:)
+    builder = VBlank::Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      x = var :x, 0
+      speed = var :speed, 7
+      limit = var :limit, 60
+      f = var :f, 0
+      game_loop do
+        wait_vblank
+        clear_screen :black
+        x.approach! 200, speed # a step the game holds in a variable
+        x.clamp! 0, limit      # and a ceiling it holds in another
+        draw_rect_at :x, 50, 2, 2, :green
+        f.add! 1
+        (f >= frames).then { halt }
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  # Five steps of 7, well short of both the target (200) and the limit (60).
+  MID_JOURNEY = 35
+end
+
 class TestApproach < Minitest::Test
   include VBlank::Console::Hardware
+  include ApproachGames
 
   # Build through the DSL and run on the reference backend, returning the
   # interpreter (read a variable's final value with i[:name]).
@@ -241,102 +325,19 @@ class TestApproach < Minitest::Test
   # ceiling wherever the value started — on both runners, for the word that changes the
   # variable and the word that hands back a new number.
   def test_a_floor_above_its_ceiling_gives_the_ceiling_on_both_backends
-    builder = Builder.new
-    builder.instance_eval do
-      screen :bitmap
-      floor = var :floor, 50
-      ceiling = var :ceiling, 10
-      below = var :below, 0
-      between = var :between, 30
-      above = var :above, 90
-      [below, between, above].each { |v| v.clamp! floor, ceiling }
-      source = var :source, 0
-      made = var :made, 0
-      made.set! source.clamp(floor, ceiling)
-      halt
-    end
-    builder.finalize_program
     names = %i[below between above made]
-    backend = GBA.new
-    rom = VBlank::Cartridge::ROM.assemble(backend.lower(builder.program), title: "CLAMPLOHI", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 2, vars: backend.var_addresses)
-    i = game_player.run(builder.program)
+    i = game_player.run(floor_above_its_ceiling)
 
     assert_equal [10, 10, 10, 10], names.map { |name| i[name] }, "the interpreter"
-    assert_equal [10, 10, 10, 10], names.map { |name| v.var(name) }, "the console"
   end
 
-  # ---- both backends agree, on real hardware ----
-
-  # A green marker whose x is the approached value: it starts at 0 and homes in
-  # on 100, so where it ends up on screen reveals the number approach computed.
-  private def marker_program(frames:)
-    builder = Builder.new
-    builder.instance_eval do
-      screen :bitmap
-      x = var :x, 0
-      f = var :f, 0
-      game_loop do
-        wait_vblank
-        clear_screen :black
-        x.approach! 100, 7
-        draw_rect_at :x, 50, 2, 2, :green
-        f.add! 1
-        (f >= frames).then { halt }
-      end
-    end
-    builder.finalize_program
-    builder.program
-  end
+  # ---- the marker games (the cartridge's file reads them on real hardware) ----
 
   def test_interpreter_marker_homes_in
     screen = game_player.run(marker_program(frames: 20)).screen
     assert_equal Color.resolve(:green), screen.pixel(100, 50), "marker arrived at the target"
     assert_equal Color.resolve(:black), screen.pixel(0, 50),   "and left the start column"
   end
-
-  def test_marker_homes_in_on_hardware
-    machine_code = VBlank::IR::Backends::GBA.new.lower(marker_program(frames: 20))
-    rom = VBlank::Cartridge::ROM.assemble(machine_code, title: "APPROACH", code: "BAPP", maker: "01")
-
-    v = assert_emulator_loads_rom(rom, frames: 22)
-    assert v.green?(100, 50), "the marker reached the target on hardware"
-    assert v.black?(0, 50),   "and left the start column"
-  end
-
-  # The same marker, but the step and the limit are variables, so it runs the lowering
-  # that EVALUATES a bound instead of loading a fixed one.
-  #
-  # Read two moments, and pick them so no single wrong answer can pass both. Early, the
-  # marker is mid-journey at a spot that is neither the target nor the limit — only the
-  # right step arithmetic puts it there. Later it is pinned against the limit — so a
-  # lowering that ignored the bound would sail past. A lowering that dropped the value
-  # it was clamping and kept the bound would sit on the limit from the first frame, and
-  # fail the early reading.
-  private def limited_marker_program(frames:)
-    builder = Builder.new
-    builder.instance_eval do
-      screen :bitmap
-      x = var :x, 0
-      speed = var :speed, 7
-      limit = var :limit, 60
-      f = var :f, 0
-      game_loop do
-        wait_vblank
-        clear_screen :black
-        x.approach! 200, speed # a step the game holds in a variable
-        x.clamp! 0, limit      # and a ceiling it holds in another
-        draw_rect_at :x, 50, 2, 2, :green
-        f.add! 1
-        (f >= frames).then { halt }
-      end
-    end
-    builder.finalize_program
-    builder.program
-  end
-
-  # Five steps of 7, well short of both the target (200) and the limit (60).
-  MID_JOURNEY = 35
 
   def test_a_run_time_step_and_bound_land_in_the_right_place
     early = game_player.run(limited_marker_program(frames: 5)).screen
@@ -346,22 +347,5 @@ class TestApproach < Minitest::Test
                  "mid-journey it is where the run-time step put it"
     assert_equal Color.resolve(:black), early.pixel(60, 50), "not already pinned at the limit"
     assert_equal Color.resolve(:green), late.pixel(60, 50), "later it is held at the run-time limit"
-  end
-
-  def test_a_run_time_step_and_bound_agree_on_hardware
-    early = rom_for(limited_marker_program(frames: 5))
-    late = rom_for(limited_marker_program(frames: 20))
-
-    v_early = assert_emulator_loads_rom(early, frames: 7)
-    v_late = assert_emulator_loads_rom(late, frames: 22)
-
-    assert v_early.green?(MID_JOURNEY, 50), "the console stepped by the same amount"
-    assert v_early.black?(60, 50), "and had not reached the limit yet"
-    assert v_late.green?(60, 50), "and it holds at the same limit"
-  end
-
-  private def rom_for(program)
-    VBlank::Cartridge::ROM.assemble(VBlank::IR::Backends::GBA.new.lower(program),
-                          title: "APPROACH", code: "BAPP", maker: "01")
   end
 end

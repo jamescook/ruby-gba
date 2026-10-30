@@ -2,145 +2,13 @@
 
 require "test_helper"
 
-class TestScenes < Minitest::Test
-  include VBlank::Console::Hardware
-
-  private def build(validate: false, &block)
-    VBlank.build("SCNTEST", console: :gba, code: "BSCN", maker: "01", validate: validate, &block)
-  end
-
-  # ========================================================================
-  # scene
-  # ========================================================================
-
-  def test_scene_builds
-    rom = build do
-      screen :bitmap
-      scene :title do
-        clear_screen :black
-      end
-      call :_scene_title
-      halt
-    end
-    assert_operator rom.size, :>, 0
-  end
-
-  def test_scene_does_not_clash_with_func
-    rom = build do
-      func :title do
-        set! :x, 1
-      end
-      scene :title do
-        set! :x, 2
-      end
-      call :title
-      call :_scene_title
-      halt
-    end
-    assert_operator rom.size, :>, 0
-  end
-
-  # ========================================================================
-  # case_var
-  # ========================================================================
-
-  def test_case_var_builds
-    rom = build do
-      screen :bitmap
-      scene :title do
-        clear_screen :black
-      end
-      scene :playing do
-        clear_screen :blue
-      end
-
-      set! :state, 0
-      case_var :state do
-        when_val 0, :title
-        when_val 1, :playing
-      end
-      halt
-    end
-    assert_operator rom.size, :>, 0
-  end
-
-  def test_case_var_with_game_loop
-    rom = build do
-      screen :bitmap
-
-      scene :title do
-        clear_screen :black
-        draw_text "PONG", 96, 40, :white
-      end
-
-      scene :playing do
-        clear_screen :black
-      end
-
-      set! :state, 0
-      game_loop do
-        case_var :state do
-          when_val 0, :title
-          when_val 1, :playing
-        end
-      end
-    end
-    assert_operator rom.size, :>, 0
-  end
-
-  def test_case_var_with_input_transition
-    rom = build do
-      screen :bitmap
-
-      scene :title do
-        clear_screen :black
-        draw_text "PRESS START", 64, 100, :white
-        if_pressed :start do
-          set! :state, 1
-        end
-      end
-
-      scene :playing do
-        clear_screen :blue
-      end
-
-      set! :state, 0
-      game_loop do
-        case_var :state do
-          when_val 0, :title
-          when_val 1, :playing
-        end
-      end
-    end
-    assert_operator rom.size, :>, 0
-  end
-
-  # Regression: case_var must reload the variable before each comparison, since a
-  # called scene clobbers scratch registers. The observable guarantee is that
-  # exactly one scene runs — the matching one — even with a scene between two
-  # other comparisons. Each scene clears the whole screen, so a stale compare
-  # that ran a second scene would leave the wrong color on screen.
-  def test_case_var_dispatches_to_only_the_matching_scene
-    rom = build do
-      screen :bitmap
-
-      scene :red_scene   do clear_screen :red end
-      scene :blue_scene  do clear_screen :blue end
-      scene :green_scene do clear_screen :green end
-
-      set! :state, 1
-      case_var :state do
-        when_val 0, :red_scene
-        when_val 1, :blue_scene   # the match — runs, then clobbers scratch
-        when_val 2, :green_scene  # must NOT run: state is reloaded, still 1
-      end
-      halt
-    end
-
-    v = assert_emulator_loads_rom(rom, frames: 5)
-    assert v.blue?(120, 80), "state == 1 should run the blue scene"
-    refute v.green?(120, 80), "a stale comparison must not also run the green scene"
-  end
+# Scenes, the dispatch that picks one (`case_var`), and routines declared from inside another
+# routine's body, played on every run. That each of them builds into the Advance's cartridge and
+# does the same on its console, read in the emulator, is in
+# test/lowering/gba/vblank/builder/test_scenes_cartridge.rb, which plays the games kept here in
+# ScenesGames.
+module ScenesGames
+  include SharedConstants # Builder, which the game below names from inside the module
 
   # The same guarantee where it is hardest to keep: the scene that runs CHANGES the
   # state, which is what a scene ordinarily does on its last line. Scenes are numbered
@@ -149,7 +17,7 @@ class TestScenes < Minitest::Test
   # dispatch that answered the new value would run the whole table in one pass.
   #
   # One pass, one scene body: nothing but the first counter moves.
-  HANDING_ON = lambda do |b|
+  HANDING_ON = Ractor.make_shareable(lambda do |b|
     b.instance_eval do
       screen :bitmap
       scene(:first)  { add! :ran_first, 1;  set! :state, 1 }
@@ -164,31 +32,27 @@ class TestScenes < Minitest::Test
       end
       halt
     end
-  end
+  end)
 
-  def test_a_scene_that_hands_on_does_not_run_the_scene_it_hands_to
-    builder = Builder.new
-    HANDING_ON.call(builder)
-    builder.finalize_program
-    ran = game_player.run(builder.program)
-
-    assert_equal [1, 0, 0], [ran[:ran_first], ran[:ran_second], ran[:ran_third]],
-                 "one pass should run one scene body, whatever that scene sets the state to"
-    assert_equal 1, ran[:state], "the scene it handed on to runs on the NEXT pass"
-  end
-
-  def test_a_scene_that_hands_on_does_not_run_the_scene_it_hands_to_on_hardware
-    rom = build { HANDING_ON.call(self) }
-    v = assert_emulator_loads_rom(rom, frames: 5, vars: rom.var_addresses)
-
-    assert_equal [1, 0, 0], [v.var(:ran_first), v.var(:ran_second), v.var(:ran_third)],
-                 "the console ran more than one scene in a pass — a transition fell through the table"
-    assert_equal 1, v.var(:state)
-  end
-
-  # ========================================================================
-  # scene loads_first: its pictures go up on a pass of their own
-  # ========================================================================
+  # A routine declared the first time something asks for it: the outer one declares the
+  # middle one inside its own body, and the middle one declares the inner one. Bodies are
+  # built after the program block, so these declarations happen while other bodies are
+  # being built — and each must still be built, or the call to it goes nowhere.
+  DECLARED_INSIDE = Ractor.make_shareable(lambda do |b|
+    b.instance_eval do
+      func(:outer) do
+        add! :ran_outer, 1
+        func(:middle) do
+          add! :ran_middle, 1
+          func(:inner) { add! :ran_inner, 1 }
+          call :inner
+        end
+        call :middle
+      end
+      call :outer
+      halt
+    end
+  end)
 
   # A title that hands over on its third pass to :play, on a tiled screen. :play has a sprite
   # of its own, whose picture is copied into video memory as it takes over, and notes the
@@ -217,6 +81,29 @@ class TestScenes < Minitest::Test
     builder.finalize_program
     builder.program
   end
+end
+
+class TestScenes < Minitest::Test
+  include ScenesGames
+
+  # ========================================================================
+  # case_var
+  # ========================================================================
+
+  def test_a_scene_that_hands_on_does_not_run_the_scene_it_hands_to
+    builder = Builder.new
+    HANDING_ON.call(builder)
+    builder.finalize_program
+    ran = game_player.run(builder.program)
+
+    assert_equal [1, 0, 0], [ran[:ran_first], ran[:ran_second], ran[:ran_third]],
+                 "one pass should run one scene body, whatever that scene sets the state to"
+    assert_equal 1, ran[:state], "the scene it handed on to runs on the NEXT pass"
+  end
+
+  # ========================================================================
+  # scene loads_first: its pictures go up on a pass of their own
+  # ========================================================================
 
   # The title hands over on pass 2, so :play takes over on pass 3. Its pictures are copied
   # on that pass, and its own work starts on pass 4, in a frame the copy has no part of.
@@ -228,25 +115,10 @@ class TestScenes < Minitest::Test
     assert_equal 3, game_player.run(handing_over(loads_first: false), frames: 8)[:began]
   end
 
-  # The console counts the same passes, however many frames it took to start the game.
-  def test_the_console_starts_a_scene_that_loads_first_on_the_pass_after
-    rom = assemble_rom(handing_over(loads_first: true), name: "SCNPASS")
-    v = assert_emulator_loads_rom(rom, frames: 12, vars: rom.var_addresses)
-
-    assert_equal 4, v.var(:began)
-  end
-
   # Up at power-on, nothing handed over to :play, and its copy is part of starting up: a game
   # counting frames from power-on has no hand-over it could move to make up a pass.
   def test_a_scene_that_loads_first_and_is_up_at_power_on_starts_its_work_on_the_first_pass
     assert_equal 0, game_player.run(handing_over(loads_first: true, first: 1), frames: 4)[:began]
-  end
-
-  def test_the_console_starts_a_scene_that_loads_first_and_is_up_at_power_on_on_the_first_pass
-    rom = assemble_rom(handing_over(loads_first: true, first: 1), name: "SCNPOWER")
-    v = assert_emulator_loads_rom(rom, frames: 8, vars: rom.var_addresses)
-
-    assert_equal 0, v.var(:began)
   end
 
   def test_loads_first_that_is_not_true_or_false_is_a_friendly_error
@@ -259,26 +131,6 @@ class TestScenes < Minitest::Test
   # func declared from inside another func's body
   # ========================================================================
 
-  # A routine declared the first time something asks for it: the outer one declares the
-  # middle one inside its own body, and the middle one declares the inner one. Bodies are
-  # built after the program block, so these declarations happen while other bodies are
-  # being built — and each must still be built, or the call to it goes nowhere.
-  DECLARED_INSIDE = lambda do |b|
-    b.instance_eval do
-      func(:outer) do
-        add! :ran_outer, 1
-        func(:middle) do
-          add! :ran_middle, 1
-          func(:inner) { add! :ran_inner, 1 }
-          call :inner
-        end
-        call :middle
-      end
-      call :outer
-      halt
-    end
-  end
-
   def test_a_func_declared_inside_another_func_body_is_built_however_deep
     builder = Builder.new
     DECLARED_INSIDE.call(builder)
@@ -286,41 +138,5 @@ class TestScenes < Minitest::Test
     ran = game_player.run(builder.program)
 
     assert_equal [1, 1, 1], [ran[:ran_outer], ran[:ran_middle], ran[:ran_inner]]
-  end
-
-  def test_a_func_declared_inside_another_func_body_is_built_on_hardware
-    rom = build { DECLARED_INSIDE.call(self) }
-    v = assert_emulator_loads_rom(rom, frames: 5, vars: rom.var_addresses)
-
-    assert_equal [1, 1, 1], [v.var(:ran_outer), v.var(:ran_middle), v.var(:ran_inner)]
-  end
-
-  # ========================================================================
-  # Integration: runs in mGBA
-  # ========================================================================
-
-  def test_scenes_run_in_mgba
-    rom = build do
-      screen :bitmap
-
-      scene :title do
-        clear_screen :black
-        draw_text "HELLO", 100, 76, :white
-      end
-
-      scene :other do
-        clear_screen :red
-      end
-
-      set! :state, 0
-      game_loop do
-        case_var :state do
-          when_val 0, :title
-          when_val 1, :other
-        end
-      end
-    end
-
-    assert_emulator_loads_rom(rom, frames: 30)
   end
 end

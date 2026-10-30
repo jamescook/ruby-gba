@@ -1,10 +1,11 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "tmpdir"
 
 # THE TESTS OF vblank/audio/test_song_console_voices.rb THAT ONLY THE GAME BOY ADVANCE CAN PLAY, kept apart so that the
-# Game Boy Color's run never loads them (test/console/gba); the rest are in that file.
+# Game Boy Color's run never loads them (test/console/gba); the rest are in that file. What the
+# Advance's cartridge sounds, read in the emulator, is in
+# test/lowering/gba/vblank/audio/test_song_console_voices_cartridge.rb.
 #
 # A SONG PART ON THE WAVE VOICE AND ON THE NOISE VOICE — the console's other two.
 #
@@ -17,10 +18,6 @@ require "tmpdir"
 # busy song reaches for them before it reaches for another recording, and the voices it does not
 # spend stay free for the game's own sounds.
 class TestSongConsoleVoicesOnTheAdvance < Minitest::Test
-  include VBlank::Console::Hardware
-
-  Registers = VBlank::Audio::Sound::Registers
-
   # A tune whose parts cover every voice there is: two square, one wave, one noise, one recorded.
   private def every_voice_game(frames: 60)
     b = Builder.new
@@ -76,95 +73,5 @@ class TestSongConsoleVoicesOnTheAdvance < Minitest::Test
     assert_equal [:piano], i.active_samples
     assert_equal 1, i.peak_voices, "the wave and noise parts took none"
   end
-
-  # --- the console ---
-
-  # Wave RAM as its eight halfwords. Read by the word, since a halfword read at an odd offset
-  # is not aligned.
-  private def wave_ram(probe)
-    (0...(Registers.wavetable_halfwords(:triangle).length / 2)).flat_map do |word|
-      value = probe.read32(REG_WAVE_RAM + (word * 4))
-      [value & 0xFFFF, (value >> 16) & 0xFFFF]
-    end
-  end
-
-  # Both backends sound the same thing, which is the contract that makes the interpreter an
-  # oracle for this at all.
-  def test_both_backends_agree_about_what_the_wave_voice_plays
-    program = every_voice_game
-    interpreted = logged(program, frames: 8).select { |e| e.first == :wave }.map(&:last).first
-    v = assert_emulator_loads_rom(assemble_rom(program, name: "VOICES"), frames: 10)
-
-    assert_equal Registers.wave_rate(interpreted[:frequency]), v.wave_rate
-  end
-
-  # --- a note on the noise voice ---
-
-  # --- what `plays:` accepts ---
-
-  private def part_for(plays)
-    VBlank::Audio::Music::VoiceContext.new(VBlank::Audio::Music::SongContext.new, plays: plays).to_voice
-  end
-
-  # --- the noise part's own settings ---
-
-  # The same tune twice: one square-wave part, optionally told how a drum hit would fade.
-  private def square_song(fade: false)
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      clear_screen :black
-      enable_sound
-      song :tune do
-        voice :lead do |v|
-          if fade
-            v.decay :slow
-            v.metallic true
-          end
-          v.note :C4, :quarter
-        end
-      end
-      play_song :tune
-      game_loop { wait_vblank }
-    end
-    b.finalize_program
-    b.program
-  end
-
-  # --- a waveform of the game's own, rather than one of the names ---
-
-  # THE NAMED SHAPES ARE A CONVENIENCE, NOT THE TRUTH. The console's wave voice is 32 steps of
-  # four bits that a game writes, so a game whose music came from somewhere else — decoded out
-  # of another cartridge — arrives holding those 32 numbers, and no name would be the waveform
-  # it actually has. A 50% pulse is the common case and is none of :sine, :triangle, :sawtooth
-  # or :square: played as a triangle it is a different instrument.
-  PULSE_50 = ([15] * 16 + [0] * 16).freeze
-
-  # One part on the wave voice, playing whatever it is given.
-  private def pad_song(plays)
-    b = Builder.new
-    shape = plays
-    b.instance_eval do
-      screen :bitmap
-      clear_screen :black
-      enable_sound
-      song(:tune) { voice(:pad, plays: shape) { note :C4, :whole } }
-      play_song :tune
-      game_loop { wait_vblank }
-    end
-    b.finalize_program
-    b.program
-  end
-
-  # Wave RAM as the console really holds it — the eight halfwords of the bank the CPU is shown.
-  private def wave_ram_of(program, name)
-    backend = GBA.new
-    rom = ROM.assemble(backend.lower(program), title: name, code: "BWAV", maker: "01",
-                                               built: backend.build_record(program))
-    v = assert_emulator_loads_rom(rom, frames: 6)
-    (0...Registers.wavetable_halfwords(:sine).length).map { |i| v.mem16(REG_WAVE_RAM + (i * 2)) }
-  end
-
-  # --- a Score says it the same way ---
-
 end
+

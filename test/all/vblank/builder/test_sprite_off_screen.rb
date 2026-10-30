@@ -3,27 +3,10 @@
 require "test_helper"
 require "differential"
 
-# A SPRITE THE GAME PUTS OFF THE SCREEN IS NOT ON IT, however far off that is.
-#
-# The console keeps a sprite's row as one of 256 and its column as one of 512, and a place
-# outside those comes round: a sprite parked at row 300 is drawn at row 44. Nobody means
-# that, so the framework keeps such a sprite off the picture, and the two backends are held
-# to one picture for every place a game can name.
-#
-# One case cannot be kept off, and both backends draw it: the box of a sprite 64 pixels
-# tall that turns or resizes is 128 rows, which is more than the 96 rows the console counts
-# past the bottom of the screen. Hanging far enough off the top or the bottom, the far end
-# of that box shows at the other edge.
-class TestSpriteOffScreen < Minitest::Test
-  include Differential
-
-  WIDTH = 240
-  HEIGHT = 160
-  FLOOR = Color.resolve(:gray)
-
-  def self.checks(width, height)
-    (0...height).map { |row| (0...width).map { |col| (row + col).even? ? "#" : "o" }.join }.join("\n")
-  end
+# The floor every game here stands on, shared with the Advance's cartridge's tests
+# (test/lowering/gba/vblank/builder/test_sprite_off_screen_cartridge.rb).
+module SpriteOffScreenGames
+  include SharedConstants
 
   private def program(&block)
     b = Builder.new
@@ -47,6 +30,35 @@ class TestSpriteOffScreen < Minitest::Test
 
   # The width and height of the screen of the console this run plays the game on.
   private def screen_played = VBlank::Console.described(game_console).screen_size
+end
+
+# A SPRITE THE GAME PUTS OFF THE SCREEN IS NOT ON IT, however far off that is.
+#
+# The console keeps a sprite's row as one of 256 and its column as one of 512, and a place
+# outside those comes round: a sprite parked at row 300 is drawn at row 44. Nobody means
+# that, so the framework keeps such a sprite off the picture, and the two backends are held
+# to one picture for every place a game can name.
+#
+# One case cannot be kept off, and both backends draw it: the box of a sprite 64 pixels
+# tall that turns or resizes is 128 rows, which is more than the 96 rows the console counts
+# past the bottom of the screen. Hanging far enough off the top or the bottom, the far end
+# of that box shows at the other edge.
+#
+# What the Advance's cartridge costs for it, and what its table of sprites says, are in
+# test/lowering/gba/vblank/builder/test_sprite_off_screen_cartridge.rb.
+class TestSpriteOffScreen < Minitest::Test
+  include Differential
+  include SpriteOffScreenGames
+
+
+  WIDTH = 240
+  HEIGHT = 160
+  FLOOR = Color.resolve(:gray)
+
+  def self.checks(width, height)
+    (0...height).map { |row| (0...width).map { |col| (row + col).even? ? "#" : "o" }.join }.join("\n")
+  end
+
 
   # One sprite of +width+ by +height+ at +at+, resized to +scale+ and turned to +angle+ when
   # those are given.
@@ -176,17 +188,13 @@ class TestSpriteOffScreen < Minitest::Test
 
   # A line of text stands where the program wrote it, so nothing about where it stands is
   # worked out as the game runs and no test is spent on it.
-  def test_text_written_on_the_screen_costs_no_test_and_text_written_far_off_is_not_drawn
+  def test_text_written_far_off_is_not_drawn
     lettered = lambda do |y|
       cast_on_floor do
         draw_text "SCORE", 8, y, :white
         game_loop {}
       end
     end
-    near = VBlank::IR::Backends::GBA.new.lower(lettered.call(8)).bytesize
-    far = VBlank::IR::Backends::GBA.new.lower(lettered.call(300)).bytesize
-
-    assert_operator near, :<, far, "the letters far off are tested, the ones on the screen are not"
     assert_nothing_drawn(lettered.call(300), name: "TEXTFAR")
   end
 
@@ -203,31 +211,5 @@ class TestSpriteOffScreen < Minitest::Test
 
     assert_equal [40..55, 30..45], drawn_on(pooled), "the one thing that is on the screen"
     assert_backends_agree(pooled, frames: 3, name: "POOL")
-  end
-
-  # --- what a test reading the console's table is told ---
-
-  # A sprite that is off the screen is still in the table, which is what tells it from one
-  # the game switched off. Where the table can say its place, it says the game's own.
-  def test_a_sprite_off_the_screen_is_still_a_row_of_the_consoles_table
-    require_emulator!
-    rom = VBlank.build("PARKED", console: :gba, out: StringIO.new, err: StringIO.new) do
-      screen :tiled
-      image(:block, "#" => :red, "o" => :white) { TestSpriteOffScreen.checks(16, 16) }
-      image(:slab, "#" => :red, "o" => :white) { TestSpriteOffScreen.checks(64, 64) }
-      sprite :near, at: [250, 170], facing: { right: :block }
-      sprite :far, at: [100, 300], facing: { right: :block }
-      sprite :hidden, at: [100, 300], facing: { right: :block }, shown: false
-      spun = sprite :spun, at: [100, 300], facing: { right: :slab }
-      spun.scale 2.0
-      game_loop {}
-    end
-    reader = assert_emulator_loads_rom(rom, frames: 4)
-    near, far, spun = %i[near far spun].map { |name| reader.sprites(name) }
-
-    assert_equal [[250, 170]], near.map { |row| [row.x, row.y] }, "just off the edge, it is where the game put it"
-    assert_equal [[100, HEIGHT]], far.map { |row| [row.x, row.y] }, "too far down for the table to say, it reads as the first row below"
-    assert_equal [HEIGHT], spun.map(&:y), "and so does a box too tall to stand there turned"
-    assert_empty reader.sprites(:hidden), "where one the game hid is not in the table at all"
   end
 end

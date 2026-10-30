@@ -3,11 +3,10 @@
 require "test_helper"
 require "differential"
 
-# The tests of test_scene_backgrounds.rb whose games show a second background while another is
-# showing, or turn or resize a background, and a Game Boy Color's hardware cannot, so they play on
-# the Advance's runs alone.
-class TestSceneBackgroundsOnTheAdvance < Minitest::Test
-  include Differential
+# The games these tests and the Advance's cartridge's tests both play
+# (test/lowering/gba/vblank/builder/test_scene_backgrounds_on_the_advance_cartridge.rb).
+module SceneBackgroundsOnTheAdvanceGames
+  include SharedConstants
 
   RED = VBlank::Graphics::Color.resolve(:red)
   BLUE = VBlank::Graphics::Color.resolve(:blue)
@@ -22,46 +21,6 @@ class TestSceneBackgroundsOnTheAdvance < Minitest::Test
     b.instance_eval(&block)
     b.finalize_program
     b.program
-  end
-
-  # Two scenes that take turns, +per_scene+ full-screen scrolling backgrounds in each.
-  # The last one declared in a scene is the one in front, so it is the colour that shows.
-  private def two_scenes(per_scene)
-    tile = SOLID_TILE
-    program do
-      screen :tiled
-      image(:red_art, "#" => :red) { tile }
-      image(:blue_art, "#" => :blue) { tile }
-      tiles :red_set, "#" => :red_art
-      tiles :blue_set, "#" => :blue_art
-      map = Array.new(20) { "#" * 30 }
-      scene(:one) { per_scene.times { |i| background :"one_#{i}", tiles: :red_set, map: map } }
-      scene(:two) { per_scene.times { |i| background :"two_#{i}", tiles: :blue_set, map: map } }
-      state = var :state, 0
-      tick = var :tick, 0
-      game_loop do
-        tick.add! 1
-        (tick > SWITCH_AT).then { state.set! 1 }
-        case_var(:state) do
-          when_val 0, :one
-          when_val 1, :two
-        end
-      end
-    end
-  end
-
-  private def shown(prog, frames) = game_player.run(prog, frames: frames).screen.pixel(*MIDDLE)
-
-  private def on_console(prog, name, frames)
-    assert_emulator_loads_rom(assemble_rom(prog, name: name), frames: frames).pixel_gba(*MIDDLE)
-  end
-
-  # THE CASE THIS IS FOR: four scrolling backgrounds in each of two scenes. The
-  # console never has to hold more than one scene's worth, so this is four layers at a
-  # time and not eight.
-  def test_two_scenes_can_have_four_scrolling_backgrounds_each
-    assert_equal RED, shown(two_scenes(4), SWITCH_AT)
-    assert_equal BLUE, shown(two_scenes(4), SWITCH_AT + 4)
   end
 
   # A SCENE WITH NO SCENERY OF ITS OWN still takes the screen from the one before: the first
@@ -91,11 +50,57 @@ class TestSceneBackgroundsOnTheAdvance < Minitest::Test
       end
     end
   end
+end
+
+# The tests of test_scene_backgrounds.rb whose games show a second background while another is
+# showing, or turn or resize a background, and a Game Boy Color's hardware cannot, so they play on
+# the Advance's runs alone.
+#
+# What the cartridge shows, read in the emulator, is in
+# test/lowering/gba/vblank/builder/test_scene_backgrounds_on_the_advance_cartridge.rb.
+class TestSceneBackgroundsOnTheAdvance < Minitest::Test
+  include Differential
+  include SceneBackgroundsOnTheAdvanceGames
+
+  # Two scenes that take turns, +per_scene+ full-screen scrolling backgrounds in each.
+  # The last one declared in a scene is the one in front, so it is the colour that shows.
+  private def two_scenes(per_scene)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:red_art, "#" => :red) { tile }
+      image(:blue_art, "#" => :blue) { tile }
+      tiles :red_set, "#" => :red_art
+      tiles :blue_set, "#" => :blue_art
+      map = Array.new(20) { "#" * 30 }
+      scene(:one) { per_scene.times { |i| background :"one_#{i}", tiles: :red_set, map: map } }
+      scene(:two) { per_scene.times { |i| background :"two_#{i}", tiles: :blue_set, map: map } }
+      state = var :state, 0
+      tick = var :tick, 0
+      game_loop do
+        tick.add! 1
+        (tick > SWITCH_AT).then { state.set! 1 }
+        case_var(:state) do
+          when_val 0, :one
+          when_val 1, :two
+        end
+      end
+    end
+  end
+
+  private def shown(prog, frames) = game_player.run(prog, frames: frames).screen.pixel(*MIDDLE)
+
+  # THE CASE THIS IS FOR: four scrolling backgrounds in each of two scenes. The
+  # console never has to hold more than one scene's worth, so this is four layers at a
+  # time and not eight.
+  def test_two_scenes_can_have_four_scrolling_backgrounds_each
+    assert_equal RED, shown(two_scenes(4), SWITCH_AT)
+    assert_equal BLUE, shown(two_scenes(4), SWITCH_AT + 4)
+  end
 
   def test_a_scene_with_no_scenery_of_its_own_takes_down_the_last_ones
     assert_equal BLUE, shown(a_backdrop_then_a_bare_scene, SWITCH_AT)
     assert_equal RED, shown(a_backdrop_then_a_bare_scene, SWITCH_AT + 4)
-    assert_equal RED, on_console(a_backdrop_then_a_bare_scene, "SCNBG0", SWITCH_AT + 6)
   end
 
   # SCENERY EVERY SCREEN SHOWS IS IN EVERY SCREENFUL, so it is what each scene has left

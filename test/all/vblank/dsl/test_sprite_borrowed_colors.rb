@@ -8,9 +8,12 @@ require "differential"
 # so long as no more are worn at once than the groups left over: a list is given a group the
 # frame something on screen first wears it, and the group goes back once nothing does. Only
 # the console has groups to run short of, so every other build is the answer key here.
-class TestSpriteBorrowedColors < Minitest::Test
-  include Differential
+#
+# The Advance's cartridge read in the emulator — the colours each thing is lent, and the count
+# of things it had no group for — is in test/lowering/gba/vblank/dsl/test_sprite_borrowed_colors_cartridge.rb.
 
+# The games both files play.
+module SpriteBorrowedColorsGames
   OWN = [:transparent, :red, :green].freeze
 
   # An 8x8 thing, left half the first colour of its list and right half the second.
@@ -24,8 +27,8 @@ class TestSpriteBorrowedColors < Minitest::Test
   def self.colors_of_kind(n) = [:transparent, VBlank::Graphics::Color.rgb(n, 31 - n, 5), VBlank::Graphics::Color.rgb(31 - n, n, 9)]
 
   private def built(&body)
-    klass = self.class
-    builder = Builder.new
+    klass = SpriteBorrowedColorsGames
+    builder = VBlank::Builder.new
     builder.instance_eval do
       screen :tiled
       image :ship, width: 8, height: 8, data: SHIP, colors: OWN
@@ -61,30 +64,14 @@ class TestSpriteBorrowedColors < Minitest::Test
       end
     end
   end
+end
 
-  def test_twenty_kinds_a_few_at_a_time_fit_the_console
-    GBA.new.lower(things_coming_and_going)
-  end
+class TestSpriteBorrowedColors < Minitest::Test
+  include Differential
+  include SpriteBorrowedColorsGames
 
   def test_each_thing_wears_its_own_colors
     [4, 11, 25, 40, 66].each { |frames| assert_backends_agree(things_coming_and_going, frames: frames) }
-  end
-
-  # Read off the console's own table rather than compared with the interpreter: every thing
-  # on screen wears the list of the kind its place says it is, frame after frame, as things
-  # of new kinds keep arriving.
-  def test_the_console_lends_each_thing_its_kinds_colors
-    v = assert_emulator_loads_rom(assemble_rom(things_coming_and_going, name: "LENT"), frames: 10)
-    seen = 0
-    12.times do
-      v.step(5)
-      v.sprites(:thing).each do |row|
-        kind = (((row.y - 40) / 20) * 10) + ((row.x - 10) / 20)
-        assert_equal self.class.colors_of_kind(kind)[1, 2], row.colors[1, 2], "kind #{kind} at #{row.x}, #{row.y}"
-        seen += 1
-      end
-    end
-    assert_operator seen, :>, 30
   end
 
   # A list's colours go in through the tint in force, as any list's do.
@@ -162,19 +149,5 @@ class TestSpriteBorrowedColors < Minitest::Test
     end
 
     [3, 6, 10].each { |frames| assert_backends_agree(stepping, frames: frames) }
-  end
-
-  # More lists worn at once than there are groups to lend: the console draws the extra
-  # things from a group another list holds, as the console's own games do, and counts it.
-  def test_more_lists_worn_at_once_than_groups_are_counted
-    crowded = built do
-      things = pool :thing, x: 0, y: 0, kind: 0, capacity: KINDS, image: :ship
-      KINDS.times { |n| things.spawn x: ((n % 10) * 20) + 10, y: ((n / 10) * 20) + 40, kind: n }
-      game_loop { things.each { |thing| thing.draw_with KIND_LISTS, showing: thing.kind } }
-    end
-    rom = assemble_rom(crowded, name: "CROWDED")
-    v = assert_emulator_loads_rom(rom, frames: 6, vars: rom.var_addresses)
-
-    assert_operator v.var(:__lent_colors_missed), :>, 0
   end
 end

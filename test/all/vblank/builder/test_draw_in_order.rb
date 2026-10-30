@@ -10,16 +10,15 @@ require "differential"
 #
 # Two blocks overlap at OVERLAP. The enemy is declared first, so without an order the hero
 # (declared after it) is always in front. Which colour shows there is the whole answer.
-class TestDrawInOrder < Minitest::Test
-  include Differential
+#
+# Where the Advance's cartridge keeps each sprite in its table is read in the emulator in
+# test/lowering/gba/vblank/builder/test_draw_in_order_cartridge.rb, which plays the game kept
+# here in DrawInOrderGames.
+module DrawInOrderGames
+  include SharedConstants # Builder, which the games below name from inside the module
 
-  RED = VBlank::Graphics::Color.resolve(:red)
-  GREEN = VBlank::Graphics::Color.resolve(:green)
-  BLUE = VBlank::Graphics::Color.resolve(:blue)
-
-  BLOCK = Array.new(16) { "#" * 16 }.join("\n")
+  BLOCK = Ractor.make_shareable(Array.new(16) { "#" * 16 }.join("\n"))
   ENEMY_AT = [60, 60].freeze
-  OVERLAP = [70, 66].freeze
 
   private def program(&block)
     b = Builder.new
@@ -42,6 +41,17 @@ class TestDrawInOrder < Minitest::Test
       game_loop { hero.y.add! step unless step.zero? }
     end
   end
+end
+
+class TestDrawInOrder < Minitest::Test
+  include Differential
+  include DrawInOrderGames
+
+  RED = VBlank::Graphics::Color.resolve(:red)
+  GREEN = VBlank::Graphics::Color.resolve(:green)
+  BLUE = VBlank::Graphics::Color.resolve(:blue)
+
+  OVERLAP = [70, 66].freeze
 
   private def shown(prog, frames: 2) = game_player.run(prog, frames: frames).screen.pixel(*OVERLAP)
 
@@ -65,16 +75,6 @@ class TestDrawInOrder < Minitest::Test
   def test_the_console_draws_the_same_order
     assert_backends_agree(two_program(54), frames: 2)
     assert_backends_agree(two_program(66), frames: 2)
-  end
-
-  # The rows of an ordered run move about the console's table, so asking the console for a
-  # sprite by name has to follow them.
-  def test_the_console_still_knows_which_sprite_is_which
-    v = assert_emulator_loads_rom(assemble_rom(two_program(66), name: "ORDER"), frames: 4)
-
-    assert_equal [[68, 66]], v.sprites(:hero).map { |row| [row.x, row.y] }
-    assert_equal [ENEMY_AT], v.sprites(:enemy).map { |row| [row.x, row.y] }
-    assert_operator v.sprites(:hero).first.slot, :<, v.sprites(:enemy).first.slot, "the hero is in front"
   end
 
   # The hero walks down a pixel a frame from above the enemy to below it, and the two swap

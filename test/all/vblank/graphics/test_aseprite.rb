@@ -4,6 +4,58 @@ require "test_helper"
 
 require "tempfile"
 
+# The fixtures and the games these tests import them into, kept once for the same sprites read
+# back on the Advance's cartridge (test/lowering/gba/vblank/graphics/test_aseprite_cartridge.rb).
+module AsepriteGames
+  include SharedConstants
+
+  # The committed fixtures. A JSON+PNG export and a native .aseprite binary, both a 4-frame
+  # sheet of red, green, blue, white. The JSON one is tagged walk = 0..1 / blink = 2..3;
+  # the binary one is tagged walk = 0..1 / idle = 2..3.
+  FIXTURE = Ractor.make_shareable(VBlank.root.join("test/fixtures/aseprite/hero.json").to_s)
+  BINARY = Ractor.make_shareable(VBlank.root.join("test/fixtures/aseprite/hero_rgba.aseprite").to_s)
+
+  private def game(mode:, run:, play: nil, file: FIXTURE)
+    builder = Builder.new
+    builder.instance_eval do
+      screen mode
+      if mode == :tiled
+        image(:field, "#" => :black) { SOLID_TILE }
+        tiles :ground, "#" => :field
+        background :bg, tiles: :ground, map: Array.new(20, "#" * 30)
+      else
+        clear_screen :black
+      end
+      hero = sprite :hero, at: [40, 40], from_aseprite: file
+      hero.play(play) if play # switch clip at setup; it holds while the loop animates it
+      f = var :f, 0
+      game_loop do
+        wait_vblank
+        f.add! 1
+        (f >= run).then { halt }
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+
+  private def c(r, g, b) = Color.rgb8(r, g, b)
+
+  # --- drawn with other colours: every frame the file is cut into takes the list given ---
+
+  private def an_aseprite_sprite_drawn_with_other_colors
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      colors :hurt, %i[transparent cyan yellow magenta gray]
+      hero = sprite :hero, at: [40, 40], from_aseprite: FIXTURE, colors: %i[transparent red green blue white]
+      game_loop { hero.draw_with :hurt }
+    end
+    builder.finalize_program
+    builder.program
+  end
+end
+
 # `sprite ..., from_aseprite: "hero.json"` imports a sprite the way a pixel artist
 # authored it in Aseprite: it reads the JSON export for each frame's rectangle and each
 # NAMED animation (frameTag), slices the frames out of the PNG, and exposes each tag as
@@ -12,14 +64,11 @@ require "tempfile"
 # grid slice of frames_from: / facing_from:.
 class TestAseprite < Minitest::Test
   include VBlank::Console::Hardware
+  include AsepriteGames
 
   Aseprite = VBlank::Graphics::Aseprite
 
-  # The committed fixtures. A JSON+PNG export and a native .aseprite binary, both a 4-frame
-  # sheet of red, green, blue, white. The JSON one is tagged walk = 0..1 / blink = 2..3;
-  # the binary one is tagged walk = 0..1 / idle = 2..3. And a real Aseprite file (the bird).
-  FIXTURE = VBlank.root.join("test/fixtures/aseprite/hero.json").to_s
-  BINARY = VBlank.root.join("test/fixtures/aseprite/hero_rgba.aseprite").to_s
+  # And a real Aseprite file (the bird), beside the fixtures in AsepriteGames.
   BIRD = VBlank.root.join("examples/assets/bird.aseprite").to_s
 
   # --- the parser, on inline JSON (both export layouts) ---
@@ -59,48 +108,13 @@ class TestAseprite < Minitest::Test
     assert_match(/not an Aseprite/, err.message)
   end
 
-  # --- the sprite: import the fixture, play named animations (both backends) ---
-
-  private def game(mode:, run:, play: nil, file: FIXTURE)
-    builder = Builder.new
-    builder.instance_eval do
-      screen mode
-      if mode == :tiled
-        image(:field, "#" => :black) { SOLID_TILE }
-        tiles :ground, "#" => :field
-        background :bg, tiles: :ground, map: Array.new(20, "#" * 30)
-      else
-        clear_screen :black
-      end
-      hero = sprite :hero, at: [40, 40], from_aseprite: file
-      hero.play(play) if play # switch clip at setup; it holds while the loop animates it
-      f = var :f, 0
-      game_loop do
-        wait_vblank
-        f.add! 1
-        (f >= run).then { halt }
-      end
-    end
-    builder.finalize_program
-    builder.program
-  end
+  # --- the sprite: import the fixture, play named animations ---
 
   private def spot(program) = game_player.run(program).screen.pixel(44, 44)
-  private def c(r, g, b) = Color.rgb8(r, g, b)
 
   def test_a_hardware_sprite_imports_and_plays_the_same_way
     assert_equal c(255, 0, 0),   spot(game(mode: :tiled, run: 3)), "tiled: walk, red"
     assert_equal c(0, 0, 255),   spot(game(mode: :tiled, run: 3, play: :blink)), "tiled: blink, blue"
-  end
-
-  # --- real hardware: the imported, played animation composites on the console ---
-
-  def test_on_console_a_played_animation_composites
-    rom = ROM.assemble(GBA.new.lower(game(mode: :tiled, run: 3, play: :blink)),
-                       title: "ASEPRIT", code: "BASE", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 3)
-    assert v.pixel_is?(44, 44, c(0, 0, 255)),
-           "blink's first frame (blue) should composite on the console, got #{v.pixel_gba(44, 44).to_s(16)}"
   end
 
   # --- the native binary .aseprite, read directly (no export step) ---
@@ -129,14 +143,6 @@ class TestAseprite < Minitest::Test
 
   def test_a_native_aseprite_file_on_a_hardware_sprite
     assert_equal c(255, 255, 255), spot(game(mode: :tiled, run: 9, file: BINARY, play: :idle)), "tiled native: idle's second frame (white)"
-  end
-
-  def test_on_console_a_native_aseprite_file_composites
-    rom = ROM.assemble(GBA.new.lower(game(mode: :tiled, run: 3, file: BINARY, play: :idle)),
-                       title: "ASEBIN", code: "BABN", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 3)
-    assert v.pixel_is?(44, 44, c(0, 0, 255)),
-           "a native .aseprite file: play(:idle)'s blue should composite on the console, got #{v.pixel_gba(44, 44).to_s(16)}"
   end
 
   # --- per-frame timing: a frame held longer plays longer ---
@@ -206,30 +212,12 @@ class TestAseprite < Minitest::Test
     assert_match(/no animation :sprint/, err.message)
   end
 
-  # --- drawn with other colours: every frame the file is cut into takes the list given ---
-
-  private def an_aseprite_sprite_drawn_with_other_colors
-    builder = Builder.new
-    builder.instance_eval do
-      screen :tiled
-      colors :hurt, %i[transparent cyan yellow magenta gray]
-      hero = sprite :hero, at: [40, 40], from_aseprite: FIXTURE, colors: %i[transparent red green blue white]
-      game_loop { hero.draw_with :hurt }
-    end
-    builder.finalize_program
-    builder.program
-  end
-
   def test_a_sprite_from_aseprite_can_be_drawn_with_other_colors
     assert_equal Color.resolve(:cyan), game_player.run(an_aseprite_sprite_drawn_with_other_colors, frames: 3)
                                                 .screen.pixel(44, 44), "walk's red, drawn in the other list's first colour"
   end
 
-  def test_the_console_draws_an_aseprite_sprite_with_other_colors_too
-    v = assert_emulator_loads_rom(assemble_rom(an_aseprite_sprite_drawn_with_other_colors, name: "ASECOL"), frames: 4)
-
-    assert_equal Color.resolve(:cyan), v.pixel_gba(44, 44)
-  end
+  # The same sprite on the Advance's cartridge is in the cartridge's tests.
 
   def test_from_aseprite_with_another_pose_source_is_a_friendly_error
     builder = Builder.new

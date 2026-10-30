@@ -101,7 +101,13 @@ module VBlank
           raise ArgumentError, "console_frames: gives the console's frame count for one frame. " \
                                "This check asks for #{each.size} frames. Give one frame, or leave out console_frames:."
         end
-        return Testing.player_class.new.hold(*keys).run(program, frames: each.max) if Testing.checked?
+        if Testing.checked?
+          # The checked player compares every frame and fails at the first that differs; that it
+          # came back is the check passing, and minitest is told it was made.
+          played = Testing.player_class.new.hold(*keys).run(program, frames: each.max)
+          self.assertions += 1
+          return played
+        end
 
         each.each do |frame|
           oracle, console, ran = backend_pictures(program, frames: frame, name: name,

@@ -3,18 +3,17 @@
 require "test_helper"
 require "differential"
 
-# WHICH OF TWO OVERLAPPING THINGS IN ONE POOL IS IN FRONT: the one spawned first. That is
-# the order a walk goes in too, and like the walk it does not depend on which slot a thing
-# landed in — a slot freed and taken again says nothing about when its thing came.
-#
-# Every test spawns 8x8 squares that overlap by half and reads the pixel where they both
-# lie, on the interpreter and on the console. A thing's colour is its `tag` field, so a test
-# says which thing is which without knowing a slot.
-class TestPoolDrawingOrder < Minitest::Test
-  include Differential
+# The crowds these tests play, shared with the Advance's cartridge's tests
+# (test/lowering/gba/vblank/dsl/test_pool_drawing_order_cartridge.rb).
+module PoolDrawingOrderGames
+  include SharedConstants
 
   COLORS = %i[red green blue].freeze
   SQUARE = ("########\n" * 8).freeze
+
+  RED = 0
+  GREEN = 1
+  BLUE = 2
 
   # A tiled game with a pool of coloured squares. The block is the game loop's body, handed
   # the pool and a counter of the passes so far; after it, every live thing takes the colour
@@ -37,35 +36,20 @@ class TestPoolDrawingOrder < Minitest::Test
     b.program
   end
 
-  # [interpreter, console]: the colour name at (x, y) once the script has played out.
-  private def colors_at(prog, x, y)
-    rom = ROM.assemble(GBA.new.lower(prog), title: "PDRW")
-    v = assert_emulator_loads_rom(rom, frames: 14)
-    seen = game_player.run(prog, frames: 12).screen.pixel(x, y)
-    [COLORS.find { |color| Color.resolve(color) == seen } || seen,
-     COLORS.find { |color| v.pixel_is?(x, y, color) } || v.pixel_gba(x, y)]
-  end
-
-  RED = 0
-  GREEN = 1
-  BLUE = 2
-
-  def test_the_first_spawned_is_in_front
-    prog = crowd_program do |crowd, step|
+  # Two squares spawned together, red first.
+  private def first_spawned_crowd
+    crowd_program do |crowd, step|
       (step == 0).then do
         crowd.spawn x: 40, y: 40, tag: RED
         crowd.spawn x: 44, y: 44, tag: GREEN
       end
     end
-
-    assert_equal %i[red red], colors_at(prog, 45, 45), "where both lie, the older one shows"
-    assert_equal %i[green green], colors_at(prog, 50, 50), "and the newer one is drawn behind it"
   end
 
   # The slot a removed thing gave back is the next one handed out, so the thing spawned last
   # lands in the slot the very first thing had.
-  def test_a_thing_spawned_into_a_freed_slot_is_still_behind_an_older_one
-    prog = crowd_program do |crowd, step|
+  private def freed_slot_crowd
+    crowd_program do |crowd, step|
       (step == 0).then do
         crowd.spawn x: 200, y: 100, tag: BLUE
         crowd.spawn x: 40, y: 40, tag: RED
@@ -73,15 +57,12 @@ class TestPoolDrawingOrder < Minitest::Test
       (step == 1).then { crowd.each { |thing| (thing.tag == BLUE).then { thing.remove } } }
       (step == 2).then { crowd.spawn x: 44, y: 44, tag: GREEN }
     end
-
-    assert_equal %i[red red], colors_at(prog, 45, 45), "the older one is in front, whatever slot the newer took"
-    assert_equal %i[green green], colors_at(prog, 50, 50)
   end
 
   # Three deep, after the slots have been shuffled: each is in front of every one spawned
   # after it.
-  def test_three_overlapping_things_stack_oldest_in_front
-    prog = crowd_program(capacity: 4) do |crowd, step|
+  private def three_deep_crowd
+    crowd_program(capacity: 4) do |crowd, step|
       (step == 0).then do
         crowd.spawn x: 200, y: 100, tag: BLUE
         crowd.spawn x: 200, y: 120, tag: BLUE
@@ -93,38 +74,84 @@ class TestPoolDrawingOrder < Minitest::Test
         crowd.spawn x: 44, y: 44, tag: BLUE
       end
     end
-
-    assert_equal %i[green green], colors_at(prog, 45, 45), "all three lie here: the oldest shows"
-    assert_equal %i[red red], colors_at(prog, 49, 49), "past the oldest, the second shows over the third"
-    assert_equal %i[blue blue], colors_at(prog, 51, 51), "and the newest shows only where it lies alone"
   end
 
   # A full pool that reuses its oldest thing makes it the newest, so it goes behind.
-  def test_a_recycled_thing_goes_behind_the_ones_that_were_already_there
-    prog = crowd_program(capacity: 2, on_full: :recycle_oldest) do |crowd, step|
+  private def recycled_crowd
+    crowd_program(capacity: 2, on_full: :recycle_oldest) do |crowd, step|
       (step == 0).then do
         crowd.spawn x: 200, y: 100, tag: BLUE
         crowd.spawn x: 40, y: 40, tag: RED
       end
       (step == 2).then { crowd.spawn x: 44, y: 44, tag: GREEN }
     end
-
-    assert_equal %i[red red], colors_at(prog, 45, 45)
-    assert_equal %i[green green], colors_at(prog, 50, 50)
   end
 
   # Removing the thing in front shows the one behind it, where it was.
-  def test_removing_the_front_one_shows_the_one_behind
-    prog = crowd_program do |crowd, step|
+  private def front_removed_crowd
+    crowd_program do |crowd, step|
       (step == 0).then do
         crowd.spawn x: 40, y: 40, tag: RED
         crowd.spawn x: 44, y: 44, tag: GREEN
       end
       (step == 2).then { crowd.each { |thing| (thing.tag == RED).then { thing.remove } } }
     end
+  end
+end
 
-    assert_equal %i[green green], colors_at(prog, 45, 45)
-    assert_equal [0, 0], colors_at(prog, 41, 41), "nothing is left where only the removed one was"
+# WHICH OF TWO OVERLAPPING THINGS IN ONE POOL IS IN FRONT: the one spawned first. That is
+# the order a walk goes in too, and like the walk it does not depend on which slot a thing
+# landed in — a slot freed and taken again says nothing about when its thing came.
+#
+# Every test spawns 8x8 squares that overlap by half and reads the pixel where they both
+# lie. A thing's colour is its `tag` field, so a test says which thing is which without
+# knowing a slot. The same crowds on the Advance's cartridge, read in the emulator, are in
+# test/lowering/gba/vblank/dsl/test_pool_drawing_order_cartridge.rb.
+class TestPoolDrawingOrder < Minitest::Test
+  include Differential
+  include PoolDrawingOrderGames
+
+  # The colour name at (x, y) once the script has played out, or the pixel's number where no
+  # colour names it.
+  private def color_at(prog, x, y)
+    seen = game_player.run(prog, frames: 12).screen.pixel(x, y)
+    COLORS.find { |color| Color.resolve(color) == seen } || seen
+  end
+
+  def test_the_first_spawned_is_in_front
+    prog = first_spawned_crowd
+
+    assert_equal :red, color_at(prog, 45, 45), "where both lie, the older one shows"
+    assert_equal :green, color_at(prog, 50, 50), "and the newer one is drawn behind it"
+  end
+
+  def test_a_thing_spawned_into_a_freed_slot_is_still_behind_an_older_one
+    prog = freed_slot_crowd
+
+    assert_equal :red, color_at(prog, 45, 45), "the older one is in front, whatever slot the newer took"
+    assert_equal :green, color_at(prog, 50, 50)
+  end
+
+  def test_three_overlapping_things_stack_oldest_in_front
+    prog = three_deep_crowd
+
+    assert_equal :green, color_at(prog, 45, 45), "all three lie here: the oldest shows"
+    assert_equal :red, color_at(prog, 49, 49), "past the oldest, the second shows over the third"
+    assert_equal :blue, color_at(prog, 51, 51), "and the newest shows only where it lies alone"
+  end
+
+  def test_a_recycled_thing_goes_behind_the_ones_that_were_already_there
+    prog = recycled_crowd
+
+    assert_equal :red, color_at(prog, 45, 45)
+    assert_equal :green, color_at(prog, 50, 50)
+  end
+
+  def test_removing_the_front_one_shows_the_one_behind
+    prog = front_removed_crowd
+
+    assert_equal :green, color_at(prog, 45, 45)
+    assert_equal 0, color_at(prog, 41, 41), "nothing is left where only the removed one was"
   end
 
   # --- what moves with a thing when its place in the order does ---

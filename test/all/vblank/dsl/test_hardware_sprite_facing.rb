@@ -2,17 +2,13 @@
 
 require "test_helper"
 
-# Facing / poses for hardware sprites (OAM slice 3): a `screen :tiled` sprite given
-# `facing:` poses turns to face the way it moves — the console swaps which of the
-# sprite's uploaded pictures it draws, with the tile data managed for the player.
-# Same `facing:` / `face` / `move` handle as the software sprite. The poses here are
-# deliberately different colors so the swap is observable in a pixel. Asserted on
-# the interpreter oracle and on real hardware — the same pose-swap the (timer-driven)
-# flipbook animation verb builds on.
-class TestHardwareSpriteFacing < Minitest::Test
-  include VBlank::Console::Hardware
+# The facing game, shared with the Advance cartridge's own test of it
+# (test/lowering/gba/vblank/dsl/test_hardware_sprite_facing_cartridge.rb).
+module HardwareSpriteFacingGames
+  include SharedConstants
 
-  FLOOR_MAP = Array.new(20, "#" * 30).freeze
+  # Shareable, since a test plays in a Ractor and a module's constants are not frozen for it.
+  FLOOR_MAP = Ractor.make_shareable(Array.new(20, "#" * 30))
 
   # A sprite red when facing right, blue when facing left. It slides toward whichever
   # wall you hold and clamps there, so its resting spot AND pose are deterministic:
@@ -41,10 +37,18 @@ class TestHardwareSpriteFacing < Minitest::Test
     builder.finalize_program
     builder.program
   end
+end
 
-  private def rom_for(program)
-    ROM.assemble(GBA.new.lower(program), title: "FACING", code: "BFAC", maker: "01")
-  end
+# Facing / poses for hardware sprites (OAM slice 3): a `screen :tiled` sprite given
+# `facing:` poses turns to face the way it moves — the console swaps which of the
+# sprite's uploaded pictures it draws, with the tile data managed for the player.
+# Same `facing:` / `face` / `move` handle as the software sprite. The poses here are
+# deliberately different colors so the swap is observable in a pixel. Asserted on
+# every run, and on the Advance's cartridge in the file named above — the same pose-swap
+# the (timer-driven) flipbook animation verb builds on.
+class TestHardwareSpriteFacing < Minitest::Test
+  include VBlank::Console::Hardware
+  include HardwareSpriteFacingGames
 
   def test_a_sprite_faces_the_way_it_moves
     left = game_player.input_each_frame { [:left] }.run(facing_program, frames: 45).screen
@@ -52,14 +56,6 @@ class TestHardwareSpriteFacing < Minitest::Test
 
     right = game_player.input_each_frame { [:right] }.run(facing_program, frames: 45).screen
     assert_equal Color.resolve(:red), right.pixel(138, 43), "moving right shows the right-facing (red) pose"
-  end
-
-  def test_facing_swaps_the_pose_on_the_console
-    vl = assert_emulator_loads_rom(rom_for(facing_program), frames: 42, keys: KEY_LEFT)
-    assert vl.blue?(10, 43), "left-facing pose renders blue, got 0x#{format('%04X', vl.pixel_gba(10, 43))}"
-
-    vr = assert_emulator_loads_rom(rom_for(facing_program), frames: 42, keys: KEY_RIGHT)
-    assert vr.red?(138, 43), "right-facing pose renders red, got 0x#{format('%04X', vr.pixel_gba(138, 43))}"
   end
 
   # --- friendly guardrails ---

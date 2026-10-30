@@ -10,19 +10,23 @@ require VBlank.root.join("examples/parallax").to_s
 # Proves the layers composite (the near layer is see-through above so the sky shows),
 # and that scrolling slides the near layer. The rigorous "near moves twice as fast as
 # far" is pinned in test_background_layers.rb; this confirms the example itself renders
-# and scrolls, on the interpreter oracle and on real hardware.
-class TestParallaxExample < Minitest::Test
-  include VBlank::Console::Hardware
-
-  SKY   = Color.rgb(11, 17, 28) # the far layer's sky
-  GRASS = Color.rgb(4, 18, 4)   # the near layer's grass line
-  LEAF  = Color.rgb(2, 18, 4)   # a near-layer tree's leaves
+# and scrolls. The same on the Advance's cartridge, read in the emulator, is in
+# test/lowering/gba/examples/test_parallax_example_cartridge.rb, which looks for the colours
+# kept here in ParallaxColors.
+module ParallaxColors
+  SKY   = VBlank::Graphics::Color.rgb(11, 17, 28) # the far layer's sky
+  GRASS = VBlank::Graphics::Color.rgb(4, 18, 4)   # the near layer's grass line
+  LEAF  = VBlank::Graphics::Color.rgb(2, 18, 4)   # a near-layer tree's leaves
 
   # Any tree leaf in the tree row (py 136..143) within the given screen-x span — the
   # trees move with the near layer, so this is how we spot where they've slid to.
   private def leaf_in_row?(xs)
     xs.any? { |x| (136..143).any? { |y| yield(x, y) } }
   end
+end
+
+class TestParallaxExample < Minitest::Test
+  include ParallaxColors
 
   def test_the_example_builds_clean
     rom = Parallax.build_rom(err: StringIO.new)
@@ -48,23 +52,5 @@ class TestParallaxExample < Minitest::Test
                  "sanity: at rest there's no tree leaf at x34"
     assert_equal LEAF, s.pixel(34, 138), "a tree has slid over to x34 as the near layer scrolled"
     assert_equal SKY,  s.pixel(4, 4),    "the sky still fills the top"
-  end
-
-  # --- Hardware (the emulator): the two layers render and the near one scrolls ---
-
-  def test_the_layers_render_on_the_console
-    v = assert_emulator_loads_rom(Parallax.build_rom(err: StringIO.new), frames: 3)
-    assert v.pixel_is?(4, 148, GRASS), "the grass renders along the bottom, got 0x#{format('%04X', v.pixel_gba(4, 148))}"
-    assert leaf_in_row?(0..40) { |x, y| v.pixel_is?(x, y, LEAF) }, "trees render on the near layer"
-  end
-
-  def test_scrolling_slides_the_near_layer_on_the_console
-    rest = assert_emulator_loads_rom(Parallax.build_rom(err: StringIO.new), frames: 3)
-    refute leaf_in_row?(28..40) { |x, y| rest.pixel_is?(x, y, LEAF) }, "at rest no tree sits at x28..40"
-
-    moved = assert_emulator_loads_rom(Parallax.build_rom(err: StringIO.new), frames: 16,
-                                   keys: ->(f) { f <= 8 ? KEY_RIGHT : 0 })
-    assert leaf_in_row?(28..40) { |x, y| moved.pixel_is?(x, y, LEAF) },
-           "after scrolling right a tree has slid into x28..40 — the near layer moved"
   end
 end

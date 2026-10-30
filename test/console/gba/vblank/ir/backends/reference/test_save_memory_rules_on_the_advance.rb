@@ -56,5 +56,4 @@ class TestSaveMemoryRulesOnTheAdvance < Minitest::Test
 
     assert_equal 0x12, store.read(0x5000, 1)
   end
-
 end

@@ -48,19 +48,4 @@ class TestSaveVarsIntoOnTheAdvance < Minitest::Test
       assert_equal 50, boot(program, image)[:best], "save memory #{memory || 32}K"
     end
   end
-
-  # --- the console starts from a written save_var too ---
-
-  private def console_best(save_memory: nil)
-    game = scores_game(save_memory: save_memory)
-    rom = game.build_rom(out: nil, err: nil, profile: false)
-    [1234, 9999].map do |best|
-      image = Reference.save_vars_into(SaveImage.new, game.program, best: best, played: 7)
-      v = assert_emulator_loads_rom(rom, frames: 6, save: image, vars: rom.var_addresses)
-      [v.var(:best), v.var(:played)]
-    end
-  end
-
-  # --- what a test cannot write ---
-
 end

@@ -7,14 +7,61 @@ require "test_helper"
 # built entirely from ordinary IR ops (a multiply-and-add churning a hidden var),
 # so both backends agree for free.
 #
-# These assert BEHAVIOR: build a tiny program through the DSL, run it on the
-# reference backend, and read the numbers it drew — never the tree it built. A
-# the emulator test confirms the same draws land on real hardware, which (running the
-# same IR) also proves the two backends produce an identical sequence.
-class TestRandom < Minitest::Test
-  include VBlank::Console::Hardware
+# The games a marker is drawn in at a rolled position, shared with the Advance cartridge's own
+# tests (test/lowering/gba/vblank/builder/test_random_cartridge.rb).
+module RandomGames
+  # The real usage: stir every frame on a title screen until the player presses
+  # START. Two players with different reaction times get different games; the same
+  # reaction time replays the same one.
+  private def reaction_program
+    builder = VBlank::Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      clear_screen :white
+      done = var :done, 0
+      var :rx, 0
+      game_loop do
+        wait_vblank
+        (done == 0).then do
+          randomize
+          pressed(:start).then do
+            roll :rx, 0..200
+            done.set! 1
+          end
+        end
+        (done > 0).then do
+          draw_rect_at :rx, 80, 4, 4, :red
+          halt
+        end
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
 
-  Build = VBlank::IR::Build
+  # A 4x4 marker drawn at a rolled (x, y) on a white field.
+  private def marker_program
+    builder = VBlank::Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      clear_screen :white
+      roll :x, 0..200
+      roll :y, 0..140
+      draw_rect_at :x, :y, 4, 4, :red
+      halt
+    end
+    builder.finalize_program
+    builder.program
+  end
+end
+
+# These assert BEHAVIOR: build a tiny program through the DSL, run it on every run's
+# player, and read the numbers it drew — never the tree it built. The emulator tests in
+# test/lowering/gba/vblank/builder/test_random_cartridge.rb confirm the same draws land on
+# the Advance's cartridge, which (running the same IR) also proves the two backends produce
+# an identical sequence.
+class TestRandom < Minitest::Test
+  include RandomGames
 
   # Build through the DSL and run it on the reference backend, returning the
   # interpreter so a test can read the variables the draws wrote.
@@ -165,26 +212,6 @@ class TestRandom < Minitest::Test
     assert_includes 30..70, i[:hits], "chance(50) fired #{i[:hits]}/100 times — not near half"
   end
 
-  # A `chance` node means "the random draw is below the threshold". Wrapping the
-  # test as a node (so the cost model can see it's a probability) must change no
-  # code: it lowers to exactly the same GBA output as that plain comparison. Build
-  # both forms and assert identical bytes.
-  def test_chance_lowers_identically_to_the_underlying_comparison
-    node_form = Build.program(
-      Build.screen(:bitmap), Build.set(:d, 0),
-      Build.loop_(Build.wait_vblank,
-                  Build.if_(Build.chance(Build.var_ref(:d), 30), Build.set(:hit, 1)),
-                  Build.halt),
-    )
-    compare_form = Build.program(
-      Build.screen(:bitmap), Build.set(:d, 0),
-      Build.loop_(Build.wait_vblank,
-                  Build.if_(Build.binop(:<, Build.var_ref(:d), Build.int(30)), Build.set(:hit, 1)),
-                  Build.halt),
-    )
-    assert_equal GBA.new.lower(compare_form), GBA.new.lower(node_form)
-  end
-
   # ---- randomize: entropy from the player's reaction time ----
 
   # Stirring moves the stream, so a draw after N stirs differs from one after M.
@@ -199,35 +226,6 @@ class TestRandom < Minitest::Test
     end
     assert_equal after.call(3), after.call(3), "the same number of stirs is reproducible"
     refute_equal after.call(3), after.call(8), "a different number of stirs should land elsewhere"
-  end
-
-  # The real usage: stir every frame on a title screen until the player presses
-  # START. Two players with different reaction times get different games; the same
-  # reaction time replays the same one.
-  private def reaction_program
-    builder = Builder.new
-    builder.instance_eval do
-      screen :bitmap
-      clear_screen :white
-      done = var :done, 0
-      var :rx, 0
-      game_loop do
-        wait_vblank
-        (done == 0).then do
-          randomize
-          pressed(:start).then do
-            roll :rx, 0..200
-            done.set! 1
-          end
-        end
-        (done > 0).then do
-          draw_rect_at :rx, 80, 4, 4, :red
-          halt
-        end
-      end
-    end
-    builder.finalize_program
-    builder.program
   end
 
   # Press START on a given frame (held from then on, so its edge fires that frame).
@@ -251,18 +249,11 @@ class TestRandom < Minitest::Test
     assert_equal result_when_start_pressed_on(5), result_when_start_pressed_on(5)
   end
 
-  def test_randomize_marker_lands_on_hardware
-    program = reaction_program
-    # Hold START from the first frame (a fixed timing), so the interpreter's draw
-    # position is defined — then confirm the console draws it in the same place.
-    i = game_player.input_each_frame { [:start] }.run(program)
+  def test_randomize_marker_lands_where_it_was_drawn
+    # Hold START from the first frame (a fixed timing), so the draw position is defined.
+    i = game_player.input_each_frame { [:start] }.run(reaction_program)
     x = i[:rx]
-    assert_equal Color.resolve(:red), i.screen.pixel(x, 80), "interpreter drew the marker at x=#{x}"
-
-    rom = VBlank::Cartridge::ROM.assemble(VBlank::IR::Backends::GBA.new.lower(program),
-                                title: "RANDOMIZE", code: "BRDZ", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 5, keys: KEY_START)
-    assert v.red?(x, 80), "console drew the randomized marker at the same x=#{x}"
+    assert_equal Color.resolve(:red), i.screen.pixel(x, 80), "the game drew the marker at x=#{x}"
   end
 
   # ---- the boot seed: planted once, at the very start ----
@@ -321,39 +312,14 @@ class TestRandom < Minitest::Test
     assert_match(/0 to 100/, err.message)
   end
 
-  # ---- hardware: the same draws land on the console ----
-  #
-  # The interpreter and the emulator run the *same* IR, so a marker drawn at a rolled
-  # position must land in the same place on both — which confirms the draw works
-  # on hardware and that the two backends churn the stream identically.
+  # ---- the drawn position: a marker drawn where the roll landed ----
 
-  private def marker_program
-    builder = Builder.new
-    builder.instance_eval do
-      screen :bitmap
-      clear_screen :white
-      roll :x, 0..200
-      roll :y, 0..140
-      draw_rect_at :x, :y, 4, 4, :red
-      halt
-    end
-    builder.finalize_program
-    builder.program
-  end
-
-  def test_interpreter_and_hardware_agree_on_the_drawn_position
-    program = marker_program
-    i = game_player.run(program)
+  def test_the_marker_is_drawn_at_the_drawn_position
+    i = game_player.run(marker_program)
     x = i[:x]
     y = i[:y]
 
-    # The interpreter drew the 4x4 marker here.
-    assert_equal Color.resolve(:red), i.screen.pixel(x, y), "interpreter drew the marker at (#{x},#{y})"
-
-    rom = VBlank::Cartridge::ROM.assemble(VBlank::IR::Backends::GBA.new.lower(program),
-                                title: "RANDOM", code: "BRND", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 4)
-    assert v.red?(x, y), "console drew the marker at the same (#{x},#{y}) the interpreter did"
-    assert v.white?(x + 10, y), "and only there — the field beside it is untouched"
+    # The game drew the 4x4 marker here.
+    assert_equal Color.resolve(:red), i.screen.pixel(x, y), "the game drew the marker at (#{x},#{y})"
   end
 end

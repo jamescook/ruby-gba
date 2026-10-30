@@ -2,19 +2,12 @@
 
 require "test_helper"
 
-# Tiled-mode text & numbers: on a `screen :tiled` there's no framebuffer, so
-# draw_text / draw_number render each glyph as a little hardware sprite the console
-# composites over the game. The surface is the same as bitmap mode, with one rule —
-# declare it once, above the game loop, because (like a sprite) it's redrawn for you
-# every frame and a live number updates itself from its variable. These assert the
-# observable result: the right glyph lands in the right place, the number tracks its
-# variable, leading zeros blank out — on the interpreter oracle and on real hardware.
-class TestTiledText < Minitest::Test
-  include VBlank::Console::Hardware
+# The HUD games these tests play, shared with the Advance's cartridge's tests
+# (test/lowering/gba/vblank/builder/test_tiled_text_cartridge.rb).
+module TiledTextGames
+  include SharedConstants
 
   Fonts = VBlank::Graphics::Fonts
-
-  WHITE = Color.resolve(:white)
 
   # Build a tiled program that declares some HUD text once, then loops one frame and
   # halts (long enough for the sprites to be composited).
@@ -32,6 +25,41 @@ class TestTiledText < Minitest::Test
     b.program
   end
 
+  # A prompt that flips on and off every frame: shown while `blink` is 1, gone while
+  # it's 0, with a second label beside it that named no condition and therefore never
+  # goes away (so "gone" reads as this glyph, not as a blank screen).
+  private def blinking_prompt_program
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      blink = var :blink, 1
+      draw_text "A", 100, 20, :white                       # always on: the control
+      (blink == 1).then { draw_text "B", 140, 20, :white }  # only while blink is 1
+      game_loop do
+        (blink == 1).then { blink.set! 0 }.else { blink.set! 1 }
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+end
+
+# Tiled-mode text & numbers: on a `screen :tiled` there's no framebuffer, so
+# draw_text / draw_number render each glyph as a little hardware sprite the console
+# composites over the game. The surface is the same as bitmap mode, with one rule —
+# declare it once, above the game loop, because (like a sprite) it's redrawn for you
+# every frame and a live number updates itself from its variable. These assert the
+# observable result: the right glyph lands in the right place, the number tracks its
+# variable, leading zeros blank out — on the interpreter oracle and on real hardware.
+#
+# The same text on the Advance's cartridge, read in the emulator, is in
+# test/lowering/gba/vblank/builder/test_tiled_text_cartridge.rb.
+class TestTiledText < Minitest::Test
+  include VBlank::Console::Hardware
+  include TiledTextGames
+
+  WHITE = Color.resolve(:white)
+
   # Assert the glyph for +char+ of the default font is painted in +color+ at origin
   # (gx, gy) on +screen+: every lit pixel of the glyph is that color. Reading the font
   # itself keeps this independent of the exact glyph shape.
@@ -47,7 +75,7 @@ class TestTiledText < Minitest::Test
 
   def test_draw_text_paints_its_glyphs_as_sprites
     prog = hud_program { draw_text "AB", 100, 20, :white }
-    s = game_player.run(prog, max_steps: 500).screen
+    s = game_player.run(prog, frames: 3).screen
     assert_glyph(s, "A", 100, 20, WHITE)
     assert_glyph(s, "B", 100 + Fonts.get(:default).cell_w, 20, WHITE) # one cell over
   end
@@ -57,7 +85,7 @@ class TestTiledText < Minitest::Test
       var :score, 7
       draw_number :score, 100, 20, :white, digits: 1
     end
-    s = game_player.run(prog, max_steps: 500).screen
+    s = game_player.run(prog, frames: 3).screen
     assert_glyph(s, "7", 100, 20, WHITE)
   end
 
@@ -66,7 +94,7 @@ class TestTiledText < Minitest::Test
       var :score, 42
       draw_number :score, 100, 20, :white, digits: 2
     end
-    s = game_player.run(prog, max_steps: 500).screen
+    s = game_player.run(prog, frames: 3).screen
     cell = Fonts.get(:default).cell_w
     assert_glyph(s, "4", 100, 20, WHITE)
     assert_glyph(s, "2", 100 + cell, 20, WHITE)
@@ -77,7 +105,7 @@ class TestTiledText < Minitest::Test
       var :score, 5
       draw_number :score, 100, 20, :white, digits: 3 # shows "  5"
     end
-    s = game_player.run(prog, max_steps: 500).screen
+    s = game_player.run(prog, frames: 3).screen
     cell = Fonts.get(:default).cell_w
     # The ones column (third) shows 5; the two leading columns are blank — no white
     # pixel anywhere in their 8x8 boxes.
@@ -107,9 +135,11 @@ class TestTiledText < Minitest::Test
       end
     end
     b.finalize_program
-    s = game_player.run(b.program, max_steps: 2_000).screen
+    s = game_player.run(b.program, frames: 10).screen
     # Frame N presents score, then adds 1; it halts the frame it presents 5 then makes 6.
-    assert_glyph(s, "5", 100, 20, WHITE)
+    # That is where the Advance's picture is left, a pass behind; the Color's shows the 6
+    # the last pass made (Testing#framework_drawing_lag).
+    assert_glyph(s, (6 - framework_drawing_lag).to_s, 100, 20, WHITE)
   end
 
   # --- text declared under a condition: a blinking prompt ---
@@ -118,23 +148,6 @@ class TestTiledText < Minitest::Test
   # redraws every frame from a list settled at build time — so a `.then` around the
   # call has to reach the glyph itself, or a prompt written to blink stands still.
 
-  # A prompt that flips on and off every frame: shown while `blink` is 1, gone while
-  # it's 0, with a second label beside it that named no condition and therefore never
-  # goes away (so "gone" reads as this glyph, not as a blank screen).
-  private def blinking_prompt_program
-    b = Builder.new
-    b.instance_eval do
-      screen :tiled
-      blink = var :blink, 1
-      draw_text "A", 100, 20, :white                       # always on: the control
-      (blink == 1).then { draw_text "B", 140, 20, :white }  # only while blink is 1
-      game_loop do
-        (blink == 1).then { blink.set! 0 }.else { blink.set! 1 }
-      end
-    end
-    b.finalize_program
-    b.program
-  end
 
   # The first frame shows `blink` as 1 where the text is drawn from the pass before, and as 0
   # where it is drawn from the pass just ended (Testing#framework_drawing_lag).
@@ -176,21 +189,6 @@ class TestTiledText < Minitest::Test
     assert_glyph(second, "B", 140, 20, WHITE)
   end
 
-  # ...and the console does the same thing with it. The emulator runs one boot frame
-  # before the loop a tiled program's first present happens in, so the console is a
-  # frame ahead of the interpreter's count (see Differential::BOOT_FRAMES).
-  def test_a_blinking_prompt_blinks_on_the_console
-    prog = blinking_prompt_program
-    rom = ROM.assemble(GBA.new.lower(prog), title: "BLINK", code: "BBLI", maker: "01")
-    on = assert_emulator_loads_rom(rom, frames: 2)
-    off = assert_emulator_loads_rom(rom, frames: 3)
-
-    assert lit_pixels(on, "A", 100, 20).all? { |x, y| on.white?(x, y) }, "the plain label shows"
-    assert lit_pixels(on, "B", 140, 20).all? { |x, y| on.white?(x, y) }, "the prompt shows while blink is 1"
-    assert lit_pixels(off, "A", 100, 20).all? { |x, y| off.white?(x, y) }, "the plain label still shows"
-    refute lit_pixels(off, "B", 140, 20).any? { |x, y| off.white?(x, y) }, "the prompt is gone while blink is 0"
-  end
-
   # No lit pixel of +char+'s glyph is painted in +color+ at (gx, gy) — the negative of
   # #assert_glyph, for a glyph that should not be on screen at all.
   private def refute_glyph(screen, char, gx, gy, color)
@@ -198,13 +196,6 @@ class TestTiledText < Minitest::Test
       refute_equal color, screen.pixel(gx + dx, gy + dy),
                    "glyph #{char.inspect} pixel (#{dx},#{dy}) should NOT be painted at (#{gx + dx},#{gy + dy})"
     end
-  end
-
-  # The screen coordinates of every lit pixel of +char+'s glyph drawn at (gx, gy).
-  private def lit_pixels(_verifier, char, gx, gy)
-    pixels = []
-    Fonts.get(:default).each_pixel(char) { |dx, dy| pixels << [gx + dx, gy + dy] }
-    pixels
   end
 
   # --- friendly guardrails ---
@@ -233,26 +224,5 @@ class TestTiledText < Minitest::Test
       end
     end
     assert_match(/follows a variable/, err.message)
-  end
-
-  # --- hardware: the same HUD renders on the console ---
-
-  def test_the_hud_renders_on_the_console
-    prog = hud_program do
-      var :score, 42
-      draw_number :score, 100, 20, :white, digits: 2
-    end
-    rom = ROM.assemble(GBA.new.lower(prog), title: "HUD", code: "BHUD", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 3)
-    cell = Fonts.get(:default).cell_w
-    # A lit pixel of "4" and of "2" should be white on the real framebuffer.
-    Fonts.get(:default).each_pixel("4") do |dx, dy|
-      assert v.white?(100 + dx, 20 + dy), "‘4’ pixel (#{dx},#{dy}) on hardware"
-      break
-    end
-    Fonts.get(:default).each_pixel("2") do |dx, dy|
-      assert v.white?(100 + cell + dx, 20 + dy), "‘2’ pixel (#{dx},#{dy}) on hardware"
-      break
-    end
   end
 end

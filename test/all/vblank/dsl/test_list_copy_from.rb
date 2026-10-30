@@ -6,7 +6,12 @@ require "test_helper"
 # The table is pictures or text built into the cartridge, the start is worked out as the game
 # runs (which letter, which frame), and the list then holds exactly those n entries. A loop of
 # `list[i] = table[start + i]` says the same thing a byte at a time; this is one copy.
-class TestListCopyFrom < Minitest::Test
+#
+# The same copies on the Advance's cartridge, read in the emulator, and what eighteen of them
+# cost it, are in test/lowering/gba/vblank/dsl/test_list_copy_from_cartridge.rb.
+
+# The game both files play, and how it is read.
+module ListCopyFromGames
   LETTERS = (0...32).map { |n| (n * 7) - 100 }.freeze
 
   # Copies the run starting at +start+ and keeps its first and last items in variables, so
@@ -34,25 +39,22 @@ class TestListCopyFrom < Minitest::Test
   end
 
   private def interpreted(game)
-    builder = Builder.new
+    builder = VBlank::Builder.new
     builder.instance_eval(&game)
     builder.finalize_program
     game_player.run(builder.program, frames: 3)
   end
 
   private def readings(run) = %i[first last held].map { |name| run[name] }
+end
 
-  private def on_console(game)
-    rom = VBlank.build("COPYFROM", console: :gba, out: StringIO.new, err: StringIO.new, &game)
-    v = assert_emulator_loads_rom(rom, frames: 4, vars: rom.var_addresses)
-    %i[first last held].map { |name| v.var(name) }
-  end
+class TestListCopyFrom < Minitest::Test
+  include ListCopyFromGames
 
   def test_a_run_from_a_worked_out_start_lands_the_same_on_both_backends
     game = copying(start: 5)
 
     assert_equal [LETTERS[5], LETTERS[8], 4], readings(interpreted(game))
-    assert_equal readings(interpreted(game)), on_console(game)
   end
 
   # The console copies a whole word at a time, a half at a time, or a byte at a time, as the
@@ -62,7 +64,6 @@ class TestListCopyFrom < Minitest::Test
       game = copying(start: start, count: count, width: width)
 
       assert_equal [LETTERS[start], LETTERS[start + count - 1], count], readings(interpreted(game)), width.to_s
-      assert_equal readings(interpreted(game)), on_console(game), "#{width} from #{start}"
     end
   end
 
@@ -72,29 +73,7 @@ class TestListCopyFrom < Minitest::Test
       game = copying(start: start)
 
       assert_equal [LETTERS[held], LETTERS[held + 3], 4], readings(interpreted(game)), "from #{start}"
-      assert_equal readings(interpreted(game)), on_console(game), "from #{start}"
     end
-  end
-
-  # WHAT IT IS FOR: a file screen letters three names of six 64-byte pictures from a table of
-  # letter pictures, eighteen runs, on the frame it opens. Copied a byte at a time that was
-  # most of a frame; as a block it is a small part of one.
-  def test_eighteen_runs_of_64_bytes_take_a_small_part_of_a_frame
-    rom = VBlank.build("LETTERS", console: :gba, out: StringIO.new, err: StringIO.new) do
-      screen :tiled
-      image(:dot, "#" => :white) { "########\n" * 8 }
-      sprite :dot, at: [0, 0]
-      pictures = table :pictures, (0...4096).map { |n| (n * 5) & 0x7F }, width: :byte
-      pieces = Array.new(18) { |n| list :"piece#{n}", capacity: 64, width: :byte, fast: false }
-      letter = var :letter, 0
-      game_loop do
-        letter.set! (letter + 1) & 63
-        pieces.each { |piece| piece.copy_from pictures, at: letter * 64, count: 64 }
-      end
-    end
-    result = VBlank::Diagnostics::Profiler.run(rom, frames: 30, picture: false)
-
-    assert_operator result.idle_share, :>, 0.95, "eighteen copies left #{result.idle_share} of the frame"
   end
 
   private def refused(&game)

@@ -10,21 +10,27 @@ require "test_helper"
 #
 # The sheet is sliced through a fake image adapter (canned pixels, no ImageMagick), but
 # the slicing happens at BUILD time and bakes real images into the program — so the same
-# imported art is checked on the interpreter oracle AND on real hardware (the emulator).
-class TestFacingSheet < Minitest::Test
-  include VBlank::Console::Hardware
+# imported art is checked on every run here AND on real hardware (the emulator), in
+# test/lowering/gba/vblank/builder/test_facing_sheet_cartridge.rb.
+#
+# The sheet and the games built from it, shared by both files.
+module FacingSheetGames
+  include SharedConstants
 
   Image = VBlank::Graphics::Image
 
   # A distinct color per cell, keyed [col, row]. Rows are down / left / right / up; the
   # two columns are frame 0 and frame 1. Reading the sprite's pixel says both which way
   # it faces (the row) and which frame is up (the column).
-  CELLS = {
+  #
+  # Made shareable here, since a test plays in a Ractor and test_helper deep-freezes only the
+  # constants a test class declares, not a module's.
+  CELLS = Ractor.make_shareable({
     [0, 0] => [255, 0, 0],    [1, 0] => [0, 255, 0],     # down:  red,     green
     [0, 1] => [0, 0, 255],    [1, 1] => [255, 255, 255], # left:  blue,    white
     [0, 2] => [255, 255, 0],  [1, 2] => [0, 255, 255],   # right: yellow,  cyan
     [0, 3] => [255, 0, 255],  [1, 3] => [64, 64, 64],    # up:    magenta, dark gray
-  }.freeze
+  })
   DIRS = %i[down left right up].freeze
 
   # An image adapter that hands back a directional sheet of +cols+ columns and 4 rows of
@@ -83,31 +89,7 @@ class TestFacingSheet < Minitest::Test
     builder.program
   end
 
-  private def spot(program)
-    game_player.run(program).screen.pixel(44, 44)
-  end
-
   private def color(r, g, b) = Color.rgb8(r, g, b)
-
-  # --- a hardware sprite: each row imported to the right direction ---
-
-  # The pose is placed as far behind as the framework draws (Testing#framework_drawing_lag).
-  def test_a_hardware_sprite_imports_the_same_way
-    assert_equal color(255, 0, 0),   spot(walker(mode: :tiled, face: :down,  run: 1 + framework_drawing_lag)), "tiled: down"
-    assert_equal color(255, 255, 0), spot(walker(mode: :tiled, face: :right, run: 1 + framework_drawing_lag)), "tiled: right"
-  end
-
-  # --- real hardware: the imported sheet composites on the console ---
-
-  def test_on_console_the_imported_sheet_composites
-    rom = ROM.assemble(GBA.new.lower(walker(mode: :tiled, face: :right, run: 3)),
-                       title: "FACESHT", code: "BFSH", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 3)
-    assert v.pixel_is?(44, 44, color(255, 255, 0)),
-           "facing right, the console should composite the imported right-facing frame (yellow), got #{v.pixel_gba(44, 44).to_s(16)}"
-  end
-
-  # --- friendly errors ---
 
   # --- a four-way sprite from a sheet can be drawn with other colours ---
   #
@@ -129,16 +111,29 @@ class TestFacingSheet < Minitest::Test
     end
     builder.program
   end
+end
+
+class TestFacingSheet < Minitest::Test
+  include VBlank::Console::Hardware
+  include FacingSheetGames
+
+  private def spot(program)
+    game_player.run(program).screen.pixel(44, 44)
+  end
+
+  # --- a hardware sprite: each row imported to the right direction ---
+
+  # The pose is placed as far behind as the framework draws (Testing#framework_drawing_lag).
+  def test_a_hardware_sprite_imports_the_same_way
+    assert_equal color(255, 0, 0),   spot(walker(mode: :tiled, face: :down,  run: 1 + framework_drawing_lag)), "tiled: down"
+    assert_equal color(255, 255, 0), spot(walker(mode: :tiled, face: :right, run: 1 + framework_drawing_lag)), "tiled: right"
+  end
 
   def test_a_sprite_from_a_directional_sheet_can_be_drawn_with_other_colors
     assert_equal Color.resolve(:cyan), game_player.run(a_recolored_walker, frames: 3).screen.pixel(44, 44)
   end
 
-  def test_the_console_draws_it_with_the_other_colors_too
-    v = assert_emulator_loads_rom(assemble_rom(a_recolored_walker, name: "FACECOL"), frames: 4)
-
-    assert_equal Color.resolve(:cyan), v.pixel_gba(44, 44)
-  end
+  # --- friendly errors ---
 
   private def sprite_error(cols, &block)
     b = Builder.new

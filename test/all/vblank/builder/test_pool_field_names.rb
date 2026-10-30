@@ -2,21 +2,21 @@
 
 require "test_helper"
 
-# WHAT A POOL'S FIELDS CAN BE CALLED. A pool keeps lists and variables of its own beside the
-# fields — which slots are live, where each instance is in its animation, the order they came
-# in — and a field is a list too. A guard with a field called `frame`, `active` or `count` is
-# an ordinary thing to write, so none of the pool's own names can be a name a field has, and
-# two pools cannot meet each other's whatever they and their fields are called.
-class TestPoolFieldNames < Minitest::Test
-  RED = Color.resolve(:red)
-  GREEN = Color.resolve(:green)
-  YELLOW = Color.resolve(:yellow)
-
+# The games these tests play, kept once for this file and for the tests of the same games on the
+# Advance's cartridge (test/lowering/gba/vblank/builder/test_pool_field_names_cartridge.rb).
+module PoolFieldNamesGames
   OWN = %i[transparent red green].freeze
   HURT = %i[transparent yellow white].freeze
 
+  # Every word the pool spells one of its own lists, variables or routines with, as a field,
+  # and the words a pool answers to itself. Each instance writes its own number into each and
+  # reads it back after a spawn, a removal and a walk have used the pool's own.
+  OWN_WORDS = %i[active free count slot current next prev retired head tail walking tick
+                 unlink before after release fill refill anim stacked stackedx append
+                 spawn each full func name field step].freeze
+
   private def tiled_program(&game)
-    builder = Builder.new
+    builder = VBlank::Builder.new
     builder.instance_eval do
       screen :tiled
       image :one, width: 8, height: 8, data: Array.new(64, :red), colors: OWN
@@ -28,34 +28,19 @@ class TestPoolFieldNames < Minitest::Test
     builder.program
   end
 
-  # The variable +name+ after +frames+ frames, on the interpreter and on the console.
-  private def var_on_both_backends(prog, name, frames: 4)
-    rom = assemble_rom(prog)
-    console = assert_emulator_loads_rom(rom, frames: frames + 2, vars: rom.var_addresses)
-    [game_player.run(prog, frames: frames)[name], console.var(name)]
-  end
-
-  private def refused(&game)
-    assert_raises(ArgumentError) { Builder.new.instance_eval(&game) }.message
-  end
-
-  # --- a field called what the pool calls one of its own lists ---
-
-  def test_a_field_called_frame_keeps_its_number_on_a_pool_that_animates
-    prog = tiled_program do
+  # A pool that animates, with a field called `frame` that :seen reads back.
+  private def frame_field_game
+    tiled_program do
       things = pool :thing, x: 0, y: 0, frame: 7, capacity: 2, frames: %i[one two], rate: 2
       seen = var :seen, 0
       things.spawn x: 20, y: 20
       game_loop { things.each { |t| seen.set! t.frame } }
     end
-
-    assert_equal [7, 7], var_on_both_backends(prog, :seen), "the field is the number it was given"
-    shown = (3..8).map { |frames| game_player.run(prog, frames: frames).screen.pixel(22, 22) }
-    assert_equal [RED, GREEN].sort, shown.uniq.sort, "and the pool still steps through its pictures"
   end
 
-  def test_a_field_called_colors_keeps_its_number_on_a_pool_told_to_draw_with_others
-    prog = tiled_program do
+  # A pool told to draw with other colours, with a field called `colors` that :seen reads back.
+  private def colors_field_game
+    tiled_program do
       things = pool :thing, x: 0, y: 0, colors: 5, capacity: 2, image: :one
       seen = var :seen, 0
       things.spawn x: 20, y: 20
@@ -66,21 +51,13 @@ class TestPoolFieldNames < Minitest::Test
         end
       end
     end
-
-    assert_equal [5, 5], var_on_both_backends(prog, :seen)
-    assert_equal YELLOW, game_player.run(prog, frames: 4).screen.pixel(22, 22), "and it is recoloured"
   end
 
-  # Every word the pool spells one of its own lists, variables or routines with, as a field,
-  # and the words a pool answers to itself. Each instance writes its own number into each and
-  # reads it back after a spawn, a removal and a walk have used the pool's own.
-  OWN_WORDS = %i[active free count slot current next prev retired head tail walking tick
-                 unlink before after release fill refill anim stacked stackedx append
-                 spawn each full func name field step].freeze
-
-  def test_a_field_can_be_called_anything_the_pool_calls_its_own
+  # A pool with a field for every word in OWN_WORDS. Three are spawned, the second is removed,
+  # and :sum adds up the fields of those left; :live counts them.
+  private def own_words_game
     words = OWN_WORDS
-    prog = tiled_program do
+    tiled_program do
       things = pool :thing, x: 0, y: 0, capacity: 4, frames: %i[one two], rate: 2, **words.to_h { |word| [word, 0] }
       sum = var :sum, 0
       live = var :live, 0
@@ -92,17 +69,18 @@ class TestPoolFieldNames < Minitest::Test
         live.set! things.count
       end
     end
-
-    each = words.size * (words.size - 1) / 2
-    assert_equal [(2 * each) + (2 * words.size)] * 2, var_on_both_backends(prog, :sum),
-                 "the first and third instance's numbers, as they were written"
-    assert_equal [2, 2], var_on_both_backends(prog, :live)
   end
 
-  # --- two pools ---
+  # What :sum comes to in own_words_game: the first and third instance's numbers.
+  private def own_words_sum
+    each = OWN_WORDS.size * (OWN_WORDS.size - 1) / 2
+    (2 * each) + (2 * OWN_WORDS.size)
+  end
 
-  def test_two_pools_whose_names_and_fields_spell_the_same_words_are_kept_apart
-    prog = tiled_program do
+  # Two pools whose names and fields spell the same words. :seen reads the first, :long_seen
+  # the second.
+  private def two_pools_game
+    tiled_program do
       short = pool :guard, walk_x: 0, walk_active: 0, capacity: 2
       long = pool :guard_walk, x: 0, capacity: 2
       seen = var :seen, 0
@@ -114,9 +92,62 @@ class TestPoolFieldNames < Minitest::Test
         long.each { |g| long_seen.set! g.x }
       end
     end
+  end
+end
 
-    assert_equal [39, 39], var_on_both_backends(prog, :seen)
-    assert_equal [40, 40], var_on_both_backends(prog, :long_seen)
+# WHAT A POOL'S FIELDS CAN BE CALLED. A pool keeps lists and variables of its own beside the
+# fields — which slots are live, where each instance is in its animation, the order they came
+# in — and a field is a list too. A guard with a field called `frame`, `active` or `count` is
+# an ordinary thing to write, so none of the pool's own names can be a name a field has, and
+# two pools cannot meet each other's whatever they and their fields are called.
+#
+# The same numbers read off the Advance's cartridge are in
+# test/lowering/gba/vblank/builder/test_pool_field_names_cartridge.rb.
+class TestPoolFieldNames < Minitest::Test
+  include PoolFieldNamesGames
+
+  RED = Color.resolve(:red)
+  GREEN = Color.resolve(:green)
+  YELLOW = Color.resolve(:yellow)
+
+  # The variable +name+ after +frames+ frames.
+  private def var_after(prog, name, frames: 4) = game_player.run(prog, frames: frames)[name]
+
+  private def refused(&game)
+    assert_raises(ArgumentError) { Builder.new.instance_eval(&game) }.message
+  end
+
+  # --- a field called what the pool calls one of its own lists ---
+
+  def test_a_field_called_frame_keeps_its_number_on_a_pool_that_animates
+    prog = frame_field_game
+
+    assert_equal 7, var_after(prog, :seen), "the field is the number it was given"
+    shown = (3..8).map { |frames| game_player.run(prog, frames: frames).screen.pixel(22, 22) }
+    assert_equal [RED, GREEN].sort, shown.uniq.sort, "and the pool still steps through its pictures"
+  end
+
+  def test_a_field_called_colors_keeps_its_number_on_a_pool_told_to_draw_with_others
+    prog = colors_field_game
+
+    assert_equal 5, var_after(prog, :seen)
+    assert_equal YELLOW, game_player.run(prog, frames: 4).screen.pixel(22, 22), "and it is recoloured"
+  end
+
+  def test_a_field_can_be_called_anything_the_pool_calls_its_own
+    prog = own_words_game
+
+    assert_equal own_words_sum, var_after(prog, :sum), "the first and third instance's numbers, as they were written"
+    assert_equal 2, var_after(prog, :live)
+  end
+
+  # --- two pools ---
+
+  def test_two_pools_whose_names_and_fields_spell_the_same_words_are_kept_apart
+    prog = two_pools_game
+
+    assert_equal 39, var_after(prog, :seen)
+    assert_equal 40, var_after(prog, :long_seen)
   end
 
   def test_the_interpreter_offers_each_pools_own_fields

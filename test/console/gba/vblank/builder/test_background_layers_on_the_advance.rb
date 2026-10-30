@@ -2,10 +2,10 @@
 
 require "test_helper"
 
-# The tests of test_background_layers.rb whose games show a second background while another is
-# showing, or turn a background, and a Game Boy Color's hardware cannot, so they play on the
-# Advance's runs alone.
-class TestBackgroundLayersOnTheAdvance < Minitest::Test
+# The games these tests play, shared with the Advance cartridge's own tests of the same layers
+# (test/lowering/gba/vblank/builder/test_background_layers_cartridge.rb).
+module BackgroundLayersGames
+  include SharedConstants
   include VBlank::Console::Hardware
 
   # A FAR layer (backmost): a blue field with a GREEN landmark tile at cell (5,5) ->
@@ -38,24 +38,6 @@ class TestBackgroundLayersOnTheAdvance < Minitest::Test
 
   private def rom_for(program)
     ROM.assemble(GBA.new.lower(program), title: "LAYERS", code: "BLYR", maker: "01")
-  end
-
-  # At rest the two landmarks sit apart (green at x44, red at x84), and where the near
-  # layer is empty its blue backdrop layer shows through.
-  def test_layers_compose_with_the_front_transparent_where_empty
-    s = game_player.run(two_layers(0, 0)).screen
-    assert_equal Color.resolve(:green), s.pixel(44, 44), "the far layer's green landmark shows through the empty near layer"
-    assert_equal Color.resolve(:red),   s.pixel(84, 44), "the near layer's red landmark sits in front"
-    assert_equal Color.resolve(:blue),  s.pixel(100, 100), "elsewhere the near layer is see-through, so the far layer shows"
-  end
-
-  # Scroll far by 20 and near by 40 (near twice as fast): the green landmark slides to
-  # x24 while the red slides to x44 — they were 40px apart, now 20px apart. That change
-  # in relative spacing *is* parallax (the near layer moved more than the far one).
-  def test_layers_scroll_at_independent_speeds_parallax
-    s = game_player.run(two_layers(20, 40)).screen
-    assert_equal Color.resolve(:green), s.pixel(24, 44), "the far layer slid 20px (its landmark to x24)"
-    assert_equal Color.resolve(:red),   s.pixel(44, 44), "the near layer slid 40px (its landmark to x44) — twice as far"
   end
 
   # A front layer drawn in pure black over a red one. Black is a colour like any other: it
@@ -105,21 +87,6 @@ class TestBackgroundLayersOnTheAdvance < Minitest::Test
     end
   end
 
-  def test_black_at_a_place_covers_on_a_turning_background
-    assert_equal 0x0000, game_player.run(black_by_place_turning, frames: 3).screen.pixel(2, 2)
-    assert_equal 0x0000, assert_emulator_loads_rom(rom_for(black_by_place_turning), frames: 3).pixel_gba(2, 2)
-  end
-
-  # Art given as place numbers says where it is see-through itself (place 0), so black at
-  # any other place is solid. Art drawn in colours has only the backdrop colour to say
-  # "nothing here", so black drawn that way lets the layer behind through.
-  def test_black_at_a_place_covers_and_black_drawn_as_a_colour_shows_through
-    assert_equal 0x0000, game_player.run(black_by_place, frames: 3).screen.pixel(2, 2)
-    assert_equal 0x0000, assert_emulator_loads_rom(rom_for(black_by_place), frames: 3).pixel_gba(2, 2)
-    assert_equal RED, game_player.run(black_drawn_in_characters, frames: 3).screen.pixel(2, 2)
-    assert_equal RED, assert_emulator_loads_rom(rom_for(black_drawn_in_characters), frames: 3).pixel_gba(2, 2)
-  end
-
   # Tiles the game paints hold place numbers too: every pixel here is place 2, black.
   private def black_painted
     black_over_red do
@@ -131,9 +98,52 @@ class TestBackgroundLayersOnTheAdvance < Minitest::Test
       box.changed
     end
   end
+end
+
+# Stacked tiled backgrounds (declaring more than one `background`): they compose in
+# declaration order — the first is the backmost, each later one in front — and a
+# front layer's empty/backdrop pixels are see-through, so the layer behind shows
+# there. Scrolled at different speeds, near-and-far layers give parallax. The dev only
+# writes two `background`s.
+#
+# These games show a second background while another is showing, or turn a background, and a
+# Game Boy Color's hardware cannot, so they play on the Advance's runs alone. The same layers on
+# the Advance's cartridge, in the emulator, are in
+# test/lowering/gba/vblank/builder/test_background_layers_cartridge.rb.
+class TestBackgroundLayersOnTheAdvance < Minitest::Test
+  include BackgroundLayersGames
+
+  # At rest the two landmarks sit apart (green at x44, red at x84), and where the near
+  # layer is empty its blue backdrop layer shows through.
+  def test_layers_compose_with_the_front_transparent_where_empty
+    s = game_player.run(two_layers(0, 0)).screen
+    assert_equal Color.resolve(:green), s.pixel(44, 44), "the far layer's green landmark shows through the empty near layer"
+    assert_equal Color.resolve(:red),   s.pixel(84, 44), "the near layer's red landmark sits in front"
+    assert_equal Color.resolve(:blue),  s.pixel(100, 100), "elsewhere the near layer is see-through, so the far layer shows"
+  end
+
+  # Scroll far by 20 and near by 40 (near twice as fast): the green landmark slides to
+  # x24 while the red slides to x44 — they were 40px apart, now 20px apart. That change
+  # in relative spacing *is* parallax (the near layer moved more than the far one).
+  def test_layers_scroll_at_independent_speeds_parallax
+    s = game_player.run(two_layers(20, 40)).screen
+    assert_equal Color.resolve(:green), s.pixel(24, 44), "the far layer slid 20px (its landmark to x24)"
+    assert_equal Color.resolve(:red),   s.pixel(44, 44), "the near layer slid 40px (its landmark to x44) — twice as far"
+  end
+
+  def test_black_at_a_place_covers_on_a_turning_background
+    assert_equal 0x0000, game_player.run(black_by_place_turning, frames: 3).screen.pixel(2, 2)
+  end
+
+  # Art given as place numbers says where it is see-through itself (place 0), so black at
+  # any other place is solid. Art drawn in colours has only the backdrop colour to say
+  # "nothing here", so black drawn that way lets the layer behind through.
+  def test_black_at_a_place_covers_and_black_drawn_as_a_colour_shows_through
+    assert_equal 0x0000, game_player.run(black_by_place, frames: 3).screen.pixel(2, 2)
+    assert_equal RED, game_player.run(black_drawn_in_characters, frames: 3).screen.pixel(2, 2)
+  end
 
   def test_black_painted_at_a_place_covers
     assert_equal 0x0000, game_player.run(black_painted, frames: 3).screen.pixel(2, 2)
-    assert_equal 0x0000, assert_emulator_loads_rom(rom_for(black_painted), frames: 3).pixel_gba(2, 2)
   end
 end

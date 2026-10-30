@@ -2,28 +2,10 @@
 
 require "test_helper"
 
-# A POOLED THING FACES AND ANIMATES, each instance on its own.
-#
-# A pool given `image:` draws every live instance as a hardware sprite, which is one line for
-# a game with a cast. Every instance used to be stuck on the picture it was declared with, so
-# ten enemies were ten identical statues and a game that wanted them to walk had to declare ten
-# sprites by hand and keep their state in parallel lists — the exact thing `pool` exists to
-# prevent.
-#
-# So `facing:` and `frames:` mean on a pool what they already mean on a sprite, spelled the same
-# way, and `face` is the same verb on the row handle. What is new underneath is that the
-# direction and the place in the cycle are PER INSTANCE: a hidden slot beside the fields, the
-# pool's own bookkeeping rather than something to declare.
-class TestPoolPoses < Minitest::Test
-  RED = Color.resolve(:red)
-  BLUE = Color.resolve(:blue)
-  GREEN = Color.resolve(:green)
-  YELLOW = Color.resolve(:yellow)
-  BLACK = 0
-
-  private def solid(color)
-    { "#" => color }
-  end
+# The games these tests play, shared with the Advance cartridge's own tests of the same poses
+# (test/lowering/gba/vblank/dsl/test_pool_poses_cartridge.rb).
+module PoolPosesGames
+  include SharedConstants
 
   # A tiled program with four 8x8 pictures and a pool the block sets up.
   private def pool_program(**pool_opts)
@@ -41,6 +23,53 @@ class TestPoolPoses < Minitest::Test
     b.finalize_program
     b.program
   end
+
+  # A pool declared inside a scene, which is where a game with screens declares its cast. A
+  # scene's body is built after the game loop that runs it, and the pool steps its frames
+  # all the same.
+  private def scene_pool_program
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image(:left1, "#" => :red) { "########\n" * 8 }
+      image(:left2, "#" => :blue) { "########\n" * 8 }
+      var :state, 0
+      scene :play do
+        guards = pool :guard, x: 0, y: 0, capacity: 8, frames: %i[left1 left2], rate: 2
+        placed = var :placed, 0
+        (placed == 0).then do
+          guards.spawn x: 20, y: 20
+          placed.set! 1
+        end
+      end
+      game_loop { case_var(:state) { when_val 0, :play } }
+    end
+    b.finalize_program
+    b.program
+  end
+end
+
+# A POOLED THING FACES AND ANIMATES, each instance on its own.
+#
+# A pool given `image:` draws every live instance as a hardware sprite, which is one line for
+# a game with a cast. Every instance used to be stuck on the picture it was declared with, so
+# ten enemies were ten identical statues and a game that wanted them to walk had to declare ten
+# sprites by hand and keep their state in parallel lists — the exact thing `pool` exists to
+# prevent.
+#
+# So `facing:` and `frames:` mean on a pool what they already mean on a sprite, spelled the same
+# way, and `face` is the same verb on the row handle. What is new underneath is that the
+# direction and the place in the cycle are PER INSTANCE: a hidden slot beside the fields, the
+# pool's own bookkeeping rather than something to declare. The same poses on the Advance's
+# cartridge are in test/lowering/gba/vblank/dsl/test_pool_poses_cartridge.rb.
+class TestPoolPoses < Minitest::Test
+  include PoolPosesGames
+
+  RED = Color.resolve(:red)
+  BLUE = Color.resolve(:blue)
+  GREEN = Color.resolve(:green)
+  YELLOW = Color.resolve(:yellow)
+  BLACK = 0
 
   # --- facing, per instance ---
 
@@ -104,48 +133,12 @@ class TestPoolPoses < Minitest::Test
     assert_equal RED, game_player.run(prog, frames: 4 + framework_drawing_lag).screen.pixel(22, 22), "and it wraps"
   end
 
-  # A pool declared inside a scene, which is where a game with screens declares its cast. A
-  # scene's body is built after the game loop that runs it, and the pool steps its frames
-  # all the same.
-  private def scene_pool_program
-    b = Builder.new
-    b.instance_eval do
-      screen :tiled
-      image(:left1, "#" => :red) { "########\n" * 8 }
-      image(:left2, "#" => :blue) { "########\n" * 8 }
-      var :state, 0
-      scene :play do
-        guards = pool :guard, x: 0, y: 0, capacity: 8, frames: %i[left1 left2], rate: 2
-        placed = var :placed, 0
-        (placed == 0).then do
-          guards.spawn x: 20, y: 20
-          placed.set! 1
-        end
-      end
-      game_loop { case_var(:state) { when_val 0, :play } }
-    end
-    b.finalize_program
-    b.program
-  end
-
   def test_a_pool_declared_inside_a_scene_cycles_its_frames
     prog = scene_pool_program
     # As far behind as the framework draws (Testing#framework_drawing_lag).
     shown = ((1 + framework_drawing_lag)..(6 + framework_drawing_lag)).map { |frames| game_player.run(prog, frames: frames).sprites(:guard).map(&:picture) }
 
     assert_equal [[:left1], [:left2], [:left2], [:left1], [:left1], [:left2]], shown
-  end
-
-  def test_the_console_cycles_a_pool_declared_inside_a_scene
-    rom = ROM.assemble(GBA.new.lower(scene_pool_program), title: "POOLSCENE")
-    v = assert_emulator_loads_rom(rom, frames: 3)
-    seen = Array.new(6) do
-      v.step
-      %i[red blue].find { |color| v.pixel_is?(22, 22, color) }
-    end
-
-    assert_includes seen, :red
-    assert_includes seen, :blue, "the second picture is shown too"
   end
 
   # The one that decides whether the composition layer is usable for a cast: a walk cycle
@@ -187,24 +180,6 @@ class TestPoolPoses < Minitest::Test
     screen = game_player.run(prog, frames: 5).screen
     refute_equal screen.pixel(22, 22), screen.pixel(62, 22),
                  "the one spawned later is at a different point in the cycle"
-  end
-
-  # --- the console draws the same thing ---
-
-  def test_the_console_draws_each_instance_facing_its_own_way
-    prog = pool_program(facing: { left: :left1, right: :right1 }) do |b, guards|
-      guards.spawn x: 20, y: 20
-      guards.spawn x: 60, y: 20
-      b.game_loop do
-        b.wait_vblank
-        guards.each { |g| (g.x == 20).then { g.face :left }.else { g.face :right } }
-      end
-    end
-
-    rom = ROM.assemble(GBA.new.lower(prog), title: "POOLFACE", code: "BPLF", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 4)
-    assert v.pixel_is?(22, 22, :red), "got 0x#{format('%04X', v.pixel_gba(22, 22))}"
-    assert v.pixel_is?(62, 22, :green), "got 0x#{format('%04X', v.pixel_gba(62, 22))}"
   end
 
   # --- friendly errors ---

@@ -33,14 +33,14 @@ module VBlank
       def run(program, max_steps: nil, frames: nil)
         super
       rescue IR::Backends::Ruby::RuntimeGap => e
-        raise Minitest::Skip, gap_reason(e)
+        raise MissingFeature, gap_reason(e)
       end
 
       # What the runtime cannot do yet a test asks of the run before or after it, a skip too.
       def method_missing(name, ...)
         super
       rescue IR::Backends::Ruby::RuntimeGap => e
-        raise Minitest::Skip, gap_reason(e)
+        raise MissingFeature, gap_reason(e)
       end
 
       def respond_to_missing?(name, include_private = false) = super
@@ -88,16 +88,16 @@ module VBlank
         program = self.class.program_played(program)
         super
       rescue IR::Backends::RunComparison::CannotAnswer => e
-        raise Minitest::Skip, cannot_answer_reason(e)
+        raise MissingFeature, cannot_answer_reason(e)
       rescue IR::Backends::NotMadeYet => e
-        raise Minitest::Skip, "#{kit.title} build does not make yet: #{e.part}"
+        raise MissingFeature, "#{kit.title} build does not make yet: #{e.part}"
       end
 
       # What the cartridge cannot answer yet a test asks of it after its run, a skip too.
       def method_missing(name, ...)
         super
       rescue IR::Backends::RunComparison::CannotAnswer => e
-        raise Minitest::Skip, cannot_answer_reason(e)
+        raise MissingFeature, cannot_answer_reason(e)
       end
 
       def respond_to_missing?(name, include_private = false) = super

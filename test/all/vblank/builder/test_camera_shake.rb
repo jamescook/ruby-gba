@@ -2,17 +2,10 @@
 
 require "test_helper"
 
-# The camera — moving the visible window over the whole picture — and the screen
-# shake built on top of it.
-#
-# The camera does not redraw anything. The picture stays exactly where it was drawn
-# and the WINDOW moves, which is what makes a shake cost almost nothing: a game
-# under a shake draws precisely what it drew before. So the thing to assert is that
-# the same drawing SHOWS somewhere else while the shake runs, and shows back in its
-# original place once it ends.
-class TestCameraShake < Minitest::Test
-  RED = VBlank::Graphics::Color.resolve(:red)
-  BLUE = VBlank::Graphics::Color.resolve(:blue)
+# The games these tests play, kept once for the shake read back on the Advance's cartridge too
+# (test/lowering/gba/vblank/builder/test_camera_shake_cartridge.rb).
+module CameraShakeGames
+  include SharedConstants
 
   private def program(&block)
     b = Builder.new
@@ -36,6 +29,21 @@ class TestCameraShake < Minitest::Test
       end
     end
   end
+end
+
+# The camera — moving the visible window over the whole picture — and the screen
+# shake built on top of it.
+#
+# The camera does not redraw anything. The picture stays exactly where it was drawn
+# and the WINDOW moves, which is what makes a shake cost almost nothing: a game
+# under a shake draws precisely what it drew before. So the thing to assert is that
+# the same drawing SHOWS somewhere else while the shake runs, and shows back in its
+# original place once it ends.
+class TestCameraShake < Minitest::Test
+  include CameraShakeGames
+
+  RED = VBlank::Graphics::Color.resolve(:red)
+  BLUE = VBlank::Graphics::Color.resolve(:blue)
 
   # --- the camera on its own ---
 
@@ -179,29 +187,6 @@ class TestCameraShake < Minitest::Test
     assert_empty VBlank::Effects::Packs::ScreenShake::NeedsGameLoop.new.detect(prog)
   end
 
-  # --- on the console ---
-
-  # The shake really moves the picture on the hardware, and really puts it back.
-  # Two ROMs of the same game stopped at different frames: one mid-shake, one after.
-  def test_the_shake_moves_the_picture_on_the_console_and_restores_it
-    mid = ROM.assemble(GBA.new.lower(shaking_game(frames: 4, intensity: 6, length: 6)),
-                       title: "SHAKE", code: "BSHK", maker: "01")
-    done = ROM.assemble(GBA.new.lower(shaking_game(frames: 20, intensity: 6, length: 3)),
-                        title: "SHAKE", code: "BSHK", maker: "01")
-
-    during = assert_emulator_loads_rom(mid, frames: 6)
-    after = assert_emulator_loads_rom(done, frames: 24)
-
-    # The block was drawn across x 100..139. After the shake it is exactly there.
-    assert after.red?(120, 80), "the block should be back where it was drawn, " \
-                                "got 0x#{format('%04X', after.pixel_gba(120, 80))}"
-
-    # Two points just outside the block, one past each edge. Settled, both show
-    # background. Under a 6px shake the picture has slid one way or the other, so one
-    # of them is covered by the block — whichever way this frame happens to lean.
-    assert during.red?(97, 80) || during.red?(142, 80),
-           "mid-shake the picture should have slid over one of the two edge points"
-    refute after.red?(97, 80), "settled, the block covers neither"
-    refute after.red?(142, 80)
-  end
+  # The shake moving the picture on the Advance's cartridge and putting it back, read in the
+  # emulator, is in test/lowering/gba/vblank/builder/test_camera_shake_cartridge.rb.
 end

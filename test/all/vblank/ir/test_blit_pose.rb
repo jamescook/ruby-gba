@@ -2,12 +2,10 @@
 
 require "test_helper"
 
-# blit_pose: draw one of a set of same-size images, chosen by a run-time index —
-# the primitive under a sprite that faces the way it moves (and, later, animation
-# frames). The proof is "the index selects the pose": a different index paints a
-# different image at the same spot. Asserted on the interpreter and on the emulator, and
-# the two backends must agree.
-class TestBlitPose < Minitest::Test
+# The program these tests play, kept once for the pose read back on the Advance's cartridge too
+# (test/lowering/gba/vblank/ir/test_blit_pose_cartridge.rb).
+module BlitPosePrograms
+  include SharedConstants
   include VBlank::IR::Build
 
   # Two 2x2 poses: one solid red, one solid green. Index picks which one draws.
@@ -22,6 +20,14 @@ class TestBlitPose < Minitest::Test
       halt
     )
   end
+end
+
+# blit_pose: draw one of a set of same-size images, chosen by a run-time index —
+# the primitive under a sprite that faces the way it moves (and, later, animation
+# frames). The proof is "the index selects the pose": a different index paints a
+# different image at the same spot.
+class TestBlitPose < Minitest::Test
+  include BlitPosePrograms
 
   def test_index_zero_draws_the_first_pose
     s = game_player.run(pose_program(0)).screen
@@ -40,15 +46,6 @@ class TestBlitPose < Minitest::Test
     assert_equal Color.resolve(:black), s.pixel(10, 10), "an out-of-range pose index draws nothing"
   end
 
-  # ---- hardware: the selected pose renders on the console ----
-
-  def test_the_selected_pose_renders_on_the_console
-    rom0 = ROM.assemble(GBA.new.lower(pose_program(0)), title: "POSE0", code: "BPS0", maker: "01")
-    v0 = assert_emulator_loads_rom(rom0, frames: 2)
-    assert v0.red?(10, 10), "pose 0 (red) didn't render on hardware — got #{v0.pixel_gba(10, 10).to_s(16)}"
-
-    rom1 = ROM.assemble(GBA.new.lower(pose_program(1)), title: "POSE1", code: "BPS1", maker: "01")
-    v1 = assert_emulator_loads_rom(rom1, frames: 2)
-    assert v1.green?(10, 10), "pose 1 (green) didn't render on hardware — got #{v1.pixel_gba(10, 10).to_s(16)}"
-  end
+  # The selected pose on the Advance's cartridge, read back in the emulator, is in
+  # test/lowering/gba/vblank/ir/test_blit_pose_cartridge.rb.
 end

@@ -6,13 +6,114 @@ require "mixed_sound"
 require "stringio"
 require VBlank.root.join("examples/jukebox").to_s
 
+# Somebody at the jukebox, and what the run's player and the Advance's cartridge are each held
+# to with them there, kept once for the cartridge's tests
+# (test/lowering/gba/examples/test_jukebox_example_cartridge.rb).
+module JukeboxListening
+  # SOMEBODY AT THE JUKEBOX: moves the cursor down to the piano tune, waits for the chord it names
+  # (:big, every voice the tune's; :small, four of them), and a few frames into it presses each of
+  # +presses+ — a button, and how many frames after the first press it goes down. Each press is
+  # held for three frames, so the game sees one press whether a pass of its loop takes one frame
+  # or two. Handed whose each voice is on every frame, it answers the buttons held on that frame.
+  #
+  # IT WAITS FOR THE CHORD rather than for a frame number, because the two backends do not start
+  # counting at the same moment — the console sets the game up before its first pass — so the
+  # same frame number is a different moment of the tune on each. The chord is the same moment.
+  class Listener
+    TAP = 3
+
+    attr_reader :pressed_at
+
+    def initialize(chord:, presses:)
+      @chord = chord
+      @presses = presses
+      @frame = 0
+      @frames_in_chord = 0
+    end
+
+    def keys(owners)
+      @frame += 1
+      return taps_down if @frame <= 6 * TAP
+
+      count_the_chord(owners) unless @pressed_at
+      return [] unless @pressed_at || @frames_in_chord > 8
+
+      @pressed_at ||= @frame
+      @presses.filter_map { |button, after| button if (@frame - @pressed_at - after).between?(0, TAP - 1) }
+    end
+
+    private
+
+    # Three taps of DOWN: row 0 to the piano tune on row 3.
+    def taps_down = ((@frame - 1) / TAP).even? ? [:down] : []
+
+    # How many frames running every voice has been the tune's chord.
+    def count_the_chord(owners)
+      voices = @chord == :big ? 16 : 4
+      in_chord = owners.size == voices && owners.all? { |owner| owner.first == :song }
+      @frames_in_chord = in_chord ? @frames_in_chord + 1 : 0
+    end
+  end
+
+  # ONE FRAME OF THE JUKEBOX, as a test reads it: whose each voice was as the frame began, the
+  # voices themselves, how loud the sound was over the frame, and every sample the console's
+  # recorded-sound channel played in it, as its value and the cycle it fell due (the last three the
+  # console's only — the interpreter mixes nothing).
+  Moment = Data.define(:owners, :voices, :loudness, :played)
+
+  HOORAY = Ractor.make_shareable([:"sfx.hooray", 0])
+  BLIP = Ractor.make_shareable([:"sfx.blip", 0])
+  BIG_CHORD = Ractor.make_shareable(Array.new(16) { |part| [:song, part] })
+  SMALL_CHORD = Ractor.make_shareable(BIG_CHORD.first(4))
+
+  # A, then DOWN two frames later: HOORAY, and the cursor moving off the tune so the music fades.
+  HOORAY_THEN_DOWN = Ractor.make_shareable({ chord: :small, presses: [[:a, 0], [:down, 2]] })
+
+  # A run of the jukebox on the interpreter with +listener+ at the buttons: every frame's Moment,
+  # from the listener's first press on (from the start, when it never presses), and what the
+  # run logged.
+  private def interpreted_jukebox(listener, frames:)
+    i = game_player
+    moments = []
+    i.input_each_frame do |_frame|
+      moments << Moment.new(owners: i.sound_owners, voices: nil, loudness: nil, played: nil)
+      listener.keys(moments.last.owners)
+    end
+    i.run(Jukebox.program, frames: frames)
+    [from_the_press(moments, listener), i.audio]
+  end
+
+  private def from_the_press(moments, listener) = moments.drop((listener.pressed_at || 1) - 1)
+
+  # HOORAY ON THE BIG CHORD, in +moments+ from A going down: every voice is the tune's, HOORAY
+  # takes one of them, and the tune has it back at its next big chord.
+  private def assert_hooray_takes_a_voice_from_the_big_chord(moments)
+    assert_equal BIG_CHORD, moments.first.owners, "every voice is the tune's as A goes down"
+    assert(moments.first(40).any? { |now| now.owners.include?(HOORAY) && now.owners.size == 16 },
+           "HOORAY takes one of them")
+    assert_equal BIG_CHORD, moments[250].owners, "and the tune has it back at its next big chord"
+  end
+
+  # BLIP, from three runs: B on the big chord, nobody on the big chord, and B on the small chord.
+  private def assert_blip_waits_for_a_voice(pressed, nobody, small)
+    assert_equal nobody.first(30).map(&:owners), pressed.first(30).map(&:owners), "the big chord, untouched"
+    assert(small.first(30).any? { |now| now.owners == SMALL_CHORD + [BLIP] }, "BLIP over the small chord")
+  end
+
+  # HOORAY_THEN_DOWN's +moments+: HOORAY's voice is kept through the fade.
+  private def assert_hooray_sounds_through_the_fade(moments)
+    assert_operator moments.first(25).count { |now| now.owners.include?(HOORAY) }, :>, 15, "HOORAY sounds through the fade"
+  end
+end
+
 # The Jukebox example (examples/jukebox.rb): the sound showcase. Three classical
 # melodies written with the note/tempo DSL; the cursor picks one and it plays and
 # loops on the music channel. This asserts what the player hears — the highlighted
-# tune's notes actually fire — on the interpreter oracle AND that a real ROM drives
-# the music channel on hardware.
+# tune's notes actually fire — on the run's own player. The cartridge read back in the
+# emulator is in test/lowering/gba/examples/test_jukebox_example_cartridge.rb.
 class TestJukeboxExample < Minitest::Test
   include MixedSound
+  include JukeboxListening
 
   # The opening (downbeat) note of each tune, in Hz — distinct so each is a
   # diagnostic value. If the frame-0 fix regressed, these would never sound.
@@ -31,11 +132,6 @@ class TestJukeboxExample < Minitest::Test
 
   private def notes(interpreter)
     interpreter.audio.select { |e| e[0] == :note }
-  end
-
-  def test_the_example_builds_clean
-    rom = Jukebox.build_rom(out: StringIO.new, err: StringIO.new)
-    assert_operator rom.size, :>, 0, "the built ROM should be non-empty"
   end
 
   # Row 0 is selected at the start, so the first tune plays with no input and
@@ -127,191 +223,43 @@ class TestJukeboxExample < Minitest::Test
     assert_operator after[1], :<, after[0], "the cursor followed the pick down a row"
   end
 
-  # ...and the console dips too: loud, a stretch of quiet as the cursor moves, then loud again.
-  def test_the_console_dips_between_tunes
-    rom = Jukebox.build_rom(out: StringIO.new, err: StringIO.new)
-    down = ->(frame) { (40..41).cover?(frame) ? VBlank::Console::Hardware::KEY_DOWN : 0 }
-    energy = assert_emulator_loads_rom(rom, frames: 110, keys: down).audio_energy_by_frame
-    loud = energy.max / 4
-
-    assert_operator energy[20..38].max, :>, loud, "the first tune plays (#{energy.inspect})"
-    assert_operator energy[42..70].min, :<, loud / 8, "it goes quiet as the cursor moves (#{energy.inspect})"
-    assert_operator energy[85..].max, :>, loud, "and the next tune comes up (#{energy.inspect})"
-  end
+  # The console dipping between tunes, and the music channel driven on it, read in the emulator,
+  # are in test/lowering/gba/examples/test_jukebox_example_cartridge.rb.
 
   # --- the piano tune and its sound effects ---
 
-  # SOMEBODY AT THE JUKEBOX: moves the cursor down to the piano tune, waits for the chord it names
-  # (:big, every voice the tune's; :small, four of them), and a few frames into it presses each of
-  # +presses+ — a button, and how many frames after the first press it goes down. Each press is
-  # held for three frames, so the game sees one press whether a pass of its loop takes one frame
-  # or two. Handed whose each voice is on every frame, it answers the buttons held on that frame.
-  #
-  # IT WAITS FOR THE CHORD rather than for a frame number, because the two backends do not start
-  # counting at the same moment — the console sets the game up before its first pass — so the
-  # same frame number is a different moment of the tune on each. The chord is the same moment.
-  class Listener
-    TAP = 3
-
-    attr_reader :pressed_at
-
-    def initialize(chord:, presses:)
-      @chord = chord
-      @presses = presses
-      @frame = 0
-      @frames_in_chord = 0
-    end
-
-    def keys(owners)
-      @frame += 1
-      return taps_down if @frame <= 6 * TAP
-
-      count_the_chord(owners) unless @pressed_at
-      return [] unless @pressed_at || @frames_in_chord > 8
-
-      @pressed_at ||= @frame
-      @presses.filter_map { |button, after| button if (@frame - @pressed_at - after).between?(0, TAP - 1) }
-    end
-
-    private
-
-    # Three taps of DOWN: row 0 to the piano tune on row 3.
-    def taps_down = ((@frame - 1) / TAP).even? ? [:down] : []
-
-    # How many frames running every voice has been the tune's chord.
-    def count_the_chord(owners)
-      voices = @chord == :big ? 16 : 4
-      in_chord = owners.size == voices && owners.all? { |owner| owner.first == :song }
-      @frames_in_chord = in_chord ? @frames_in_chord + 1 : 0
-    end
-  end
-
-  # ONE FRAME OF THE JUKEBOX, as a test reads it: whose each voice was as the frame began, the
-  # voices themselves, how loud the sound was over the frame, and every sample the console's
-  # recorded-sound channel played in it, as its value and the cycle it fell due (the last three the
-  # console's only — the interpreter mixes nothing).
-  Moment = Data.define(:owners, :voices, :loudness, :played)
-
-  # A run of the jukebox on the interpreter with +listener+ at the buttons: every frame's Moment,
-  # from the listener's first press on (from the start, when it never presses), and what the
-  # run logged.
-  private def interpreted_jukebox(listener, frames:)
-    i = game_player
-    moments = []
-    i.input_each_frame do |_frame|
-      moments << Moment.new(owners: i.sound_owners, voices: nil, loudness: nil, played: nil)
-      listener.keys(moments.last.owners)
-    end
-    i.run(Jukebox.program, frames: frames)
-    [from_the_press(moments, listener), i.audio]
-  end
-
-  # ...and on the console.
-  private def console_jukebox(listener, frames:)
-    rom = Jukebox.build_rom(out: StringIO.new, err: StringIO.new)
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "jukebox.gba")
-      rom.write(path)
-      probe = VBlank::Diagnostics::Emulator.probe(path)
-      moments = Array.new(frames) do
-        voices = rom.built.voices.read { |address| probe.read32(address) }
-        owners = voices.map(&:owner)
-        feed = probe.sound_feed(frames: 1, keys: listener.keys(owners))
-        Moment.new(owners: owners, voices: voices, loudness: probe.audio_energy,
-                   played: feed.played.map { |sample| [sample.value, sample.due] })
-      end
-      probe.close
-      from_the_press(moments, listener)
-    end
-  end
-
-  private def from_the_press(moments, listener) = moments.drop((listener.pressed_at || 1) - 1)
-
-  # The same listener's run on both backends: [interpreter, console], each from the first press.
-  private def on_both(frames:, **listening)
-    [interpreted_jukebox(Listener.new(**listening), frames: frames).first,
-     console_jukebox(Listener.new(**listening), frames: frames)]
-  end
-
-  HOORAY = [:"sfx.hooray", 0].freeze
-  BLIP = [:"sfx.blip", 0].freeze
-  BIG_CHORD = Array.new(16) { |part| [:song, part] }.freeze
-  SMALL_CHORD = BIG_CHORD.first(4).freeze
-
   # HOORAY ON THE BIG CHORD takes a voice from the tune, which has every one; the part that lost
   # it has it back at the next big chord, two measures on.
-  def test_hooray_takes_a_voice_from_the_tunes_big_chord_on_both_backends
-    on_both(frames: 560, chord: :big, presses: [[:a, 0]]).each do |moments|
-      assert_equal BIG_CHORD, moments.first.owners, "every voice is the tune's as A goes down"
-      assert(moments.first(40).any? { |now| now.owners.include?(HOORAY) && now.owners.size == 16 },
-             "HOORAY takes one of them")
-      assert_equal BIG_CHORD, moments[250].owners, "and the tune has it back at its next big chord"
-    end
+  def test_hooray_takes_a_voice_from_the_tunes_big_chord
+    assert_hooray_takes_a_voice_from_the_big_chord(interpreted_jukebox(Listener.new(chord: :big, presses: [[:a, 0]]),
+                                                                       frames: 560).first)
   end
 
   # BLIP ranks below the tune: on the big chord there is no voice for it, and every voice is as it
   # would have been with nobody pressing B — on the small chord, it is heard.
   def test_blip_is_not_played_on_the_big_chord_and_is_on_the_small_one
-    _, log = interpreted_jukebox(Listener.new(chord: :big, presses: [[:b, 0]]), frames: 300)
-    pressed = on_both(frames: 300, chord: :big, presses: [[:b, 0]])
-    nobody = on_both(frames: 300, chord: :big, presses: [])
+    pressed, log = interpreted_jukebox(Listener.new(chord: :big, presses: [[:b, 0]]), frames: 300)
 
     assert_includes log, [:sound_effect, :"sfx.blip"]
-    pressed.zip(nobody).each do |with_b, without|
-      assert_equal without.first(30).map(&:owners), with_b.first(30).map(&:owners), "the big chord, untouched"
-    end
-    on_both(frames: 200, chord: :small, presses: [[:b, 0]]).each do |moments|
-      assert(moments.first(30).any? { |now| now.owners == SMALL_CHORD + [BLIP] }, "BLIP over the small chord")
-    end
+    assert_blip_waits_for_a_voice(pressed,
+                                  interpreted_jukebox(Listener.new(chord: :big, presses: []), frames: 300).first,
+                                  interpreted_jukebox(Listener.new(chord: :small, presses: [[:b, 0]]), frames: 200).first)
   end
 
-  # A SECOND PRESS STARTS HOORAY AGAIN from its first note: the interpreter plays that note twice,
-  # and on the console, a few frames after the second press, HOORAY's voice is reading the first
-  # note's pitch again where its second note would otherwise be sounding.
+  # A SECOND PRESS STARTS HOORAY AGAIN from its first note: the interpreter plays that note twice.
+  # (On the console HOORAY's voice reads the first note's pitch again where its second note would
+  # otherwise be sounding: that is in the cartridge's tests.)
   def test_hooray_pressed_again_starts_from_its_first_note
     _, log = interpreted_jukebox(Listener.new(chord: :small, presses: [[:a, 0], [:a, 7]]), frames: 200)
 
     assert_equal 2, log.count([:sound_effect, :"sfx.hooray"])
     assert_equal 2, log.count([:note, :"sfx.hooray", VBlank::Audio::Music::NOTE_FREQUENCIES[:C5]])
-    moments = console_jukebox(Listener.new(chord: :small, presses: [[:a, 0], [:a, 7]]), frames: 200)
-    steps = moments.first(30).map { |now| now.voices.find { |voice| voice.owner == HOORAY }&.step }
-    first_note = steps.compact.first
-
-    assert_equal first_note, steps[14], "the first note again, where the second was due (#{steps.inspect})"
   end
 
-  # HOORAY KEEPS SOUNDING, AT ITS OWN VOLUME, while the music fades: A, then DOWN moves the cursor
-  # off the tune. Both backends keep its voice through the fade; the console says how loud.
+  # HOORAY KEEPS SOUNDING while the music fades: A, then DOWN moves the cursor off the tune. Its
+  # voice is kept through the fade. (How loud it is, the console says: in the cartridge's tests.)
   def test_hooray_does_not_fade_with_the_music
-    both = on_both(frames: 200, chord: :small, presses: [[:a, 0], [:down, 2]])
-    both.each do |moments|
-      assert_operator moments.first(25).count { |now| now.owners.include?(HOORAY) }, :>, 15, "HOORAY sounds through the fade"
-    end
-
-    moments = both.last
-    hooray = moments.first(25).filter_map { |now| now.voices.find { |voice| voice.owner == HOORAY }&.volume }
-    tune = moments.first(25).map { |now| now.voices.select { |voice| voice.owner.first == :song }.sum(&:volume) }
-    assert_equal [hooray.first], hooray.uniq, "at one volume"
-    assert_operator tune.last, :<, tune.first, "while the tune goes quiet"
-  end
-
-  # HOORAY OVER THE SMALL CHORD, heard on the console: louder than the same frames with nobody
-  # pressing A, and once it has ended, frame for frame the same sound as those — the tune was not
-  # touched and did not slip.
-  #
-  # "The same sound" is every sample the console's recorded-sound channel played and the cycle it
-  # fell due, not how loud the speaker was. The emulator places a sample in what it sends to the
-  # speaker by when it got round to it, which is a few cycles after it fell due behind whatever
-  # instruction was running — and the run that played HOORAY has run other code, so its
-  # instructions fall against the sample clock a little differently ever after. The speaker then
-  # differs by a fraction on a few frames with every sample the same, which is the emulator and not
-  # the cartridge (see Probe#sound_feed).
-  def test_hooray_adds_to_the_sound_and_leaves_the_tune_as_it_was
-    pressed = console_jukebox(Listener.new(chord: :small, presses: [[:a, 0]]), frames: 200)
-    quiet = console_jukebox(Listener.new(chord: :small, presses: []), frames: 200) # waits for the same frame
-
-    assert_operator pressed.first(40).sum(&:loudness), :>, quiet.first(40).sum(&:loudness), "HOORAY is heard"
-    assert_equal quiet[60, 60].map(&:played), pressed[60, 60].map(&:played), "and after it, the tune as it was"
+    assert_hooray_sounds_through_the_fade(interpreted_jukebox(Listener.new(**HOORAY_THEN_DOWN), frames: 200).first)
   end
 
   # A WHOLE PIECE OF REAL MUSIC, BYTE FOR BYTE: moved up to the piano chords (which fades the
@@ -321,12 +269,5 @@ class TestJukeboxExample < Minitest::Test
   def test_the_interpreter_makes_the_same_bytes_of_sound_as_the_cartridge
     assert_mixes_agree(Jukebox.program, frames: 150, presses: { 5 => [:up], 6 => [:up], 60 => [:a], 61 => [:a] },
                                         at_least: 60)
-  end
-
-  # On real hardware: the ROM boots and the music channel is actually driven.
-  def test_the_music_channel_is_driven_on_the_console
-    rom = Jukebox.build_rom(out: StringIO.new, err: StringIO.new)
-    v = assert_emulator_loads_rom(rom, frames: 12)
-    assert v.sound?, "the highlighted tune should drive the music channel"
   end
 end

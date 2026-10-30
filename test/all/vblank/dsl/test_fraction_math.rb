@@ -2,17 +2,11 @@
 
 require "test_helper"
 
-# Multiplying two numbers that hold a fraction (`times_fraction`).
-#
-# A variable holds whole numbers, so a program that needs halves keeps its numbers
-# multiplied up — with 16 fraction bits, 1.5 is stored as 98304. Adding those works
-# already. Multiplying them does not: the answer comes out multiplied up twice, and
-# that intermediate is bigger than a variable can hold, so a plain `*` wraps and
-# returns nonsense.
-#
-# These tests put the answer on screen as a marker, so what is asserted is where the
-# marker landed — which is exactly what a game would get wrong.
-class TestFractionMath < Minitest::Test
+# The game these tests play, shared with the Advance cartridge's own test of the same answer
+# (test/lowering/gba/vblank/dsl/test_fraction_math_cartridge.rb).
+module FractionMathGames
+  include SharedConstants
+
   ONE = 65_536          # 1.0, with 16 fraction bits
   ONE_AND_A_HALF = 3 * ONE / 2
   MARKER_Y = 40
@@ -36,6 +30,21 @@ class TestFractionMath < Minitest::Test
     b.finalize_program
     b.program
   end
+end
+
+# Multiplying two numbers that hold a fraction (`times_fraction`).
+#
+# A variable holds whole numbers, so a program that needs halves keeps its numbers
+# multiplied up — with 16 fraction bits, 1.5 is stored as 98304. Adding those works
+# already. Multiplying them does not: the answer comes out multiplied up twice, and
+# that intermediate is bigger than a variable can hold, so a plain `*` wraps and
+# returns nonsense.
+#
+# These tests put the answer on screen as a marker, so what is asserted is where the
+# marker landed — which is exactly what a game would get wrong. Where it lands on the Advance's
+# cartridge is in test/lowering/gba/vblank/dsl/test_fraction_math_cartridge.rb.
+class TestFractionMath < Minitest::Test
+  include FractionMathGames
 
   # 1.5 * 1.5 is 2.25, so the marker stands at x 45. Getting there needs a product of
   # 9,663,676,416 on the way — four times what a variable can hold.
@@ -44,14 +53,6 @@ class TestFractionMath < Minitest::Test
 
     assert_equal Color.resolve(:white), screen.pixel(45, MARKER_Y), "1.5 * 1.5 puts the marker at 2.25"
     assert_equal 0, screen.pixel(41, MARKER_Y), "and nowhere near 2.0"
-  end
-
-  def test_the_answer_lands_in_the_same_place_on_the_console
-    rom = assemble_rom(marker_program, name: "FRACMUL")
-    v = assert_emulator_loads_rom(rom, frames: 4)
-
-    assert v.pixel_is?(45, MARKER_Y, :white), "the console must agree with the interpreter"
-    assert v.pixel_is?(41, MARKER_Y, :black)
   end
 
   # The reason the operation exists: a plain `*` on the same two numbers overflows,

@@ -8,15 +8,17 @@ require "differential"
 # cells for a layer, so the framework keeps the whole map in the cartridge and copies in the
 # cells coming into view as the view moves. Nothing in the program says so: the map is
 # written at its size and scrolled like any other.
-class TestBigMaps < Minitest::Test
-  include Differential
+#
+# How many cells the Advance's cartridge copies to put a view up, measured by its profiler, is in
+# test/lowering/gba/vblank/builder/test_big_maps_cartridge.rb.
 
-  RED = Color.resolve(:red)
-
+# The maps and games both files play. The game blocks call back through `test = self`, so those
+# helpers are public.
+module BigMapsGames
   KEYS = %w[r g b w].freeze
 
   private def program(&block)
-    b = Builder.new
+    b = VBlank::Builder.new
     b.instance_eval(&block)
     b.finalize_program
     b.program
@@ -41,6 +43,39 @@ class TestBigMaps < Minitest::Test
       tiles :ground, "r" => :r, "g" => :g, "b" => :b, "w" => :w
     end
   end
+
+  # A SCENE'S FIRST TAKEOVER, NAMED AT THE END OF THE PASS BEFORE — as a file screen does on START.
+  # A menu for ten passes, which names the playing scene at the end of its tenth. The playing scene
+  # owns a big room and puts its view 5 columns and 3 rows from the corner from its first pass.
+  def named_at_the_end_of_a_pass(builder)
+    test = self
+    builder.instance_eval do
+      screen :tiled
+      test.tileset(self)
+      pass = var :pass, 0
+      var :mode, 0
+      scene(:menu) { nil }
+      scene(:playing) do
+        ground = background :ground, tiles: :ground, map: test.scrambled(100, 90)
+        ground.scroll_to 40, 24
+      end
+      game_loop do
+        pass.add! 1
+        case_var(:mode) do
+          when_val 0, :menu
+          when_val 1, :playing
+        end
+        (pass == 10).then { set! :mode, 1 }
+      end
+    end
+  end
+end
+
+class TestBigMaps < Minitest::Test
+  include Differential
+  include BigMapsGames
+
+  RED = Color.resolve(:red)
 
   # A view walked across a 100x90 map, +step_x+ and +step_y+ pixels a pass, from +start+.
   private def walk(step_x, step_y, start: [0, 0], map: scrambled(100, 90))
@@ -108,29 +143,6 @@ class TestBigMaps < Minitest::Test
   def test_a_jump_shows_the_new_place_on_the_frame_it_lands
     [4, 5, 6].each { |frames| assert_backends_agree(jump, frames: frames, name: "BIGJ") }
   end
-
-  # A jump straight across, the view's row unchanged: the whole view is filled again in the
-  # gap, not walked over a column at a time, which would take far longer than the gap.
-  def test_a_jump_across_alone_fills_the_whole_view
-    rom = VBlank.build("BIGX", console: :gba, out: nil, err: nil) do
-      screen :tiled
-      image(:floor, "#" => :green) { (["#" * 8] * 8).join("\n") }
-      tiles :ground, "#" => :floor
-      ground = background :ground, tiles: :ground, map: ["#" * 126] * 30
-      pass = var :pass, 0
-      x = var :view_x, 0
-      game_loop do
-        pass.add! 1
-        x.set! ((pass & 1) * 760)
-        ground.scroll_to x, 0
-      end
-    end
-    copied = VBlank::Diagnostics::Profiler.run(rom, frames: 20, picture: false).video_copies
-                                           .find { |copy| copy.source.include?(":ground") }
-    assert_operator copied.bytes_per_frame, :<=, VIEW_BYTES, "a whole view a frame at most, never 95 columns"
-  end
-
-  VIEW_BYTES = 31 * 21 * 2
 
   # --- rooms of different sizes, and walking between them ---
 
@@ -290,95 +302,8 @@ class TestBigMaps < Minitest::Test
     [4, 7, 10, 13, 16].each { |frames| assert_backends_agree(big_rooms_in_two_scenes, frames: frames, name: "BIGN") }
   end
 
-  # --- how much a view costs to put up ---
-
-  VIEW_CELLS = 31 * 21
-
-  # Cells the console copied into the view of background :ground over the 20 frames a profile
-  # measures, or 0 when it copied none.
-  private def cells_copied(rom)
-    copies = VBlank::Diagnostics::Profiler.run(rom, frames: 20, picture: false).video_copies
-    copies.find { |copy| copy.source.include?(":ground") }&.copies || 0
-  end
-
-  # A scene owning a big room takes over every fourth pass, for one pass. +body+ is what else
-  # its body does on that pass.
-  private def taking_over_every_fourth_pass(name, &body)
-    big = (["#" * 100] * 90).freeze
-    VBlank.build(name, console: :gba, out: nil, err: nil) do
-      screen :tiled
-      image(:floor, "#" => :green) { (["#" * 8] * 8).join("\n") }
-      tiles :ground, "#" => :floor
-      pass = var :pass, 0
-      var :mode, 0
-      scene(:waiting) { nil }
-      scene(:playing) do
-        ground = background :ground, tiles: :ground, map: { first: big, second: big }
-        instance_exec(ground, &body) if body
-      end
-      game_loop do
-        pass.add! 1
-        set! :mode, 0
-        ((pass & 3) == 0).then { set! :mode, 1 }
-        case_var(:mode) do
-          when_val 0, :waiting
-          when_val 1, :playing
-        end
-      end
-    end
-  end
-
-  # A SCENE TAKING OVER FILLS ITS BIG ROOM'S VIEW ONCE, in the five takeovers a profile sees,
-  # and once still when it names the first map on that pass. Naming ANOTHER map there is two
-  # pictures, each a whole view: the frame the scene takes over on shows its first map, as
-  # declared, on every backend, and the frame after shows the map named.
-  def test_a_scene_taking_over_fills_the_view_of_its_big_room_once
-    assert_equal 5 * VIEW_CELLS, cells_copied(taking_over_every_fourth_pass("BIGT1"))
-    assert_equal 5 * VIEW_CELLS, cells_copied(taking_over_every_fourth_pass("BIGT2") { |ground| ground.show_map :first })
-    assert_equal 10 * VIEW_CELLS, cells_copied(taking_over_every_fourth_pass("BIGT3") { |ground| ground.show_map :second })
-  end
-
-  # A SCENE'S FIRST TAKEOVER, NAMED AT THE END OF THE PASS BEFORE — as a file screen does on START
-  # — fills the view once. The gap between that pass and the takeover already counts the new scene
-  # as the one running, so its big room's view used to be filled there too, before the scene had put
-  # its scenery up at all, and then again as it did.
-  # A menu for ten passes, which names the playing scene at the end of its tenth. The playing scene
-  # owns a big room and puts its view 5 columns and 3 rows from the corner from its first pass.
-  def named_at_the_end_of_a_pass(builder)
-    test = self
-    builder.instance_eval do
-      screen :tiled
-      test.tileset(self)
-      pass = var :pass, 0
-      var :mode, 0
-      scene(:menu) { nil }
-      scene(:playing) do
-        ground = background :ground, tiles: :ground, map: test.scrambled(100, 90)
-        ground.scroll_to 40, 24
-      end
-      game_loop do
-        pass.add! 1
-        case_var(:mode) do
-          when_val 0, :menu
-          when_val 1, :playing
-        end
-        (pass == 10).then { set! :mode, 1 }
-      end
-    end
-  end
-
-  # The takeover fills the view round the corner and the gap after it copies the strips between
-  # there and where the view is put: one whole view, five columns of 21 cells and three rows of 31.
-  def test_a_first_takeover_named_at_the_end_of_the_pass_before_fills_the_view_once
-    test = self
-    rom = VBlank.build("BIGF1", console: :gba, out: nil, err: nil) { test.named_at_the_end_of_a_pass(self) }
-    copies = VBlank::Diagnostics::Profiler.run(rom, frames: 30, settle: 0, picture: false).video_copies
-    copied = copies.find { |copy| copy.source.include?(":ground") }&.copies || 0
-
-    assert_equal VIEW_CELLS + (5 * 21) + (3 * 31), copied, "cells copied into the view over the takeover"
-  end
-
-  # ...and both backends draw the same room around the switch.
+  # A scene's first takeover, named at the end of the pass before: both backends draw the same
+  # room around the switch. (That its view is filled only once is measured in the cartridge's file.)
   def test_a_first_takeover_named_at_the_end_of_the_pass_before_draws_the_room
     test = self
     prog = program { test.named_at_the_end_of_a_pass(self) }

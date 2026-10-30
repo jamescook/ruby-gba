@@ -2,15 +2,10 @@
 
 require "test_helper"
 
-# A sprite that faces the way it moves: pass `facing:` a map of direction to image,
-# and the sprite draws whichever pose it faces. face(:dir) turns it in place, and
-# move(:dir) turns it as it goes. Tested with distinctly COLOURED poses (green
-# right, red left) so "which pose is showing" is a pixel check — on the interpreter
-# and on the emulator. (The poses are the same size so they share one save-under buffer.)
-class TestSpriteFacing < Minitest::Test
-  include VBlank::Console::Hardware
-
-  POSE = 2 # a 2x2 pose
+# The game these tests play, kept once for the faced pose read back on the Advance's cartridge
+# too (test/lowering/gba/vblank/dsl/test_sprite_facing_cartridge.rb).
+module SpriteFacingGames
+  include SharedConstants
 
   private def faceted_program(frames:, &body)
     builder = Builder.new
@@ -29,6 +24,18 @@ class TestSpriteFacing < Minitest::Test
     builder.finalize_program
     builder.program
   end
+end
+
+# A sprite that faces the way it moves: pass `facing:` a map of direction to image,
+# and the sprite draws whichever pose it faces. face(:dir) turns it in place, and
+# move(:dir) turns it as it goes. Tested with distinctly COLOURED poses (green
+# right, red left) so "which pose is showing" is a pixel check. (The poses are the same
+# size so they share one save-under buffer.)
+class TestSpriteFacing < Minitest::Test
+  include VBlank::Console::Hardware
+  include SpriteFacingGames
+
+  POSE = 2 # a 2x2 pose
 
   private def count_color(screen, color)
     want = Color.resolve(color)
@@ -94,13 +101,6 @@ class TestSpriteFacing < Minitest::Test
     assert_match(/same size/, err.message)
   end
 
-  # ---- hardware ----
-
-  def test_the_faced_pose_renders_on_the_console
-    prog = faceted_program(frames: 6) { |guy| after(2) { guy.face :left } }
-    rom = ROM.assemble(GBA.new.lower(prog), title: "FACING", code: "BFAC", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 7)
-    assert v.red?(50, 50), "the left (red) pose should show on hardware — got #{v.pixel_gba(50, 50).to_s(16)}"
-    refute v.green?(50, 50), "the right pose should have been restored"
-  end
+  # The faced pose on the Advance's cartridge, read back in the emulator, is in
+  # test/lowering/gba/vblank/dsl/test_sprite_facing_cartridge.rb.
 end

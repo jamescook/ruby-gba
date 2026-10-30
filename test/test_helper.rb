@@ -85,13 +85,16 @@ module EmulatorSupport
   # ROMs, so a missing build is a real error, not a reason to silently skip and pass with the
   # coverage gutted. `rake test` builds it first; run `rake test:emulator` to build it by hand.
   #
-  # On a native or JavaScript run it skips instead, and that is not the same thing: a test that reaches for
-  # the emulator this way is about the cartridge, which `rake test` checks on every run and a
-  # native run is not there to check. Any check on the game itself that came before it has run.
-  # (A native run does use the emulator for one thing — as the answer key for the desktop
-  # build's sound — and asks it directly, not through here: see test/sound_comparison.rb.)
+  # A test that reaches for the emulator this way reads the Game Boy Advance's cartridge, which is
+  # the GBA lowering's output, so it lives in test/lowering/gba/ and no other run loads it.
+  # Reached on another run, it is a test in the wrong folder, and it fails saying so. (A native
+  # run does use the emulator for one thing — as the answer key for the desktop build's sound —
+  # and asks it directly, not through here: see test/sound_comparison.rb.)
   def require_emulator!
-    skip "checks the cartridge in the emulator, which the GBA lowering's run plays" if VBlank::Testing.checked?
+    if VBlank::Testing.checked?
+      flunk "this test reads the Game Boy Advance's cartridge on the #{VBlank::Testing::RUN.title} run. To fix " \
+            "this, move it to test/lowering/gba/, which only the GBA lowering's run loads."
+    end
 
     VBlank::Diagnostics::Emulator.load!
   end

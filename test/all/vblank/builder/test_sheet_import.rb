@@ -2,19 +2,11 @@
 
 require "test_helper"
 
-# Importing art from image files, folded into the verbs that use it:
-#   - `tiles from:` slices a tile sheet and points each map-character at a cell;
-#   - `sprite frames_from:` slices a sprite sheet into animation frames.
-# Two layers are tested apart, as the single-image importer is:
-#   - Image.slice / Image::Sheet, the conversion, on a fake adapter (no ImageMagick);
-#   - the verbs, that imported cells become drawable tiles / animating frames.
-# The whole path against real PNGs (on both backends) is test_sheet_example.rb.
-class TestSheetImport < Minitest::Test
+# The fake adapter and the games these tests import through it, kept once for the sheet sprite
+# read back on the Advance's cartridge too
+# (test/lowering/gba/vblank/builder/test_sheet_import_cartridge.rb).
+module SheetImportGames
   Image = VBlank::Graphics::Image
-
-  RED  = Color.rgb8(255, 0, 0) # 0x001F
-  BLUE = Color.rgb8(0, 0, 255) # 0x7C00
-  MARKER = Image::TRANSPARENT  # 0x8000, the see-through marker
 
   # An adapter that hands back canned dimensions and pixels — lets the importer be
   # tested with no ImageMagick. Same shape the real adapter exposes.
@@ -46,6 +38,39 @@ class TestSheetImport < Minitest::Test
   end
 
   private def two_tile_fake = FakeAdapter.new(dims: [16, 8], rgb: two_tile_rgb)
+
+  # A sprite sliced from a sheet takes a list of colours for every frame it makes, which is
+  # what lets it be drawn with another list: a character flashing warm while it cannot be hit
+  # is no different for being cut out of a sheet.
+  private def a_sheet_sprite_drawn_with_other_colors
+    with_default_adapter(two_tile_fake) do
+      builder = VBlank::Builder.new
+      builder.instance_eval do
+        screen :tiled
+        colors :hurt, %i[transparent yellow white]
+        hero = sprite :hero, at: [10, 10], frames_from: "/sheet/walk.png", tile: 8, rate: 1000,
+                             colors: %i[transparent red blue]
+        game_loop { hero.draw_with :hurt }
+      end
+      builder.finalize_program
+      builder.program
+    end
+  end
+end
+
+# Importing art from image files, folded into the verbs that use it:
+#   - `tiles from:` slices a tile sheet and points each map-character at a cell;
+#   - `sprite frames_from:` slices a sprite sheet into animation frames.
+# Two layers are tested apart, as the single-image importer is:
+#   - Image.slice / Image::Sheet, the conversion, on a fake adapter (no ImageMagick);
+#   - the verbs, that imported cells become drawable tiles / animating frames.
+# The whole path against real PNGs (on both backends) is test_sheet_example.rb.
+class TestSheetImport < Minitest::Test
+  include SheetImportGames
+
+  RED  = Color.rgb8(255, 0, 0) # 0x001F
+  BLUE = Color.rgb8(0, 0, 255) # 0x7C00
+  MARKER = Image::TRANSPARENT  # 0x8000, the see-through marker
 
   # An 8x8 cut-out: an opaque red top row, everything below fully transparent.
   private def cutout_rgba
@@ -148,35 +173,14 @@ class TestSheetImport < Minitest::Test
                  "the first imported frame drew the sprite red"
   end
 
-  # A sprite sliced from a sheet takes a list of colours for every frame it makes, which is
-  # what lets it be drawn with another list: a character flashing warm while it cannot be hit
-  # is no different for being cut out of a sheet.
-  private def a_sheet_sprite_drawn_with_other_colors
-    with_default_adapter(two_tile_fake) do
-      builder = VBlank::Builder.new
-      builder.instance_eval do
-        screen :tiled
-        colors :hurt, %i[transparent yellow white]
-        hero = sprite :hero, at: [10, 10], frames_from: "/sheet/walk.png", tile: 8, rate: 1000,
-                             colors: %i[transparent red blue]
-        game_loop { hero.draw_with :hurt }
-      end
-      builder.finalize_program
-      builder.program
-    end
-  end
-
   def test_a_sprite_from_a_sheet_can_be_drawn_with_other_colors
     assert_equal Color.resolve(:yellow), game_player.run(a_sheet_sprite_drawn_with_other_colors, frames: 3)
                                                   .screen.pixel(12, 12),
                  "the first frame's red was not drawn with the other list's first colour"
   end
 
-  def test_the_console_draws_a_sheet_sprite_with_other_colors_too
-    v = assert_emulator_loads_rom(assemble_rom(a_sheet_sprite_drawn_with_other_colors, name: "SHTCOL"), frames: 4)
-
-    assert_equal Color.resolve(:yellow), v.pixel_gba(12, 12)
-  end
+  # The same sprite on the Advance's cartridge, read back in the emulator, is in
+  # test/lowering/gba/vblank/builder/test_sheet_import_cartridge.rb.
 
   # The list can be one declared with `colors`, by its name.
   def test_a_sheet_sprite_can_take_a_list_by_name

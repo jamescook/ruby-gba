@@ -1,19 +1,12 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "speakers"
 
-# A SONG'S PARTS THAT PLAY FROM ONE SPEAKER — the left, the right, or both, which is what every
-# part does when it says nothing. A part says its side (`v.pan :left`), and a note can say its own
-# (`pan: :right`), so a part can move from side to side as the song goes.
-#
-# The log names the side each note plays from at the end of its [:voice] entry, after its fade,
-# slide and wobble, and says nothing for both sides.
-class TestSongPan < Minitest::Test
-  include Speakers
-
+# The song these tests play, shared with the Advance cartridge's own tests of the same sides
+# (test/lowering/gba/vblank/audio/test_song_pan_cartridge.rb).
+module SongPanGames
   private def song_game(&parts)
-    b = Builder.new
+    b = VBlank::Builder.new
     b.instance_eval do
       screen :bitmap
       clear_screen :black
@@ -28,6 +21,17 @@ class TestSongPan < Minitest::Test
     b.finalize_program
     b.program
   end
+end
+
+# A SONG'S PARTS THAT PLAY FROM ONE SPEAKER — the left, the right, or both, which is what every
+# part does when it says nothing. A part says its side (`v.pan :left`), and a note can say its own
+# (`pan: :right`), so a part can move from side to side as the song goes.
+#
+# The log names the side each note plays from at the end of its [:voice] entry, after its fade,
+# slide and wobble, and says nothing for both sides. What the Advance's cartridge plays from each
+# speaker, heard in the emulator, is in test/lowering/gba/vblank/audio/test_song_pan_cartridge.rb.
+class TestSongPan < Minitest::Test
+  include SongPanGames
 
   # Each note's [:voice] entry, as [voice, pitch, side], the side nil for both.
   private def sides_logged(program, frames:)
@@ -83,56 +87,6 @@ class TestSongPan < Minitest::Test
     b.finalize_program
 
     assert_equal %i[left right], sides_logged(b.program, frames: 30).map(&:last)
-  end
-
-  # THE CARTRIDGE, heard in the emulator: each voice from its own speaker alone, the drums and the
-  # wave voice included, and a part that says nothing from both.
-  def test_the_cartridge_plays_each_part_from_its_own_speaker
-    require_emulator!
-    game = song_game do
-      voice(:lead) { |v| v.pan :left; v.note :C5, :whole }
-      voice(:harmony) { |v| v.pan :right; v.note :E4, :whole }
-      voice(:bass, plays: :wave) { |v| v.pan :left; v.note :C3, :whole }
-      voice(:drums, plays: :noise) { |v| v.note :C4, :whole, decay: :none }
-    end
-    { square1: :left, square2: :right, wave: :left, noise: :both }.each do |voice, side|
-      assert_heard_from side, loudest_on_each_side(game, voice, frames: 40, from: 10), voice
-    end
-  end
-
-  # THE GAME'S OWN SOUND — a beep, a hit on the noise voice, a tone on the wave voice — plays from
-  # both speakers, on the voice a song's note left at the right.
-  def test_the_games_own_sound_after_a_panned_note_plays_from_both_speakers
-    require_emulator!
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      clear_screen :black
-      enable_sound
-      song(:tune) do
-        tempo 150
-        voice(:lead) { |v| v.rest :whole }
-        voice(:harmony) { |v| v.pan :right; v.note :E4, :whole }
-        voice(:pad, plays: :wave) { |v| v.pan :right; v.note :C3, :whole }
-        voice(:drums, plays: :noise) { |v| v.pan :right; v.note :C4, :whole, decay: :none }
-      end
-      play_song :tune
-      count = var :count, 0
-      game_loop do
-        count.add! 1
-        (count == 40).then do
-          beep 880, decay: :none
-          noise :kick, decay: :none
-          wave :sawtooth, :A3, volume: :half
-        end
-        wait_vblank
-      end
-    end
-    b.finalize_program
-
-    %i[square2 wave noise].each do |voice|
-      assert_heard_from :both, loudest_on_each_side(b.program, voice, frames: 60, from: 45), voice
-    end
   end
 
   # --- what a side cannot be said of ---

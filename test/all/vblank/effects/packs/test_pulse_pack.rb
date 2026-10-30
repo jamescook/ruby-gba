@@ -3,21 +3,25 @@
 require "test_helper"
 
 # The `pulse` effect pack: a sprite that grows, shrinks and keeps doing it. These assert
-# what a player sees — the sprite is bigger part-way through the cycle than it started,
-# back near its starting size by the end of it, and off again after that — plus the
-# friendly errors. The pack is written entirely in public DSL verbs on top of
-# `sprite.scale`, so it needs no backend of its own; that it runs on the oracle at all is
-# the evidence for that.
-class TestPulsePack < Minitest::Test
-  BLOCK = (["#" * 16] * 16).join("\n")
+# its friendly errors, and that it is a pack. The pack is written entirely in public DSL verbs
+# on top of `sprite.scale`, so it needs no backend of its own; that it runs on the oracle at
+# all is the evidence for that.
+#
+# What a pulse looks like as it plays is in
+# test/console/gba/vblank/effects/packs/test_pulse_pack_on_the_advance.rb: a pulse resizes a
+# sprite, which a Game Boy Color and a Super Nintendo cannot.
 
-  # One second, so half a cycle is 30 frames and the numbers below are easy to place.
+# The pulsing sprite both files build.
+module PulsePackGames
+  # Shareable, as a test class's constant is made for it, so a test in a Ractor can read it.
+  BLOCK = Ractor.make_shareable((["#" * 16] * 16).join("\n"))
+
+  # One second a cycle.
   SECONDS = 1.0
-  HALF = 30
 
   # A pulse from its own size up to half again, run for +frames+ frames.
   private def pulse_program(frames, to: 1.5, from: 1.0, over: SECONDS)
-    builder = Builder.new
+    builder = VBlank::Builder.new
     builder.instance_eval do
       screen :tiled
       image(:floor, "#" => :blue) { (["########"] * 8).join("\n") }
@@ -36,42 +40,10 @@ class TestPulsePack < Minitest::Test
     builder.finalize_program
     builder.program
   end
+end
 
-  # The sprite's size after +frames+ frames, as the multiple the author writes.
-  private def size_after(frames, **opts)
-    interpreter = game_player.run(pulse_program(frames, **opts), max_steps: 50_000_000)
-    interpreter[:__obj1_scale] / VBlank::IR::Build::SCALE_ONE.to_f
-  end
-
-  # --- it breathes ---
-
-  # Part-way up the climb the sprite is bigger than it started but not yet at the top.
-  def test_it_is_part_way_grown_part_way_through_the_climb
-    size = size_after(HALF / 2)
-    assert_operator size, :>, 1.1
-    assert_operator size, :<, 1.5
-  end
-
-  # It reaches the size that was asked for, rather than stopping a little short.
-  def test_it_reaches_the_size_it_was_asked_for
-    assert_in_delta 1.5, size_after(HALF - 1), 0.01
-  end
-
-  # ...and comes back down. By the end of the cycle it is near where it began.
-  def test_it_shrinks_back_by_the_end_of_the_cycle
-    assert_in_delta 1.0, size_after(HALF * 2), 0.05
-  end
-
-  # And then goes again — a pulse repeats rather than running once.
-  def test_it_goes_again_on_the_next_cycle
-    assert_in_delta size_after(HALF / 2), size_after((HALF * 2) + (HALF / 2)), 0.05
-  end
-
-  # A pulse can breathe around a size, not only up from one.
-  def test_it_can_start_smaller_than_the_drawn_size
-    assert_in_delta 0.8, size_after(1, from: 0.8, to: 1.2), 0.02
-    assert_operator size_after(HALF - 1, from: 0.8, to: 1.2), :>, 1.1
-  end
+class TestPulsePack < Minitest::Test
+  include PulsePackGames
 
   # --- friendly guardrails ---
 

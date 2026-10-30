@@ -2,20 +2,11 @@
 
 require "test_helper"
 
-# The follow camera — `camera_follows`, which keeps a character where it stands on the
-# screen and moves the world under it instead.
-#
-# The claim to test is a swap: the game moves the SPRITE, and what actually moves is the
-# WORLD. So every test here looks at two things at once — that the character's picture
-# has not moved on screen, and that the scenery has. Reading only one of them would pass
-# for a game where nothing happens at all.
-class TestFollowCamera < Minitest::Test
-  RED = VBlank::Graphics::Color.resolve(:red)
-  BLUE = VBlank::Graphics::Color.resolve(:blue)
-  GREEN = VBlank::Graphics::Color.resolve(:green)
-
+# The walking game these tests play, kept once for this file and for the test of the same game
+# on the Advance's cartridge (test/lowering/gba/vblank/effects/packs/test_follow_camera_cartridge.rb).
+module FollowCameraGames
   private def program(&block)
-    b = Builder.new
+    b = VBlank::Builder.new
     b.instance_eval(&block)
     b.finalize_program
     b.program
@@ -41,6 +32,24 @@ class TestFollowCamera < Minitest::Test
       game_loop { instance_exec(hero, &extra) if extra }
     end
   end
+end
+
+# The follow camera — `camera_follows`, which keeps a character where it stands on the
+# screen and moves the world under it instead.
+#
+# The claim to test is a swap: the game moves the SPRITE, and what actually moves is the
+# WORLD. So every test here looks at two things at once — that the character's picture
+# has not moved on screen, and that the scenery has. Reading only one of them would pass
+# for a game where nothing happens at all.
+#
+# The same on the Advance's cartridge is in
+# test/lowering/gba/vblank/effects/packs/test_follow_camera_cartridge.rb.
+class TestFollowCamera < Minitest::Test
+  include FollowCameraGames
+
+  RED = VBlank::Graphics::Color.resolve(:red)
+  BLUE = VBlank::Graphics::Color.resolve(:blue)
+  GREEN = VBlank::Graphics::Color.resolve(:green)
 
   # The leftmost column of the character's own colour, on the row through its middle.
   private def hero_left(screen)
@@ -185,18 +194,5 @@ class TestFollowCamera < Minitest::Test
 
   def test_a_follow_camera_inside_a_game_loop_is_not_flagged
     refute_includes warnings(walking_game), :follow_camera_needs_game_loop
-  end
-
-  # --- and on the console ---
-
-  def test_the_world_scrolls_under_a_planted_character_on_the_console
-    prog = walking_game { |hero| held(:right).then { hero.move :right, by: 2 } }
-    rom = VBlank::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "FOLLOW", code: "BFLW", maker: "01")
-
-    at_rest = assert_emulator_loads_rom(rom, frames: 4)
-    walked = assert_emulator_loads_rom(rom, frames: 30, keys: VBlank::Console::Hardware::KEY_RIGHT)
-
-    assert at_rest.red?(120, 80), "the character renders in the middle of the screen"
-    assert walked.red?(120, 80), "and is still there after walking — the console moved the world"
   end
 end

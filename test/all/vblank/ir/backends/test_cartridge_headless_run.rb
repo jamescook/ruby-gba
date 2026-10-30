@@ -23,13 +23,24 @@ class TestCartridgeHeadlessRun < Minitest::Test
     RUNS.each { |run| assert_operator run, :<, VBlank::IR::Backends::CartridgeHeadlessRun }
   end
 
-  # A question refused by name says which console's run refused it, and how to skip there.
+  # A question no console's run has yet is refused by name, saying which console's run refused it
+  # and how to skip there.
   def test_a_refused_question_names_the_console_and_its_skip
     RUNS.each do |run|
-      error = assert_raises(VBlank::IR::Backends::RunComparison::CannotAnswer) { run.new.frames_each_pass { 2 } }
+      error = assert_raises(VBlank::IR::Backends::RunComparison::CannotAnswer) { run.new.peak_voices }
+
+      assert_match(/peak_voices/, error.message)
+      assert_match(/skip_on_(gbc|snes)/, error.message)
+    end
+  end
+
+  # A question only the interpreter will ever have fails the test, saying where such a test goes.
+  def test_a_question_only_the_interpreter_has_says_where_the_test_goes
+    RUNS.each do |run|
+      error = assert_raises(VBlank::IR::Backends::RunComparison::AsksTheInterpreter) { run.new.frames_each_pass { 2 } }
 
       assert_match(/frames_each_pass/, error.message)
-      assert_match(/skip_on_(gbc|snes)/, error.message)
+      assert_match(/interpreter_tests/, error.message)
     end
   end
 end

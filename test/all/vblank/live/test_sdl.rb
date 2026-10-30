@@ -6,7 +6,7 @@ require "vblank/live"
 
 # The window a game is played live in: SDL3, reached through Fiddle. These open it with SDL's
 # dummy video driver, which makes windows nobody sees, so they need no screen. A machine without
-# SDL3 skips the ones that open a window, saying what to install.
+# SDL3 fails the ones that open a window, saying what to install: the suite needs it as it needs zig.
 class TestSDL < Minitest::Test
   # SDL's driver is chosen from the process's settings, and Fiddle calls into C from the main
   # Ractor only.
@@ -387,7 +387,7 @@ class TestSDL < Minitest::Test
 
   # A window one picture big, or the size a settings file says when it is given one.
   def open_window(menu: true, settings_file: nil)
-    skip "SDL3 is not installed: #{SDL::INSTALL_LINE}" unless SDL.available?
+    flunk "SDL3 is not installed: #{SDL::INSTALL_LINE}" unless SDL.available?
 
     SDL.new(title: "TEST", scale: (1 unless settings_file), menu: menu, settings_file: settings_file)
   end

@@ -3,6 +3,49 @@
 require "test_helper"
 require VBlank.root.join("tools/make_example_assets").to_s # colors of the imported tile sheet
 
+# The tiles and rooms these tests build, kept once for this file and for the tests of the same
+# maps on the Advance's cartridge (test/lowering/gba/vblank/builder/test_computed_tilemap_cartridge.rb).
+module ComputedTilemapGames
+  # A 4x4 solid tile of one colour, so the grid arithmetic reads easily: cell (c, r)
+  # covers x 4c..4c+3, y 4r..4r+3.
+  private def solid_tile(builder, name, color)
+    builder.image(name, "#" => color) { "####\n####\n####\n####" }
+  end
+
+  # A tileset keyed by NUMBERS rather than characters — what a decoder hands over,
+  # since the tile it read is a number and was never a character at all.
+  private def numbered_tileset(builder)
+    solid_tile(builder, :tile_red, :red)
+    solid_tile(builder, :tile_blue, :blue)
+    builder.instance_eval { tiles :room, 0 => :tile_red, 1 => :tile_blue }
+  end
+
+  # A room worked out by the build, with one solid wall tile in the hero's way, and the hero
+  # walking right into it while RIGHT is held.
+  private def walled_room
+    b = VBlank::Builder.new
+    solid8 = (["########"] * 8).join("\n")
+    b.instance_eval do
+      screen :tiled
+      image(:t_wall,  "#" => :blue) { solid8 }
+      image(:t_floor, "#" => rgb(8, 8, 8)) { solid8 }
+      image(:t_hero,  "#" => :red) { solid8 }
+      tiles :dungeon, 0 => :t_floor, 1 => :t_wall, solid: [1]
+      # A 10x5-tile room with one wall at cell (4, 2) — px (32, 16). Worked out, not typed.
+      room = background :room, tiles: :dungeon,
+                               map: Array.new(5) { |r| (0...10).map { |c| r == 2 && c == 4 ? 1 : 0 } }
+      hero = sprite :t_hero, at: [16, 16]
+      hero.blocked_by room
+      game_loop do
+        wait_vblank
+        held(:right).then { hero.move :right, by: 2 }
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+end
+
 # A map the BUILD computes rather than a person types. There are three ways a game
 # gets a level — somebody types it as characters, an editor exports it as a CSV of
 # numbers, or the build works it out — and only the first two had a spelling. A
@@ -14,16 +57,15 @@ require VBlank.root.join("tools/make_example_assets").to_s # colors of the impor
 # tileset is keyed by — which need not be one character. That is the same verb, the
 # same argument and the same tileset; only the two rules change. `nil` is the blank
 # cell in an Array row, which is what a space is in a String row.
+#
+# The same maps on the Advance's cartridge are in
+# test/lowering/gba/vblank/builder/test_computed_tilemap_cartridge.rb.
 class TestComputedTilemap < Minitest::Test
+  include ComputedTilemapGames
+
   Assets = MakeExampleAssets
 
   SHEET = VBlank.root.join("examples/assets/tiles.png").to_s # brick = tile 1, floor = tile 2
-
-  # A 4x4 solid tile of one colour, so the grid arithmetic reads easily: cell (c, r)
-  # covers x 4c..4c+3, y 4r..4r+3.
-  private def solid_tile(builder, name, color)
-    builder.image(name, "#" => color) { "####\n####\n####\n####" }
-  end
 
   # A tileset of +count+ tiles keyed 0, 1, 2… — bigger than any alphabet, which is the
   # whole point of it. Each tile is its own shade so no two can be confused on screen.
@@ -31,14 +73,6 @@ class TestComputedTilemap < Minitest::Test
     count.times { |n| solid_tile(builder, :"tile_#{n}", VBlank::Graphics::Color.rgb(n % 32, 0, 0)) }
     keyed = (0...count).to_h { |n| [n, :"tile_#{n}"] }
     builder.tiles(:many, keyed)
-  end
-
-  # A tileset keyed by NUMBERS rather than characters — what a decoder hands over,
-  # since the tile it read is a number and was never a character at all.
-  private def numbered_tileset(builder)
-    solid_tile(builder, :tile_red, :red)
-    solid_tile(builder, :tile_blue, :blue)
-    builder.instance_eval { tiles :room, 0 => :tile_red, 1 => :tile_blue }
   end
 
   private def checker_program
@@ -156,41 +190,11 @@ class TestComputedTilemap < Minitest::Test
   # takes the tileset's keys whatever they are, with nothing new to write. Worth
   # asserting rather than assuming: a wall that quietly stops blocking is a game you
   # can walk out of, and nothing on screen says so.
-  private def walled_room
-    b = Builder.new
-    solid8 = (["########"] * 8).join("\n")
-    b.instance_eval do
-      screen :tiled
-      image(:t_wall,  "#" => :blue) { solid8 }
-      image(:t_floor, "#" => rgb(8, 8, 8)) { solid8 }
-      image(:t_hero,  "#" => :red) { solid8 }
-      tiles :dungeon, 0 => :t_floor, 1 => :t_wall, solid: [1]
-      # A 10x5-tile room with one wall at cell (4, 2) — px (32, 16). Worked out, not typed.
-      room = background :room, tiles: :dungeon,
-                               map: Array.new(5) { |r| (0...10).map { |c| r == 2 && c == 4 ? 1 : 0 } }
-      hero = sprite :t_hero, at: [16, 16]
-      hero.blocked_by room
-      game_loop do
-        wait_vblank
-        held(:right).then { hero.move :right, by: 2 }
-      end
-    end
-    b.finalize_program
-    b.program
-  end
-
   def test_a_computed_map_still_stops_a_mover_at_its_solid_tiles
     # 8px to close at 2px a frame, so 20 frames is well past the wall if nothing stops it.
     s = game_player.input_each_frame { [:right] }.run(walled_room, frames: 20).screen
     assert_equal Color.resolve(:red),  s.pixel(28, 20), "the hero rests flush against the wall"
     refute_equal Color.resolve(:red),  s.pixel(36, 20), "the hero never entered the wall cell"
-  end
-
-  def test_a_computed_map_stops_a_mover_on_the_console
-    v = assert_emulator_loads_rom(assemble_rom(walled_room, name: "COMPWALL"), frames: 30,
-                                  keys: VBlank::Console::Hardware::KEY_RIGHT)
-    assert v.red?(28, 20), "the hero stops flush against the wall"
-    refute v.red?(36, 20), "the hero never crossed into the wall"
   end
 
   # --- Friendly errors ---
@@ -226,25 +230,5 @@ class TestComputedTilemap < Minitest::Test
       b.instance_eval { background :ragged, tiles: :room, map: [[0, 1, 0], [1, 0]] }
     end
     assert_match(/same length/, err.message)
-  end
-
-  # --- Hardware: the same computed board renders on the console ---
-
-  def test_a_computed_board_renders_on_the_console
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      clear_screen :black
-    end
-    numbered_tileset(b)
-    b.instance_eval do
-      background :board, tiles: :room, map: [[0, 1], [1, 0]]
-      halt
-    end
-    b.finalize_program
-    rom = assemble_rom(b.program, name: "COMPUTED")
-    v = assert_emulator_loads_rom(rom, frames: 2)
-    assert v.red?(1, 1),  "tile 0 renders in cell (0,0)"
-    assert v.blue?(5, 1), "tile 1 renders in cell (1,0)"
   end
 end

@@ -6,10 +6,10 @@ require "test_helper"
 # their DRAWN pixels actually meet, whatever their shape and whichever animation frame
 # is showing. A cheap box test gates it, and `hitbox:` opts out to a plain rectangle.
 # These assert the observable difference through the DSL surface — the case a plain
-# bounding box gets wrong — on the interpreter oracle and on real hardware.
-class TestPixelPerfectCollision < Minitest::Test
-  include VBlank::Console::Hardware
-
+# bounding box gets wrong. The same case on the Advance's cartridge, read in the emulator, is in
+# test/lowering/gba/vblank/dsl/test_pixel_perfect_collision_cartridge.rb, which draws the shape
+# kept here in PixelPerfectCollisionGames.
+module PixelPerfectCollisionGames
   # An 8x8 shape drawn only in two opposite corners (top-left and bottom-right 2x2
   # blocks); the middle is see-through. Its bounding box is the whole 8x8, but almost
   # none of that box is solid — so two of them can have overlapping BOXES while none of
@@ -24,6 +24,10 @@ class TestPixelPerfectCollision < Minitest::Test
     ......##
     ......##
   ART
+end
+
+class TestPixelPerfectCollision < Minitest::Test
+  include PixelPerfectCollisionGames
 
   # Do two corner-shapes at these spots register a hit? Returns the :hit flag.
   private def collided?(a_at, b_at, hitbox: nil)
@@ -111,32 +115,5 @@ class TestPixelPerfectCollision < Minitest::Test
     end
     assert_equal 1, hit_when.call(:right), "facing wide, the sprite reaches the bar"
     assert_equal 0, hit_when.call(:left),  "facing narrow, the same sprite doesn't"
-  end
-
-  # --- hardware: the console agrees the boxes-overlap-but-pixels-don't case is a miss ---
-
-  private def rom_for(hitbox)
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      clear_screen :black
-      image(:corners, "." => :transparent, "#" => :white) { CORNERS }
-      a  = sprite :corners, at: [100, 20], hitbox: hitbox
-      bb = sprite :corners, at: [103, 23], hitbox: hitbox
-      game_loop do
-        wait_vblank
-        a.overlaps?(bb).then { fill_rect 4, 100, 4, 4, :red } # a hit marker away from the shapes
-        halt
-      end
-    end
-    b.finalize_program
-    ROM.assemble(GBA.new.lower(b.program), title: "PIXPERF", code: "BPPC", maker: "01")
-  end
-
-  def test_the_console_sees_no_hit_by_default_but_a_hit_with_a_box
-    miss = assert_emulator_loads_rom(rom_for(nil), frames: 3)
-    refute miss.red?(5, 101), "per-pixel: the drawn pixels don't meet, so no marker"
-    hit = assert_emulator_loads_rom(rom_for(:full), frames: 3)
-    assert hit.red?(5, 101), "hitbox: :full: the boxes overlap, so the marker shows"
   end
 end

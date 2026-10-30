@@ -4,16 +4,10 @@ require "test_helper"
 
 require VBlank.root.join("examples/bird").to_s
 
-# The Bird example (examples/bird.rb): a sprite imported straight from a native .aseprite
-# file — the whole animated bird, composited from its seven layers, with no export step.
-# Proves it builds a clean ROM and the bird actually renders over the sky, on the
-# interpreter oracle and on the console.
-class TestBirdExample < Minitest::Test
+# How to tell the bird is on screen, kept once for this file and for the test of the bird on
+# the Advance's cartridge (test/lowering/gba/examples/test_bird_example_cartridge.rb).
+module BirdExamplePictures
   SKY = VBlank::Graphics::Color.rgb(12, 18, 28) # the background tile color
-
-  def test_it_builds_a_rom
-    assert_operator Bird.build_rom(out: StringIO.new, err: StringIO.new).size, :>, 0
-  end
 
   # The bird sits at (88, 48) sized 64x64. Somewhere in that box a non-sky pixel is the
   # bird drawn over the sky. +sample+ reads a pixel; nil / 0 / the sky color are "not bird".
@@ -25,18 +19,22 @@ class TestBirdExample < Minitest::Test
       end
     end
   end
+end
+
+# The Bird example (examples/bird.rb): a sprite imported straight from a native .aseprite
+# file — the whole animated bird, composited from its seven layers, with no export step.
+# Proves it builds a clean ROM and the bird actually renders over the sky. The bird on the
+# Advance's cartridge is in test/lowering/gba/examples/test_bird_example_cartridge.rb.
+class TestBirdExample < Minitest::Test
+  include BirdExamplePictures
+
+  def test_it_builds_a_rom
+    assert_operator Bird.build_rom(out: StringIO.new, err: StringIO.new).size, :>, 0
+  end
 
   def test_the_bird_renders_on_the_interpreter
     interp = game_player.run(Bird.program, frames: 3)
     assert bird_over_sky?(->(x, y) { interp.screen.pixel(x, y) }), "the bird should be drawn over the sky"
-  end
-
-  def test_the_bird_renders_on_the_console
-    # The bird's tiles are stored packed in the ROM and expanded into video memory by
-    # the BIOS at boot. That one-time expansion costs the first frame, so the sprite
-    # first appears a frame later than an uncompressed one would — give it headroom.
-    v = assert_emulator_loads_rom(Bird.build_rom(out: StringIO.new, err: StringIO.new), frames: 6)
-    assert bird_over_sky?(->(x, y) { v.pixel_gba(x, y) }), "the bird should composite over the sky on hardware"
   end
 
   # The bird drifts nearer and further on its own, which is `pulse` running the sprite's

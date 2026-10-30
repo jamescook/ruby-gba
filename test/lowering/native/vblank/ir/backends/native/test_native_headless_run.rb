@@ -293,17 +293,20 @@ class TestNativeHeadlessRun < Minitest::Test
 
   # A step budget is something only the interpreter keeps: the C runs as fast as it runs.
   def test_a_step_budget_is_refused_by_name
-    error = assert_raises(HeadlessRun::CannotAnswer) { HeadlessRun.new.run(program_of { halt }, max_steps: 100) }
+    error = assert_raises(VBlank::IR::Backends::RunComparison::AsksTheInterpreter) do
+      HeadlessRun.new.run(program_of { halt }, max_steps: 100)
+    end
 
     assert_match(/max_steps/, error.message)
   end
 
-  # A test asking something only the interpreter can answer so far is told so by name, rather
-  # than meeting a NoMethodError that reads like a typo in the test.
-  def test_a_question_only_the_interpreter_can_answer_yet_says_so
-    error = assert_raises(HeadlessRun::CannotAnswer) { HeadlessRun.new.frames_each_pass { 2 } }
+  # A test asking something only the interpreter will ever answer is told so by name, and where
+  # such a test goes, rather than meeting a NoMethodError that reads like a typo in the test.
+  def test_a_question_only_the_interpreter_can_answer_says_so
+    error = assert_raises(VBlank::IR::Backends::RunComparison::AsksTheInterpreter) { HeadlessRun.new.frames_each_pass { 2 } }
 
     assert_match(/frames_each_pass/, error.message)
+    assert_match(/interpreter_tests/, error.message)
   end
 
   # Every question a test can ask the interpreter is one the headless run has a method for, an

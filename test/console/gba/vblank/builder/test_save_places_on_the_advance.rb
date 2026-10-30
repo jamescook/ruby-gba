@@ -2,16 +2,12 @@
 
 require "test_helper"
 
-# THE TESTS OF vblank/builder/test_save_places.rb THAT ONLY THE GAME BOY ADVANCE CAN PLAY, kept apart so that the
-# Game Boy Color's run never loads them (test/console/gba); the rest are in that file.
-#
-# WHERE EACH `save_data` RECORD GOES AT POWER-ON, asked one rule at a time.
-#
-# Each test starts a game from a table of places it wrote itself — the save memory an
-# earlier build of the game would have left — powers it on, and reads back where every
-# record ended up. The rules are the ones the console runs (see Builder::SavePlaces), run
-# here on the interpreter; nothing else says them, so nothing here can drift from them.
-class TestSavePlacesOnTheAdvance < Minitest::Test
+# The games these tests power on and how they read back where each record went, kept once for
+# the console's table read back on the Advance's cartridge
+# (test/lowering/gba/vblank/builder/test_save_places_on_the_advance_cartridge.rb).
+module SavePlacesGames
+  include SharedConstants
+
   Layout = VBlank::IR::SaveLayout
   Table = Layout::Table
   START = Layout::PACKED.data_start
@@ -59,6 +55,19 @@ class TestSavePlacesOnTheAdvance < Minitest::Test
     by_key = names.to_h { |name| [Layout.record_key(name), name] }
     store.table.to_h { |one| [by_key.fetch(one.key), [one.at, one.copies]] }
   end
+end
+
+# THE TESTS OF vblank/builder/test_save_places.rb THAT ONLY THE GAME BOY ADVANCE CAN PLAY, kept apart so that the
+# Game Boy Color's run never loads them (test/console/gba); the rest are in that file.
+#
+# WHERE EACH `save_data` RECORD GOES AT POWER-ON, asked one rule at a time.
+#
+# Each test starts a game from a table of places it wrote itself — the save memory an
+# earlier build of the game would have left — powers it on, and reads back where every
+# record ended up. The rules are the ones the console runs (see Builder::SavePlaces), run
+# here on the interpreter; nothing else says them, so nothing here can drift from them.
+class TestSavePlacesOnTheAdvance < Minitest::Test
+  include SavePlacesGames
 
   # --- room nothing holds ---
 
@@ -77,21 +86,9 @@ class TestSavePlacesOnTheAdvance < Minitest::Test
     assert_equal({ left: [START, 1], right: [START + (2 * SMALL), 1], big: [START + (4 * SMALL), 1] }, where)
   end
 
-  # The console runs the same rules on the same save memory and ends with the same table.
-  def test_the_console_slides_records_together_the_way_the_interpreter_does
-    third = ((ROOM / 3) / 4) * 4
-    records = { left: {}, right: {}, big: { bytes: (third * 3 / 4) & ~3 } }
-    rows = [row(:left, START + third), row(:right, START + (2 * third))]
-    oracle = placed(records, rows)
-    rom = assemble_rom(game(records), name: "SLIDE")
-    v = assert_emulator_loads_rom(rom, frames: 12, save: SaveImage.new.write_table(rows))
-    table = (0...(Layout::PACKED.data_start - Layout::PACKED.table_at)).to_h do |i| # both halves of the table
-      [Layout::PACKED.table_at + i, v.mem8(VBlank::Console::Hardware::SRAM_START + Layout::PACKED.table_at + i)]
-    end
-    by_key = records.keys.to_h { |name| [Layout.record_key(name), name] }
+  # The console running the same rules on the same save memory and ending with the same table,
+  # read in the emulator, is in test/lowering/gba/vblank/builder/test_save_places_on_the_advance_cartridge.rb.
 
-    assert_equal oracle, SaveImage.new(bytes: table).table.to_h { |one| [by_key.fetch(one.key), [one.at, one.copies]] }
-  end
   # --- flash, which is wiped 4K at a time ---
   #
   # Where records go on flash is the same program on both backends, so the interpreter runs
@@ -193,8 +190,6 @@ class TestSavePlacesOnTheAdvance < Minitest::Test
       end
     end
   end
-
-
   def test_the_records_above_are_lifted_when_one_grows_and_nothing_else_fits
     grower = { bytes: ((ROOM / 5) / 4) * 4, copies: 2 }
     size = half(grower) * 2 # one copy

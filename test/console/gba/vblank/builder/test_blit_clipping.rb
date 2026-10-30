@@ -2,27 +2,18 @@
 
 require "test_helper"
 
-# Edge clipping for blit: a bitmap pushed partway off a screen edge must draw
-# only its on-screen part — no pixels past the framebuffer, and (on the console)
-# no per-row DMA overrun that wraps garbage onto the neighbouring line.
-#
-# The reference interpreter is the oracle: it already clips per pixel (set_pixel
-# drops off-screen writes). Every case runs on BOTH backends and asserts the
-# SAME visible pixels, so the console's clipped output has to match the oracle
-# exactly. The programs are built straight from IR::Build (no DSL sugar) so the
-# clip math is what's under test, not the surface.
-#
-# It plays on the Advance's runs alone: its bitmap is four colours side by side over a
-# fifth, more than an 8×8 square of a Game Boy Color screen holds, and the edges it
-# clips at are the Advance's 240×160.
-class TestBlitClipping < Minitest::Test
+# The blits these tests clip and the pixels each must leave, shared with the Advance's
+# cartridge's tests (test/lowering/gba/vblank/builder/test_blit_clipping_cartridge.rb). A case is
+# [bitmap, blit, expectations]: the bitmap declared, the blit of it, and the [x, y, colour]
+# each pixel must be. A nil colour means "background here" — i.e. clipped, nothing drawn.
+module BlitClippingCases
   include VBlank::IR::Build
 
   BG = :yellow # a background distinct from the bitmap's four colours
 
   # Four distinct colours, so a wrong source offset or transfer count shows up as
   # the wrong colour landing (not merely "something drawn").
-  FOUR = [:red, :green, :blue, :white].map { |c| Color.resolve(c) }.freeze
+  FOUR = [:red, :green, :blue, :white].map { |c| VBlank::Graphics::Color.resolve(c) }.freeze
 
   # A 4-wide, 1-tall opaque strip: red, green, blue, white left-to-right.
   private def strip_h(name)
@@ -41,101 +32,109 @@ class TestBlitClipping < Minitest::Test
     bitmap(name, width: 4, height: 4, pixels: rows.pack("v*"))
   end
 
-  # Run +stmts+ (a blit sandwiched between screen/clear/halt) on both backends
-  # and assert each [x, y, colour] expectation holds on each. A nil colour means
-  # "background here" — i.e. clipped, nothing drawn.
-  private def assert_same_pixels(defn, blit_stmt, expectations)
-    prog = program(screen(:bitmap), clear_screen(BG), defn, blit_stmt, halt)
-
-    screen = game_player.run(prog).screen
-    expectations.each do |x, y, color|
-      want = Color.resolve(color || BG)
-      assert_equal want, screen.pixel(x, y),
-                   "interpreter: (#{x}, #{y}) should be #{color || 'background'}"
-    end
-
-    rom = VBlank::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "CLIPTEST", code: "BCLP", maker: "01")
-    v = assert_emulator_loads_rom(rom)
-    expectations.each do |x, y, color|
-      assert v.pixel_is?(x, y, color || BG),
-             "console: (#{x}, #{y}) should be #{color || 'background'}, got 0x#{format('%04X', v.pixel_gba(x, y))}"
-    end
+  # The program a case is played as: its blit sandwiched between screen/clear/halt.
+  private def clip_program(defn, blit_stmt)
+    program(screen(:bitmap), clear_screen(BG), defn, blit_stmt, halt)
   end
 
   # --- horizontal clip: adjusts DMA source, destination, and count ------------
 
-  def test_clips_off_the_left_edge
-    # The strip's left two columns (red, green) hang off; blue/white show at x=0,1.
-    # A per-row DMA that ignored the clip would start two pixels early and wrap
-    # red/green onto the end of the previous row — so those must be background.
-    assert_same_pixels(
-      strip_h(:sh), blit(:sh, -2, 40),
-      [[0, 40, :blue], [1, 40, :white], [2, 40, nil],
-       [238, 39, nil], [239, 39, nil]], # no wrap onto the previous row
-    )
+  # The strip's left two columns (red, green) hang off; blue/white show at x=0,1.
+  # A per-row DMA that ignored the clip would start two pixels early and wrap
+  # red/green onto the end of the previous row — so those must be background.
+  private def left_edge_case
+    [strip_h(:sh), blit(:sh, -2, 40),
+     [[0, 40, :blue], [1, 40, :white], [2, 40, nil],
+      [238, 39, nil], [239, 39, nil]]] # no wrap onto the previous row
   end
 
-  def test_clips_off_the_right_edge
-    # x = 238: red/green show at 238/239; blue/white would land at 240/241 (off).
-    assert_same_pixels(
-      strip_h(:sh), blit(:sh, 238, 40),
-      [[238, 40, :red], [239, 40, :green],
-       [0, 41, nil], [1, 41, nil]], # count trimmed to 2 — no spill onto the next row
-    )
+  # x = 238: red/green show at 238/239; blue/white would land at 240/241 (off).
+  private def right_edge_case
+    [strip_h(:sh), blit(:sh, 238, 40),
+     [[238, 40, :red], [239, 40, :green],
+      [0, 41, nil], [1, 41, nil]]] # count trimmed to 2 — no spill onto the next row
   end
 
   # --- vertical clip: whole off-screen rows are skipped -----------------------
 
-  def test_clips_off_the_top_edge
-    # y = -2: rows red/green are above the screen; blue/white show at y=0,1.
-    assert_same_pixels(
-      strip_v(:sv), blit(:sv, 60, -2),
-      [[60, 0, :blue], [60, 1, :white], [60, 2, nil]],
-    )
+  # y = -2: rows red/green are above the screen; blue/white show at y=0,1.
+  private def top_edge_case
+    [strip_v(:sv), blit(:sv, 60, -2),
+     [[60, 0, :blue], [60, 1, :white], [60, 2, nil]]]
   end
 
-  def test_clips_off_the_bottom_edge
-    # y = 158: rows red/green show at 158/159; blue/white are below the screen.
-    assert_same_pixels(
-      strip_v(:sv), blit(:sv, 60, 158),
-      [[60, 158, :red], [60, 159, :green]],
-    )
+  # y = 158: rows red/green show at 158/159; blue/white are below the screen.
+  private def bottom_edge_case
+    [strip_v(:sv), blit(:sv, 60, 158),
+     [[60, 158, :red], [60, 159, :green]]]
   end
 
   # --- corner + negative coordinates: both clips compose ----------------------
 
-  def test_clips_off_the_top_left_corner
-    # (-2, -2): only the block's bottom-right 2x2 is on-screen — rows blue/white.
-    assert_same_pixels(
-      block(:bq), blit(:bq, -2, -2),
-      [[0, 0, :blue], [1, 0, :blue], [0, 1, :white], [1, 1, :white],
-       [2, 0, nil], [0, 2, nil]],
-    )
+  # (-2, -2): only the block's bottom-right 2x2 is on-screen — rows blue/white.
+  private def top_left_corner_case
+    [block(:bq), blit(:bq, -2, -2),
+     [[0, 0, :blue], [1, 0, :blue], [0, 1, :white], [1, 1, :white],
+      [2, 0, nil], [0, 2, nil]]]
   end
 
-  def test_a_fully_off_screen_blit_draws_nothing
-    # Entirely above the screen: nothing drawn, nothing corrupted.
-    assert_same_pixels(
-      strip_h(:sh), blit(:sh, 40, -8),
-      [[40, 0, nil], [41, 0, nil], [42, 0, nil]],
-    )
+  # Entirely above the screen: nothing drawn, nothing corrupted.
+  private def fully_off_screen_case
+    [strip_h(:sh), blit(:sh, 40, -8),
+     [[40, 0, nil], [41, 0, nil], [42, 0, nil]]]
   end
 
   # --- transparency clips per pixel too ---------------------------------------
 
-  def test_transparent_blit_clips_off_the_left_edge
-    # A transparent bitmap is drawn pixel-by-pixel; the clip must drop the pixels
-    # that fall off-screen while still letting the background show through the
-    # transparent ones that remain.
+  # A transparent bitmap is drawn pixel-by-pixel; the clip must drop the pixels
+  # that fall off-screen while still letting the background show through the
+  # transparent ones that remain.
+  private def transparent_left_edge_case
     clear = 0x8000 # the transparent marker (bit 15, no real colour uses it)
-    pixels = [Color.resolve(:red), Color.resolve(:green), Color.resolve(:blue), clear]
+    color = VBlank::Graphics::Color
+    pixels = [color.resolve(:red), color.resolve(:green), color.resolve(:blue), clear]
     defn = bitmap(:tdot, width: 4, height: 1, pixels: pixels.pack("v*"), transparent: clear)
     # x = -1: red (col0) is a lit pixel pushed off the left edge — it must be
     # clipped, not wrapped onto the end of the previous row. green (col1) lands at
     # x=0, blue (col2) at x=1, and the transparent col3 shows background at x=2.
-    assert_same_pixels(
-      defn, blit(:tdot, -1, 70),
-      [[0, 70, :green], [1, 70, :blue], [2, 70, nil], [239, 69, nil]],
-    )
+    [defn, blit(:tdot, -1, 70),
+     [[0, 70, :green], [1, 70, :blue], [2, 70, nil], [239, 69, nil]]]
   end
+end
+
+# Edge clipping for blit: a bitmap pushed partway off a screen edge must draw
+# only its on-screen part — no pixels past the framebuffer, and (on the console)
+# no per-row DMA overrun that wraps garbage onto the neighbouring line.
+#
+# The reference interpreter is the oracle: it already clips per pixel (set_pixel
+# drops off-screen writes). Every case here is played on the run's own player, and the
+# same cases on the Advance's cartridge in
+# test/lowering/gba/vblank/builder/test_blit_clipping_cartridge.rb, asserting the SAME
+# visible pixels, so the console's clipped output has to match the oracle exactly. The
+# programs are built straight from IR::Build (no DSL sugar) so the clip math is what's
+# under test, not the surface. The cases themselves are in BlitClippingCases, above.
+#
+# It plays on the Advance's runs alone: its bitmap is four colours side by side over a
+# fifth, more than an 8×8 square of a Game Boy Color screen holds, and the edges it
+# clips at are the Advance's 240×160.
+class TestBlitClipping < Minitest::Test
+  include BlitClippingCases
+
+  # Play a case and assert each [x, y, colour] expectation holds.
+  private def assert_clipped(defn, blit_stmt, expectations)
+    screen = game_player.run(clip_program(defn, blit_stmt)).screen
+    expectations.each do |x, y, color|
+      want = Color.resolve(color || BG)
+      assert_equal want, screen.pixel(x, y),
+                   "the game: (#{x}, #{y}) should be #{color || 'background'}"
+    end
+  end
+
+  def test_clips_off_the_left_edge = assert_clipped(*left_edge_case)
+  def test_clips_off_the_right_edge = assert_clipped(*right_edge_case)
+  def test_clips_off_the_top_edge = assert_clipped(*top_edge_case)
+  def test_clips_off_the_bottom_edge = assert_clipped(*bottom_edge_case)
+  def test_clips_off_the_top_left_corner = assert_clipped(*top_left_corner_case)
+  def test_a_fully_off_screen_blit_draws_nothing = assert_clipped(*fully_off_screen_case)
+  def test_transparent_blit_clips_off_the_left_edge = assert_clipped(*transparent_left_edge_case)
 end

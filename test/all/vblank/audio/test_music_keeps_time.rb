@@ -2,16 +2,15 @@
 
 require "test_helper"
 
-# A TUNE KEEPS ITS OWN TIME, whatever the game does, and so does a recording the game plays —
-# the same promise the mixer makes
-# (test_mixer_keeps_time.rb), for the same reason. A tempo is a fact about the clock on the
-# wall, not about how long the game took to think, so a game too heavy for a frame still plays
-# its music at the speed it was written.
-#
-# Which is why `play_song` names the tune that is playing rather than stepping it along: a tune
-# stepped once per pass of the game loop plays at half speed in a game that takes two frames a
-# pass, and at no speed at all in a frame whose branch skipped the call.
-class TestMusicKeepsTime < Minitest::Test
+# The scale game and how to read which notes a run heard, shared with the interpreter's tests of
+# a late pass (test/interpreter/vblank/audio/test_music_keeps_time_interpreter.rb).
+module MusicKeepsTimeGames
+  include SharedConstants
+
+  C4 = VBlank::Audio::Music::NOTE_FREQUENCIES[:C4]
+  E4 = VBlank::Audio::Music::NOTE_FREQUENCIES[:E4]
+  G4 = VBlank::Audio::Music::NOTE_FREQUENCIES[:G4]
+
   private def notes(interpreter)
     interpreter.audio.select { |entry| entry[0] == :note }.map(&:last)
   end
@@ -39,24 +38,24 @@ class TestMusicKeepsTime < Minitest::Test
     b.finalize_program
     b.program
   end
+end
 
-  C4 = VBlank::Audio::Music::NOTE_FREQUENCIES[:C4]
-  E4 = VBlank::Audio::Music::NOTE_FREQUENCIES[:E4]
-  G4 = VBlank::Audio::Music::NOTE_FREQUENCIES[:G4]
-
-  # --- the interpreter, told that a pass ran late ---
-
-  def test_a_late_game_hears_the_same_notes_in_the_same_time
-    skip_on_native "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
-    skip_on_js "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
-    skip_on_ruby "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
-    on_time = game_player.run(scale_game, frames: 30)
-    late = game_player.frames_each_pass { 2 }.run(scale_game, frames: 15)
-
-    assert_equal [C4, E4, G4], notes(on_time), "thirty frames of the tune reach its third note"
-    assert_equal notes(on_time), notes(late),
-                 "fifteen passes of two frames each are thirty frames too, so the tune is as far along"
-  end
+# A TUNE KEEPS ITS OWN TIME, whatever the game does, and so does a recording the game plays —
+# the same promise the mixer makes
+# (test_mixer_keeps_time.rb), for the same reason. A tempo is a fact about the clock on the
+# wall, not about how long the game took to think, so a game too heavy for a frame still plays
+# its music at the speed it was written.
+#
+# Which is why `play_song` names the tune that is playing rather than stepping it along: a tune
+# stepped once per pass of the game loop plays at half speed in a game that takes two frames a
+# pass, and at no speed at all in a frame whose branch skipped the call.
+#
+# A pass told to take several frames is something only the interpreter can be told, so those
+# tests are in test/interpreter/vblank/audio/test_music_keeps_time_interpreter.rb; the Advance's
+# cartridge, genuinely late and heard in the emulator, is in
+# test/lowering/gba/vblank/audio/test_music_keeps_time_cartridge.rb.
+class TestMusicKeepsTime < Minitest::Test
+  include MusicKeepsTimeGames
 
   def test_a_tune_named_only_on_some_frames_keeps_its_tempo
     every_frame = game_player.run(scale_game, frames: 30)
@@ -71,44 +70,6 @@ class TestMusicKeepsTime < Minitest::Test
     twice = game_player.run(scale_game { play_song :scale; play_song :scale }, frames: 30)
 
     assert_equal notes(once), notes(twice)
-  end
-
-  # --- a recording keeps time too ---
-
-  # A recording of thirty frames, played once at the start. The console mixes it a frame at a
-  # time from the screen's own interrupt, so it ends thirty frames in however long a pass takes
-  # (test_mixer_keeps_time.rb holds the console to that).
-  private def clip_game
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      clip = sample :tone, pcm: Array.new(30 * 100) { |i| i.even? ? 90 : -90 }, rate: 6000 # a hundred samples a frame
-      started = var :started, 0
-      game_loop do
-        (started == 0).then do
-          started.set! 1
-          clip.play
-        end
-      end
-    end
-    b.finalize_program
-    b.program
-  end
-
-  # The recording starts on the first pass, after the first frame, so a run of N passes has
-  # played it for N - 1 of them: on time that is N - 1 frames, and at two frames a pass it is
-  # twice that.
-  def test_a_late_game_hears_a_recording_end_after_the_same_number_of_frames
-    skip_on_native "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
-    skip_on_js "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
-    skip_on_ruby "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
-    program = clip_game
-    sounding = ->(passes, each_pass) { game_player.frames_each_pass { each_pass }.run(program, frames: passes).active_samples }
-
-    assert_equal [:tone], sounding.call(30, 1), "29 frames in, the recording is still playing"
-    assert_empty sounding.call(31, 1), "and 30 frames in it has ended"
-    assert_equal [:tone], sounding.call(15, 2), "fourteen passes of two frames are 28 frames, still playing"
-    assert_empty sounding.call(16, 2), "and fifteen are 30, so it has ended on the same frame"
   end
 
   # --- switching tunes, which is what a jukebox or a scene change does ---
@@ -188,126 +149,5 @@ class TestMusicKeepsTime < Minitest::Test
     i = game_player.run(b.program, frames: 10)
 
     assert_empty i.audio.select { |e| e[0] == :stop_music }
-  end
-
-  # --- the console, genuinely late ---
-
-  # A note held for six frames, then six frames of silence, round and round — so how many
-  # times the sound starts in a run is how fast the tune is going.
-  FRAMES = 72
-  BEATS = FRAMES / 12
-
-  # HOW MUCH WORK MAKES A PASS LATE on this emulator, measured, and each picked from the middle
-  # of the range that gives it — about twenty-five thousand steps is a frame of this game. The
-  # test asserts what it got, so a change in the machine shows up as a failed assumption rather
-  # than a test quietly measuring nothing.
-  BURNS = { 1 => 0, 2 => 35_000, 3 => 60_000 }.freeze
-
-  private def beat_game(burn)
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      enable_sound
-      song :beat do
-        tempo 600 # a quarter is six frames
-        note :C5, :quarter
-        rest :quarter
-      end
-      spin = var :spin, 0
-      passes = var :passes, 0
-      game_loop do
-        passes.add! 1
-        play_song :beat
-        repeat(burn) { spin.add! 1 }
-      end
-    end
-    b.finalize_program
-    b.program
-  end
-
-  # How many frames a pass took on the console, and how many times the sound started.
-  private def beats_heard(burn)
-    backend = GBA.new
-    program = beat_game(burn)
-    rom = ROM.assemble(backend.lower(program), title: "MUSTIME", code: "ZMST", maker: "01")
-    console = assert_emulator_loads_rom(rom, frames: FRAMES, vars: backend.var_addresses)
-    energy = console.audio_energy_by_frame
-    loud = energy.map { |e| e > energy.max / 4 }
-    onsets = loud.each_index.count { |n| loud[n] && (n.zero? || !loud[n - 1]) }
-    { per_pass: FRAMES / console.var(:passes).to_f, beats: onsets }
-  end
-
-  def test_a_late_game_plays_its_tune_at_the_tempo_it_was_written
-    on_time = beats_heard(BURNS.fetch(1))
-
-    assert_in_delta 1.0, on_time[:per_pass], 0.1, "the control game should keep up"
-    assert_in_delta BEATS, on_time[:beats], 1, "a beat every twelve frames, over #{FRAMES} frames"
-
-    BURNS.each do |frames_a_pass, burn|
-      late = beats_heard(burn)
-
-      assert_in_delta frames_a_pass, late[:per_pass], 0.2,
-                      "burn #{burn} was meant to give #{frames_a_pass} frames a pass"
-      assert_in_delta on_time[:beats], late[:beats], 1,
-                      "at #{frames_a_pass} frames a pass the tune beat #{late[:beats]} times " \
-                      "instead of #{on_time[:beats]} — it is being stepped by the game loop"
-    end
-  end
-
-  # A held note, named for the first twenty passes and then stopped: the console sounds it, then
-  # goes quiet and stays quiet.
-  def test_stopping_the_music_silences_the_console
-    backend = GBA.new
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      enable_sound
-      song :drone do
-        note :C5, :whole
-        note :C5, :whole
-      end
-      passes = var :passes, 0
-      game_loop do
-        passes.add! 1
-        (passes < 20).then { play_song :drone }.else { stop_music }
-      end
-    end
-    b.finalize_program
-    rom = ROM.assemble(backend.lower(b.program), title: "MUSSTOP", code: "ZMSS", maker: "01")
-    energy = assert_emulator_loads_rom(rom, frames: 40).audio_energy_by_frame
-    loud = energy.max / 4
-
-    assert_operator energy[5..15].min, :>, loud, "the note sounds while it is named (#{energy.inspect})"
-    assert_operator energy[30..].max, :<, loud, "and is gone once the music stops (#{energy.inspect})"
-  end
-
-  # The sound-effect voice is also the second music voice, so silencing music used to reach it
-  # too — and a game writing `stop_music` every frame (the music setting turned off) cut every
-  # beep after a single frame. Saying it while nothing plays now touches nothing.
-  def test_a_beep_rings_out_while_the_game_keeps_saying_no_music
-    backend = GBA.new
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      enable_sound
-      song :beat do
-        note :C5, :quarter
-      end
-      started = var :started, 0
-      game_loop do
-        stop_music
-        (started == 0).then do
-          started.set! 1
-          beep 440, decay: :slow
-        end
-      end
-    end
-    b.finalize_program
-    rom = ROM.assemble(backend.lower(b.program), title: "MUSBEEP", code: "ZMSB", maker: "01")
-    console = assert_emulator_loads_rom(rom, frames: 20)
-    energy = console.audio_energy_by_frame
-    sounding = energy.count { |e| e > energy.max / 4 }
-
-    assert_operator sounding, :>=, 5, "a slow-fading beep should ring for a good while (#{energy.inspect})"
   end
 end

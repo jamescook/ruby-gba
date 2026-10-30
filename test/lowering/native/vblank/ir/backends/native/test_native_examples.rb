@@ -11,9 +11,10 @@ require "open3"
 class TestNativeExamples < Minitest::Test
   ROOT = VBlank.root.to_s
   TOOL = File.join(ROOT, "tools", "native_examples.rb")
-  RECORDED_RUNS = File.join(ROOT, "test", "vblank", "ir", "backends", "native", "examples")
-  # The tests of the examples: those for both consoles, and those for the Advance alone.
-  EXAMPLE_TESTS = [File.join(ROOT, "test", "examples"), File.join(ROOT, "test", "advance", "examples")].freeze
+  RECORDED_RUNS = File.join(ROOT, TestSuites::NATIVE_DIR, "examples")
+  # The tests of the examples: those every run plays, and those for some consoles alone.
+  EXAMPLE_TESTS = [File.join(ROOT, TestSuites::ALL_DIR, "examples"),
+                   *Dir.glob(File.join(ROOT, "test", "console", "*", "examples"))].freeze
 
   # The names of the examples that build, as the tool prints them: "name<tab>builds".
   private def examples_that_build

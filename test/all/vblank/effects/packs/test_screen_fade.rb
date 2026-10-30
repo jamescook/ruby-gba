@@ -11,8 +11,12 @@ require "fade_watch"
 # different colour as the frames pass, and showing its own colour again once the fade
 # lifts. The picture underneath never changes, which is exactly what makes a fade cheap
 # and also what makes a fade left un-lifted so hard to spot by eye.
-class TestScreenFade < Minitest::Test
-  include FadeWatch
+#
+# The same fades on the Advance's cartridge, read off its screen in the emulator, are in
+# test/lowering/gba/vblank/effects/packs/test_screen_fade_cartridge.rb, which plays the games
+# kept here in ScreenFadeGames.
+module ScreenFadeGames
+  include SharedConstants # Builder, which the games below name from inside the module
 
   WHITE = VBlank::Graphics::Color.resolve(:white)
   RED = VBlank::Graphics::Color.resolve(:red)
@@ -26,6 +30,61 @@ class TestScreenFade < Minitest::Test
     b.finalize_program
     b.program
   end
+
+  # A slow fade out and back sets a slow speed. A bare flash after it is still a hit, so it
+  # has to last as long as a flash says it does, not as long as the fade before it took.
+  private def after_a_slow_fade(&effect)
+    program do
+      screen :bitmap
+      frame = var :frame, 0
+      game_loop do
+        clear_screen :red
+        frame.add! 1
+        (frame == 2).then { fade_out :black, frames: 40 }
+        (frame == 50).then { fade_in frames: 40 }
+        (frame == 100).then { instance_exec(&effect) }
+      end
+    end
+  end
+
+  # AN EFFECT SET BEFORE THE GAME LOOP IS IN FORCE ON THE FIRST FRAME SHOWN. A game that opens
+  # on a flash and lets it fall away must never show the picture without it first. The flash is
+  # carried by a routine that runs between frames, so the screen stays switched off until that
+  # routine has run once; a screen switched on as soon as the build set it up showed one frame of
+  # the plain picture whenever setting up ran past the first frame. Painting the whole screen is
+  # enough to make it run past.
+  #
+  # Black over red, because a screen the console has switched off shows white: white on the
+  # console means "not on yet" and says nothing either way, and only red is the fault.
+  #
+  # A tiled screen is set up by sending its tiles and maps, which is what makes a real game's
+  # setting up long, so it is asked too; there a whole screenful of scenery stands in for the
+  # painted screen.
+  private def opening_on(screen_kind, &effect)
+    tile = (["#" * 8] * 8).join("\n")
+    program do
+      screen screen_kind
+      if screen_kind == :tiled
+        image(:red_art, "#" => :red) { tile }
+        tiles :set, "#" => :red_art
+        background :field, tiles: :set, map: Array.new(20) { "#" * 30 }
+      else
+        clear_screen :red
+      end
+      instance_exec(&effect)
+      game_loop { nil }
+    end
+  end
+
+  OPENINGS = Ractor.make_shareable({
+                                     flash: -> { flash_screen :black, frames: 30 },
+                                     fade: -> { fade :black },
+                                   })
+end
+
+class TestScreenFade < Minitest::Test
+  include FadeWatch
+  include ScreenFadeGames
 
   # A red screen that starts a fade on frame 2. Reading one spot every frame gives the
   # whole ramp, which is the only way to see an effect that exists over time.
@@ -107,22 +166,6 @@ class TestScreenFade < Minitest::Test
     refute_nil lit, "the flash has to show at all"
     assert_equal WHITE, seen[lit], "and its first visible frame is the brightest one"
     assert_equal RED, seen.last, "then it falls back to the picture, with nothing left behind"
-  end
-
-  # A slow fade out and back sets a slow speed. A bare flash after it is still a hit, so it
-  # has to last as long as a flash says it does, not as long as the fade before it took.
-  private def after_a_slow_fade(&effect)
-    program do
-      screen :bitmap
-      frame = var :frame, 0
-      game_loop do
-        clear_screen :red
-        frame.add! 1
-        (frame == 2).then { fade_out :black, frames: 40 }
-        (frame == 50).then { fade_in frames: 40 }
-        (frame == 100).then { instance_exec(&effect) }
-      end
-    end
   end
 
   # How many frames from frame +from+ on show something other than the picture.
@@ -374,117 +417,14 @@ class TestScreenFade < Minitest::Test
     refute_includes findings, :faded_out_never_in
   end
 
-  # --- and on the console ---
+  # --- an effect set before the game loop ---
 
-  # The lowering, confirmed on real hardware: the same drawing, at the same spot, reading
-  # one colour part way through a fade and its own colour again once the fade lifts.
-  def test_a_fade_darkens_and_lifts_on_the_console
-    prog = program do
-      screen :bitmap
-      frame = var :frame, 0
-      game_loop do
-        clear_screen :red
-        frame.add! 1
-        (frame == 2).then { fade_out :black, frames: 4 }
-        (frame == 20).then { fade_in frames: 4 }
-      end
-    end
-    rom = VBlank::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "FADE", code: "BFAD", maker: "01")
-
-    assert assert_emulator_loads_rom(rom, frames: 12).black?(120, 80),
-           "the console really does black the picture out"
-    assert assert_emulator_loads_rom(rom, frames: 30).red?(120, 80),
-           "and really does put it back"
-  end
-
-  # A bare flash after a slow fade, on the console: the picture is back a few frames after
-  # the flash, where the forty-frame speed of the fade before it would still be lit.
-  def test_a_bare_flash_after_a_slow_fade_is_over_quickly_on_the_console
-    v = assert_emulator_loads_rom(assemble_rom(after_a_slow_fade { flash_screen :white }, name: "BAREFL"),
-                                  frames: 104)
-    refute v.red?(120, 80), "the flash has to show at all"
-    v.step(12)
-    assert v.red?(120, 80), "and a bare flash is over in six frames, got #{v.pixel_gba(120, 80)}"
-  end
-
-  # A coloured flash on the TEAR-FREE screen, which is where a real game meets this: that
-  # screen draws every pixel through a colour table, so the flash goes through the
-  # framework's own blend rather than the display's. Breakout is a tear-free game and its
-  # damage flash is exactly this.
-  def test_a_coloured_flash_shows_and_lifts_on_the_console
-    prog = program do
-      screen :bitmap, tear_free: true
-      frame = var :frame, 0
-      game_loop do
-        clear_screen :green
-        frame.add! 1
-        (frame == 2).then { flash_screen :red, frames: 6 }
-      end
-    end
-    rom = VBlank::Cartridge::ROM.assemble(GBA.new.lower(prog), title: "FLASH", code: "BFLS", maker: "01")
-
-    assert assert_emulator_loads_rom(rom, frames: 4).red?(120, 80),
-           "the console really does sting the picture red"
-    assert assert_emulator_loads_rom(rom, frames: 30).green?(120, 80),
-           "and really does leave it as it was drawn"
-  end
-
-  # AN EFFECT SET BEFORE THE GAME LOOP IS IN FORCE ON THE FIRST FRAME SHOWN. A game that opens
-  # on a flash and lets it fall away must never show the picture without it first. The flash is
-  # carried by a routine that runs between frames, so the screen stays switched off until that
-  # routine has run once; a screen switched on as soon as the build set it up showed one frame of
-  # the plain picture whenever setting up ran past the first frame. Painting the whole screen is
-  # enough to make it run past.
-  #
-  # Black over red, because a screen the console has switched off shows white: white on the
-  # console means "not on yet" and says nothing either way, and only red is the fault.
-  #
-  # A tiled screen is set up by sending its tiles and maps, which is what makes a real game's
-  # setting up long, so it is asked too; there a whole screenful of scenery stands in for the
-  # painted screen.
-  private def opening_on(screen_kind, &effect)
-    tile = (["#" * 8] * 8).join("\n")
-    program do
-      screen screen_kind
-      if screen_kind == :tiled
-        image(:red_art, "#" => :red) { tile }
-        tiles :set, "#" => :red_art
-        background :field, tiles: :set, map: Array.new(20) { "#" * 30 }
-      else
-        clear_screen :red
-      end
-      instance_exec(&effect)
-      game_loop { nil }
-    end
-  end
-
-  OPENINGS = {
-    flash: -> { flash_screen :black, frames: 30 },
-    fade: -> { fade :black },
-  }.freeze
-
+  # It is in force on the first frame shown (see opening_on).
   def test_the_first_frame_of_a_game_that_opens_on_an_effect_has_the_effect
     OPENINGS.each do |name, effect|
       %i[bitmap tiled].each do |kind|
         assert_equal BLACK, game_player.run(opening_on(kind, &effect), frames: 1).screen.pixel(120, 80),
                      "the first frame of a #{kind} game opening on a #{name} showed the picture without it"
-      end
-    end
-  end
-
-  def test_the_console_never_shows_the_picture_before_the_effect
-    OPENINGS.each do |name, effect|
-      %i[bitmap tiled].each do |kind|
-        v = assert_emulator_loads_rom(assemble_rom(opening_on(kind, &effect), name: "OPEN#{kind.to_s[0]}"), frames: 1)
-        shown = 6.times.map do
-          pixel = v.pixel_gba(120, 80)
-          v.step
-          pixel
-        end
-        frames = shown.map { |p| format("%04x", p) }.join(" ")
-
-        refute_includes shown, RED, "a #{kind} game opening on a #{name} showed the picture without it (#{frames})"
-        assert_includes shown, BLACK, "a #{kind} game opening on a #{name} never showed it at full (#{frames})"
       end
     end
   end
@@ -558,19 +498,5 @@ class TestScreenFade < Minitest::Test
     plain = ramp(long_fade(:bitmap, frames: 17), 50)
 
     assert_equal plain, tiled
-  end
-
-  def test_the_console_steps_a_long_fade_every_frame
-    v = assert_emulator_loads_rom(assemble_rom(long_fade(:tiled), name: "LONGF"), frames: 1)
-    shown = 90.times.map do
-      pixel = v.pixel_gba(120, 80)
-      v.step
-      pixel
-    end
-    interpreted = ramp(long_fade(:tiled), 90)
-
-    assert_equal interpreted.chunk_while { |a, b| a == b }.map(&:first),
-                 shown.chunk_while { |a, b| a == b }.map(&:first).drop_while { |px| px != RED },
-                 "the console walks through the same pictures in the same order"
   end
 end

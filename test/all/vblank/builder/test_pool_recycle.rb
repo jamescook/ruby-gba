@@ -2,13 +2,39 @@
 
 require "test_helper"
 
+# The game these tests play, shared with the Advance cartridge's own test of the same pool
+# (test/lowering/gba/vblank/builder/test_pool_recycle_cartridge.rb).
+module PoolRecycleGames
+  include SharedConstants
+
+  # A capacity-1 recycling sprite pool: spawn at one spot, then (full) spawn at another —
+  # the single instance moves to the new spot and the old one is vacated. A clean pixel
+  # proof of recycle that both backends must agree on.
+  private def recycle_sprite_program
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image(:dot, "#" => :green) { "########\n" * 8 }
+      dots = pool :dot, x: 0, y: 0, capacity: 1, image: :dot, on_full: :recycle_oldest
+      dots.spawn x: 20, y: 20
+      dots.spawn x: 60, y: 60 # full (capacity 1) -> recycles the only instance to here
+      game_loop { wait_vblank }
+    end
+    b.finalize_program
+    b.program
+  end
+end
+
 # A pool's `on_full:` policy. By default a spawn onto a full pool is a safe no-op
 # (:drop). With `on_full: :recycle_oldest` a full spawn instead reuses the longest-lived
 # instance so a new one always appears — the usual choice for particles and effects.
 # Behind the scenes the pool stamps each spawn with its order and, when full, reuses the
 # slot with the oldest stamp — true age, not slot position, so it stays correct even
-# after removes shuffle the free slots. Pinned on the interpreter and on the emulator.
+# after removes shuffle the free slots. Pinned on every run here, and on the Advance's
+# cartridge in test/lowering/gba/vblank/builder/test_pool_recycle_cartridge.rb.
 class TestPoolRecycle < Minitest::Test
+  include PoolRecycleGames
+
   GREEN = Color.resolve(:green)
   BLACK = 0
 
@@ -88,35 +114,9 @@ class TestPoolRecycle < Minitest::Test
     assert_match(/recycle_oldest/, err.message)
   end
 
-  # --- cross-backend: a spriteful recycle pool, on the interpreter and on the emulator ---
-
-  # A capacity-1 recycling sprite pool: spawn at one spot, then (full) spawn at another —
-  # the single instance moves to the new spot and the old one is vacated. A clean pixel
-  # proof of recycle that both backends must agree on.
-  private def recycle_sprite_program
-    b = Builder.new
-    b.instance_eval do
-      screen :tiled
-      image(:dot, "#" => :green) { "########\n" * 8 }
-      dots = pool :dot, x: 0, y: 0, capacity: 1, image: :dot, on_full: :recycle_oldest
-      dots.spawn x: 20, y: 20
-      dots.spawn x: 60, y: 60 # full (capacity 1) -> recycles the only instance to here
-      game_loop { wait_vblank }
-    end
-    b.finalize_program
-    b.program
-  end
-
   def test_recycle_sprite_moves_to_the_new_spawn_on_the_interpreter
     i = game_player.run(recycle_sprite_program)
     assert_equal GREEN, i.screen.pixel(62, 62), "the recycled instance draws at the new spawn"
     assert_equal BLACK, i.screen.pixel(22, 22), "and the old position is vacated"
-  end
-
-  def test_recycle_sprite_draws_on_the_console
-    rom = ROM.assemble(GBA.new.lower(recycle_sprite_program), title: "RCYC", code: "BRCY", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 6)
-    assert v.green?(63, 63), "the recycled sprite drew at the new spawn, got 0x#{format('%04X', v.pixel_gba(63, 63))}"
-    assert v.black?(23, 23), "and the old position is clear, got 0x#{format('%04X', v.pixel_gba(23, 23))}"
   end
 end

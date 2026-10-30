@@ -69,12 +69,13 @@ buttons replayed on the interpreter, failing at the first frame where any variab
 field, pixel, the sound log or the sprites drawn differ. Every test's own checks are backed by a
 whole-picture comparison on every frame.
 
-What it cannot answer yet raises `HeadlessRun::CannotAnswer` naming the call: either the native
-lowering has a gap to fill, or that test wants `skip_on_native "why"` at its top (which does
-nothing on the GBA run). A test that reaches for the emulator (`require_emulator!`,
-`assert_emulator_loads_rom`) skips itself, since the cartridge is the GBA run's; checks on the
-game before that have already run. Every skip says why, and the run ends with skips counted by
-reason.
+What it cannot answer yet raises `HeadlessRun::CannotAnswer` naming the call: the native lowering
+has a gap to fill, and the test skips saying so (`Testing::MissingFeature`), as a test does that
+says `skip_on_native "why"` for a feature the lowering lacks. A question only the interpreter has
+(`frames_each_pass`, a power cut after N steps) raises `RunComparison::AsksTheInterpreter` and
+fails: that test belongs in `test/interpreter/`. A test that reaches for the Advance's cartridge
+(`require_emulator!`, `assert_emulator_loads_rom`) fails too: it belongs in `test/lowering/gba/`.
+The run ends with its skips counted by reason, and fails if any is not a missing feature.
 
 - **Saves.** `game_player(save: image)` hands the C the image's bytes as a .sav file, puts what
   the run left back into the image (so one image handed to two runs is a power cycle, as for the

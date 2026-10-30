@@ -8,7 +8,8 @@ require VBlank.root.join("examples/sparks").to_s
 # The sparks example: a pool of particles walked every frame on a bitmap screen — the one
 # example whose frame IS a pool walk, so the corpus tools (rake cost:check, cost:ranking,
 # cost:regimes) reach the walk's own regimes. These assert BEHAVIOUR: sparks appear and
-# fall, on the interpreter and on the console.
+# fall. The shower on the Advance's cartridge, read in the emulator, is in
+# test/lowering/gba/examples/test_sparks_example_cartridge.rb.
 class TestSparksExample < Minitest::Test
   YELLOW = Color.resolve(:yellow)
 
@@ -31,12 +32,5 @@ class TestSparksExample < Minitest::Test
     screen = game_player.run(Sparks.program, frames: Sparks::SLOTS * 4).screen
 
     refute_empty yellow_rows(screen)
-  end
-
-  def test_the_console_draws_the_shower_too
-    rom = Sparks.build_rom(out: StringIO.new, err: StringIO.new)
-    v = assert_emulator_loads_rom(rom, frames: 30)
-
-    assert v.frame_gba.include?(YELLOW), "a spark is on the console's screen"
   end
 end

@@ -4,9 +4,16 @@ require "test_helper"
 require "differential"
 
 # The tests of test_name_variables.rb whose games show a second background while another is
-# showing, and a Game Boy Color's hardware cannot, so they play on the Advance's runs alone.
-class TestNameVariablesOnTheAdvance < Minitest::Test
-  include Differential
+# showing, and a Game Boy Color's hardware cannot, so they play on the Advance's runs alone. What
+# the Advance's cartridge shows, read in the emulator, is in
+# test/lowering/gba/vblank/builder/test_name_variables_on_the_advance_cartridge.rb, which plays
+# the game kept here in NameVariablesOnTheAdvanceGames.
+module NameVariablesOnTheAdvanceGames
+  include SharedConstants # SOLID_TILE, which the game below names from inside the module
+
+  RED = VBlank::Graphics::Color.resolve(:red)
+  BLUE = VBlank::Graphics::Color.resolve(:blue)
+  WHITE = VBlank::Graphics::Color.resolve(:white)
 
   private def program_with(&block)
     b = VBlank::Builder.new
@@ -20,11 +27,6 @@ class TestNameVariablesOnTheAdvance < Minitest::Test
   # `call mode` over names that are scenes is the same thing as a `case_var` over them: each
   # scene owns what it declares — its tiled text, its sprites, its scenery — and shows it only
   # while it runs. A title with a banner and a plain backdrop hands over to a walk with none.
-
-  RED = VBlank::Graphics::Color.resolve(:red)
-  BLUE = VBlank::Graphics::Color.resolve(:blue)
-  WHITE = VBlank::Graphics::Color.resolve(:white)
-
   private def scenes_by_name
     tile = SOLID_TILE
     program_with do
@@ -48,6 +50,11 @@ class TestNameVariablesOnTheAdvance < Minitest::Test
       game_loop { b.call mode }
     end
   end
+end
+
+class TestNameVariablesOnTheAdvance < Minitest::Test
+  include Differential
+  include NameVariablesOnTheAdvanceGames
 
   def test_a_name_can_pick_a_scene_and_the_scene_owns_what_it_declares
     title = game_player.run(scenes_by_name, frames: 3)
@@ -63,13 +70,5 @@ class TestNameVariablesOnTheAdvance < Minitest::Test
 
   def test_both_backends_hand_the_screen_between_scenes_picked_by_name
     assert_backends_agree(scenes_by_name, frames: 3)
-
-    rom = assemble_rom(scenes_by_name, name: "BYNAME")
-    v = assert_emulator_loads_rom(rom, frames: 4)
-    assert_equal BLUE, v.pixel_gba(120, 80), "the console shows the title's backdrop"
-    v.step(2, keys: VBlank::Console::Hardware::KEY_A)
-    v.step(4)
-    assert_equal RED, v.pixel_gba(120, 80), "and the world once the walk has taken over"
-    assert_empty v.sprites.select { |row| row.name.nil? }, "the title's text is gone"
   end
 end

@@ -4,17 +4,30 @@ require "test_helper"
 
 require VBlank.root.join("examples/sprite_mover").to_s
 
+# Where the example lays itself out, kept once for the cartridge's tests
+# (test/lowering/gba/examples/test_sprite_mover_example_cartridge.rb).
+module SpriteMoverPlaces
+  include VBlank::Console::Hardware
+
+  FIELD = VBlank::Graphics::Color.rgb(4, 6, 14)
+  PLACES = Ractor.make_shareable(SpriteMover.layout(SCREEN_WIDTH, SCREEN_HEIGHT))
+  START = PLACES[:heart]
+
+  # Nineteen frames of holding a direction is where the heart sits on a post — far enough to
+  # reach it, not so far it has gone past (the heart moves two pixels a frame from the middle of
+  # the screen).
+  ON_A_POST = 19
+  POST_ROW = PLACES[:left_post][1] + 2
+end
+
 # The sprite_mover example, rewritten to use the `sprite` helper: the heart is a
 # sprite that repaints itself, so the game loop no longer clears the screen or
 # blits every frame. These assert the conversion actually holds — the redraw-
 # everything pattern is gone from the loop — and that it still renders and steers,
-# on the interpreter and on the emulator.
+# on the run's own player. The cartridge read back in the emulator is in
+# test/lowering/gba/examples/test_sprite_mover_example_cartridge.rb.
 class TestSpriteMoverExample < Minitest::Test
-  include VBlank::Console::Hardware
-
-  FIELD = VBlank::Graphics::Color.rgb(4, 6, 14)
-  PLACES = SpriteMover.layout(SCREEN_WIDTH, SCREEN_HEIGHT)
-  START = PLACES[:heart]
+  include SpriteMoverPlaces
 
   # Whether +color+ is painted anywhere on screen.
   private def color_on?(screen, color)
@@ -44,19 +57,11 @@ class TestSpriteMoverExample < Minitest::Test
     assert color_on?(i.screen, FIELD), "the blue field isn't showing around the heart"
   end
 
-  def test_it_builds_a_rom
-    assert SpriteMover.build_rom.size.positive?
-  end
-
   # --- the two posts, which is what the stack is here to show ---
   #
   # Both posts are written AFTER the heart, so declaration order alone would put both in
-  # front of it. The stack overrules that for one of them. Nineteen frames of holding a
-  # direction is where the heart sits on a post — far enough to reach it, not so far it
-  # has gone past (the heart moves two pixels a frame from the middle of the screen).
-
-  ON_A_POST = 19
-  POST_ROW = PLACES[:left_post][1] + 2
+  # front of it. The stack overrules that for one of them. ON_A_POST frames of holding a
+  # direction is where the heart sits on a post.
 
   private def steered(direction)
     game_player.input_each_frame { |_f| [direction] }
@@ -77,24 +82,6 @@ class TestSpriteMoverExample < Minitest::Test
     refute_equal FIELD, shown, "the heart never reached the right post"
   end
 
-  # The same thing the console draws, since this is the bug's whole point.
-  def test_the_stack_holds_on_hardware
-    rom = ROM.assemble(GBA.new.lower(SpriteMover.program), title: "SPRITEMV", code: "BSPM", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: ON_A_POST + 2, keys: KEY_LEFT)
-
-    assert v.pixel_is?(PLACES[:left_post][0] + 1, POST_ROW, :red),
-           "on hardware the heart did not cover the :backdrop post — got " \
-           "#{format('0x%04x', v.pixel_gba(PLACES[:left_post][0] + 1, POST_ROW))}"
-  end
-
-  def test_it_renders_and_steers_on_hardware
-    rom = ROM.assemble(GBA.new.lower(SpriteMover.program), title: "SPRITEMV", code: "BSPM", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 10, keys: KEY_LEFT)
-    # after sliding left, the heart's start column is field-blue again (no trail)
-    assert v.pixel_is?(START[0] + 2, START[1] + 2, FIELD),
-           "the start cell wasn't restored on hardware — got #{v.pixel_gba(START[0] + 2, START[1] + 2).to_s(16)}"
-    # and the heart (red) is somewhere to the left of where it began
-    moved = (10...START[0]).any? { |x| v.pixel_is?(x, START[1] + 2, :red) }
-    assert moved, "the heart isn't found to the left on hardware"
-  end
+  # The same thing the console draws, and the heart rendering and steering there, are in
+  # test/lowering/gba/examples/test_sprite_mover_example_cartridge.rb.
 end

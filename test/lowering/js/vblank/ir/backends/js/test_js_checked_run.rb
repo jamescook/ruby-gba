@@ -108,7 +108,7 @@ class TestJSCheckedRun < Minitest::Test
   # A question only the interpreter answers so far names this lowering and its own skip.
   def test_a_question_only_the_interpreter_can_answer_yet_names_the_javascript_skip
     error = assert_raises(VBlank::IR::Backends::JS::HeadlessRun::CannotAnswer) do
-      VBlank::IR::Backends::JS::HeadlessRun.new.frames_each_pass { 2 }
+      VBlank::IR::Backends::JS::HeadlessRun.new.log
     end
 
     assert_match(/JavaScript lowering/, error.message)

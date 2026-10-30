@@ -2,17 +2,10 @@
 
 require "test_helper"
 
-# The `sprite` helper: a named image that moves around leaving no trail, repainted
-# by the framework each frame. These assert BEHAVIOR on both backends — the sprite
-# appears, moves without smearing, and hides/shows cleanly — the interpreter as the
-# oracle, the emulator for the console.
-#
-# The no-trail invariant is asserted crisply by counting: a sprite of a solid block
-# should colour exactly one block's worth of pixels no matter how far it has moved.
-# A trail would leave more. Each program ends with `after(N) { halt }` so the run
-# stops on a settled frame (right after a completed repaint), making the count exact.
-class TestSprite < Minitest::Test
-  include VBlank::Console::Hardware
+# The sprite games, shared with the Advance cartridge's own tests of them
+# (test/lowering/gba/vblank/builder/test_sprite_cartridge.rb).
+module SpriteGames
+  include SharedConstants
 
   BLOCK = 4           # a 4x4 solid-red sprite
   FIELD = :blue       # the field it moves over
@@ -37,6 +30,41 @@ class TestSprite < Minitest::Test
     builder.program
   end
 
+  # A red band with a distinct blue detail set into it, in the sprite's path. After
+  # the sprite has driven across the detail, every pixel it passed over must be
+  # exactly as it was — the blue detail intact, the red band unbroken around it.
+  private def scenery_program(frames:)
+    builder = Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      image(:block, "#" => :white) { "####\n####\n####\n####" }
+      fill_rect 0, 40, 240, 16, :red    # a red band
+      fill_rect 30, 44, 4, 4, :blue     # a blue detail inside it, in the path
+      hero = sprite :block, at: [8, 44]
+      game_loop do
+        wait_vblank
+        after(frames) { halt }
+        hero.x.add! 2                    # drive right, across the blue detail
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+end
+
+# The `sprite` helper: a named image that moves around leaving no trail, repainted
+# by the framework each frame. These assert BEHAVIOR on both backends — the sprite
+# appears, moves without smearing, and hides/shows cleanly — the interpreter as the
+# oracle, the emulator for the console.
+#
+# The no-trail invariant is asserted crisply by counting: a sprite of a solid block
+# should colour exactly one block's worth of pixels no matter how far it has moved.
+# A trail would leave more. Each program ends with `after(N) { halt }` so the run
+# stops on a settled frame (right after a completed repaint), making the count exact.
+class TestSprite < Minitest::Test
+  include VBlank::Console::Hardware
+  include SpriteGames
+
   private def count_color(screen, color)
     want = Color.resolve(color)
     n = 0
@@ -59,27 +87,6 @@ class TestSprite < Minitest::Test
 
   # ---- it restores patterned scenery pixel-for-pixel as it passes ----
 
-  # A red band with a distinct blue detail set into it, in the sprite's path. After
-  # the sprite has driven across the detail, every pixel it passed over must be
-  # exactly as it was — the blue detail intact, the red band unbroken around it.
-  private def scenery_program(frames:)
-    builder = Builder.new
-    builder.instance_eval do
-      screen :bitmap
-      image(:block, "#" => :white) { "####\n####\n####\n####" }
-      fill_rect 0, 40, 240, 16, :red    # a red band
-      fill_rect 30, 44, 4, 4, :blue     # a blue detail inside it, in the path
-      hero = sprite :block, at: [8, 44]
-      game_loop do
-        wait_vblank
-        after(frames) { halt }
-        hero.x.add! 2                    # drive right, across the blue detail
-      end
-    end
-    builder.finalize_program
-    builder.program
-  end
-
   def test_a_sprite_restores_patterned_scenery_it_passes_over
     screen = game_player.run(scenery_program(frames: 25)).screen # ends near x=58, past the detail
     # the blue detail the sprite drove across is intact
@@ -89,13 +96,6 @@ class TestSprite < Minitest::Test
     # the red band around it is unbroken where the sprite passed
     (10...28).each { |x| assert_equal Color.resolve(:red), screen.pixel(x, 46), "red band torn at x=#{x}" }
     assert_equal BLOCK * BLOCK, count_color(screen, :white), "the sprite left a trail across the scenery"
-  end
-
-  def test_it_restores_patterned_scenery_on_the_console
-    rom = ROM.assemble(GBA.new.lower(scenery_program(frames: 25)), title: "SPRSCEN", code: "BSPS", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 26)
-    assert v.pixel_is?(31, 45, :blue), "blue detail not restored on hardware — got #{v.pixel_gba(31, 45).to_s(16)}"
-    assert v.red?(15, 46), "red band not restored on hardware"
   end
 
   # ---- it moves, and leaves no trail ----
@@ -244,17 +244,5 @@ class TestSprite < Minitest::Test
     end
     assert_match(/ghost/, err.message)
     assert_match(/image/, err.message)
-  end
-
-  # ---- hardware: it renders and moves on the console ----
-
-  def test_the_sprite_renders_and_moves_on_the_console
-    prog = sprite_program(frames: 30) { |hero| held(:right).then { hero.x.add! 2 } }
-    rom = ROM.assemble(GBA.new.lower(prog), title: "SPRITETS", code: "BSPT", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 12, keys: KEY_RIGHT)
-    # it moved off its start (that cell is field again) and shows red further right
-    assert v.blue?(START[0] + 1, START[1] + 1), "start cell not restored on hardware"
-    moved = (START[0] + BLOCK..200).any? { |x| v.pixel_is?(x, START[1] + 1, :red) }
-    assert moved, "sprite not found to the right on hardware"
   end
 end

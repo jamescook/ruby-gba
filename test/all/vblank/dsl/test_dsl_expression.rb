@@ -11,8 +11,9 @@ require "differential"
 # the DSL, run on the reference backend's fake screen, and checked by the pixels
 # it drew. So a comparison or branch is judged by what it makes the game show —
 # never by re-describing the IR it builds. (Opcode-level checks belong in the
-# IR-backend tests.) Guardrail tests assert a friendly error for misuse, and a
-# couple of the emulator tests confirm the same programs on real hardware.
+# IR-backend tests.) Guardrail tests assert a friendly error for misuse. A couple
+# of the same programs confirmed on the Advance's cartridge are in
+# test/lowering/gba/vblank/dsl/test_dsl_expression_cartridge.rb.
 class TestDSLExpression < Minitest::Test
   include VBlank::IR::Build # constructors, for the guardrail trees
   include Differential
@@ -30,11 +31,6 @@ class TestDSLExpression < Minitest::Test
     ruby = ruby.input_each_frame(&each_frame) if each_frame
     ruby.run(builder.program, **opts)
     ruby
-  end
-
-  # Build a real ROM (for the emulator-backed hardware-confirmation tests).
-  private def build(&block)
-    VBlank.build("EXPR", console: :gba, validate: false, &block)
   end
 
   # Build the IR tree without running it — only the guardrail tests need this, to
@@ -539,32 +535,6 @@ class TestDSLExpression < Minitest::Test
     assert_match(/variable/, err.message)
   end
 
-  # ---- the same programs, confirmed on real hardware (the emulator) ----
-
-  def test_then_gates_a_draw_on_hardware
-    rom = build do
-      screen :bitmap
-      clear_screen :black
-      x = var :x, 5
-      (x > 3).then { pixel 10, 10, :red }
-      (x < 3).then { pixel 20, 20, :blue }
-      halt
-    end
-    v = assert_emulator_loads_rom(rom)
-    assert v.red?(10, 10)
-    assert v.black?(20, 20)
-  end
-
-  def test_and_else_on_hardware
-    rom = build do
-      screen :bitmap
-      clear_screen :black
-      x = var :x, 5
-      ((x > 1) & (x < 9)).then { pixel 10, 10, :red }.else { pixel 20, 20, :blue }
-      halt
-    end
-    v = assert_emulator_loads_rom(rom)
-    assert v.red?(10, 10), "5 is in (1, 9), so the then-branch draws"
-    assert v.black?(20, 20)
-  end
+  # The same kind of program confirmed on the Advance's cartridge, in the emulator, is in
+  # test/lowering/gba/vblank/dsl/test_dsl_expression_cartridge.rb.
 end

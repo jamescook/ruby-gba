@@ -8,7 +8,7 @@ require "tmpdir"
 # small games the page's tests play on it. `include WebPage` in a test of the page or of
 # createGame.
 module WebPage
-  HARNESS = VBlank.root.join("test", "vblank", "ir", "backends", "js", "page_harness.js").to_s
+  HARNESS = VBlank.root.join("test", "lowering", "js", "vblank", "ir", "backends", "js", "page_harness.js").to_s
 
   # Right moves the square, a pixel a frame.
   private def walking_game

@@ -5,18 +5,9 @@ require "differential"
 
 require VBlank.root.join("examples/lake").to_s
 
-# The lake example: a scene, water that bends row by row over it, and jellyfish drifting
-# across half see-through.
-#
-# The claim worth testing is the one an author cannot check by reading the code — that
-# what shows inside a jellyfish IS the lake, mixed in rather than copied. A flat colour
-# painted a bit paler would look almost the same in a screenshot and be a different thing
-# entirely, so these assert it the only way that tells them apart: the bell is one flat
-# colour in the art, and on screen it comes out as several, each one that colour mixed
-# with whatever the water happens to be doing underneath.
-class TestLakeExample < Minitest::Test
-  include Differential
-
+# The lake's colours and how one mixes over another, kept once for the console's picture of it
+# in test/lowering/gba/examples/test_lake_example_cartridge.rb.
+module LakeColors
   # The art, as the example draws it.
   BELL = VBlank::Graphics::Color.rgb(31, 26, 31)
   WATER = VBlank::Graphics::Color.rgb(6, 11, 24)
@@ -44,6 +35,25 @@ class TestLakeExample < Minitest::Test
 
   BELL_OVER_WATER = blend(BELL, WATER)
   BELL_OVER_GLINT = blend(BELL, GLINT)
+
+  # The water is drawn in three shades, so a bell can be over any of them — hence a set to
+  # look for rather than one number.
+  BELL_OVER_ANY_WATER = Ractor.make_shareable([WATER, VBlank::Graphics::Color.rgb(8, 14, 27),
+                                               VBlank::Graphics::Color.rgb(10, 17, 29)].map { |shade| blend(BELL, shade) })
+end
+
+# The lake example: a scene, water that bends row by row over it, and jellyfish drifting
+# across half see-through.
+#
+# The claim worth testing is the one an author cannot check by reading the code — that
+# what shows inside a jellyfish IS the lake, mixed in rather than copied. A flat colour
+# painted a bit paler would look almost the same in a screenshot and be a different thing
+# entirely, so these assert it the only way that tells them apart: the bell is one flat
+# colour in the art, and on screen it comes out as several, each one that colour mixed
+# with whatever the water happens to be doing underneath.
+class TestLakeExample < Minitest::Test
+  include Differential
+  include LakeColors
 
   private def screen_at(frames)
     game_player.run(Lake.program, frames: frames).screen
@@ -93,23 +103,8 @@ class TestLakeExample < Minitest::Test
 
   # --- and the console draws the same lake ---
 
-  # Asked as "which colours are on the lake" rather than "what is at this pixel", because
-  # the jellyfish drift a pixel or two every frame and the two backends do not start
-  # counting frames at the same moment. The claim does not need a coordinate: a bell that
-  # was not blending would put its own flat colour on screen and no blend anywhere.
-  #
-  # The water is drawn in three shades, so a bell can be over any of them — hence a set to
-  # look for rather than one number.
-  BELL_OVER_ANY_WATER = [WATER, VBlank::Graphics::Color.rgb(8, 14, 27), VBlank::Graphics::Color.rgb(10, 17, 29)]
-                        .map { |shade| blend(BELL, shade) }.freeze
-
-  def test_the_console_blends_the_jellyfish_into_the_lake
-    require_emulator!
-    seen = VBlank::Diagnostics::Verifier.new(assemble_rom(Lake.program, name: "LAKE"), frames: 9).frame_gba.uniq
-
-    refute_empty seen & BELL_OVER_ANY_WATER, "the console draws a bell with the water mixed in"
-    refute_includes seen, BELL, "and no pixel of a bell is its own colour"
-  end
+  # The Advance's cartridge blending the jellyfish into the lake, read in the emulator, is in
+  # test/lowering/gba/examples/test_lake_example_cartridge.rb.
 
   # EVERY PIXEL OF THE LAKE, jellyfish and all: the scene, the water bending row by row,
   # and three see-through sprites drifting over it, all at once and all agreeing.

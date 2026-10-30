@@ -2,26 +2,14 @@
 
 require "test_helper"
 
-# Per-scene bitmap<->tiled switching: a game can run one scene as a direct-color
-# BITMAP screen (a linear framebuffer — plain draws, software sprites) and another
-# as a TILED screen (a tilemap the console composites with hardware sprites), and
-# switching scenes flips which display system is live. The classic shape is a
-# direct-color bitmap title handing off to a tiled hardware-sprite game.
-#
-# This pins the model on the reference interpreter (the oracle). The GBA hardware
-# realization — reconfiguring DISPCNT / VRAM / OAM on the crossing — is its sibling.
-class TestSceneDisplayMode < Minitest::Test
-  include VBlank::Console::Hardware
-
-  RED = Color.resolve(:red)     # the bitmap title's fill
-  GREEN = Color.resolve(:green) # the tiled game's hardware sprite
-  BLACK = 0                     # an unwritten / wiped pixel
-
+# The title-to-game program these tests play, kept once for this file and for the tests of the
+# same program on the Advance's cartridge (test/lowering/gba/vblank/ir/test_scene_display_mode_cartridge.rb).
+module SceneDisplayModeGames
   # A direct-color bitmap title (red) that switches on START to a tiled scene whose
   # hardware sprite (a green 8x8) sits at (100, 76). The title is declared first and
   # the tiled scene second, the natural title->game order.
   private def bitmap_to_tiled_program
-    b = Builder.new
+    b = VBlank::Builder.new
     b.instance_eval do
       image(:hero, "#" => :green) { "########\n" * 8 }
       screen :bitmap # default: direct-color bitmap
@@ -45,6 +33,23 @@ class TestSceneDisplayMode < Minitest::Test
     b.finalize_program
     b.program
   end
+end
+
+# Per-scene bitmap<->tiled switching: a game can run one scene as a direct-color
+# BITMAP screen (a linear framebuffer — plain draws, software sprites) and another
+# as a TILED screen (a tilemap the console composites with hardware sprites), and
+# switching scenes flips which display system is live. The classic shape is a
+# direct-color bitmap title handing off to a tiled hardware-sprite game.
+#
+# This pins the model on every run. The GBA hardware realization — reconfiguring DISPCNT /
+# VRAM / OAM on the crossing — is its sibling, in
+# test/lowering/gba/vblank/ir/test_scene_display_mode_cartridge.rb.
+class TestSceneDisplayMode < Minitest::Test
+  include SceneDisplayModeGames
+
+  RED = Color.resolve(:red)     # the bitmap title's fill
+  GREEN = Color.resolve(:green) # the tiled game's hardware sprite
+  BLACK = 0                     # an unwritten / wiped pixel
 
   # With no input the game stays on the bitmap title: the framebuffer shows its red
   # fill everywhere, and the tiled scene's hardware sprite is nowhere (it belongs to
@@ -102,32 +107,5 @@ class TestSceneDisplayMode < Minitest::Test
                        "the tiled scene's sprite is a hardware (OAM) sprite"
     assert_instance_of VBlank::DSL::Sprite, bitmap_sprite,
                        "the bitmap scene's sprite stays a software sprite, even though a tiled scene was built first"
-  end
-
-  # A program that crosses the bitmap/tiled boundary lowers to a GBA ROM — the backend
-  # switches the whole display per scene (the mode register plus the VRAM/OAM layout),
-  # so it no longer refuses the program. (Its behavior on the console is asserted by the
-  # the emulator test below.)
-  def test_a_mixed_bitmap_and_tiled_program_lowers_to_a_rom
-    code = GBA.new.lower(bitmap_to_tiled_program)
-    assert_operator code.bytesize, :>, 0
-  end
-
-  # The same crossing on real hardware (the emulator): the console shows the direct-color
-  # bitmap title, and after START it reconfigures the whole display — the mode
-  # register, the sprite table, the VRAM the tiles/sprites live in — so the tiled
-  # scene's hardware sprite renders and the bitmap title's red is gone.
-  def test_the_switch_flips_the_display_on_the_console
-    rom = ROM.assemble(GBA.new.lower(bitmap_to_tiled_program), title: "MIX", code: "BMIX", maker: "01")
-
-    title = assert_emulator_loads_rom(rom, frames: 4) # no input: the Mode 3 bitmap title
-    assert title.red?(0, 0),
-           "the bitmap title is red on the console, got 0x#{format('%04X', title.pixel_gba(0, 0))}"
-
-    play = assert_emulator_loads_rom(rom, frames: 8, keys: KEY_START) # START -> the tiled scene
-    assert play.green?(103, 79),
-           "the tiled hardware sprite renders after the switch, got 0x#{format('%04X', play.pixel_gba(103, 79))}"
-    refute play.red?(0, 0),
-           "the bitmap title's red is gone once the display crosses into tiled, got 0x#{format('%04X', play.pixel_gba(0, 0))}"
   end
 end

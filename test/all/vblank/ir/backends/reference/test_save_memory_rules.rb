@@ -2,6 +2,14 @@
 
 require "test_helper"
 
+# The steps these tests write, kept once for the interpreter's own test of a power cut
+# (test/interpreter/vblank/ir/backends/reference/test_save_memory_rules_interpreter.rb).
+module SaveMemoryRulesPrograms
+  B = VBlank::IR::Build
+
+  private def byte_write(at, value) = B.save_write(B.int(at), B.int(value), width: :byte)
+end
+
 # THE RULES OF THE SAVE MEMORY A PROGRAM SAYS IT HAS, kept by the interpreter.
 #
 # Battery-backed memory takes any byte anywhere, as often as you like. Flash does not: a write
@@ -10,15 +18,13 @@ require "test_helper"
 # kind and corrupts saves on the second, so the interpreter refuses it here, where a test sees
 # it, rather than leaving it for a player to find.
 class TestSaveMemoryRules < Minitest::Test
-  B = VBlank::IR::Build
+  include SaveMemoryRulesPrograms
 
   private def run_program(*statements)
     store = SaveImage.new
     game_player(save: store).run(B.program(*statements, B.halt), frames: 1)
     store
   end
-
-  private def byte_write(at, value) = B.save_write(B.int(at), B.int(value), width: :byte)
 
   def test_on_flash_a_write_that_turns_a_bit_back_on_is_refused
     error = assert_raises(Reference::ProgramError) do
@@ -73,17 +79,8 @@ class TestSaveMemoryRules < Minitest::Test
     assert_equal 0x34, run_program(byte_write(0x1000, 0x12), byte_write(0x1000, 0x34)).read(0x1000, 1)
   end
 
-  # A cut is for one run: one the run never reached is not waiting for the next run, nor in a copy.
-  def test_a_cut_the_run_never_reached_is_gone_at_the_next_run
-    store = SaveImage.new.cut_power_after(100)
-    copy = store.dup
-    game_player(save: store).run(B.program(byte_write(0x1000, 0x12), B.halt), frames: 1)
-    game_player(save: store).run(B.program(*(0...200).map { |i| byte_write(0x1000 + i, 0x34) }, B.halt), frames: 1)
-    game_player(save: copy).run(B.program(*(0...200).map { |i| byte_write(0x1000 + i, 0x56) }, B.halt), frames: 1)
-
-    assert_equal 0x34, store.read(0x1000 + 199, 1)
-    assert_equal 0x56, copy.read(0x1000 + 199, 1)
-  end
+  # A cut the run never reached being gone at the next run is the interpreter's alone, since a
+  # cut is counted in its steps: test/interpreter/vblank/ir/backends/reference/test_save_memory_rules_interpreter.rb.
 
   def test_the_interpreter_is_handed_a_save_memory_not_a_hash
     err = assert_raises(ArgumentError) { game_player(save: {}) }

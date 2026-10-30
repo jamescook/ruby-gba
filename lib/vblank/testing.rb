@@ -111,12 +111,28 @@ module VBlank
     # A name no lowering has is refused on every run, so a misspelt one cannot quietly never skip.
     def skip_on_lowering(lowering, why)
       run = Lowering.run_named(lowering)
-      skip "#{run.title} cannot play this yet: #{why}" if Testing.lowering == lowering
+      raise MissingFeature, "#{run.title} cannot play this yet: #{why}" if Testing.lowering == lowering
+    end
+
+    # THE ONE KIND OF SKIP A RUN TAKES: its lowering lacks the feature the test plays — its build
+    # does not make it yet, or its hardware cannot. A checked player raises it for what its
+    # lowering does not make or answer, and skip_on_<run> for what a test says it cannot play.
+    # Any other skip is a test in the wrong place, and fails the run (SkipsByReason).
+    #
+    # It is a plain Minitest::Skip with a mark on it, not a kind of its own: minitest counts a
+    # run's skips by the exact class of each, so one of its own would go uncounted. The mark is an
+    # instance variable, which Marshal carries from the process that played the test to the one
+    # that reports it (Testing::Processes). `raise MissingFeature, "why"` raises one.
+    module MissingFeature
+      def self.exception(message) = Minitest::Skip.new(message).tap { |skip| skip.instance_variable_set(:@missing_feature, true) }
+
+      # Whether +failure+ is one.
+      def self.===(failure) = failure.is_a?(Minitest::Skip) && failure.instance_variable_get(:@missing_feature) == true
     end
   end
 end
 
-require_relative "testing/skips_by_reason" if VBlank::Testing.checked?
+require_relative "testing/skips_by_reason"
 
 # On a CI machine, whose log shows a line only once it ends, a line every hundred tests.
 require_relative "testing/progress_lines"

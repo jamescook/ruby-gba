@@ -2,15 +2,11 @@
 
 require "test_helper"
 
-# A POOL IS WALKED IN THE ORDER ITS THINGS WERE ADDED, whatever slot each landed in: a thing
-# removed leaves the order, and a new one always goes last. Games depend on it where a player
-# can see it — things that roll random numbers one after another, and things that act on
-# each other first come, first served.
-#
-# Each game below gives its things an id and writes the order a walk visits them as one
-# number, a digit per thing: 123 is 1, then 2, then 3. The interpreter and the console must
-# read the same number.
-class TestPoolWalkOrder < Minitest::Test
+# The games whose walks are read, shared with the Advance cartridge's own tests of the same
+# orders (test/lowering/gba/vblank/dsl/test_pool_walk_order_cartridge.rb). Each gives its things
+# an id and writes the order a walk visits them as one number, a digit per thing: 123 is 1,
+# then 2, then 3.
+module PoolWalkOrderGames
   # A game whose pool of +capacity+ things is walked once a pass, the order written into
   # :order, and the order the first pass's walk wrote kept in :first. +setup+ runs before the
   # loop; +pass+ runs in the loop before the walk, given the pool and the pass number;
@@ -39,156 +35,114 @@ class TestPoolWalkOrder < Minitest::Test
   # Spawn things with these ids, in this order.
   private def spawning(*ids) = ->(things) { ids.each { |id| things.spawn id: id } }
 
-  # [:first, :order] after enough frames for every event to have happened and the walk to
-  # have settled — on the interpreter, then on the console.
-  private def orders(game, frames: 8)
-    run = game_player.run(game.program, frames: frames)
-    rom = game.build_rom(out: nil, err: nil, profile: false)
-    console = assert_emulator_loads_rom(rom, frames: frames, vars: rom.var_addresses)
-    [[run[:first], run[:order]], [console.var(:first), console.var(:order)]]
-  end
-
-  # Both backends read +expected+.
-  private def assert_orders(expected, game, frames: 8)
-    assert_equal [expected, expected], orders(game, frames: frames)
-  end
-
-  def test_things_are_walked_in_the_order_they_were_spawned
-    assert_orders [123, 123], walking_game(setup: spawning(1, 2, 3))
-  end
+  private def spawn_order_game = walking_game(setup: spawning(1, 2, 3))
 
   # B's slot is the one freed last, so D takes it — and is still walked last.
-  def test_a_thing_spawned_into_a_freed_slot_is_walked_last
-    game = walking_game(setup: spawning(1, 2, 3),
-                        visit: ->(_things, t, passes) { ((passes == 0) & (t.id == 2)).then { t.remove } },
-                        pass: ->(things, passes) { (passes == 1).then { things.spawn id: 4 } })
-
-    assert_orders [123, 134], game
+  private def freed_slot_game
+    walking_game(setup: spawning(1, 2, 3),
+                 visit: ->(_things, t, passes) { ((passes == 0) & (t.id == 2)).then { t.remove } },
+                 pass: ->(things, passes) { (passes == 1).then { things.spawn id: 4 } })
   end
 
   # A removes itself on its turn, and the walk goes on to B and C, each once.
-  def test_a_thing_that_removes_itself_does_not_stop_the_walk
-    game = walking_game(setup: spawning(1, 2, 3),
-                        visit: ->(_things, t, passes) { ((passes == 0) & (t.id == 1)).then { t.remove } })
-
-    assert_orders [123, 23], game
+  private def self_removing_game
+    walking_game(setup: spawning(1, 2, 3),
+                 visit: ->(_things, t, passes) { ((passes == 0) & (t.id == 1)).then { t.remove } })
   end
 
   # A removes C before C's turn: the walk passes C over. B removes A, which has had its turn.
-  def test_a_thing_removed_before_its_turn_is_passed_over
-    game = walking_game(setup: spawning(1, 2, 3),
-                        visit: lambda { |things, t, passes|
-                          ((passes == 0) & (t.id == 1)).then do
-                            things.each { |other| (other.id == 3).then { other.remove } }
-                          end
-                        })
-
-    assert_orders [12, 12], game
+  private def removed_before_turn_game
+    walking_game(setup: spawning(1, 2, 3),
+                 visit: lambda { |things, t, passes|
+                   ((passes == 0) & (t.id == 1)).then do
+                     things.each { |other| (other.id == 3).then { other.remove } }
+                   end
+                 })
   end
 
   # The last thing removes itself and a spawn takes its slot at once, inside the walk: the
   # walk still ends there, and the new thing is first walked on the next pass.
-  def test_a_thing_spawned_during_the_walk_waits_for_the_next_walk
-    game = walking_game(setup: spawning(1, 2, 3),
-                        visit: lambda { |things, t, passes|
-                          ((passes == 0) & (t.id == 3)).then do
-                            t.remove
-                            things.spawn id: 9
-                          end
-                        })
-
-    assert_orders [123, 129], game
+  private def spawned_during_walk_game
+    walking_game(setup: spawning(1, 2, 3),
+                 visit: lambda { |things, t, passes|
+                   ((passes == 0) & (t.id == 3)).then do
+                     t.remove
+                     things.spawn id: 9
+                   end
+                 })
   end
 
   # A pool full and recycling its oldest drops A and walks the newcomer last.
-  def test_a_full_pool_recycles_its_first_thing_and_walks_the_new_one_last
-    game = walking_game(capacity: 3, on_full: :recycle_oldest, setup: spawning(1, 2, 3),
-                        pass: ->(things, passes) { (passes == 1).then { things.spawn id: 4 } })
-
-    assert_orders [123, 234], game
+  private def recycling_game
+    walking_game(capacity: 3, on_full: :recycle_oldest, setup: spawning(1, 2, 3),
+                 pass: ->(things, passes) { (passes == 1).then { things.spawn id: 4 } })
   end
 
   # Inside its own walk a full recycling pool cannot move its first thing, so the spawn is
   # dropped, as a pool that drops always does.
-  def test_a_full_pool_recycling_inside_its_own_walk_drops_the_spawn
-    game = walking_game(capacity: 3, on_full: :recycle_oldest, setup: spawning(1, 2, 3),
-                        visit: ->(things, t, passes) { ((passes == 0) & (t.id == 2)).then { things.spawn id: 4 } })
-
-    assert_orders [123, 123], game
+  private def recycling_inside_walk_game
+    walking_game(capacity: 3, on_full: :recycle_oldest, setup: spawning(1, 2, 3),
+                 visit: ->(things, t, passes) { ((passes == 0) & (t.id == 2)).then { things.spawn id: 4 } })
   end
 
   # A WALK CAN GO THE OTHER WAY, newest first, where the last thing added has to act first.
   # It is the exact reverse of the walk above, and what each promises during a walk holds
   # the same way round.
-  def test_a_newest_first_walk_is_the_reverse_of_spawn_order
-    assert_orders [321, 321], walking_game(setup: spawning(1, 2, 3), newest_first: true)
-  end
+  private def newest_first_game = walking_game(setup: spawning(1, 2, 3), newest_first: true)
 
   # D takes B's freed slot and, as the newest, is walked first.
-  def test_a_newest_first_walk_starts_at_a_thing_spawned_into_a_freed_slot
-    game = walking_game(setup: spawning(1, 2, 3), newest_first: true,
-                        visit: ->(_things, t, passes) { ((passes == 0) & (t.id == 2)).then { t.remove } },
-                        pass: ->(things, passes) { (passes == 1).then { things.spawn id: 4 } })
-
-    assert_orders [321, 431], game
+  private def newest_first_freed_slot_game
+    walking_game(setup: spawning(1, 2, 3), newest_first: true,
+                 visit: ->(_things, t, passes) { ((passes == 0) & (t.id == 2)).then { t.remove } },
+                 pass: ->(things, passes) { (passes == 1).then { things.spawn id: 4 } })
   end
 
   # C, walked first, removes itself, and the walk goes on to B and A.
-  def test_a_thing_that_removes_itself_does_not_stop_a_newest_first_walk
-    game = walking_game(setup: spawning(1, 2, 3), newest_first: true,
-                        visit: ->(_things, t, passes) { ((passes == 0) & (t.id == 3)).then { t.remove } })
-
-    assert_orders [321, 21], game
+  private def newest_first_self_removing_game
+    walking_game(setup: spawning(1, 2, 3), newest_first: true,
+                 visit: ->(_things, t, passes) { ((passes == 0) & (t.id == 3)).then { t.remove } })
   end
 
   # C walks the pool again, newest first, and removes A there: the inner walk ends, the outer
   # one carries on from where it was to B, and passes A over.
-  def test_a_newest_first_walk_inside_one_keeps_its_place
-    game = walking_game(setup: spawning(1, 2, 3), newest_first: true,
-                        visit: lambda { |things, t, passes|
-                          ((passes == 0) & (t.id == 3)).then do
-                            things.each(newest_first: true) { |other| (other.id == 1).then { other.remove } }
-                          end
-                        })
-
-    assert_orders [32, 32], game
+  private def newest_first_nested_walk_game
+    walking_game(setup: spawning(1, 2, 3), newest_first: true,
+                 visit: lambda { |things, t, passes|
+                   ((passes == 0) & (t.id == 3)).then do
+                     things.each(newest_first: true) { |other| (other.id == 1).then { other.remove } }
+                   end
+                 })
   end
 
   # A, walked last, removes itself and a spawn arrives in the same walk: the new thing is
   # first walked on the next pass, where it is the newest.
-  def test_a_thing_spawned_during_a_newest_first_walk_waits_for_the_next_walk
-    game = walking_game(setup: spawning(1, 2, 3), newest_first: true,
-                        visit: lambda { |things, t, passes|
-                          ((passes == 0) & (t.id == 1)).then do
-                            t.remove
-                            things.spawn id: 9
-                          end
-                        })
-
-    assert_orders [321, 932], game
+  private def newest_first_spawned_during_walk_game
+    walking_game(setup: spawning(1, 2, 3), newest_first: true,
+                 visit: lambda { |things, t, passes|
+                   ((passes == 0) & (t.id == 1)).then do
+                     t.remove
+                     things.spawn id: 9
+                   end
+                 })
   end
 
   # A full pool recycling its oldest drops A, and the newcomer, as the newest, is walked first.
-  def test_a_newest_first_walk_starts_at_the_thing_a_full_pool_recycled_for
-    game = walking_game(capacity: 3, on_full: :recycle_oldest, setup: spawning(1, 2, 3), newest_first: true,
-                        pass: ->(things, passes) { (passes == 1).then { things.spawn id: 4 } })
-
-    assert_orders [321, 432], game
+  private def newest_first_recycling_game
+    walking_game(capacity: 3, on_full: :recycle_oldest, setup: spawning(1, 2, 3), newest_first: true,
+                 pass: ->(things, passes) { (passes == 1).then { things.spawn id: 4 } })
   end
 
   # Inside its own walk a full recycling pool cannot move its first thing, which is where a
   # newest-first walk stops, so the spawn is dropped here too.
-  def test_a_full_pool_recycling_inside_its_own_newest_first_walk_drops_the_spawn
-    game = walking_game(capacity: 3, on_full: :recycle_oldest, setup: spawning(1, 2, 3), newest_first: true,
-                        visit: ->(things, t, passes) { ((passes == 0) & (t.id == 2)).then { things.spawn id: 4 } })
-
-    assert_orders [321, 321], game
+  private def newest_first_recycling_inside_walk_game
+    walking_game(capacity: 3, on_full: :recycle_oldest, setup: spawning(1, 2, 3), newest_first: true,
+                 visit: ->(things, t, passes) { ((passes == 0) & (t.id == 2)).then { things.spawn id: 4 } })
   end
 
   # A routine of the pool's, called from a newest-first walk, is handed each thing in that
   # order, and the slot it is handed is the thing's own: :first_slot is where C sits.
-  def test_a_pool_routine_called_from_a_newest_first_walk_gets_each_thing_in_turn
-    game = VBlank.game("WALKROUTINE", consoles: %i[gba]) do
+  private def pool_routine_game
+    VBlank.game("WALKROUTINE", consoles: %i[gba]) do
       screen :bitmap
       order = var :order, 0
       first_slot = var :first_slot, -1
@@ -203,18 +157,6 @@ class TestPoolWalkOrder < Minitest::Test
         things.each(newest_first: true) { call :visit }
       end
     end
-    run = game_player.run(game.program, frames: 2)
-    rom = game.build_rom(out: nil, err: nil, profile: false)
-    console = assert_emulator_loads_rom(rom, frames: 4, vars: rom.var_addresses)
-    slot_of_c = run.pool(:thing, :id).index(3)
-
-    assert_equal [[321, slot_of_c], [321, slot_of_c]],
-                 [[run[:order], run[:first_slot]], [console.var(:order), console.var(:first_slot)]]
-  end
-
-  def test_a_walk_order_that_is_not_true_or_false_is_a_friendly_error
-    err = assert_raises(ArgumentError) { walking_game(newest_first: :yes).program }
-    assert_match(/needs true or false/, err.message)
   end
 
   # TWO THINGS ROLL THE SAME NUMBERS WHATEVER SLOTS THEY LANDED IN. Both games spawn 1 then 2
@@ -247,37 +189,16 @@ class TestPoolWalkOrder < Minitest::Test
     end
   end
 
-  # The slots 1 and 2 landed in, after the walk that rolls.
-  private def slots_of_one_and_two(game)
-    run = game_player.run(game.program, frames: 6)
-    ids = run.pool(:thing, :id) # an entry a slot, nil where the slot is free
-    [1, 2].map { |id| ids.index(id) }
-  end
-
+  # The two rolls the game makes, after the walk that rolls.
   private def rolls(game)
     run = game_player.run(game.program, frames: 6)
-    rom = game.build_rom(out: nil, err: nil, profile: false)
-    console = assert_emulator_loads_rom(rom, frames: 6, vars: rom.var_addresses)
-    [[run[:first_roll], run[:second_roll]], [console.var(:first_roll), console.var(:second_roll)]]
-  end
-
-  def test_random_numbers_are_rolled_in_the_order_things_were_spawned
-    plain = rolls(rolling_game(shuffled: false))
-    plain_slots = slots_of_one_and_two(rolling_game(shuffled: false))
-    shuffled_slots = slots_of_one_and_two(rolling_game(shuffled: true))
-
-    assert_operator plain_slots.first, :>, plain_slots.last, "plain: 1 sits above 2"
-    assert_operator shuffled_slots.first, :<, shuffled_slots.last, "shuffled: 1 sits below 2"
-    assert_equal plain.first, plain.last, "the two backends roll alike"
-    refute_equal plain.first.first, plain.first.last, "the two rolls differ, so an order shows"
-    assert_equal plain, rolls(rolling_game(shuffled: true))
+    [run[:first_roll], run[:second_roll]]
   end
 
   # A KEPT POOL COMES BACK IN ITS ORDER. The first run removes 1 and spawns 4 into its slot,
   # then saves; the second run loads that save at power-on and its first walk goes 2, 3, 4.
-  # The save is made on the interpreter, and both backends start from it.
-  def test_a_saved_pool_loads_back_in_its_order
-    game = VBlank.game("WALKSAVE", consoles: %i[gba]) do
+  private def saved_pool_game
+    VBlank.game("WALKSAVE", consoles: %i[gba]) do
       screen :bitmap
       order = var :order, 0
       first = var :first, 0
@@ -297,20 +218,13 @@ class TestPoolWalkOrder < Minitest::Test
         passes.add! 1
       end
     end
-    image = VBlank::IR::SaveImage.new
-    game_player(save: image).run(game.program, frames: 10)
-    loaded = game_player(save: image).run(game.program, frames: 1)
-    rom = game.build_rom(out: nil, err: nil, profile: false)
-    console = assert_emulator_loads_rom(rom, frames: 6, save: image, vars: rom.var_addresses)
-
-    assert_equal [234, 234], [loaded[:first], console.var(:first)]
   end
 
   # A SAVE MADE DURING A WALK, AFTER A REMOVAL, holds a thing the walk has not yet let go of.
   # Loaded at power-on, the next spawn into the full pool still appears: 1 was removed, so
   # there is room for 4 without recycling 2.
-  def test_a_spawn_after_loading_a_save_made_during_a_walk_appears
-    game = VBlank.game("WALKSAVE2", consoles: %i[gba]) do
+  private def save_during_walk_game
+    VBlank.game("WALKSAVE2", consoles: %i[gba]) do
       screen :bitmap
       first = var :first, 0
       order = var :order, 0
@@ -334,42 +248,36 @@ class TestPoolWalkOrder < Minitest::Test
         passes.add! 1
       end
     end
+  end
+
+  # The save +game+ makes on its first run, made on the interpreter.
+  private def save_made_by(game)
     image = VBlank::IR::SaveImage.new
     game_player(save: image).run(game.program, frames: 10)
-    loaded = game_player(save: image).run(game.program, frames: 1)
-    rom = game.build_rom(out: nil, err: nil, profile: false)
-    console = assert_emulator_loads_rom(rom, frames: 6, save: image, vars: rom.var_addresses)
-
-    assert_equal [234, 234], [loaded[:first], console.var(:first)]
+    image
   end
 
   # `full?` says what a spawn will find: during a walk a removed thing's slot is not free
   # yet, so a pool that had no room still has none, and after the walk it has one.
-  def test_full_agrees_with_spawn_during_a_walk
-    game = walking_game(capacity: 2, setup: spawning(1, 2),
-                        visit: lambda { |things, t, passes|
-                          said = var :said_full_during, 0
-                          ((passes == 0) & (t.id == 1)).then do
-                            t.remove
-                            things.full?.then { said.set! 1 }
-                          end
-                        },
-                        pass: lambda { |things, passes|
-                          said = var :said_full_after, 0
-                          (passes == 1).then { things.full?.then { said.set! 1 } }
-                        })
-    run = game_player.run(game.program, frames: 4)
-    rom = game.build_rom(out: nil, err: nil, profile: false)
-    console = assert_emulator_loads_rom(rom, frames: 8, vars: rom.var_addresses)
-
-    assert_equal [[1, 0], [1, 0]], [[run[:said_full_during], run[:said_full_after]],
-                                    [console.var(:said_full_during), console.var(:said_full_after)]]
+  private def full_during_walk_game
+    walking_game(capacity: 2, setup: spawning(1, 2),
+                 visit: lambda { |things, t, passes|
+                   said = var :said_full_during, 0
+                   ((passes == 0) & (t.id == 1)).then do
+                     t.remove
+                     things.full?.then { said.set! 1 }
+                   end
+                 },
+                 pass: lambda { |things, passes|
+                   said = var :said_full_after, 0
+                   (passes == 1).then { things.full?.then { said.set! 1 } }
+                 })
   end
 
   # A pool bigger than a byte's half holds slot numbers past 127, and still walks in order.
   # Each thing is visited where its id says: :in_place counts the ones that were.
-  def test_a_large_pool_walks_in_order
-    game = VBlank.game("WALKBIG", consoles: %i[gba]) do
+  private def large_pool_game
+    VBlank.game("WALKBIG", consoles: %i[gba]) do
       screen :bitmap
       in_place = var :in_place, 0
       expected = var :expected, 0
@@ -384,10 +292,137 @@ class TestPoolWalkOrder < Minitest::Test
         end
       end
     end
-    run = game_player.run(game.program, frames: 2)
-    rom = game.build_rom(out: nil, err: nil, profile: false)
-    console = assert_emulator_loads_rom(rom, frames: 4, vars: rom.var_addresses)
+  end
+end
 
-    assert_equal [200, 200], [run[:in_place], console.var(:in_place)]
+# A POOL IS WALKED IN THE ORDER ITS THINGS WERE ADDED, whatever slot each landed in: a thing
+# removed leaves the order, and a new one always goes last. Games depend on it where a player
+# can see it — things that roll random numbers one after another, and things that act on
+# each other first come, first served.
+#
+# Each game (in PoolWalkOrderGames, above) writes the order a walk visits its things as one
+# number. Every run must read the number written here, and the Advance's cartridge reads the
+# same in test/lowering/gba/vblank/dsl/test_pool_walk_order_cartridge.rb.
+class TestPoolWalkOrder < Minitest::Test
+  include PoolWalkOrderGames
+
+  # The game's run reads +expected+ as [:first, :order] after enough frames for every event to
+  # have happened and the walk to have settled.
+  private def assert_orders(expected, game, frames: 8)
+    run = game_player.run(game.program, frames: frames)
+    assert_equal expected, [run[:first], run[:order]]
+  end
+
+  def test_things_are_walked_in_the_order_they_were_spawned
+    assert_orders [123, 123], spawn_order_game
+  end
+
+  def test_a_thing_spawned_into_a_freed_slot_is_walked_last
+    assert_orders [123, 134], freed_slot_game
+  end
+
+  def test_a_thing_that_removes_itself_does_not_stop_the_walk
+    assert_orders [123, 23], self_removing_game
+  end
+
+  def test_a_thing_removed_before_its_turn_is_passed_over
+    assert_orders [12, 12], removed_before_turn_game
+  end
+
+  def test_a_thing_spawned_during_the_walk_waits_for_the_next_walk
+    assert_orders [123, 129], spawned_during_walk_game
+  end
+
+  def test_a_full_pool_recycles_its_first_thing_and_walks_the_new_one_last
+    assert_orders [123, 234], recycling_game
+  end
+
+  def test_a_full_pool_recycling_inside_its_own_walk_drops_the_spawn
+    assert_orders [123, 123], recycling_inside_walk_game
+  end
+
+  def test_a_newest_first_walk_is_the_reverse_of_spawn_order
+    assert_orders [321, 321], newest_first_game
+  end
+
+  def test_a_newest_first_walk_starts_at_a_thing_spawned_into_a_freed_slot
+    assert_orders [321, 431], newest_first_freed_slot_game
+  end
+
+  def test_a_thing_that_removes_itself_does_not_stop_a_newest_first_walk
+    assert_orders [321, 21], newest_first_self_removing_game
+  end
+
+  def test_a_newest_first_walk_inside_one_keeps_its_place
+    assert_orders [32, 32], newest_first_nested_walk_game
+  end
+
+  def test_a_thing_spawned_during_a_newest_first_walk_waits_for_the_next_walk
+    assert_orders [321, 932], newest_first_spawned_during_walk_game
+  end
+
+  def test_a_newest_first_walk_starts_at_the_thing_a_full_pool_recycled_for
+    assert_orders [321, 432], newest_first_recycling_game
+  end
+
+  def test_a_full_pool_recycling_inside_its_own_newest_first_walk_drops_the_spawn
+    assert_orders [321, 321], newest_first_recycling_inside_walk_game
+  end
+
+  def test_a_pool_routine_called_from_a_newest_first_walk_gets_each_thing_in_turn
+    run = game_player.run(pool_routine_game.program, frames: 2)
+    slot_of_c = run.pool(:thing, :id).index(3)
+
+    assert_equal [321, slot_of_c], [run[:order], run[:first_slot]]
+  end
+
+  def test_a_walk_order_that_is_not_true_or_false_is_a_friendly_error
+    err = assert_raises(ArgumentError) { walking_game(newest_first: :yes).program }
+    assert_match(/needs true or false/, err.message)
+  end
+
+  # The slots 1 and 2 landed in, after the walk that rolls.
+  private def slots_of_one_and_two(game)
+    run = game_player.run(game.program, frames: 6)
+    ids = run.pool(:thing, :id) # an entry a slot, nil where the slot is free
+    [1, 2].map { |id| ids.index(id) }
+  end
+
+  def test_random_numbers_are_rolled_in_the_order_things_were_spawned
+    plain = rolls(rolling_game(shuffled: false))
+    plain_slots = slots_of_one_and_two(rolling_game(shuffled: false))
+    shuffled_slots = slots_of_one_and_two(rolling_game(shuffled: true))
+
+    assert_operator plain_slots.first, :>, plain_slots.last, "plain: 1 sits above 2"
+    assert_operator shuffled_slots.first, :<, shuffled_slots.last, "shuffled: 1 sits below 2"
+    refute_equal plain.first, plain.last, "the two rolls differ, so an order shows"
+    assert_equal plain, rolls(rolling_game(shuffled: true))
+  end
+
+  # The save is made on the interpreter, and the game starts from it.
+  def test_a_saved_pool_loads_back_in_its_order
+    game = saved_pool_game
+    loaded = game_player(save: save_made_by(game)).run(game.program, frames: 1)
+
+    assert_equal 234, loaded[:first]
+  end
+
+  def test_a_spawn_after_loading_a_save_made_during_a_walk_appears
+    game = save_during_walk_game
+    loaded = game_player(save: save_made_by(game)).run(game.program, frames: 1)
+
+    assert_equal 234, loaded[:first]
+  end
+
+  def test_full_agrees_with_spawn_during_a_walk
+    run = game_player.run(full_during_walk_game.program, frames: 4)
+
+    assert_equal [1, 0], [run[:said_full_during], run[:said_full_after]]
+  end
+
+  def test_a_large_pool_walks_in_order
+    run = game_player.run(large_pool_game.program, frames: 2)
+
+    assert_equal 200, run[:in_place]
   end
 end

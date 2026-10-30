@@ -11,14 +11,21 @@ require "differential"
 # still catch a menu that moved its pick and drew somewhere else. The rows are given
 # distinct colours for the same reason: "picked" is a colour on the screen, not a
 # flag in memory.
-class TestMenu < Minitest::Test
-  include Differential
-
+#
+# Where the Advance's console draws the cursor, read in the emulator, is in
+# test/lowering/gba/vblank/effects/packs/test_menu_cartridge.rb, which lays its menu out by the
+# measures kept here in MenuLayout.
+module MenuLayout
   X = 60           # where the labels start
   Y = 40           # the top of the first row
   SPACING = 20     # from one row's top to the next
   CURSOR_W = 11    # ">" plus a space, in the built-in font
   ROWS = ["ONE", "TWO", "THREE", "FOUR"].freeze
+end
+
+class TestMenu < Minitest::Test
+  include Differential
+  include MenuLayout
 
   PICKED = Color.resolve(:white)
   PLAIN = Color.resolve(:gray)
@@ -734,29 +741,6 @@ class TestMenu < Minitest::Test
     assert_backends_agree(tiled_menu, frames: 3)
   end
 
-  def test_a_tiled_menu_moves_on_real_hardware
-    require_emulator!
-    rom = VBlank.build("TMENU", console: :gba, code: "BTMN", maker: "01", validate: false) do
-      screen :tiled
-      game_loop do
-        menu(:main, at: [X, Y], spacing: SPACING, picked: :white, color: :gray) do |rows|
-          ROWS.each_with_index { |label, i| rows.item(label, enabled: i != 1) }
-        end
-      end
-    end
-
-    cursor_pixel = ->(row) { [X - CURSOR_W, Y + (row * SPACING) + 1] }
-
-    still = assert_emulator_loads_rom(rom, frames: 4)
-
-    assert still.white?(*cursor_pixel.call(0)), "the cursor rests beside the first row"
-
-    moved = assert_emulator_loads_rom(rom, frames: 6, keys: VBlank::Console::Hardware::KEY_DOWN)
-
-    assert moved.white?(*cursor_pixel.call(2)),
-           "the console composites the cursor onto the row it walked to"
-  end
-
   # ---- the guardrail ----
 
   private def warnings(program)
@@ -776,34 +760,6 @@ class TestMenu < Minitest::Test
 
   def test_a_menu_inside_a_game_loop_is_not_flagged
     refute_includes warnings(menu_program), :menu_needs_game_loop
-  end
-
-  # ---- on the console ----
-
-  def test_the_cursor_moves_on_real_hardware
-    require_emulator!
-    rom = VBlank.build("MENU", console: :gba, code: "BMNU", maker: "01", validate: false) do
-      screen :bitmap
-      game_loop do
-        clear_screen :black
-        menu(:main, at: [X, Y], spacing: SPACING, picked: :white, color: :gray) do |rows|
-          ROWS.each_with_index { |label, i| rows.item(label, enabled: i != 1) }
-        end
-      end
-    end
-
-    # The cursor's ">" is a chevron: its second row is one pixel at the left edge.
-    cursor_pixel = ->(row) { [X - CURSOR_W, Y + (row * SPACING) + 1] }
-
-    still = assert_emulator_loads_rom(rom, frames: 4)
-
-    assert still.white?(*cursor_pixel.call(0)), "the cursor rests beside the first row"
-    assert still.black?(*cursor_pixel.call(2)), "and nowhere else"
-
-    moved = assert_emulator_loads_rom(rom, frames: 6, keys: VBlank::Console::Hardware::KEY_DOWN)
-
-    assert moved.white?(*cursor_pixel.call(2)),
-           "holding down walks past the row that cannot be picked, to row 2"
   end
 
   def test_both_backends_draw_the_same_menu

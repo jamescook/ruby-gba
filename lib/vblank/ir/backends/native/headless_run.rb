@@ -215,7 +215,7 @@ module VBlank
           # budget (+max_steps+) is the interpreter's own and is refused: the C keeps no count of
           # its steps.
           def run(program, max_steps: nil, frames: nil)
-            raise CannotAnswer, "the native lowering keeps no step budget, so it cannot run with max_steps" if max_steps
+            raise RunComparison::AsksTheInterpreter, "a step budget (`max_steps:`)" if max_steps
 
             @save.use_memory!(SaveLayout.memory_of(program))
             @console = program.described_console
@@ -298,8 +298,8 @@ module VBlank
           # test_native_headless_run.rb holds this list to every public method the interpreter
           # has, so one added there and not here fails that test.
           def frame = refuse_unanswered!(:frame)
-          def frames_each_pass(&) = refuse_unanswered!(:frames_each_pass)
-          def frames_setting_up(*) = refuse_unanswered!(:frames_setting_up)
+          def frames_each_pass(&) = raise(RunComparison::AsksTheInterpreter, "for a pass to take several frames (`frames_each_pass`)")
+          def frames_setting_up(*) = raise(RunComparison::AsksTheInterpreter, "how many frames setting up takes (`frames_setting_up`)")
           def log = refuse_unanswered!(:log)
           def screen_mode = refuse_unanswered!(:screen_mode)
           def write_save_copy(*) = refuse_unanswered!(:write_save_copy)

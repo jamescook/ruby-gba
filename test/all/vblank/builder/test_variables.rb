@@ -164,7 +164,7 @@ class TestVariables < Minitest::Test
     end
     builder.finalize_program
 
-    i = VBlank::IR::Backends::Reference.new.run(builder.program, max_steps: 5_000)
+    i = game_player.run(builder.program, frames: 5)
     assert_operator i[:ticks], :>, 1,
                     "var's initializer runs once at boot, so the counter accumulates rather than resetting to 0 each frame"
   end

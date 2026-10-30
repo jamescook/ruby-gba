@@ -3,12 +3,10 @@
 require "test_helper"
 require "differential"
 
-# A LIST OF SPRITE COLOURS THAT HOLDS OTHER COLOURS while the game runs. A sprite told to
-# draw with a list is drawn in whatever that list holds now, so one list can dress a
-# goblin in one room and a bat in the next: the list is a slot, and `recolor` says what
-# is in it.
-class TestRecolor < Minitest::Test
-  include Differential
+# The games these tests play, shared with the Advance cartridge's own test of the same colours
+# (test/lowering/gba/vblank/builder/test_recolor_cartridge.rb).
+module RecolorGames
+  include SharedConstants
 
   OWN = [:transparent, :red, :green].freeze
   SLOT = [:transparent, :blue, :white].freeze
@@ -18,12 +16,6 @@ class TestRecolor < Minitest::Test
   # An 8x8 ship, left half the first colour of its list and right half the second, so a
   # swapped colour shows at a known place.
   SHIP = Array.new(64) { |i| (i % 8) < 4 ? :red : :green }.freeze
-
-  # More sets of colours than the console has groups for sprites.
-  SETS = 20
-
-  # Set number +n+: two colours no other set has.
-  def self.set(n) = [:transparent, VBlank::Graphics::Color.rgb(n, 31 - n, 5), VBlank::Graphics::Color.rgb(31 - n, n, 9)]
 
   # The ship's picture and the lists, then whatever the block declares.
   private def built(&body)
@@ -50,6 +42,22 @@ class TestRecolor < Minitest::Test
       game_loop { instance_exec(ship, &game) }
     end
   end
+end
+
+# A LIST OF SPRITE COLOURS THAT HOLDS OTHER COLOURS while the game runs. A sprite told to
+# draw with a list is drawn in whatever that list holds now, so one list can dress a
+# goblin in one room and a bat in the next: the list is a slot, and `recolor` says what
+# is in it. The Advance cartridge's own pixels are read in
+# test/lowering/gba/vblank/builder/test_recolor_cartridge.rb.
+class TestRecolor < Minitest::Test
+  include Differential
+  include RecolorGames
+
+  # More sets of colours than the console has groups for sprites.
+  SETS = 20
+
+  # Set number +n+: two colours no other set has.
+  def self.set(n) = [:transparent, VBlank::Graphics::Color.rgb(n, 31 - n, 5), VBlank::Graphics::Color.rgb(31 - n, n, 9)]
 
   # The ship's two halves, as the interpreter draws them after +frames+.
   private def halves(program, frames: 3)
@@ -114,14 +122,12 @@ class TestRecolor < Minitest::Test
 
   # --- the console ---
 
-  # The console's own pixels, read off the cartridge rather than compared with the
-  # interpreter's, so the two cannot agree on showing nothing.
+  # The console's own pixels are read off the cartridge in the Advance's own test of this; here
+  # the picture is held to the colours the list holds, and to the interpreter's.
   def test_the_console_shows_the_colors_the_list_holds_now
     recolored = program { |_ship| recolor :slot, :warm }
-    v = assert_emulator_loads_rom(assemble_rom(recolored, name: "RECOLOR"), frames: 6)
 
-    assert v.pixel_is?(41, 41, :yellow), "the left half is #{v.pixel_gba(41, 41)}"
-    assert v.pixel_is?(45, 41, :orange), "the right half is #{v.pixel_gba(45, 41)}"
+    assert_equal colors_of(:yellow, :orange), halves(recolored)
     assert_backends_agree(recolored, frames: 3)
   end
 
@@ -210,34 +216,6 @@ class TestRecolor < Minitest::Test
 
     assert_equal colors_of(:yellow, :yellow), [i.screen.pixel(41, 41), i.screen.pixel(81, 41)]
     assert_backends_agree(guards_drawn_with_the_list, frames: 4)
-  end
-
-  # THE SHAPE THIS IS FOR: a room's things stand on one pool, each drawn with one of a few
-  # lists that are slots, and walking into the next room fills every slot from that room's
-  # row of sets on the same frame. Four slots declared alike, so each has to have a group of
-  # its own; room 0 wears sets 0 to 3 and room 1, from the third pass, sets 4 to 7.
-  private def room_of_things
-    klass = self.class
-    built do
-      sets = (0...SETS).map { |n| colors :"set#{n}", klass.set(n) }
-      slots = (0...4).map { |n| colors :"slot#{n}", SLOT }
-      things = pool :thing, x: 0, y: 0, slot: 0, capacity: 4, image: :ship
-      4.times { |n| things.spawn x: 40 + (n * 20), y: 40, slot: n }
-      room = var :room, 0
-      pass = var :pass, 0
-      game_loop do
-        pass.add! 1
-        (pass == 3).then { room.set! 1 }
-        things.each { |thing| thing.draw_with slots, showing: thing.slot }
-        slots.each_with_index { |slot, n| recolor slot, sets, showing: (room * 4) + n }
-      end
-    end
-  end
-
-  # The left half of each of the four things, as the interpreter draws them after +frames+.
-  private def things_drawn(frames)
-    i = game_player.run(room_of_things, frames: frames)
-    (0...4).map { |n| i.screen.pixel(41 + (n * 20), 41) }
   end
 
   # --- friendly errors ---

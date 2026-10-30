@@ -8,8 +8,13 @@ require "test_helper"
 # of itself every so many 128ths of a second, up or down, with nothing from the game — a zap, a
 # laser, a swoop down. Sliding up, the pitch climbs faster and faster until it runs past the top
 # of what the voice can play, and the voice goes silent, which is how most zaps end.
-class TestSongPitchSlides < Minitest::Test
-  PitchSlide = VBlank::Audio::PitchSlide
+#
+# What the Advance's cartridge tells that voice, read in the emulator, is in
+# test/lowering/gba/vblank/audio/test_song_pitch_slides_cartridge.rb.
+
+# The song game, shared with the cartridge's test.
+module SongPitchSlidesGames
+  include SharedConstants
 
   # One song, written by the block, played until its notes have all started.
   private def song_game(&parts)
@@ -28,6 +33,12 @@ class TestSongPitchSlides < Minitest::Test
     b.finalize_program
     b.program
   end
+end
+
+class TestSongPitchSlides < Minitest::Test
+  include SongPitchSlidesGames
+
+  PitchSlide = VBlank::Audio::PitchSlide
 
   # What the song set its voices to, in the order it set them: [voice, pitch, volume, slide]. Two
   # quarters are 48 frames, so 40 is every note of a two-note part once, before it comes round.
@@ -115,16 +126,6 @@ class TestSongPitchSlides < Minitest::Test
 
     assert_equal [[:loudness, 2, 6]], after.select { |entry| entry.first == :loudness },
                  "the bass is struck again at half; the sliding lead is left to slide"
-  end
-
-  # THE CONSOLE IS TOLD in the first square voice's sweep register: the 128ths of a second each
-  # step waits in bits 4 to 6, 8 when it slides down, and the shift under that. A slow slide waits
-  # seven, the most there is, which takes the register's top bit too.
-  def test_the_console_is_told_how_each_note_slides
-    program = song_game { voice(:lead) { |v| v.note :C5, :whole, slide_down: :slow } }
-    console = assert_emulator_loads_rom(assemble_rom(program, name: "SLIDES"), frames: 4)
-
-    assert_equal (7 << 4) | 8 | 5, console.mem16(VBlank::Console::Hardware::REG_SOUND1CNT_L) & 0x7F
   end
 
   # --- what a slide cannot be said of ---

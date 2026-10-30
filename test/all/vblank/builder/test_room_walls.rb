@@ -13,20 +13,18 @@ require "differential"
 # the tileset's `solid:` tiles, read off the picture, which is what a small game wants.
 # With `walls:` they are their own data — which is what a real game's collision is, and
 # what lets a map say it has no walls at all.
-class TestRoomWalls < Minitest::Test
-  include VBlank::Console::Hardware
-  include Differential
+#
+# What the Advance's cartridge shows, and what its wall check costs in bytes, is in
+# test/lowering/gba/vblank/builder/test_room_walls_cartridge.rb, which plays the rooms kept here
+# in RoomWallsGames.
+module RoomWallsGames
+  include SharedConstants # Builder and SOLID_TILE, which the game below names from inside the module
 
   # Two rooms the same size. In the hall, cell (2, 1) is a wall; in the cave that same
   # cell is open floor. A hero starting at cell (1, 1) and walking right is stopped in
   # one room and walks on in the other — from the same program, at the same spot.
   HALL = [".....", "..#..", "....."].freeze
   CAVE = [".....", ".....", "....."].freeze
-
-  # The same two rooms drawn IDENTICALLY, so nothing about the picture says where the
-  # walls are. Only `walls:` does.
-  PLAIN = [".....", ".....", "....."].freeze
-  HALL_WALLS = ["     ", "  #  ", "     "].freeze
 
   private def rooms(maps:, walls: nil, solid: ["#"], start: [8, 8])
     builder = Builder.new
@@ -50,6 +48,17 @@ class TestRoomWalls < Minitest::Test
     builder.finalize_program
     builder.program
   end
+end
+
+class TestRoomWalls < Minitest::Test
+  include VBlank::Console::Hardware
+  include Differential
+  include RoomWallsGames
+
+  # The same two rooms drawn IDENTICALLY, so nothing about the picture says where the
+  # walls are. Only `walls:` does.
+  PLAIN = [".....", ".....", "....."].freeze
+  HALL_WALLS = ["     ", "  #  ", "     "].freeze
 
   private def walked_to(program, press_a_on: nil)
     game_player.input_each_frame { |f| f == press_a_on ? [:a] : [] }.run(program, frames: 30)[:moved]
@@ -117,67 +126,7 @@ class TestRoomWalls < Minitest::Test
     assert_match(/walk straight through/, err.message)
   end
 
-  # --- what a room costs ---
-
-  # A bordered room with a scattering of pillars, +seed+ deciding where they fall, so two
-  # rooms can differ without anything else about the game changing.
-  private def scattered_room(seed)
-    r = Random.new(seed)
-    (0...10).map do |row|
-      (0...20).map do |col|
-        edge = row.zero? || col.zero? || row == 9 || col == 19
-        edge || r.rand(10).zero? ? "#" : "."
-      end.join
-    end
-  end
-
-  private def blocked_game(room_count)
-    maps = (0...room_count).to_h { |i| [:"r#{i}", scattered_room(i)] }
-    VBlank.build("ROOMS", console: :gba, code: "BRMS", maker: "01", validate: false,
-                  out: StringIO.new, err: StringIO.new) do
-      screen :tiled
-      image(:wall_t, "#" => :blue) { SOLID_TILE }
-      image(:floor_t, "#" => rgb(8, 8, 8)) { SOLID_TILE }
-      image(:hero_t, "#" => :red) { SOLID_TILE }
-      tiles :dungeon, "#" => :wall_t, "." => :floor_t, solid: ["#"]
-      room = background :room, tiles: :dungeon, map: maps
-      hero = sprite :hero_t, at: [16, 16]
-      hero.blocked_by room
-      game_loop { hero.move(:right, by: 1); hero.move(:down, by: 1) }
-    end
-  end
-
-  private def check_bytes(rom)
-    rom.built.placement.sizes.select { |name, _| name.to_s.include?("tile_collision") }.values.sum
-  end
-
-  # THE ONE THAT MATTERS. The map to read is worked out once for the whole check, not once
-  # per cell, so a game with sixty-four rooms asks its walls exactly what a game with two
-  # asks. Without that the offset would ride on every one of the nine reads a check makes.
-  def test_what_a_wall_check_costs_does_not_depend_on_how_many_rooms_there_are
-    assert_equal check_bytes(blocked_game(2)), check_bytes(blocked_game(64)),
-                 "two rooms and sixty-four must emit the same check"
-  end
-
-  # ...and the offset itself is the only thing a second room adds.
-  def test_a_second_room_adds_the_offset_and_nothing_else
-    one = check_bytes(blocked_game(1))
-    many = check_bytes(blocked_game(64))
-
-    assert_operator many, :>, one, "a background with several maps has to pick which one"
-    assert_operator many - one, :<, 256, "...and picking it is a fixed handful of instructions"
-  end
-
   # --- both backends ---
-
-  def test_the_console_stops_the_mover_in_the_same_place
-    program = rooms(maps: { hall: HALL, cave: CAVE })
-    rom = ROM.assemble(GBA.new.lower(program), title: "ROOMS", code: "BROO", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 30)
-
-    assert v.red?(12, 12), "the hero rests flush against the hall's wall (its body at x8..15)"
-    assert v.blue?(20, 12), "and the wall is right there at x16"
-  end
 
   # Whole-screen, frame by frame, while the hero is still walking — so the path it took
   # through the room is pinned and not only where it ended up.

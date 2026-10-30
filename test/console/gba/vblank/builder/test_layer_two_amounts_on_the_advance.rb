@@ -3,6 +3,76 @@
 require "test_helper"
 require "differential"
 
+# The games these tests play and the colours they mix to, kept once for the two screens read
+# back on the Advance's cartridge
+# (test/lowering/gba/vblank/builder/test_layer_two_amounts_on_the_advance_cartridge.rb).
+module LayerTwoAmountsGames
+  include SharedConstants
+
+  private def program(&block)
+    b = Builder.new
+    b.instance_eval(&block)
+    b.finalize_program
+    b.program
+  end
+
+  private def rgb5(r, g, b) = r | (g << 5) | (b << 10)
+
+  # Each channel is (pane x 15 + floor x 10) / 16, the sixteenth dropped once, worked in
+  # eight bits the way the emulator mixes (16 is 132, 20 is 165, 31 is 255) and taken back
+  # to five. Measured on the console, where the five-bit sum gives (27, 10, 20).
+  DIM = [8, 8].freeze
+  # (132*15 + 165*10) / 16 = 226 -> 28, (66*15 + 33*10) / 16 = 82 -> 10, (16*15 + 247*10) / 16 = 169 -> 21
+  DIM_MIXED = [28, 10, 21].freeze
+  BRIGHT = [200, 8].freeze
+  # red: 255*25/16 is past full, so 31; green and blue: 255*15/16 = 239 -> 29
+  BRIGHT_MIXED = [31, 29, 29].freeze
+
+  # ONE SEE-THROUGH LAYER PER SCREEN, NOT PER GAME. A title whose light rays the game
+  # steps, and a file screen whose window sits over its backdrop at fixed amounts: each
+  # scene has a see-through layer of its own, and the two are never on screen together.
+  # A press of A moves from the title to the file screen, and a press of B back.
+  private def two_screens_program
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:forest, "#" => rgb(20, 4, 30)) { tile }
+      image(:ray, "#" => rgb(16, 8, 2)) { tile }
+      image(:backdrop, "#" => :red) { tile }
+      image(:window, "#" => :white) { tile }
+      tiles :forests, "#" => :forest
+      tiles :rays, "#" => :ray
+      tiles :backdrops, "#" => :backdrop
+      tiles :windows, "#" => :window
+      full = Array.new(20) { "#" * 30 }
+      layers :back, :rays, :window
+      glow = var :glow, 0
+      where = var :where, 0
+      scene :title do
+        layer(:back) { background :forest, tiles: :forests, map: full }
+        layer(:rays, shows: 57 - glow, shows_behind: 57 + glow) { background :ray, tiles: :rays, map: full }
+      end
+      scene :files do
+        layer(:back) { background :backdrop, tiles: :backdrops, map: full }
+        layer(:window, shows: 94, shows_behind: 63) { background :window, tiles: :windows, map: full }
+      end
+      game_loop do
+        pressed(:a).then { where.set! 1 }
+        pressed(:b).then { where.set! 0 }
+        glow.set! 6
+        case_var(:where) do
+          when_val 0, :title
+          when_val 1, :files
+        end
+      end
+    end
+  end
+
+  # (forest x 8 + ray x 10) / 16 in eight-bit channels: 165*8 + 132*8 ... worked out as
+  # the title's rays at 51 and 63, which are 8 and 10 sixteenths.
+  private def title_pixel = game_player.run(two_screens_program, frames: 4).screen.pixel(*DIM)
+end
+
 # THE TESTS OF vblank/builder/test_layer_two_amounts.rb THAT ONLY THE GAME BOY ADVANCE CAN PLAY, kept apart so that the
 # Game Boy Color's run never loads them (test/console/gba); the rest are in that file.
 #
@@ -15,13 +85,7 @@ require "differential"
 # and 63 is 10/16, the pair a retail cartridge's file-select window is drawn with.
 class TestLayerTwoAmountsOnTheAdvance < Minitest::Test
   include Differential
-
-  private def program(&block)
-    b = Builder.new
-    b.instance_eval(&block)
-    b.finalize_program
-    b.program
-  end
+  include LayerTwoAmountsGames
 
   # Two columns of floor under a pane: on the left a dim pane over a dim floor, where
   # nothing reaches full brightness; on the right white over red, where red and green
@@ -44,18 +108,6 @@ class TestLayerTwoAmountsOnTheAdvance < Minitest::Test
       game_loop { effect ? public_send(*effect) : wait_vblank }
     end
   end
-
-  private def rgb5(r, g, b) = r | (g << 5) | (b << 10)
-
-  # Each channel is (pane x 15 + floor x 10) / 16, the sixteenth dropped once, worked in
-  # eight bits the way the emulator mixes (16 is 132, 20 is 165, 31 is 255) and taken back
-  # to five. Measured on the console, where the five-bit sum gives (27, 10, 20).
-  DIM = [8, 8].freeze
-  # (132*15 + 165*10) / 16 = 226 -> 28, (66*15 + 33*10) / 16 = 82 -> 10, (16*15 + 247*10) / 16 = 169 -> 21
-  DIM_MIXED = [28, 10, 21].freeze
-  BRIGHT = [200, 8].freeze
-  # red: 255*25/16 is past full, so 31; green and blue: 255*15/16 = 239 -> 29
-  BRIGHT_MIXED = [31, 29, 29].freeze
 
   def test_a_layer_can_show_itself_and_what_is_behind_by_amounts_of_their_own
     screen = game_player.run(pane_program(shows: 94, behind: 63), frames: 2).screen
@@ -224,50 +276,6 @@ class TestLayerTwoAmountsOnTheAdvance < Minitest::Test
     assert_empty mismatched_pixels(oracle, console)
   end
 
-  # ONE SEE-THROUGH LAYER PER SCREEN, NOT PER GAME. A title whose light rays the game
-  # steps, and a file screen whose window sits over its backdrop at fixed amounts: each
-  # scene has a see-through layer of its own, and the two are never on screen together.
-  # A press of A moves from the title to the file screen, and a press of B back.
-  private def two_screens_program
-    tile = SOLID_TILE
-    program do
-      screen :tiled
-      image(:forest, "#" => rgb(20, 4, 30)) { tile }
-      image(:ray, "#" => rgb(16, 8, 2)) { tile }
-      image(:backdrop, "#" => :red) { tile }
-      image(:window, "#" => :white) { tile }
-      tiles :forests, "#" => :forest
-      tiles :rays, "#" => :ray
-      tiles :backdrops, "#" => :backdrop
-      tiles :windows, "#" => :window
-      full = Array.new(20) { "#" * 30 }
-      layers :back, :rays, :window
-      glow = var :glow, 0
-      where = var :where, 0
-      scene :title do
-        layer(:back) { background :forest, tiles: :forests, map: full }
-        layer(:rays, shows: 57 - glow, shows_behind: 57 + glow) { background :ray, tiles: :rays, map: full }
-      end
-      scene :files do
-        layer(:back) { background :backdrop, tiles: :backdrops, map: full }
-        layer(:window, shows: 94, shows_behind: 63) { background :window, tiles: :windows, map: full }
-      end
-      game_loop do
-        pressed(:a).then { where.set! 1 }
-        pressed(:b).then { where.set! 0 }
-        glow.set! 6
-        case_var(:where) do
-          when_val 0, :title
-          when_val 1, :files
-        end
-      end
-    end
-  end
-
-  # (forest x 8 + ray x 10) / 16 in eight-bit channels: 165*8 + 132*8 ... worked out as
-  # the title's rays at 51 and 63, which are 8 and 10 sixteenths.
-  private def title_pixel = game_player.run(two_screens_program, frames: 4).screen.pixel(*DIM)
-
   private def files_pixel
     game_player.input_each_frame { |frame| frame == 1 ? [:a] : [] }
              .run(two_screens_program, frames: 6).screen.pixel(*DIM)
@@ -278,30 +286,13 @@ class TestLayerTwoAmountsOnTheAdvance < Minitest::Test
     refute_equal title_pixel, files_pixel
   end
 
-  def test_the_console_gives_each_screen_its_own_mix
-    keys = ->(frame) { frame.between?(3, 4) ? VBlank::Console::Hardware::KEY_A : 0 }
+  def test_the_title_screen_is_drawn_the_same_way
     oracle, console, = backend_pictures(two_screens_program, frames: 2)
     assert_empty mismatched_pixels(oracle, console), "the title"
-
-    v = assert_emulator_loads_rom(assemble_rom(two_screens_program, name: "SCREENS"), frames: 12, keys: keys)
-    assert_equal rgb5(*BRIGHT_MIXED), v.pixel_gba(*DIM), "the file screen's window"
-
-    v.step(2, keys: VBlank::Console::Hardware::KEY_B)
-    v.step(4)
-    assert_equal title_pixel, v.pixel_gba(*DIM), "back on the title, the rays' own mix"
   end
 
-  # --- friendly errors ---
-
-  private def refused(**amounts)
-    assert_raises(ArgumentError) do
-      program do
-        screen :tiled
-        layers :glass
-        layer(:glass, **amounts) { nil }
-      end
-    end
-  end
+  # The Advance's cartridge moving between the two screens, each with its own mix, read in the
+  # emulator, is in test/lowering/gba/vblank/builder/test_layer_two_amounts_on_the_advance_cartridge.rb.
 
   def test_the_console_mixes_them_the_same_way
     oracle, console, = backend_pictures(pane_program(shows: 94, behind: 63), frames: 2)

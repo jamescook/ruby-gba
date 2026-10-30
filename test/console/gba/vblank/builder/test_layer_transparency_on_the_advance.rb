@@ -2,10 +2,11 @@
 
 require "test_helper"
 require "differential"
-require "stringio"
 
 # THE TESTS OF vblank/builder/test_layer_transparency.rb THAT ONLY THE GAME BOY ADVANCE CAN PLAY, kept apart so that the
-# Game Boy Color's run never loads them (test/console/gba); the rest are in that file.
+# Game Boy Color's run never loads them (test/console/gba); the rest are in that file. The same
+# pictures read back from the Advance's cartridge in the emulator are in
+# test/lowering/gba/vblank/builder/test_layer_transparency_on_the_advance_cartridge.rb.
 #
 # SEEING THROUGH A LAYER TO WHAT IS BEHIND IT — water, glass, fog, a dimmed backdrop
 # behind a menu.
@@ -38,19 +39,6 @@ class TestLayerTransparencyOnTheAdvance < Minitest::Test
     b.instance_eval(&block)
     b.finalize_program
     b.program
-  end
-
-  # The build report reads a finished cartridge, so a program under test has to be lowered
-  # and carry the record the build made — where each routine ended up cannot be recovered
-  # from the bytes afterwards.
-  private def report_of(prog)
-    backend = VBlank::IR::Backends::GBA.new
-    machine_code = backend.lower(prog)
-    rom = VBlank::Cartridge::ROM.assemble(machine_code, title: "LAYR", code: "LAYR", maker: "01",
-                                              built: backend.build_record(prog))
-    out = StringIO.new
-    VBlank::Diagnostics::BuildReport.render(rom, out: out)
-    out.string
   end
 
   # A red floor with a white pane over it, the pane's layer see-through by +amount+.
@@ -92,10 +80,6 @@ class TestLayerTransparencyOnTheAdvance < Minitest::Test
 
   private def shown(program, x, y, frames: 2)
     game_player.run(program, frames: frames).screen.pixel(x, y)
-  end
-
-  private def console(program, x, y, name, frames: 6)
-    assert_emulator_loads_rom(assemble_rom(program, name: name), frames: frames).pixel_gba(x, y)
   end
 
   # --- the picture ---
@@ -427,11 +411,6 @@ class TestLayerTransparencyOnTheAdvance < Minitest::Test
     assert_equal solid, shown(placed_fade_program(50, 25), *SCENERY_XY),
                  "a placed fade left the layer blending"
     assert_equal HALF_WHITE_OVER_RED, shown(placed_fade_program(50, 0), *SCENERY_XY)
-
-    on_console = console(placed_fade_program(0, 25), *SCENERY_XY, "FADPLC")
-
-    assert_equal on_console, console(placed_fade_program(50, 25), *SCENERY_XY, "FADPL2")
-    assert_equal HALF_WHITE_OVER_RED, console(placed_fade_program(50, 0), *SCENERY_XY, "FADPL3")
   end
 
   # The real shape of it: a hit flash, walked over frames by the effects pack, whose last
@@ -463,48 +442,6 @@ class TestLayerTransparencyOnTheAdvance < Minitest::Test
         (tick == FLASH_AT).then { flash_screen :black, frames: 6 }
       end
     end
-  end
-
-  # THE TWO HALVES TOGETHER, which is where a hand-back could quietly be wrong: a fade
-  # takes the blend, and the amount to give back is one the game has gone on working out
-  # while the fade ran. Mist half thick when the flash ends comes back half thick — not at
-  # the amount it started the game with.
-  #
-  # Said as "the flash left no trace": the picture afterwards is the picture the same game
-  # draws with no flash in it at all.
-  # The fade here is written by hand rather than walked by `flash_screen`, and that is the
-  # point: it lands at the END of the frame's work, after the amount for this frame has
-  # already been sent. So a hand-back that gave the amount the game STARTED with would
-  # hold for the whole frame, and the next, and every one after it.
-  private def thickening_program(lifting:)
-    tile = SOLID_TILE
-    program do
-      screen :tiled
-      image(:back, "#" => :red) { tile }
-      image(:front, "#" => :white) { tile }
-      tiles :backset, "#" => :back
-      tiles :frontset, "#" => :front
-      layers :deep, :glass
-      layer(:deep) { background :floor, tiles: :backset, map: Array.new(20) { "#" * 30 } }
-      clear = var :clear, 100
-      layer(:glass, transparency: clear) do
-        background :pane, tiles: :frontset, map: Array.new(20) { "#" * 20 }
-      end
-      tick = var :tick, 0
-      game_loop do
-        tick.add! 1
-        clear.approach! 0, 2
-        (tick > FLASH_AT).then { fade :black, 0 } if lifting
-      end
-    end
-  end
-
-  # --- what it refuses ---
-
-  # --- the guardrail ---
-
-  private def warnings(program)
-    VBlank::IR::Guardrails::Validator.new.run(program, autofix: false).warnings.map(&:check)
   end
 
   # --- a see-through layer in a game that has SCENES ---
@@ -643,7 +580,6 @@ class TestLayerTransparencyOnTheAdvance < Minitest::Test
     end
   end
 
-
   def test_a_see_through_layer_of_scenery_shows_what_is_behind_it
     seen = [0, 50, 100].map { |amount| shown(scenery_program(amount), *SCENERY_XY) }
 
@@ -711,16 +647,6 @@ class TestLayerTransparencyOnTheAdvance < Minitest::Test
     assert_equal seen.uniq, seen, "the amount was not re-read every frame"
   end
 
-  # ...and the console draws the same walk. Compared to the interpreter's own frames
-  # rather than to written-down colors, so this cannot pass by agreeing with a table.
-  def test_the_console_walks_the_same_amounts
-    rom = assemble_rom(clearing_program, name: "FOG")
-    oracle = walked(clearing_program, 10)
-    seen = (1..10).map { |f| assert_emulator_loads_rom(rom, frames: f + CONSOLE_LAG).pixel_gba(*SCENERY_XY) }
-
-    assert_equal oracle, seen
-  end
-
   # An amount is a VALUE, not only a variable — so it can be worked out from the game's
   # own state on the spot. `100 - mist` is what an example actually writes.
   def test_the_amount_can_be_worked_out_on_the_spot
@@ -745,18 +671,6 @@ class TestLayerTransparencyOnTheAdvance < Minitest::Test
     end
   end
 
-  # ...and both backends land on the SAME faded mix, which is the assertion that can
-  # catch a blend done in the wrong order. Darkening each color and then mixing them is
-  # not quite darkening the mix — the two truncate in different places — so this would
-  # fail by a step if either side moved its colors at the wrong moment.
-  def test_the_two_backends_agree_on_a_see_through_layer_under_a_fade
-    %i[scenery sprite].each do |kind|
-      assert_equal shown(faded_program(kind, 50, 25), *faded_xy(kind)),
-                   console(faded_program(kind, 50, 25), *faded_xy(kind), "FADMIX"),
-                   "the backends disagree about the #{kind} layer under a fade"
-    end
-  end
-
   # FADING TO WHITE IS THE OTHER DIRECTION AND NOT A MIRROR OF THE FIRST. Toward white a
   # channel adds a share of the headroom it has left; toward black it keeps a share of
   # what it has, and the two truncate opposite ways — so one direction can be right while
@@ -769,16 +683,10 @@ class TestLayerTransparencyOnTheAdvance < Minitest::Test
                  "the see-through layer went solid while a fade to white ran"
   end
 
-  def test_the_console_agrees_about_a_fade_to_white
-    assert_equal shown(faded_program(:scenery, 50, 25, toward: :white), *SCENERY_XY),
-                 console(faded_program(:scenery, 50, 25, toward: :white), *SCENERY_XY, "FADWHT")
-  end
-
   # ...and a fade of nothing is a lifted fade, not a fade of zero left in force.
   def test_a_lifted_fade_leaves_the_layer_see_through
     %i[scenery sprite].each do |kind|
       assert_equal HALF_WHITE_OVER_RED, shown(faded_program(kind, 50, 0), *faded_xy(kind))
-      assert_equal HALF_WHITE_OVER_RED, console(faded_program(kind, 50, 0), *faded_xy(kind), "FADOFF")
     end
   end
 
@@ -856,9 +764,6 @@ class TestLayerTransparencyOnTheAdvance < Minitest::Test
 
     refute_equal solid, shown(tinted_program(50, 50), *SCENERY_XY),
                  "a tint took the layer's blend away"
-    assert_equal shown(tinted_program(50, 50), *SCENERY_XY),
-                 console(tinted_program(50, 50), *SCENERY_XY, "TNTSEE"),
-                 "the two backends disagree about a tint over a see-through layer"
   end
 
   def test_one_flash_does_not_cost_the_layer_for_the_rest_of_the_game
@@ -948,7 +853,5 @@ class TestLayerTransparencyOnTheAdvance < Minitest::Test
 
     assert_equal green, shown(scenes_that_take_turns, *SCENERY_XY, frames: 2),
                  "the banner scene is blended on the oracle"
-    assert_equal green, console(scenes_that_take_turns, *SCENERY_XY, "SCNSLD", frames: 3),
-                 "the banner scene is blended on the console"
   end
 end

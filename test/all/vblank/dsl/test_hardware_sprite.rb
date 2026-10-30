@@ -2,14 +2,10 @@
 
 require "test_helper"
 
-# Hardware sprites: on a `screen :tiled`, `sprite :hero, at:` gives a sprite the
-# console composites over the tiled background — the SAME handle you get in bitmap
-# mode (x / y / move), so the game code doesn't change. These assert the observable
-# result: the right sprite over the background at its position, no trail when it
-# moves, and the friendly guardrails — on the interpreter oracle and on real
-# hardware. The dev never touches OAM, tile indices, or object memory.
-class TestHardwareSprite < Minitest::Test
-  include VBlank::Console::Hardware
+# The hero game, shared with the Advance's cartridge's tests
+# (test/lowering/gba/vblank/dsl/test_hardware_sprite_cartridge.rb).
+module HardwareSpriteGames
+  include SharedConstants
 
   # A blue floor of 8x8 tiles filling the screen, and a red 8x8 hero sprite that
   # slides right by +step+ while :right is held, halting after +frames+ steps so its
@@ -37,10 +33,19 @@ class TestHardwareSprite < Minitest::Test
     builder.finalize_program
     builder.program
   end
+end
 
-  private def rom_for(program)
-    ROM.assemble(GBA.new.lower(program), title: "HWSPRITE", code: "BHWS", maker: "01")
-  end
+# Hardware sprites: on a `screen :tiled`, `sprite :hero, at:` gives a sprite the
+# console composites over the tiled background — the SAME handle you get in bitmap
+# mode (x / y / move), so the game code doesn't change. These assert the observable
+# result: the right sprite over the background at its position, no trail when it
+# moves, and the friendly guardrails — on the interpreter oracle and on real
+# hardware. The dev never touches OAM, tile indices, or object memory.
+#
+# The same game on the Advance's cartridge, read in the emulator, is in
+# test/lowering/gba/vblank/dsl/test_hardware_sprite_cartridge.rb.
+class TestHardwareSprite < Minitest::Test
+  include HardwareSpriteGames
 
   # --- it renders, composited over the background ---
 
@@ -49,12 +54,6 @@ class TestHardwareSprite < Minitest::Test
     screen = game_player.run(hero_program(frames: 2)).screen
     assert_equal Color.resolve(:red),  screen.pixel(44, 44), "the hero renders over the background"
     assert_equal Color.resolve(:blue), screen.pixel(8, 8),   "the floor shows where the hero isn't"
-  end
-
-  def test_the_sprite_renders_on_the_console
-    v = assert_emulator_loads_rom(rom_for(hero_program(frames: 2)), frames: 3)
-    assert v.red?(44, 44),  "the hero renders on hardware, got 0x#{format('%04X', v.pixel_gba(44, 44))}"
-    assert v.blue?(8, 8),   "the floor renders behind it, got 0x#{format('%04X', v.pixel_gba(8, 8))}"
   end
 
   # --- it moves, and the console redraws the whole scene so no trail is left ---
@@ -66,12 +65,6 @@ class TestHardwareSprite < Minitest::Test
     screen = game_player.input_each_frame { [:right] }.run(hero_program(frames: 2 + framework_drawing_lag)).screen
     assert_equal Color.resolve(:red),  screen.pixel(60, 44), "the hero is at its new spot"
     assert_equal Color.resolve(:blue), screen.pixel(44, 44), "the start column shows floor again — no trail"
-  end
-
-  def test_a_moving_sprite_leaves_no_trail_on_the_console
-    v = assert_emulator_loads_rom(rom_for(hero_program(frames: 3)), frames: 5, keys: KEY_RIGHT)
-    assert v.red?(60, 44),  "the hero moved right, got 0x#{format('%04X', v.pixel_gba(60, 44))}"
-    assert v.blue?(44, 44), "no trail at the start column, got 0x#{format('%04X', v.pixel_gba(44, 44))}"
   end
 
   # --- friendly guardrails ---

@@ -129,7 +129,7 @@ module VBlank
           # checker reads from a folder with no flags above it otherwise. Written only where the
           # test folder is there, which is a checkout.
           HARNESS_CHECKER_FLAGS_FILE = Ractor.make_shareable(
-            VBlank.root.join("test", "vblank", "ir", "backends", "native", "compile_flags.txt").to_s
+            VBlank.root.join("test", "lowering", "native", "vblank", "ir", "backends", "native", "compile_flags.txt").to_s
           )
 
           # What the build holds the runtime to, and where its headers are found: its own folder,

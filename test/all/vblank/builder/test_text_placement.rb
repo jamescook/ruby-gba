@@ -2,21 +2,10 @@
 
 require "test_helper"
 
-# SAYING WHERE TEXT GOES WITHOUT COUNTING PIXELS FIRST.
-#
-# A centred title cannot be a number somebody worked out. A proportional font has no
-# per-character width to multiply by, so every such number is wrong by its own amount
-# — and it goes stale the moment the label is reworded. The fix is that the left edge
-# can be named (:left, :center, :right) and the font is asked how wide the line really
-# comes out.
-#
-# So these assert PIXELS, and they use a font where a wrong measurement shows: "I" is
-# one pixel across and "M" is five, so a fixed-grid guess lands in a visibly different
-# place from a proportional one.
-class TestTextPlacement < Minitest::Test
-  Fonts = VBlank::Graphics::Fonts
-
-  WHITE = Color.resolve(:white)
+# The font and the games these tests place text with, kept once for this file and for the tests
+# of the same text on the Advance's cartridge
+# (test/lowering/gba/vblank/builder/test_text_placement_cartridge.rb).
+module TextPlacementGames
   Y = 40
 
   # "IM" in the demo font: 1 + a 1px gap + 5. A fixed grid of the font's widest glyph
@@ -34,6 +23,58 @@ class TestTextPlacement < Minitest::Test
       end
     end
   end
+
+  # "IM" in the demo font, centred on a tiled screen.
+  private def tiled_vari_program
+    b = VBlank::Builder.new
+    define_demo_font(b)
+    b.instance_eval do
+      screen :tiled
+      draw_text "IM", :center, Y, :white, font: :vari
+      game_loop { halt }
+    end
+    b.finalize_program
+    b.program
+  end
+
+  # A live number, 18, on a tiled screen, in a font where 1 is one pixel and 8 is five.
+  private def live_digits_program
+    b = VBlank::Builder.new
+    b.instance_eval do
+      font :digits do
+        glyph "1", "#\n#\n#\n#\n#"
+        glyph "8", "#####\n#...#\n#####\n#...#\n#####"
+      end
+      screen :tiled
+      score = var :score, 18
+      draw_number score, 100, Y, :white, digits: 2, font: :digits
+      game_loop { halt }
+    end
+    b.finalize_program
+    b.program
+  end
+end
+
+# SAYING WHERE TEXT GOES WITHOUT COUNTING PIXELS FIRST.
+#
+# A centred title cannot be a number somebody worked out. A proportional font has no
+# per-character width to multiply by, so every such number is wrong by its own amount
+# — and it goes stale the moment the label is reworded. The fix is that the left edge
+# can be named (:left, :center, :right) and the font is asked how wide the line really
+# comes out.
+#
+# So these assert PIXELS, and they use a font where a wrong measurement shows: "I" is
+# one pixel across and "M" is five, so a fixed-grid guess lands in a visibly different
+# place from a proportional one.
+#
+# Where the Advance's cartridge puts the same text, read back in the emulator, is in
+# test/lowering/gba/vblank/builder/test_text_placement_cartridge.rb.
+class TestTextPlacement < Minitest::Test
+  include TextPlacementGames
+
+  Fonts = VBlank::Graphics::Fonts
+
+  WHITE = Color.resolve(:white)
 
   # The program the last helper built. A font belongs to the program that declared it, so
   # that is what an assertion asks which font a name means — there is nothing process-wide
@@ -136,47 +177,24 @@ class TestTextPlacement < Minitest::Test
 
   # On a tiled screen each character is its own little sprite, and a sprite can stand
   # at any column — so the letters advance by their own widths there too, and "IM" is
-  # 7 across on either screen rather than spaced for an M twice. Asked of the console
-  # as well, since it is the console that places the sprites.
+  # 7 across on either screen rather than spaced for an M twice. The Advance's cartridge
+  # is asked as well, in test_text_placement_cartridge.rb, since it is the console that
+  # places the sprites.
   def test_a_tiled_screen_spaces_a_proportional_font_by_each_letter
-    b = Builder.new
-    define_demo_font(b)
-    b.instance_eval do
-      screen :tiled
-      draw_text "IM", :center, Y, :white, font: :vari
-      game_loop { halt }
-    end
-    b.finalize_program
-    @built = b.program
+    @built = tiled_vari_program
     left = (SCREEN - IM_WIDE) / 2
 
     assert_text_at game_player.run(@built, frames: 1).screen, "IM", left, Y, font: :vari
-    v = assert_emulator_loads_rom(assemble_rom(@built, name: "TILEDVARI"), frames: 3)
-    assert_equal [left, left + 2], v.sprites.map(&:x).sort, "the I is one pixel and a gap"
   end
 
   # A LIVE NUMBER KEEPS ITS COLUMNS, proportional font or not, so a digit that changes
   # never moves the ones beside it: "18" in a font where 1 is one pixel and 8 is five
   # still puts its 8 a whole cell along, on both runners.
   def test_a_live_number_on_a_tiled_screen_keeps_a_column_per_digit
-    b = Builder.new
-    b.instance_eval do
-      font :digits do
-        glyph "1", "#\n#\n#\n#\n#"
-        glyph "8", "#####\n#...#\n#####\n#...#\n#####"
-      end
-      screen :tiled
-      score = var :score, 18
-      draw_number score, 100, Y, :white, digits: 2, font: :digits
-      game_loop { halt }
-    end
-    b.finalize_program
-    program = b.program
+    program = live_digits_program
     cell = program.fonts.get(:digits).cell_w
 
     assert_equal [100, 100 + cell], game_player.run(program, frames: 2).sprites.map(&:x).sort
-    v = assert_emulator_loads_rom(assemble_rom(program, name: "LIVECOLS"), frames: 4)
-    assert_equal [100, 100 + cell], v.sprites.map(&:x).sort
   end
 
   # --- a number places its FIELD -------------------------------------------------
@@ -281,27 +299,5 @@ class TestTextPlacement < Minitest::Test
     end
 
     assert_match(/String/, err.message)
-  end
-
-  # --- and it lands centred on the real thing ------------------------------------
-
-  def test_centred_text_is_centred_on_hardware
-    b = Builder.new
-    define_demo_font(b)
-    b.instance_eval do
-      screen :bitmap
-      clear_screen :black
-      draw_text "IM", :center, Y, :white, font: :vari
-      halt
-    end
-    b.finalize_program
-    rom = ROM.assemble(GBA.new.lower(b.program), title: "CENTER", code: "BCTR", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 2)
-    left = (SCREEN - IM_WIDE) / 2
-
-    assert v.white?(left, Y), "the I sits where the font says the line starts"
-    assert v.black?(left - 1, Y), "and not one pixel further left"
-    assert v.white?(left + 6, Y), "the M's right stroke ends the line"
-    assert v.black?(left + IM_WIDE, Y), "with nothing past it"
   end
 end

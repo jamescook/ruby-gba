@@ -15,7 +15,7 @@ class TestLayerStacking < Minitest::Test
   BLUE = VBlank::Graphics::Color.resolve(:blue)
   GREEN = VBlank::Graphics::Color.resolve(:green)
 
-  # Somewhere both sprites cover, and somewhere both backgrounds cover.
+  # Somewhere both sprites cover.
   OVERLAP_X = 104
   OVERLAP_Y = 64
 
@@ -50,26 +50,6 @@ class TestLayerStacking < Minitest::Test
     end
   end
 
-  # Two full-screen backgrounds, red declared FIRST. Without a stack the blue one
-  # covers it. `scrolled` picks which of the interpreter's two paths runs: a still
-  # scene is stamped once, a scrolling one is recomposited every frame.
-  private def two_backgrounds(stacked:, scrolled: false)
-    program do
-      screen :tiled
-      image(:red_tile, "#" => :red) { (["#" * 8] * 8).join("\n") }
-      image(:blue_tile, "#" => :blue) { (["#" * 8] * 8).join("\n") }
-      tiles :reds, "." => :red_tile
-      tiles :blues, "." => :blue_tile
-      full = (0...32).map { "." * 32 }
-
-      layers :behind, :in_front if stacked
-      red = stacked ? layer(:in_front) { background :red_bg, tiles: :reds, map: full } : background(:red_bg, tiles: :reds, map: full)
-      stacked ? layer(:behind) { background :blue_bg, tiles: :blues, map: full } : background(:blue_bg, tiles: :blues, map: full)
-      red.scroll_to 0, 0 if scrolled
-      game_loop { nil }
-    end
-  end
-
   # --- sprites ---
 
   def test_without_a_stack_the_sprite_declared_last_is_in_front
@@ -87,24 +67,11 @@ class TestLayerStacking < Minitest::Test
     assert_backends_agree(two_sprites(stacked: true), frames: 3, name: "STKSPR")
   end
 
-  # --- backgrounds, painted once ---
+  # --- backgrounds ---
 
-  def test_without_a_stack_the_background_declared_last_covers_the_others
-    assert_equal BLUE, screen_of(two_backgrounds(stacked: false)).pixel(OVERLAP_X, OVERLAP_Y)
-  end
-
-  def test_a_stack_puts_the_front_background_on_top_however_it_was_declared
-    assert_equal RED, screen_of(two_backgrounds(stacked: true)).pixel(OVERLAP_X, OVERLAP_Y)
-  end
-
-  # --- backgrounds, recomposited every frame ---
-
-  # A scrolling scene takes the interpreter's other path: the whole view is rebuilt each
-  # frame from the layers rather than stamped once. Both paths have to stack the same, or
-  # a game looks right until something moves.
-  def test_a_scrolling_scene_stacks_the_same_way_as_a_still_one
-    assert_equal RED, screen_of(two_backgrounds(stacked: true, scrolled: true)).pixel(OVERLAP_X, OVERLAP_Y)
-  end
+  # Stacking two backgrounds shows two at once, which the Game Boy Color cannot, so those
+  # tests are in test/console/gba/vblank/builder/test_layer_stacking_on_the_advance.rb
+  # and test_layer_stacking_on_the_advance.rb beside it.
 
   # --- the HUD, which is what started all this ---
 

@@ -31,6 +31,18 @@ module VBlank
         # the lowering has a gap to fill, or that one test wants its lowering's skip.
         class CannotAnswer < StandardError; end
 
+        # Raised for a question only the interpreter has an answer to, now and later: its step
+        # budget, its count of steps, a pass told to take several frames. No lowered run keeps
+        # them. So a test that asks one is a test of the interpreter, and on a checked run it
+        # fails saying so, rather than skipping as if the lowering had a gap to fill.
+        class AsksTheInterpreter < StandardError
+          def initialize(question)
+            super("this test asks #{question}, and only the interpreter has that. To fix this, give the " \
+                  "run `frames:` where that is what the test means. Or put the test inside " \
+                  "`interpreter_tests do ... end`, which only the interpreter's run plays.")
+          end
+        end
+
         # Raised by a checked run whose lowered side and the interpreter disagreed. The message says
         # the frame or the pass, and everything that differs there.
         class Disagreement < StandardError; end

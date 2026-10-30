@@ -2,6 +2,32 @@
 
 require "test_helper"
 
+# The blinking marker, kept once for this file and for the test of the same game on the
+# Advance's cartridge (test/lowering/gba/vblank/builder/test_timers_cartridge.rb).
+module TimersGames
+  # Blink a marker on and off — the real title-screen use. after(2) turns it on;
+  # once on, every(4) flips it. Running a fixed number of frames lands on a known
+  # on/off phase the interpreter and the console must agree on.
+  private def blink_program(frames:)
+    builder = VBlank::Builder.new
+    builder.instance_eval do
+      screen :bitmap
+      shown = var :shown, 0
+      f = var :f, 0
+      game_loop do
+        wait_vblank
+        clear_screen :white
+        after(2) { shown.set! 1 } # turn the marker on after 2 frames
+        (shown == 1).then { dma_fill_rect 100, 80, 8, 8, :red }
+        f.add! 1
+        (f >= frames).then { halt }
+      end
+    end
+    builder.finalize_program
+    builder.program
+  end
+end
+
 # The timed-trigger verbs: every(n) { } runs a block every n frames, after(n) { }
 # runs one once after n frames. Both are core control-flow verbs — siblings of
 # repeat and game_loop — built on a hidden frame counter the library manages for
@@ -9,10 +35,12 @@ require "test_helper"
 # or forget.
 #
 # These assert BEHAVIOR on the reference backend: build a small game loop, run it
-# a fixed number of frames, and check how often (and when) the block fired. A
-# the emulator test confirms the schedule holds on real hardware.
+# a fixed number of frames, and check how often (and when) the block fired. The
+# emulator test in test/lowering/gba/vblank/builder/test_timers_cartridge.rb confirms
+# the schedule holds on real hardware.
 class TestTimers < Minitest::Test
   include VBlank::Console::Hardware
+  include TimersGames
 
   private def interpret(**opts, &block)
     game_player.run(tree(&block), **opts)
@@ -178,39 +206,11 @@ class TestTimers < Minitest::Test
     assert_match(/block/, err.message)
   end
 
-  # ---- hardware: the schedule holds on the console ----
-  #
-  # Blink a marker on and off — the real title-screen use. after(2) turns it on;
-  # once on, every(4) flips it. Running a fixed number of frames lands on a known
-  # on/off phase the interpreter and the console must agree on.
-
-  private def blink_program(frames:)
-    builder = Builder.new
-    builder.instance_eval do
-      screen :bitmap
-      shown = var :shown, 0
-      f = var :f, 0
-      game_loop do
-        wait_vblank
-        clear_screen :white
-        after(2) { shown.set! 1 } # turn the marker on after 2 frames
-        (shown == 1).then { dma_fill_rect 100, 80, 8, 8, :red }
-        f.add! 1
-        (f >= frames).then { halt }
-      end
-    end
-    builder.finalize_program
-    builder.program
-  end
+  # ---- the schedule drives what is drawn ----
 
   def test_after_drives_a_marker_on_both_backends
     program = blink_program(frames: 4)
     i = game_player.run(program)
-    assert_equal Color.resolve(:red), i.screen.pixel(103, 83), "interpreter: marker on after 2 frames"
-
-    rom = VBlank::Cartridge::ROM.assemble(VBlank::IR::Backends::GBA.new.lower(program),
-                                title: "TIMERS", code: "BTMR", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 6)
-    assert v.red?(103, 83), "console: the after(2) marker is drawn"
+    assert_equal Color.resolve(:red), i.screen.pixel(103, 83), "the marker is on after 2 frames"
   end
 end

@@ -12,13 +12,14 @@ require "stringio"
 # backends show a different picture and nothing crashes to say so — this is what
 # hit Wolfenstein's status bar.
 #
-# The first test PROVES that on the emulated console before any guardrail is
-# involved, the same way test_ir_guardrail_bitmap_draw_on_tiled.rb does: it
-# lowers straight from the IR, bypassing the validation pass, and keeps proving
-# the hardware behavior now that the guardrail stops such a program from being
-# built at all.
-class TestIRGuardrailCallInsideArea < Minitest::Test
-  Check = VBlank::IR::Guardrails::Checks::CallInsideArea
+# The proof of that on the emulated console, before any guardrail is involved, is in
+# test/lowering/gba/vblank/ir/guardrails/test_ir_guardrail_call_inside_area_cartridge.rb, the
+# same way test_ir_guardrail_bitmap_draw_on_tiled.rb does it: it lowers straight from the IR,
+# bypassing the validation pass, and keeps proving the hardware behavior now that the guardrail
+# stops such a program from being built at all. It plays the game kept here in
+# CallInsideAreaGames.
+module CallInsideAreaGames
+  include SharedConstants # Builder, which the games below name from inside the module
 
   private def program(&block)
     b = Builder.new
@@ -35,19 +36,21 @@ class TestIRGuardrailCallInsideArea < Minitest::Test
       game_loop { inside(0, 0, 100, 100) { call :draw_something } }
     end
   end
+end
+
+class TestIRGuardrailCallInsideArea < Minitest::Test
+  include CallInsideAreaGames
+
+  Check = VBlank::IR::Guardrails::Checks::CallInsideArea
 
   # --- Proof that the footgun is real ---
 
-  def test_the_console_does_not_clip_a_routine_called_from_inside_an_area
-    prog = game_with_call_that_draws
-    interp = game_player.run(prog, frames: 2)
+  # The player clips the routine's fill to the area, wherever the routine was built; the
+  # Advance's cartridge is held to the other half of the proof in the file named above.
+  def test_the_player_clips_a_routine_called_from_inside_an_area
+    interp = game_player.run(game_with_call_that_draws, frames: 2)
     assert_equal 0, interp.screen.pixel(120, 50),
                  "the interpreter clips the routine's fill to the area"
-
-    rom = ROM.assemble(GBA.new.lower(prog), title: "CIAR", code: "BCIA", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 3)
-    assert v.red?(120, 50),
-           "the console draws the routine's fill everywhere — the bug this check exists for"
   end
 
   # --- the check ---

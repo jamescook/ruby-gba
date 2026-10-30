@@ -3,9 +3,44 @@
 require "test_helper"
 require "differential"
 
-# What a stack becomes on the console: the arrangement that was impossible before, the
-# limit that is loud when you reach it, and the report that says what the framework
-# picked.
+# The stacks these tests build, shared with the Advance cartridge's own tests of them
+# (test/lowering/gba/vblank/ir/test_layer_allocation_cartridge.rb).
+module LayerAllocationGames
+  include SharedConstants
+
+  private def program(&block)
+    b = Builder.new
+    b.instance_eval(&block)
+    b.finalize_program
+    b.program
+  end
+
+  # Four backgrounds and a layer of sprites behind all of them needs five levels: the
+  # sprites cannot share the backmost background's level, because on that level a sprite
+  # is drawn in FRONT.
+  private def deep_stack
+    program do
+      screen :tiled
+      image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
+      image(:guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
+      tiles :set, "#" => :tile
+      layers :ghosts, :l1, :l2, :l3, :l4
+      map = (0...20).map { "#" * 30 }
+
+      layer(:ghosts) { sprite :guy, at: [10, 10] }
+      layer(:l1) { background :bg1, tiles: :set, map: map }
+      layer(:l2) { background :bg2, tiles: :set, map: map }
+      layer(:l3) { background :bg3, tiles: :set, map: map }
+      layer(:l4) { background :bg4, tiles: :set, map: map }
+      game_loop { nil }
+    end
+  end
+end
+
+# What a stack becomes on the console: the arrangement that was impossible before, and
+# where a thing that named no layer stops having an answer. The limit the Advance's lowering
+# is loud about, and the report that says what the framework picked, are in
+# test/lowering/gba/vblank/ir/test_layer_allocation_cartridge.rb.
 #
 # The arrangement is a background IN FRONT OF a sprite — a fence the hero walks behind,
 # grass that passes over their feet. Ordering sprites among sprites and backgrounds among
@@ -13,6 +48,7 @@ require "differential"
 # console's own stacking hardware, and what a picture can never fall into by accident.
 class TestLayerAllocation < Minitest::Test
   include Differential
+  include LayerAllocationGames
 
   Stacking = VBlank::IR::Stacking
 
@@ -22,13 +58,6 @@ class TestLayerAllocation < Minitest::Test
   # Where the sprite and the fence both cover.
   SPOT_X = 104
   SPOT_Y = 64
-
-  private def program(&block)
-    b = Builder.new
-    b.instance_eval(&block)
-    b.finalize_program
-    b.program
-  end
 
   private def screen_of(prog, frames: 3)
     game_player.run(prog, max_steps: 400_000, frames: frames).screen
@@ -113,53 +142,6 @@ class TestLayerAllocation < Minitest::Test
     assert_equal 2, Stacking.picture(prog).depths.count
   end
 
-  # --- the limit, spoken in the author's own names ---
-
-  # Four backgrounds and a layer of sprites behind all of them needs five levels: the
-  # sprites cannot share the backmost background's level, because on that level a sprite
-  # is drawn in FRONT.
-  private def deep_stack
-    program do
-      screen :tiled
-      image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
-      image(:guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
-      tiles :set, "#" => :tile
-      layers :ghosts, :l1, :l2, :l3, :l4
-      map = (0...20).map { "#" * 30 }
-
-      layer(:ghosts) { sprite :guy, at: [10, 10] }
-      layer(:l1) { background :bg1, tiles: :set, map: map }
-      layer(:l2) { background :bg2, tiles: :set, map: map }
-      layer(:l3) { background :bg3, tiles: :set, map: map }
-      layer(:l4) { background :bg4, tiles: :set, map: map }
-      game_loop { nil }
-    end
-  end
-
-  def test_a_picture_deeper_than_the_console_stacks_is_refused
-    error = assert_raises(GBA::LoweringError) { GBA.new.lower(deep_stack) }
-
-    assert_match(/needs 5 levels/, error.message)
-    assert_match(/stacks 4/, error.message)
-  end
-
-  # The refusal has to name the layer that caused it, not a hardware register. It also
-  # has to name the RIGHT cause: here it is the sprites behind everything, not the count
-  # of backgrounds.
-  def test_the_refusal_names_the_layer_that_cost_the_level
-    error = assert_raises(GBA::LoweringError) { GBA.new.lower(deep_stack) }
-
-    assert_match(/:ghosts/, error.message)
-    assert_match(/behind every background/, error.message)
-    refute_match(/BG[0-3]/, error.message)
-  end
-
-  def test_the_refusal_shows_the_stack_that_was_declared
-    error = assert_raises(GBA::LoweringError) { GBA.new.lower(deep_stack) }
-
-    assert_match(/:ghosts, :l1, :l2, :l3, :l4/, error.message)
-  end
-
   # --- where "it named no layer" stops having an answer ---
 
   # A picture is normally scenery at the back and everything that moves in front, and
@@ -200,45 +182,5 @@ class TestLayerAllocation < Minitest::Test
     end
 
     assert_equal 3, prog.walk.count { |node| node.kind == :object }
-  end
-
-  # --- the report ---
-
-  def test_the_report_says_what_each_layer_became
-    rom = VBlank.build("STACKED", console: :gba, code: "BSTK", maker: "01") do
-      screen :tiled
-      image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
-      image(:guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
-      tiles :set, "#" => :tile
-      layers :sky, :actors, :ui
-
-      layer(:sky) { background :bg, tiles: :set, map: (0...20).map { "#" * 30 } }
-      layer(:actors) { sprite :guy, at: [10, 10] }
-      layer(:ui) { draw_text "HI", 8, 8, :white }
-      game_loop { nil }
-    end
-
-    out = StringIO.new
-    VBlank::Diagnostics::BuildReport.render(rom, out: out)
-    report = out.string
-
-    assert_match(/the stack, back to front/, report)
-    assert_match(/:sky\s+background :bg/, report)
-    assert_match(/:actors\s+1 sprite/, report)
-    assert_match(/:ui\s+2 sprites/, report)
-    assert_match(/1 of 4 levels used, 3 free/, report)
-  end
-
-  def test_the_report_says_nothing_about_a_stack_a_game_never_declared
-    rom = VBlank.build("PLAIN", console: :gba, code: "BPLN", maker: "01") do
-      screen :bitmap
-      fill_rect 0, 0, 10, 10, :red
-      halt
-    end
-
-    out = StringIO.new
-    VBlank::Diagnostics::BuildReport.render(rom, out: out)
-
-    refute_match(/the stack/, out.string)
   end
 end

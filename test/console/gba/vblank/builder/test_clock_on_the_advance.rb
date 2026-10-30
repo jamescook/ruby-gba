@@ -2,15 +2,13 @@
 
 require "test_helper"
 
-# THE DATE AND TIME THE ADVANCE'S CLOCK CHIP KEEPS, read by the game with nothing set. The chip the
-# Advance's cartridges carry holds the date, so a game reads it straight away; the Color's counts
-# days and holds none, and a game there reads the date only once it sets the clock
-# (test/all/vblank/dsl/test_clock_set_to.rb). A test says what time the clock starts at, the way it says
-# which buttons are held, and the time moves on one of the console's frames each frame — a little
-# more than a sixtieth of a second.
-class TestClockOnTheAdvance < Minitest::Test
+# The game these tests play and when its clock starts, kept once for the interpreter's own test
+# of a late pass (test/interpreter/vblank/builder/test_clock_on_the_advance_interpreter.rb).
+module ClockOnTheAdvanceGames
+  include SharedConstants
+
   # A Thursday evening.
-  THURSDAY = Time.new(2026, 10, 22, 21, 7, 5)
+  THURSDAY = Ractor.make_shareable(Time.new(2026, 10, 22, 21, 7, 5))
   TIME = VBlank::IR::Clock::TIME
 
   # A game that keeps each reading of the clock in a variable of the same name, every pass.
@@ -26,6 +24,16 @@ class TestClockOnTheAdvance < Minitest::Test
     b.finalize_program
     b.program
   end
+end
+
+# THE DATE AND TIME THE ADVANCE'S CLOCK CHIP KEEPS, read by the game with nothing set. The chip the
+# Advance's cartridges carry holds the date, so a game reads it straight away; the Color's counts
+# days and holds none, and a game there reads the date only once it sets the clock
+# (test/all/vblank/dsl/test_clock_set_to.rb). A test says what time the clock starts at, the way it says
+# which buttons are held, and the time moves on one of the console's frames each frame — a little
+# more than a sixtieth of a second.
+class TestClockOnTheAdvance < Minitest::Test
+  include ClockOnTheAdvanceGames
 
   private def readings_after(frames, start)
     player = game_player.clock_at(start).run(program, frames: frames)
@@ -65,16 +73,8 @@ class TestClockOnTheAdvance < Minitest::Test
     assert_equal [2, 0, 0], readings_after(60, Time.new(2026, 3, 8, 1, 59, 59)).values_at(:hour, :minute, :second)
   end
 
-  # A pass the console took three frames over still lets three frames of time go by: the clock
-  # keeps real time, not the game's. Twenty passes of three frames are a second.
-  def test_a_late_pass_lets_its_frames_of_time_go_by
-    skip_on_native "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
-    skip_on_js "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
-    skip_on_ruby "makes a pass take several frames with `frames_each_pass`, which only the interpreter can"
-    player = game_player.clock_at(THURSDAY).frames_each_pass { 3 }.run(program, frames: 20)
-
-    assert_equal 6, player[:second]
-  end
+  # A pass that took three frames still letting three frames of time go by is the interpreter's
+  # to be told: test/interpreter/vblank/builder/test_clock_on_the_advance_interpreter.rb.
 
   # A game that keeps 1 in :present and :set while the clock says so, and its hour.
   private def asking_program

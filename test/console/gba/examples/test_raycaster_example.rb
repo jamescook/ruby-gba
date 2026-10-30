@@ -9,12 +9,18 @@ require VBlank.root.join("examples/raycaster").to_s
 # `table` (sine, wall height and the maze itself are build-time ROM tables the rays look
 # up) and on `times_fraction` (the player stands between cells, so positions and distances
 # carry a fraction). The player stands inside a walled room, so every screen column hits a
-# wall and draws a shaded strip through the eye line.
-class TestRaycasterExample < Minitest::Test
+# wall and draws a shaded strip through the eye line. The walls on the Advance's cartridge,
+# read in the emulator, are in test/lowering/gba/examples/test_raycaster_example_cartridge.rb,
+# which counts them with RaycasterWalls.
+module RaycasterWalls
   # How many screen columns show a wall — any of the three depth shades — at the horizon.
   private def wall_columns(sample)
     (0...240).step(8).count { |x| Raycaster::WALL_SHADES.include?(sample.call(x + 3, 80)) }
   end
+end
+
+class TestRaycasterExample < Minitest::Test
+  include RaycasterWalls
 
   # The row where the wall starts in each column: how tall that column's wall is drawn.
   # This is the whole picture reduced to 30 numbers, which is what makes the shape of the
@@ -34,14 +40,6 @@ class TestRaycasterExample < Minitest::Test
     interp = game_player.run(Raycaster.program, frames: 2)
     assert_operator wall_columns(->(x, y) { interp.screen.pixel(x, y) }), :>=, 20,
                     "the surrounding walls should draw a strip in most columns"
-  end
-
-  def test_walls_render_on_the_console
-    # One game frame does a lot (a ray per column, a row per wall pixel), so it spans
-    # several emulated frames before the first double-buffer flip — give it headroom.
-    v = assert_emulator_loads_rom(Raycaster.build_rom(out: StringIO.new, err: StringIO.new), frames: 24)
-    assert_operator wall_columns(->(x, y) { v.pixel_gba(x, y) }), :>=, 20,
-                    "the surrounding walls should draw a strip in most columns on hardware"
   end
 
   # The room has a sky above the eye line and a floor below it. Without those the view is

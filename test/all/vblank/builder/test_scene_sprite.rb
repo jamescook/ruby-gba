@@ -10,15 +10,71 @@ require "differential"
 # Each test builds a blue field with a red 8x8 block, plays it on the interpreter and on the
 # console, checks the two pictures are the same picture, and then counts colours: one block
 # of red is one sprite, more is a trail, none is a sprite that left.
-class TestSceneSprite < Minitest::Test
-  include Differential
+#
+# Whether a sprite was painted into the tiled scene's tile memory is read off the Advance's
+# cartridge in the emulator, in test/lowering/gba/vblank/builder/test_scene_sprite_cartridge.rb,
+# which plays the game kept here in SceneSpriteGames.
+module SceneSpriteGames
+  include SharedConstants # Builder, which the game below names from inside the module
 
   SIDE = 8
   BLOCK = ("########\n" * SIDE).freeze
-  START = [40, 40].freeze
 
   PLAY = 0
   REST = 1
+
+  FLOOR = Ractor.make_shareable([("#." * 15)] * 20)
+
+  # The same two scenes with the red sprite declared ABOVE the loop, so it belongs to every
+  # scene. It is a painted-screen sprite all the same, and the tiled scene has no picture for
+  # it to be painted into. The block runs at the end of every pass, handed the sprite.
+  private def shared_sprite_program(shown: true, &each_pass)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      image(:block, "#" => :red) { BLOCK }
+      image(:brick, "#" => :green, "." => :white) { "#.#.#.#.\n.#.#.#.#\n" * 4 }
+      image(:slab, "#" => :white) { BLOCK }
+      tiles :set, "#" => :brick, "." => :slab
+      clear_screen :blue
+      shared = sprite :block, at: [0, 0], shown: shown
+      state = var :state, PLAY
+      step = var :step, 0
+      fresh = var :fresh, 0
+      scene(:play) do
+        (fresh == 1).then do
+          clear_screen :blue
+          fresh.set! 0
+        end
+      end
+      scene(:rest) do
+        screen :tiled
+        background :floor, tiles: :set, map: FLOOR
+        (step == 7).then do
+          state.set! PLAY
+          fresh.set! 1
+        end
+      end
+      game_loop do
+        (step == 3).then { state.set! REST }
+        case_var(:state) do
+          when_val PLAY, :play
+          when_val REST, :rest
+        end
+        instance_exec(shared, step, &each_pass) if each_pass
+        step.add! 1
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+end
+
+class TestSceneSprite < Minitest::Test
+  include Differential
+  include SceneSpriteGames
+
+  START = [40, 40].freeze
 
   # A game of two scenes on a blue field, picked by :state, with a counter of the passes so
   # far. The block declares the scenes and is handed both variables. +first+ runs at the top
@@ -240,8 +296,6 @@ class TestSceneSprite < Minitest::Test
     assert_equal field, seen[:green], "nothing the sprite remembered was put back over the new field"
   end
 
-  FLOOR = ([("#." * 15)] * 20).freeze
-
   # A game whose second scene is drawn from tiles. A tiled screen keeps its tile pictures in
   # the same video memory a painted screen keeps its pixels in, so a software sprite painted
   # or rubbed out while the tiled scene is up writes into the tiles.
@@ -304,69 +358,12 @@ class TestSceneSprite < Minitest::Test
     assert_equal field - ONE, oracle.count(Color.resolve(:blue)), "nothing of the tiled screen was put back"
   end
 
-  # The same two scenes with the red sprite declared ABOVE the loop, so it belongs to every
-  # scene. It is a painted-screen sprite all the same, and the tiled scene has no picture for
-  # it to be painted into. The block runs at the end of every pass, handed the sprite.
-  private def shared_sprite_program(shown: true, &each_pass)
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      image(:block, "#" => :red) { BLOCK }
-      image(:brick, "#" => :green, "." => :white) { "#.#.#.#.\n.#.#.#.#\n" * 4 }
-      image(:slab, "#" => :white) { BLOCK }
-      tiles :set, "#" => :brick, "." => :slab
-      clear_screen :blue
-      shared = sprite :block, at: [0, 0], shown: shown
-      state = var :state, PLAY
-      step = var :step, 0
-      fresh = var :fresh, 0
-      scene(:play) do
-        (fresh == 1).then do
-          clear_screen :blue
-          fresh.set! 0
-        end
-      end
-      scene(:rest) do
-        screen :tiled
-        background :floor, tiles: :set, map: FLOOR
-        (step == 7).then do
-          state.set! PLAY
-          fresh.set! 1
-        end
-      end
-      game_loop do
-        (step == 3).then { state.set! REST }
-        case_var(:state) do
-          when_val PLAY, :play
-          when_val REST, :rest
-        end
-        instance_exec(shared, step, &each_pass) if each_pass
-        step.add! 1
-      end
-    end
-    b.finalize_program
-    b.program
-  end
-
-  VIDEO_MEMORY = 0x0600_0000
-  RED_PIXEL = 0x001F
-
-  # The first row of a sprite at the top-left corner, as the console's video memory holds it
-  # after +frames+: eight pixels on a painted screen, and on a tiled one the start of the
-  # tile pictures, which a sprite painted there would write over.
-  private def top_left_of_video_memory(prog, frames)
-    v = assert_emulator_loads_rom(ROM.assemble(GBA.new.lower(prog), title: "SCNMEM"), frames: frames)
-    Array.new(SIDE) { |pixel| v.mem16(VIDEO_MEMORY + (pixel * 2)) }
-  end
-
   def test_a_sprite_declared_above_the_loop_stays_off_a_tiled_scene
     prog = shared_sprite_program
     oracle, console, = backend_pictures(prog, frames: 6, console_frames: 9, name: "SCNMIX")
 
     assert_empty mismatched_pixels(oracle, console).first(5)
     assert_equal 0, oracle.count(Color.resolve(:red)), "the tiled scene has no picture to paint it into"
-    refute_equal [RED_PIXEL] * SIDE, top_left_of_video_memory(prog, 9),
-                 "the sprite was painted into the memory the tiled scene keeps its tiles in"
   end
 
   def test_a_sprite_declared_above_the_loop_comes_back_with_the_painted_scene
@@ -381,9 +378,8 @@ class TestSceneSprite < Minitest::Test
   # `show` paints a sprite on the spot, and the tiled scene is up when this one is shown.
   def test_a_sprite_shown_while_a_tiled_scene_is_up_waits_for_a_painted_one
     prog = shared_sprite_program(shown: false) { |shared, step| (step == 5).then { shared.show } }
-
-    refute_equal [RED_PIXEL] * SIDE, top_left_of_video_memory(prog, 9), "shown, it was painted into the tiles"
     oracle, console, = backend_pictures(prog, frames: 14, console_frames: 17, name: "SCNMIX")
+
     assert_empty mismatched_pixels(oracle, console).first(5)
     assert_equal ONE, oracle.count(Color.resolve(:red)), "and it is there once a painted scene is back"
   end

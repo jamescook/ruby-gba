@@ -5,7 +5,8 @@ require "differential"
 
 # The tests of test/all/vblank/builder/test_buffered_blit.rb whose games paint more colours into one
 # 8×8 square of the screen than a Game Boy Color's square holds — the picture here has sixteen,
-# one per pixel — so they play on the Advance's runs alone. The rest are in that file.
+# one per pixel — so they play on the Advance's runs alone. The rest are in that file, and what
+# the Advance's cartridge shows is in test/lowering/gba/vblank/builder/test_buffered_blit_cartridge.rb.
 #
 # Drawing a whole PICTURE on the tear-free screen. The promise is the one every other draw makes
 # here: the same picture at the same place with the same clipping, whichever screen it is drawn
@@ -89,23 +90,6 @@ class TestBufferedBlitOnTheAdvance < Minitest::Test
         direct.pixel(px, py) == paged.pixel(px, py)
       end
       assert_empty differing.first(5), "#{what}: the two screens drew different pixels"
-    end
-  end
-
-  def test_the_console_clips_a_picture_the_same_way
-    EDGES.each do |x, y, what|
-      oracle = pixels_of(blit_program(x, y, buffered: true))
-      rom = assemble_rom(blit_program(x, y, buffered: true), name: "BCLIP")
-      v = assert_emulator_loads_rom(rom, frames: 6)
-      # The row that shows, wherever it landed, plus the pixel just past each edge of it.
-      (0...160).step(1) do |py|
-        (0...240).step(1) do |px|
-          next unless oracle.pixel(px, py) != Color.resolve(:black)
-
-          assert_equal oracle.pixel(px, py), v.pixel_gba(px, py),
-                       "#{what}: (#{px},#{py}) differs from the oracle"
-        end
-      end
     end
   end
 

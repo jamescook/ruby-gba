@@ -20,14 +20,39 @@ you need before writing a test that uses it:
 | `runs.md` | rake commands, which run a change needs, the machine-wide lock, worktrees, the native run's processes |
 | `costs.md` | asserting what something costs: bytes emitted, or the profiler's idle share and fps |
 
-## Where a test file goes
+## Where a test file goes: the folder says which runs play it
 
-`test/` mirrors lib's directories (not its files): a test of `lib/vblank/audio/score.rb` is in
-`test/all/vblank/audio/`, of `cli.rb` in `test/all/vblank/`, of an example in `test/all/examples/` (or
-`test/console/gba/examples/` for a game for the Advance alone), of a tool in `test/all/tools/`. A new
-directory under `test/` needs one under `lib/` first. The exceptions are
-`test/lowering/native/vblank/ir/backends/native/examples/`, `test/lowering/gbc/vblank/ir/backends/gbc/examples/` and
-`test/lowering/snes/vblank/ir/backends/snes/examples/`, which mirror `examples/`, and `test/console/gba/`, which mirrors `test/` (below).
+`rake test:all` plays the suite once per run, and each run's player is `game_player`: the
+interpreter on the gba run; on every other run that run's own build of the game (as C,
+JavaScript, Ruby, a Color or Super Nintendo cartridge), checked against the interpreter on every
+frame or pass. The folder a test file sits in is all that says which runs load it
+(`test/support/suites.rb` is the table; a test fails if a file sits anywhere else):
+
+| folder | what goes there | runs that load it |
+|---|---|---|
+| `test/all/` | what a game does, asked only through `game_player` | every run |
+| `test/console/<console>/` | what only that console's hardware can do (two backgrounds, part-screen fades on the Advance) | every run that plays games as that console |
+| `test/lowering/<lowering>/` | that lowering's own output: the ARM, the C, the cartridge built, read in the emulator, measured | that lowering's run |
+| `test/interpreter/` | what only the interpreter answers: `frames_each_pass`, a power cut after N steps | the run whose player is the interpreter |
+
+**A new test goes in `test/all/`.** If it fails on a run whose console cannot do what it asks,
+write it again for each run that can, in that console's or lowering's folder, and keep the game
+it plays once, in a module both include (or duplicate it where it cannot be shared cleanly).
+Don't bend a test to make it play everywhere; move it. `rake test:misplaced` plays every folder
+but `test/all/` on the runs that do not load it and names each test that passed there while
+playing a game: a test that could come back to `test/all/` (narrow it with `ONLY=` and `RUNS=`).
+
+**A skip means one thing: the run's lowering lacks the feature** — its build does not make it
+yet (the player raises that itself), or its hardware cannot (`skip_on_gbc "why"` and its
+siblings, naming the feature). Any other skip fails the run (`Testing::SkipsByReason`). Reading
+the Advance's cartridge (`require_emulator!`, `assert_emulator_loads_rom`) outside the gba run
+fails too, saying it belongs in `test/lowering/gba/`. A step budget (`max_steps:`) is fine
+anywhere: every run plays it as the frames it covers.
+
+Inside each folder the tree mirrors lib's directories (not its files): a test of
+`lib/vblank/audio/score.rb` is in `test/all/vblank/audio/`, of `cli.rb` in `test/all/vblank/`, of
+an example in `test/all/examples/`, of a tool in `test/all/tools/`. A new directory needs one under
+`lib/` first. The exceptions are the lowerings' `examples/` folders, which mirror `examples/`.
 
 A test belongs to the file a person opens first when it fails:
 
@@ -41,13 +66,16 @@ A test belongs to the file a person opens first when it fails:
 - A command → the file that does its work. `vblank play` and `compare` are done by
   `lib/vblank/playthroughs/command_line.rb`, so their tests are in `test/lowering/gba/vblank/playthroughs/`.
 
-Never by which backend a test asserts against: one behaviour checked on the interpreter and the
-emulator is one test, with the thing.
+The folder is chosen by which runs a test is about (above); inside it, the file by what it tests.
+A behaviour checked through `game_player` and again on the Advance's cartridge is two tests: one
+in `test/all/`, one in `test/lowering/gba/` (`test_tint_cartridge.rb` beside `test_tint.rb`).
 
 **One file, one `Minitest::Test` subclass.** **Only tests are public**: every helper in a test
 class is `private def`, except one a game block calls back through (`test = self`, then
-`test.tileset(self)`) or a class method called as `TestThing.helper`. A helper another file needs
-goes in a shared helper at `test/`.
+`test.tileset(self)`) or a class method called as `TestThing.helper`. Helpers two files share go
+in a module: defined at the top of the shared test file and included by both classes, the other
+file loading it by its path under `test/` (`require "all/vblank/builder/test_tint"`), or, used
+by many files, in a shared helper at `test/`.
 
 The shared helpers stay at `test/` — `test_helper.rb`, `differential.rb`, `emulator_blend.rb`,
 `mixed_sound.rb`, `conformance_fixture.rb`, `int32_cases.rb` (the calculations a runtime written
@@ -87,27 +115,6 @@ are opt-in: `include Differential`, `include CostArith`, `include VBlank::IR::Bu
 
 Commands and which run a change needs are in `runs.md`. One whole run holds the machine at a
 time; in a worktree set `VBLANK_SUITE_LOCK=checkout`.
-
-## Every test plays on every lowering
-
-A test makes its player with `game_player`, never `Reference.new`, when the question is what the
-game does: on the GBA run it is the interpreter, on the native run the game as C, on the
-JavaScript run the game as JavaScript, on the Ruby run the game as Ruby, each checked against the
-interpreter on every frame, and on the Game Boy Color run the Color cartridge, checked against the
-interpreter after every pass. `Reference.new` by name is for a test of the interpreter itself. A
-test that reaches for the Advance's cartridge in the emulator skips itself on the native,
-JavaScript, Ruby and Color runs. A test one of them cannot play yet says `skip_on_native "why"`
-(or `skip_on_js`, `skip_on_ruby`, `skip_on_gbc`, `skip_on_snes`). A test of one lowering's own output lives in a
-folder that lowering owns and is played by its run alone (`TestSuites::LOWERING_FOLDERS`:
-`ir/backends/gba/`, `diagnostics/` and `playthroughs/` for GBA, `ir/backends/native/`,
-`ir/backends/js/`, `ir/backends/ruby/`, `ir/backends/gbc/`, `ir/backends/snes/`). See `lowerings.md`.
-
-**What only the Advance can do is tested in `test/console/gba/`**, which the GBA, native, JavaScript
-and Ruby runs load and the Color's never does: fading part of the screen, a recording in a song,
-more colours in one 8×8 square of a painted screen than the Color holds, and every example whose
-game is for the Advance alone. A new test of such a thing goes there, mirroring `test/`, in a file
-of its own beside the shared one (`test_fade_held_to_area_on_the_advance.rb`), rather than skipping
-on the Color. Don't bend a test to make it play on both. See `lowerings.md`.
 
 ## Ractors — fix what the runner reports
 
@@ -173,6 +180,6 @@ Assert the friendly error a misuse raises: its class and a key phrase, never the
 
 - Don't name a helper `run`: it shadows `Minitest::Test#run`.
 - `rake test:all` needs zig 0.17 on the path (`mise use zig@0.17.0`) and node 18+, or it stops at
-  the start.
-- Emulator tests fail loudly without the emulator rather than skipping; only the native and
-  JavaScript runs skip them, saying so.
+  the start, and SDL3 (`brew install sdl3`): the tests that open a window fail without it.
+- Emulator tests fail loudly without the emulator rather than skipping. They live in
+  `test/lowering/gba/`, which no other run loads.

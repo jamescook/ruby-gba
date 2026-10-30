@@ -6,24 +6,9 @@ require "stringio"
 require "tmpdir"
 require "pathname"
 
-# Where a build prints — the `out:` and `err:` it is handed.
-#
-# A build prints two kinds of thing: the warnings the guardrails found, and the
-# disassembly `dump_func` asked for. Both go wherever the caller pointed them, and a
-# caller points them at one of three things — an open stream, the name of a file, or
-# nothing at all because it wants the build quiet.
-#
-# The name of a file is the case worth a test file of its own, because `File::NULL` is a
-# name: it is the string "/dev/null". So "build quietly" gets written as a path far more
-# often than as anything else, and a path that worked only until the build had a warning to
-# give would fail at the worst possible moment — the build that finally has something to
-# say would be the build that cannot say it.
-class TestBuildOutput < Minitest::Test
-  # Asserts that nothing reaches the PROCESS's own output, which is the whole point of it.
-  # That is a fact about the process, so on the main Ractor. See test_helper.
-  runs_on_the_main_ractor!
-
-
+# The game these tests build, kept once for the measured build in
+# test/lowering/gba/vblank/messages/test_build_output_cartridge.rb.
+module BuildOutputGames
   # A game that gives the guardrails something to report. Writing the wait for the
   # screen by hand is harmless and the build says so, which is all this needs: a
   # warning, on a build that otherwise does nothing.
@@ -37,6 +22,26 @@ class TestBuildOutput < Minitest::Test
       end
     end
   end
+end
+
+# Where a build prints — the `out:` and `err:` it is handed.
+#
+# A build prints two kinds of thing: the warnings the guardrails found, and the
+# disassembly `dump_func` asked for. Both go wherever the caller pointed them, and a
+# caller points them at one of three things — an open stream, the name of a file, or
+# nothing at all because it wants the build quiet.
+#
+# The name of a file is the case worth a test file of its own, because `File::NULL` is a
+# name: it is the string "/dev/null". So "build quietly" gets written as a path far more
+# often than as anything else, and a path that worked only until the build had a warning to
+# give would fail at the worst possible moment — the build that finally has something to
+# say would be the build that cannot say it.
+class TestBuildOutput < Minitest::Test
+  include BuildOutputGames
+
+  # Asserts that nothing reaches the PROCESS's own output, which is the whole point of it.
+  # That is a fact about the process, so on the main Ractor. See test_helper.
+  runs_on_the_main_ractor!
 
   private def build(game, out: nil, err: nil)
     game.build_rom(out: out, err: err, profile: false)
@@ -95,21 +100,8 @@ class TestBuildOutput < Minitest::Test
     end
   end
 
-  # A measured build builds the game twice (it runs the first cartridge to find out where
-  # the frames go, then builds again knowing). Both builds write to the one file the caller
-  # named: it is opened once, before either of them, and closed once, after both. Opening it
-  # per build would leave the second truncating what the first had to say.
-  def test_a_measured_build_writes_both_of_its_builds_to_one_file
-    require_emulator!
-
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "build.log")
-
-      game_that_warns.build_rom(out: nil, err: path, profile: true)
-
-      assert_match(/frame_sync/, File.read(path))
-    end
-  end
+  # A measured build, which runs its first cartridge in the emulator, writing both of its builds
+  # to one file is in test/lowering/gba/vblank/messages/test_build_output_cartridge.rb.
 
   # A Pathname is a name too, and it says so about itself rather than being one.
   def test_a_pathname_is_a_name_like_any_other

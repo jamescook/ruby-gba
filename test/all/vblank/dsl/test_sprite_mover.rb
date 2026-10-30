@@ -2,11 +2,10 @@
 
 require "test_helper"
 
-# The sprite-mover example in miniature: a transparent ASCII heart steered by
-# holding a direction. Proves image (ASCII art + transparency) + blit +
-# held-input move a sprite, on both backends.
-class TestSpriteMover < Minitest::Test
-  include VBlank::Console::Hardware
+# The heart games, shared with the Advance's cartridge's tests
+# (test/lowering/gba/vblank/dsl/test_sprite_mover_cartridge.rb).
+module SpriteMoverGames
+  include SharedConstants
 
   # A heart that starts at (100, 60), slides right while :right is held, and halts
   # after +frames+ steps so its final resting place is deterministic. Holding
@@ -39,27 +38,6 @@ class TestSpriteMover < Minitest::Test
     end
     builder.finalize_program
     builder.program
-  end
-
-  def test_interpreter_moves_the_sprite_and_keeps_transparency
-    screen = game_player.input_each_frame { [:right] }.run(sprite_program(frames: 4)).screen
-
-    # Ended at x = 108. The heart's top-left is a transparent ".", so the white
-    # field shows through; the "#" next to it is red.
-    assert_equal Color.resolve(:white), screen.pixel(108, 60), "transparent corner shows the background"
-    assert_equal Color.resolve(:red),   screen.pixel(109, 60), "the heart's body is drawn"
-    # It actually moved: the screen is cleared each frame, so the earlier columns
-    # hold no heart.
-    assert_equal Color.resolve(:white), screen.pixel(100, 61), "it moved off the start column"
-  end
-
-  def test_runs_on_hardware
-    machine_code = VBlank::IR::Backends::GBA.new.lower(sprite_program(frames: 4))
-    rom = VBlank::Cartridge::ROM.assemble(machine_code, title: "SPRITEMV", code: "BSPM", maker: "01")
-
-    v = assert_emulator_loads_rom(rom, frames: 6, keys: KEY_RIGHT)
-    assert v.red?(109, 60),   "the heart is drawn after moving right"
-    assert v.white?(108, 60), "its transparent corner shows the white field"
   end
 
   # Like the example, the heart may slide half off an edge (clamped so it never
@@ -103,16 +81,37 @@ class TestSpriteMover < Minitest::Test
 
   # The visible/clipped pixels the heart shows once it rests at x = -2, y = 60.
   # A nil colour means "background (white) here" — clipped or transparent.
-  EDGE_PIXELS = [
+  # Shareable, as test_helper makes a test class's own constants: a test may run in a Ractor.
+  EDGE_PIXELS = Ractor.make_shareable([
     [1, 60, :red],    # row0 col3 lands on-screen
     [0, 60, :white],  # row0 col2 is transparent -> field shows through
     [0, 61, :red],    # row1 col2
     [2, 61, :red],    # row1 col4 (the rightmost visible column of that row)
     [:right_edge, 59, nil], # the col clipped off the left must NOT wrap onto the row above
-  ].freeze
+  ])
 
   # A column of EDGE_PIXELS, :right_edge being the last column of a screen +width+ wide.
   private def edge_column(x, width) = x == :right_edge ? width - 1 : x
+end
+
+# The sprite-mover example in miniature: a transparent ASCII heart steered by
+# holding a direction. Proves image (ASCII art + transparency) + blit +
+# held-input move a sprite, on every run. The same heart on the Advance's cartridge, read in
+# the emulator, is in test/lowering/gba/vblank/dsl/test_sprite_mover_cartridge.rb.
+class TestSpriteMover < Minitest::Test
+  include SpriteMoverGames
+
+  def test_interpreter_moves_the_sprite_and_keeps_transparency
+    screen = game_player.input_each_frame { [:right] }.run(sprite_program(frames: 4)).screen
+
+    # Ended at x = 108. The heart's top-left is a transparent ".", so the white
+    # field shows through; the "#" next to it is red.
+    assert_equal Color.resolve(:white), screen.pixel(108, 60), "transparent corner shows the background"
+    assert_equal Color.resolve(:red),   screen.pixel(109, 60), "the heart's body is drawn"
+    # It actually moved: the screen is cleared each frame, so the earlier columns
+    # hold no heart.
+    assert_equal Color.resolve(:white), screen.pixel(100, 61), "it moved off the start column"
+  end
 
   def test_interpreter_clips_the_heart_at_the_left_edge
     screen = game_player.input_each_frame { [:left] }.run(heart_at_left_edge(frames: 3)).screen
@@ -121,19 +120,6 @@ class TestSpriteMover < Minitest::Test
       x = edge_column(x, width)
       assert_equal Color.resolve(color || :white), screen.pixel(x, y),
                    "interpreter: (#{x}, #{y}) should be #{color || 'background'}"
-    end
-  end
-
-  def test_hardware_clips_the_heart_at_the_left_edge
-    rom = VBlank::Cartridge::ROM.assemble(
-      VBlank::IR::Backends::GBA.new.lower(heart_at_left_edge(frames: 3)),
-      title: "SPRITEMV", code: "BSPM", maker: "01",
-    )
-    v = assert_emulator_loads_rom(rom, frames: 5, keys: KEY_LEFT)
-    EDGE_PIXELS.each do |x, y, color|
-      x = edge_column(x, VBlank::Console::ADVANCE.screen_width)
-      assert v.pixel_is?(x, y, color || :white),
-             "console: (#{x}, #{y}) should be #{color || 'background'}, got 0x#{format('%04X', v.pixel_gba(x, y))}"
     end
   end
 end

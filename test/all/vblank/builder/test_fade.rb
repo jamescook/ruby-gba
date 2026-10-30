@@ -3,22 +3,41 @@
 require "test_helper"
 require "differential"
 
-# Fading the whole screen toward black or white.
-#
-# Like the camera, this changes what the display SHOWS and not what was drawn — the
-# picture is all still there under a fade — so the thing to assert is that colors
-# come back exactly when the fade lifts, and that both backends blend by the same
-# amounts. A fade that agreed only roughly between backends would make every
-# fade-related pixel test a guess.
-class TestFade < Minitest::Test
-  include Differential
-
-  Guardrails = VBlank::IR::Guardrails
+# The faded games and the steps a channel fades by, shared with the Advance cartridge's own
+# tests of the same fades (test/lowering/gba/vblank/builder/test_fade_cartridge.rb).
+module FadeGames
+  include SharedConstants
 
   RED = VBlank::Graphics::Color.resolve(:red)
   BLUE = VBlank::Graphics::Color.resolve(:blue)
   BLACK = VBlank::Graphics::Color.resolve(:black)
   WHITE = VBlank::Graphics::Color.resolve(:white)
+
+  # A fade counts in sixteenths, so there are seventeen answers and no more. One
+  # percentage per distinct sixteenth walks all of them without a hundred percentages
+  # that collapse onto the same step.
+  EVERY_LEVEL = (0..16).map { |step| (step * 100.0 / 16).ceil }.freeze
+
+  # A channel at full strength on its way to black, one entry per sixteenth.
+  #
+  # WRITTEN OUT RATHER THAN WORKED OUT, on purpose: a formula here would be the same
+  # formula the code uses, so it would agree with a wrong one. This is the display's own
+  # rule, which takes a share AWAY — 31 less a ninth of itself is 31 less 17, which is
+  # 14 — and not the rule that keeps a share, which would say 13. Every entry is even
+  # because the share taken from 31 rounds down exactly half the time.
+  RED_FADED_TO_BLACK = [31, 30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2, 0].freeze
+
+  # Thirty-two steps rather than sixteen: one for each thirty-second of the way, which is
+  # as fine as a five-bit channel can go. A percentage for each.
+  EVERY_FINE_LEVEL = (0..32).map { |step| step * 100.0 / 32 }.freeze
+
+  # Written out, for the reason RED_FADED_TO_BLACK is, and by the same rule: a share is taken
+  # AWAY. A thirty-second of 31 is less than one, so the first step takes nothing; after that
+  # it drops one a step and reaches nought only on the last. That is the display's own rounding
+  # and not a mix's, which would keep a share and reach nought a step early — and on a dark
+  # picture show flat black for a frame longer at the end of a fade in.
+  RED_FADED_FINELY = [31, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17,
+                      16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].freeze
 
   private def program(&block)
     b = Builder.new
@@ -42,6 +61,53 @@ class TestFade < Minitest::Test
     [color & 0x1F, (color >> 5) & 0x1F, (color >> 10) & 0x1F]
   end
 
+  # The camera moves the bitmap layer only, so it cannot pan a tiled screen. A fade
+  # blends every layer, so it works on both — worth pinning, since the two primitives
+  # look alike and this is where they differ. It has to be checked on the console,
+  # not just lowered: a tiled screen draws through different layers than a bitmap
+  # one, so "which layers does the blend cover" is only really answered there.
+  private def tiled_fade(amount)
+    program do
+      screen :tiled
+      image(:brick, "#" => :red) { (["########"] * 8).join("\n") }
+      tiles :walls, "#" => :brick
+      background :field, tiles: :walls, map: (["##############################"] * 20)
+      fade :black, amount
+      game_loop { }
+    end
+  end
+
+  # A screenful of one flat tile of +color+, faded. Tiled rather than bitmap because that is
+  # where this was found, and because a tiled fade is the one the display does for
+  # nothing — the route this rule belongs to.
+  private def a_wall_faded(color, toward, amount)
+    tile = SOLID_TILE
+    program do
+      screen :tiled
+      image(:brick, "#" => color) { tile }
+      tiles :wall, "#" => :brick
+      background :wall, tiles: :wall, map: Array.new(20) { "#" * 30 }
+      game_loop { fade toward, amount }
+    end
+  end
+
+  private def a_red_wall_faded(amount) = a_wall_faded(:red, :black, amount)
+end
+
+# Fading the whole screen toward black or white.
+#
+# Like the camera, this changes what the display SHOWS and not what was drawn — the
+# picture is all still there under a fade — so the thing to assert is that colors
+# come back exactly when the fade lifts, and that both backends blend by the same
+# amounts. A fade that agreed only roughly between backends would make every
+# fade-related pixel test a guess. The Advance's cartridge, read in the emulator, is held
+# to the same steps in test/lowering/gba/vblank/builder/test_fade_cartridge.rb.
+class TestFade < Minitest::Test
+  include Differential
+  include FadeGames
+
+  Guardrails = VBlank::IR::Guardrails
+
   # --- the blend ---
 
   def test_no_fade_shows_the_picture_as_drawn
@@ -63,15 +129,6 @@ class TestFade < Minitest::Test
 
     assert_equal WHITE, i.screen.pixel(120, 80)
     assert_equal WHITE, i.screen.pixel(10, 10)
-  end
-
-  # ...and the console says the same, for the same picture through the ROM.
-  def test_the_console_shows_the_same_half_fade
-    rom = assemble_rom(faded(:black, 50), name: "HALF")
-    v = assert_emulator_loads_rom(rom, frames: 6)
-
-    assert_equal [16, 0, 0], channels(v.pixel_gba(120, 80)), "red, half faded to black"
-    assert_equal [0, 0, 15], channels(v.pixel_gba(10, 10)), "blue, half faded to black"
   end
 
   # The invariant that matters: a fade covers the picture, it does not destroy it.
@@ -108,31 +165,8 @@ class TestFade < Minitest::Test
     assert_equal BLACK, i.screen.pixel(10, 10), "and the screen followed it"
   end
 
-  # The camera moves the bitmap layer only, so it cannot pan a tiled screen. A fade
-  # blends every layer, so it works on both — worth pinning, since the two primitives
-  # look alike and this is where they differ. It has to be checked on the console,
-  # not just lowered: a tiled screen draws through different layers than a bitmap
-  # one, so "which layers does the blend cover" is only really answered there.
-  private def tiled_fade(amount)
-    program do
-      screen :tiled
-      image(:brick, "#" => :red) { (["########"] * 8).join("\n") }
-      tiles :walls, "#" => :brick
-      background :field, tiles: :walls, map: (["##############################"] * 20)
-      fade :black, amount
-      game_loop { }
-    end
-  end
-
   def test_a_fade_works_on_a_tiled_screen_too
     assert_equal BLACK, game_player.run(tiled_fade(100)).screen.pixel(60, 60)
-
-    lit = ROM.assemble(GBA.new.lower(tiled_fade(0)), title: "FADET", code: "BFDT", maker: "01")
-    dark = ROM.assemble(GBA.new.lower(tiled_fade(100)), title: "FADET", code: "BFDT", maker: "01")
-
-    assert assert_emulator_loads_rom(lit, frames: 6).red?(60, 60), "the tiles are there to begin with"
-    assert assert_emulator_loads_rom(dark, frames: 6).black?(60, 60),
-           "and the fade covers them — every layer, not just the bitmap one"
   end
 
   # --- friendly errors ---
@@ -201,53 +235,11 @@ class TestFade < Minitest::Test
 
   # --- the rule a channel follows, at every step there is ---
 
-  # A fade counts in sixteenths, so there are seventeen answers and no more. One
-  # percentage per distinct sixteenth walks all of them without a hundred percentages
-  # that collapse onto the same step.
-  EVERY_LEVEL = (0..16).map { |step| (step * 100.0 / 16).ceil }.freeze
-
-  # A channel at full strength on its way to black, one entry per sixteenth.
-  #
-  # WRITTEN OUT RATHER THAN WORKED OUT, on purpose: a formula here would be the same
-  # formula the code uses, so it would agree with a wrong one. This is the display's own
-  # rule, which takes a share AWAY — 31 less a ninth of itself is 31 less 17, which is
-  # 14 — and not the rule that keeps a share, which would say 13. Every entry is even
-  # because the share taken from 31 rounds down exactly half the time.
-  RED_FADED_TO_BLACK = [31, 30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2, 0].freeze
-
-  # A screenful of one flat tile of +color+, faded. Tiled rather than bitmap because that is
-  # where this was found, and because a tiled fade is the one the display does for
-  # nothing — the route this rule belongs to.
-  private def a_wall_faded(color, toward, amount)
-    tile = SOLID_TILE
-    program do
-      screen :tiled
-      image(:brick, "#" => color) { tile }
-      tiles :wall, "#" => :brick
-      background :wall, tiles: :wall, map: Array.new(20) { "#" * 30 }
-      game_loop { fade toward, amount }
-    end
-  end
-
-  private def a_red_wall_faded(amount) = a_wall_faded(:red, :black, amount)
-
   def test_a_fade_takes_a_share_away_at_every_level
     EVERY_LEVEL.each_with_index do |percent, step|
       shown = game_player.run(a_red_wall_faded(percent), frames: 2).screen.pixel(8, 8)
 
       assert_equal RED_FADED_TO_BLACK[step], shown & 0x1F,
-                   "red #{percent}% of the way to black, which is #{step} sixteenths"
-    end
-  end
-
-  # ...and the console says the same, step for step. This table is red's; green and blue
-  # round the other way on the console, and the whole picture is held to it below.
-  def test_the_console_fades_a_channel_by_the_same_steps
-    EVERY_LEVEL.each_with_index do |percent, step|
-      rom = assemble_rom(a_red_wall_faded(percent), name: "FSTEP")
-      console = assert_emulator_loads_rom(rom, frames: 6).pixel_gba(8, 8)
-
-      assert_equal RED_FADED_TO_BLACK[step], console & 0x1F,
                    "red #{percent}% of the way to black, which is #{step} sixteenths"
     end
   end
@@ -270,29 +262,12 @@ class TestFade < Minitest::Test
     end
   end
 
-  # --- on the console ---
-
-  private def rom_for(toward, amount)
-    ROM.assemble(GBA.new.lower(faded(toward, amount)), title: "FADE", code: "BFAD", maker: "01")
-  end
-
-  def test_the_fade_really_fades_on_the_console
-    assert assert_emulator_loads_rom(rom_for(:black, 0), frames: 4).red?(120, 80),
-           "with no fade the console shows the picture as drawn"
-    assert assert_emulator_loads_rom(rom_for(:black, 100), frames: 4).black?(10, 10),
-           "a full fade to black covers the screen"
-    assert assert_emulator_loads_rom(rom_for(:white, 100), frames: 4).white?(10, 10),
-           "and a full fade to white does too"
-  end
-
-  # Mid-fade the console lands exactly where the interpreter does, on a bitmap screen too.
-  def test_a_half_fade_on_the_console_matches_the_interpreter
-    console = assert_emulator_loads_rom(rom_for(:black, 50), frames: 4).pixel_gba(10, 10)
+  # Mid-fade the picture is neither the picture as drawn nor all black.
+  def test_a_half_fade_is_part_way
     interpreted = game_player.run(faded(:black, 50)).screen.pixel(10, 10)
 
-    assert_equal interpreted, console
-    refute_equal BLACK, console, "half way is not all the way"
-    refute_equal BLUE, console, "and it is not nothing either"
+    refute_equal BLACK, interpreted, "half way is not all the way"
+    refute_equal BLUE, interpreted, "and it is not nothing either"
   end
 
   # --- an amount that holds a fraction ---
@@ -312,18 +287,6 @@ class TestFade < Minitest::Test
     assert_equal game_player.run(faded(:black, 50)).screen.pixel(120, 80),
                  game_player.run(halved).screen.pixel(120, 80)
   end
-
-  # Thirty-two steps rather than sixteen: one for each thirty-second of the way, which is
-  # as fine as a five-bit channel can go. A percentage for each.
-  EVERY_FINE_LEVEL = (0..32).map { |step| step * 100.0 / 32 }.freeze
-
-  # Written out, for the reason RED_FADED_TO_BLACK is, and by the same rule: a share is taken
-  # AWAY. A thirty-second of 31 is less than one, so the first step takes nothing; after that
-  # it drops one a step and reaches nought only on the last. That is the display's own rounding
-  # and not a mix's, which would keep a share and reach nought a step early — and on a dark
-  # picture show flat black for a frame longer at the end of a fade in.
-  RED_FADED_FINELY = [31, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17,
-                      16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].freeze
 
   def test_a_fraction_on_a_tiled_screen_fades_in_thirty_two_steps
     EVERY_FINE_LEVEL.each_with_index do |percent, step|
@@ -351,16 +314,5 @@ class TestFade < Minitest::Test
     end, frames: 3).screen.pixel(8, 8)
 
     assert_equal 0, shown & 0x1F, "the wall is black"
-  end
-
-  # The colours are written into the console's colour table rather than blended by the
-  # display, so there is no emulator rounding to allow for: every step is exact.
-  def test_the_console_fades_a_fraction_in_the_same_thirty_two_steps
-    EVERY_FINE_LEVEL.each_with_index do |percent, step|
-      rom = assemble_rom(a_red_wall_faded(percent), name: "FFINE")
-      console = assert_emulator_loads_rom(rom, frames: 6).pixel_gba(8, 8)
-
-      assert_equal RED_FADED_FINELY[step], console & 0x1F, "red #{percent}% of the way to black"
-    end
   end
 end

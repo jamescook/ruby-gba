@@ -4,13 +4,9 @@ require "test_helper"
 
 require "tempfile"
 
-# Importing a .wav file into a playable sample: `sample :name, from: "clip.wav"` reads a
-# RIFF/PCM WAV and converts it — 8- or 16-bit, mono or stereo — down to the 8-bit signed
-# mono PCM the sampled-audio hardware plays, keeping the file's own rate. The decoder is
-# unit-tested; the DSL path is pinned on the interpreter and the emulator.
-class TestWavImport < Minitest::Test
-  Wav = VBlank::Audio::Wav
-
+# WAV files made on the spot, kept once for this file and for the test of a WAV sample on the
+# Advance's cartridge (test/lowering/gba/vblank/audio/test_wav_import_cartridge.rb).
+module WavFiles
   # Build a minimal valid WAV byte string. +samples+ are raw per-channel values (unsigned
   # for 8-bit, signed for 16-bit), interleaved for stereo.
   private def wav_bytes(samples:, rate:, bits: 8, channels: 1)
@@ -19,6 +15,26 @@ class TestWavImport < Minitest::Test
     chunks = "fmt " + [fmt.bytesize].pack("V") + fmt + "data" + [data.bytesize].pack("V") + data
     "RIFF" + [4 + chunks.bytesize].pack("V") + "WAVE" + chunks
   end
+
+  private def with_wav(bytes)
+    Tempfile.create(["clip", ".wav"]) do |f|
+      f.binmode
+      f.write(bytes)
+      f.flush
+      yield f.path
+    end
+  end
+end
+
+# Importing a .wav file into a playable sample: `sample :name, from: "clip.wav"` reads a
+# RIFF/PCM WAV and converts it — 8- or 16-bit, mono or stereo — down to the 8-bit signed
+# mono PCM the sampled-audio hardware plays, keeping the file's own rate. The decoder is
+# unit-tested; the DSL path is pinned here on every run, and on the Advance's cartridge in
+# test/lowering/gba/vblank/audio/test_wav_import_cartridge.rb.
+class TestWavImport < Minitest::Test
+  include WavFiles
+
+  Wav = VBlank::Audio::Wav
 
   # --- the decoder ---
 
@@ -55,15 +71,6 @@ class TestWavImport < Minitest::Test
 
   # --- the DSL path ---
 
-  private def with_wav(bytes)
-    Tempfile.create(["clip", ".wav"]) do |f|
-      f.binmode
-      f.write(bytes)
-      f.flush
-      yield f.path
-    end
-  end
-
   def test_sample_from_a_wav_file_plays
     with_wav(wav_bytes(samples: [128, 220, 128, 40] * 8, rate: 8000)) do |path|
       b = Builder.new
@@ -84,25 +91,6 @@ class TestWavImport < Minitest::Test
         Builder.new.instance_eval { screen :bitmap; sample :x, pcm: [0], from: path }
       end
       assert_match(/pcm:.*from:|from:.*pcm:/, err.message)
-    end
-  end
-
-  def test_a_wav_sample_plays_real_audio_on_the_console
-    tone = ([200] * 4 + [56] * 4) * 250 # a square wave as unsigned 8-bit
-    with_wav(wav_bytes(samples: tone, rate: 8000)) do |path|
-      b = Builder.new
-      wav_path = path
-      b.instance_eval do
-        screen :bitmap
-        clear_screen :black
-        sound = sample :tone, from: wav_path
-        sound.play
-        game_loop { wait_vblank }
-      end
-      b.finalize_program
-      rom = ROM.assemble(GBA.new.lower(b.program), title: "WAV0", code: "BWAV", maker: "01")
-      v = assert_emulator_loads_rom(rom, frames: 6)
-      assert v.sound?, "a WAV-loaded sample should play real audio (energy #{v.audio_energy})"
     end
   end
 end

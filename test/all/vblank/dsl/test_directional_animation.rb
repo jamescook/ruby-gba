@@ -2,14 +2,10 @@
 
 require "test_helper"
 
-# Directional sprite animation: `facing:` given a LIST of frames per direction runs a
-# per-direction animation — a character with its own walk cycle each way it faces, or
-# Pac chomping in whichever direction he moves. The pose the sprite shows composes the
-# two selectors: pose = direction * frames_per_direction + frame. These prove, on the
-# interpreter oracle and on real hardware, that facing picks the right ROW and the
-# frame animates WITHIN it.
-class TestDirectionalAnimation < Minitest::Test
-  include VBlank::Console::Hardware
+# The walker, shared with the Advance cartridge's own test of it
+# (test/lowering/gba/vblank/dsl/test_directional_animation_cartridge.rb).
+module DirectionalAnimationGames
+  include SharedConstants
 
   # A hero at (40, 40) facing +face+, with a two-frame walk cycle per direction over a
   # gray field: right cycles red -> green, down cycles blue -> white. Each direction is
@@ -43,6 +39,17 @@ class TestDirectionalAnimation < Minitest::Test
     builder.finalize_program
     builder.program
   end
+end
+
+# Directional sprite animation: `facing:` given a LIST of frames per direction runs a
+# per-direction animation — a character with its own walk cycle each way it faces, or
+# Pac chomping in whichever direction he moves. The pose the sprite shows composes the
+# two selectors: pose = direction * frames_per_direction + frame. These prove, on every
+# run (and on the Advance's cartridge, in the file named above), that facing picks the
+# right ROW and the frame animates WITHIN it.
+class TestDirectionalAnimation < Minitest::Test
+  include VBlank::Console::Hardware
+  include DirectionalAnimationGames
 
   private def spot(program)
     game_player.run(program).screen.pixel(44, 44)
@@ -56,15 +63,6 @@ class TestDirectionalAnimation < Minitest::Test
     assert_equal Color.resolve(:red),   spot(walker(mode: :tiled, face: :right, run: 1 + framework_drawing_lag)), "right, first frame"
     assert_equal Color.resolve(:green), spot(walker(mode: :tiled, face: :right, run: 3 + framework_drawing_lag)), "right, next frame"
     assert_equal Color.resolve(:blue),  spot(walker(mode: :tiled, face: :down,  run: 1 + framework_drawing_lag)), "down, first frame"
-  end
-
-  # --- real hardware: the composed pose renders on the console ---
-
-  def test_on_console_the_faced_direction_composites
-    rom = ROM.assemble(GBA.new.lower(walker(mode: :tiled, face: :down, run: 3)),
-                       title: "DIRANIM", code: "BDIR", maker: "01")
-    v = assert_emulator_loads_rom(rom, frames: 3)
-    assert v.blue?(44, 44), "facing down, the console should composite a down-facing frame (blue), got #{v.pixel_gba(44, 44).to_s(16)}"
   end
 
   # --- friendly errors ---

@@ -7,8 +7,13 @@ require "test_helper"
 # pure DSL codegen (box overlaps + a guarded move), so both backends run the same IR
 # and agree by construction — asserted here on the interpreter oracle and on hardware.
 # `can_move?` exposes the same test for manual control.
-class TestTiledCollision < Minitest::Test
-  include VBlank::Console::Hardware
+#
+# The hero walking into the wall on the Advance's cartridge, read in the emulator, is in
+# test/lowering/gba/vblank/dsl/test_tiled_collision_cartridge.rb.
+
+# The room both files walk the hero through.
+module TiledCollisionGames
+  include SharedConstants
 
   # A 10x5-tile room, floor everywhere but one wall tile at cell (4, 2) -> px (32, 16).
   # A red 8x8 hero starts at +hero_at+; +body+ is the per-frame game-loop code.
@@ -30,10 +35,6 @@ class TestTiledCollision < Minitest::Test
     builder.program
   end
 
-  private def rom_for(program)
-    ROM.assemble(GBA.new.lower(program), title: "COLLIDE", code: "BCOL", maker: "01")
-  end
-
   # The hero starts at px (16,16) with a wall at px (32,16); holding right, it walks up
   # to the wall and stops flush (its right edge at x32), never entering the wall cell.
   private def walk_into_wall
@@ -44,19 +45,17 @@ class TestTiledCollision < Minitest::Test
       end
     end
   end
+end
+
+class TestTiledCollision < Minitest::Test
+  include VBlank::Console::Hardware
+  include TiledCollisionGames
 
   def test_blocked_by_stops_the_sprite_at_a_wall
     s = game_player.input_each_frame { [:right] }.run(walk_into_wall, max_steps: 3_000).screen
     assert_equal Color.resolve(:red),  s.pixel(28, 20), "the hero rests flush against the wall (its body at x24..31)"
     assert_equal Color.resolve(:blue), s.pixel(36, 20), "the wall is right there at x32.."
     refute_equal Color.resolve(:red),  s.pixel(36, 20), "the hero never entered the wall cell"
-  end
-
-  def test_blocked_by_stops_the_sprite_on_the_console
-    v = assert_emulator_loads_rom(rom_for(walk_into_wall), frames: 30, keys: KEY_RIGHT)
-    assert v.red?(28, 20),  "the hero stops flush against the wall, got 0x#{format('%04X', v.pixel_gba(28, 20))}"
-    assert v.blue?(36, 20), "the wall is at x32, got 0x#{format('%04X', v.pixel_gba(36, 20))}"
-    refute v.red?(36, 20),  "the hero never crossed into the wall"
   end
 
   # can_move? reports the same test for manual control: at the wall it can't step right,

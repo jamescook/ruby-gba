@@ -12,9 +12,12 @@ require "differential"
 #
 # The two backends reach the answer in completely different ways: the interpreter asks one
 # question at the one place a cell is painted, and the console works the same edges out again
-# inside every shape. So the two agreeing over the whole screen is the proof.
-class TestInside < Minitest::Test
-  include EmulatorSupport
+# inside every shape. So the two agreeing over the whole screen is the proof. That comparison
+# reads the Advance's cartridge in the emulator, so it is in
+# test/lowering/gba/vblank/builder/test_inside_cartridge.rb, which plays the games kept here in
+# InsideGames.
+module InsideGames
+  include SharedConstants # Builder, which the games below name from inside the module
 
   BARS = %i[red red green green blue blue white white].freeze
   AREA = [40, 20, 120, 80].freeze # x, y, w, h — off every edge of the screen
@@ -30,6 +33,36 @@ class TestInside < Minitest::Test
     b.finalize_program
     b.program
   end
+
+  private def every_pixel = @every_pixel ||= (0...240).to_a.product((0...160).to_a)
+
+  # A game whose frames end while an area is open, with a window moved over its picture.
+  private def frame_ending_inside_area
+    program do
+      clear_screen :blue
+      fill_rect 0, 0, 20, 20, :red
+      inside(*AREA) { game_loop { camera 6, 0 } }
+    end
+  end
+
+  # The picture the player shows at the third frame boundary of that game, and how wide it is
+  # (the screen of the console this run plays the game as).
+  private def picture_at_frame_boundary
+    seen = nil
+    width = nil
+    interp = game_player
+    interp.each_vblank do |frame|
+      next unless frame == 3
+
+      seen = interp.screen.shown
+      width = interp.screen.width
+    end.run(frame_ending_inside_area, frames: 3)
+    [seen, width]
+  end
+end
+
+class TestInside < Minitest::Test
+  include InsideGames
 
   private def inside?(x, y)
     ax, ay, aw, ah = AREA
@@ -88,29 +121,16 @@ class TestInside < Minitest::Test
                  "and the caller's edges are back in force for the fill that followed the call"
   end
 
-  # --- and the console draws the same ----------------------------------------------
-
   # AN AREA HOLDS DRAWING, NOT THE DISPLAY. A game whose frames end while an area is open shows
   # the whole picture all the same — the area only says where drawing may land — and a window
   # moved over the picture moves over all of it. The picture is read at a frame boundary, while
-  # the area is still open, and compared with the console's whole: the window stands still, so
-  # every frame shows the same picture. Inside the area's right edge the window shows cells from
-  # outside it, and outside the area it shows the red square moved by the window.
+  # the area is still open: outside the area it shows the red square moved by the window. The
+  # same picture is held against the Advance's cartridge, every pixel of it, in
+  # test/lowering/gba/vblank/builder/test_inside_cartridge.rb.
   def test_the_whole_picture_shows_while_a_frame_ends_inside_an_area
-    prog = program do
-      clear_screen :blue
-      fill_rect 0, 0, 20, 20, :red
-      inside(*AREA) { game_loop { camera 6, 0 } }
-    end
-    seen = nil
-    interp = game_player
-    interp.each_vblank { |frame| seen = interp.screen.shown if frame == 3 }.run(prog, frames: 3)
-    rom = ROM.assemble(GBA.new.lower(prog), title: "INSIDE3", code: "AIN3", maker: "01")
-    console = assert_emulator_loads_rom(rom, frames: 6)
+    seen, width = picture_at_frame_boundary
 
-    assert_equal VBlank::Graphics::Color.resolve(:red), seen[(10 * 240) + 4], "outside the area, moved by the window"
-    differ = every_pixel.reject { |x, y| seen[(y * 240) + x] == console.pixel_gba(x, y) }
-    assert_empty differ.first(8), "read at a frame boundary inside the area, these pixels differ from the console"
+    assert_equal VBlank::Graphics::Color.resolve(:red), seen[(10 * width) + 4], "outside the area, moved by the window"
   end
 
   # --- the friendly errors ---------------------------------------------------------
@@ -137,8 +157,4 @@ class TestInside < Minitest::Test
 
     assert_match(/cannot go inside another/, err.message)
   end
-
-  private
-
-  def every_pixel = @every_pixel ||= (0...240).to_a.product((0...160).to_a)
 end

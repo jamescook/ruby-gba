@@ -3,18 +3,10 @@
 require "test_helper"
 require "differential"
 
-# A BACKGROUND THAT DRAWS WITH A DIFFERENT SET OF COLOURS while the game runs — shafts of
-# light that shimmer, water that turns murky, a sky that goes from day to dusk. The scenery
-# does not change: every pixel of every tile keeps its place in the list the tiles were drawn
-# from, and only the colours those places show are swapped for another list's.
-#
-# It is the same verb a sprite already has, and underneath it is not the same thing at all. A
-# sprite is POINTED at another set of sixteen colours — the display holds several sets and the
-# sprite's own entry says which — where a background's every cell names its set, so the layer
-# is recoloured by writing the new colours INTO the set its tiles read. Nothing about that
-# reaches the program, which is the point of the verb reading the same.
-class TestBackgroundDrawsWith < Minitest::Test
-  include Differential
+# The games these tests play, shared with the Advance cartridge's own tests of the same layers
+# (test/lowering/gba/vblank/dsl/test_background_draws_with_cartridge.rb).
+module BackgroundDrawsWithGames
+  include SharedConstants
 
   OWN = %i[transparent red green].freeze
   SHIMMER = %i[transparent yellow white].freeze
@@ -35,26 +27,6 @@ class TestBackgroundDrawsWith < Minitest::Test
     end
     builder.finalize_program
     builder.program
-  end
-
-  def test_a_background_told_to_draw_with_other_colors_shows_them
-    i = game_player.run(a_wall_of_bars { |rays| rays.draw_with :shimmer }, frames: 3)
-
-    assert_equal Color.resolve(:yellow), i.screen.pixel(1, 1), "the first place of the list"
-    assert_equal Color.resolve(:white), i.screen.pixel(5, 1), "and the second"
-  end
-
-  def test_the_console_draws_the_other_colors_too
-    v = assert_emulator_loads_rom(assemble_rom(a_wall_of_bars { |rays| rays.draw_with :shimmer }, name: "BGSWAP"),
-                                  frames: 3)
-
-    assert_equal Color.resolve(:yellow), v.pixel_gba(1, 1), "the first place of the list"
-    assert_equal Color.resolve(:white), v.pixel_gba(5, 1), "and the second"
-  end
-
-  # Every pixel rather than the two sampled above.
-  def test_the_two_backends_agree_about_a_recoloured_layer
-    assert_backends_agree(a_wall_of_bars { |rays| rays.draw_with :shimmer }, frames: 3)
   end
 
   # THE COLOUR BEHIND EVERYTHING IS NOT ONE OF THE LAYER'S. The very first entry of the
@@ -78,13 +50,43 @@ class TestBackgroundDrawsWith < Minitest::Test
     builder.finalize_program
     builder.program
   end
+end
+
+# A BACKGROUND THAT DRAWS WITH A DIFFERENT SET OF COLOURS while the game runs — shafts of
+# light that shimmer, water that turns murky, a sky that goes from day to dusk. The scenery
+# does not change: every pixel of every tile keeps its place in the list the tiles were drawn
+# from, and only the colours those places show are swapped for another list's.
+#
+# It is the same verb a sprite already has, and underneath it is not the same thing at all. A
+# sprite is POINTED at another set of sixteen colours — the display holds several sets and the
+# sprite's own entry says which — where a background's every cell names its set, so the layer
+# is recoloured by writing the new colours INTO the set its tiles read. Nothing about that
+# reaches the program, which is the point of the verb reading the same.
+#
+# The Advance cartridge's own pixels are read in
+# test/lowering/gba/vblank/dsl/test_background_draws_with_cartridge.rb.
+class TestBackgroundDrawsWith < Minitest::Test
+  include Differential
+  include BackgroundDrawsWithGames
+
+  def test_a_background_told_to_draw_with_other_colors_shows_them
+    i = game_player.run(a_wall_of_bars { |rays| rays.draw_with :shimmer }, frames: 3)
+
+    assert_equal Color.resolve(:yellow), i.screen.pixel(1, 1), "the first place of the list"
+    assert_equal Color.resolve(:white), i.screen.pixel(5, 1), "and the second"
+  end
+
+  # Every pixel rather than the two sampled above.
+  def test_the_two_backends_agree_about_a_recoloured_layer
+    assert_backends_agree(a_wall_of_bars { |rays| rays.draw_with :shimmer }, frames: 3)
+  end
 
   def test_a_list_that_starts_with_a_colour_leaves_the_backdrop_as_it_was
     wall = a_wall_with_gaps_and_lists_that_start_with_a_colour
-    v = assert_emulator_loads_rom(assemble_rom(wall, name: "BGBACK"), frames: 4)
+    shown = game_player.run(wall, frames: 4).screen
 
-    assert_equal Color.resolve(:yellow), v.pixel_gba(1, 1), "the wall is drawn with the other list"
-    assert_equal Color.resolve(:black), v.pixel_gba(9, 1), "and the gap beside it is still the backdrop"
+    assert_equal Color.resolve(:yellow), shown.pixel(1, 1), "the wall is drawn with the other list"
+    assert_equal Color.resolve(:black), shown.pixel(9, 1), "and the gap beside it is still the backdrop"
     assert_backends_agree(wall, frames: 4)
   end
 
@@ -235,44 +237,6 @@ class TestBackgroundDrawsWith < Minitest::Test
 
   def test_the_console_walks_the_lists_the_same_way
     assert_backends_agree(a_wall_that_walks_through_its_lists, frames: 4)
-  end
-
-  # --- THE LAYER'S COLOURS ARE ITS OWN ---
-  #
-  # The console draws every pixel by looking a colour up in one shared table, and the
-  # framework normally lets two pictures drawn from the same colours share one group of
-  # sixteen entries — a saving nobody has to hear about. It stops being invisible the moment
-  # a layer can be recoloured, because the swap writes INTO that group: anything else
-  # reading it would change colour too, and nothing in the program would say why.
-  #
-  # So a layer that can be recoloured gets a group nobody else reads. This is the test that
-  # says so, and it can only be asked of the console — the interpreter has no groups to
-  # share, so it agrees whatever the build decided.
-  private def two_walls_drawn_from_the_same_colours
-    front = Array.new(20) { |r| (r < 10 ? "#" : " ") * 30 }
-    builder = Builder.new
-    builder.instance_eval do
-      screen :tiled
-      image :bar_front, width: 8, height: 8, data: BAR, colors: OWN
-      image :bar_back, width: 8, height: 8, data: BAR, colors: OWN
-      colors :shimmer, SHIMMER
-      tiles :front_wall, "#" => :bar_front
-      tiles :back_wall, "#" => :bar_back
-      layers :far, :near
-      layer(:far) { background :steady, tiles: :back_wall, map: Array.new(20) { "#" * 30 } }
-      rays = layer(:near) { background :rays, tiles: :front_wall, map: front }
-      game_loop { rays.draw_with :shimmer }
-    end
-    builder.finalize_program
-    builder.program
-  end
-
-  def test_recolouring_one_layer_leaves_another_drawn_from_the_same_colours_alone
-    v = assert_emulator_loads_rom(assemble_rom(two_walls_drawn_from_the_same_colours, name: "BGOWNPAL"), frames: 4)
-
-    assert_equal Color.resolve(:yellow), v.pixel_gba(1, 1), "the layer that was told to shimmer"
-    assert_equal Color.resolve(:red), v.pixel_gba(1, 120),
-                 "the layer behind it changed colour too: the two are sharing one set of sixteen"
   end
 
   # Told to go back to its own colours, it does — the third form of the verb.

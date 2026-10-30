@@ -9,12 +9,15 @@ require "test_helper"
 # game. A drum hit and a beep always did that. A song's square-wave notes did not: each one held
 # at its volume until the next, like an organ, and most music written for these voices has notes
 # that fade like a plucked string or swell like a bowed one.
-class TestSongNoteFades < Minitest::Test
-  NoteFade = VBlank::Audio::NoteFade
+#
+# What the Advance's cartridge tells its sound hardware is in
+# test/lowering/gba/vblank/audio/test_song_note_fades_cartridge.rb.
 
+# The songs both files play.
+module SongNoteFadesGames
   # One song, written by the block, played until its notes have all started.
   private def song_game(&parts)
-    b = Builder.new
+    b = VBlank::Builder.new
     b.instance_eval do
       screen :bitmap
       clear_screen :black
@@ -29,6 +32,27 @@ class TestSongNoteFades < Minitest::Test
     b.finalize_program
     b.program
   end
+
+  # Two square parts, one fading and one swelling in from silence.
+  private def fade_and_swell_game
+    song_game do
+      voice :lead do |v|
+        v.decay :slow
+        v.note :C4, :whole
+      end
+      voice :pad do |v|
+        v.volume 0
+        v.swell :fast
+        v.note :G4, :whole
+      end
+    end
+  end
+end
+
+class TestSongNoteFades < Minitest::Test
+  include SongNoteFadesGames
+
+  NoteFade = VBlank::Audio::NoteFade
 
   # What the song set its voices to, in the order it set them: [voice, pitch, volume, fade]. Two
   # quarters are 48 frames, so 40 is every note of a two-note part once, before it comes round.
@@ -237,33 +261,5 @@ class TestSongNoteFades < Minitest::Test
 
     assert_match(/:fast, :medium, :slow or :none/, error.message)
     assert_match(/0 to 7/, error.message)
-  end
-
-  # Two square parts, one fading and one swelling in from silence.
-  private def fade_and_swell_game
-    song_game do
-      voice :lead do |v|
-        v.decay :slow
-        v.note :C4, :whole
-      end
-      voice :pad do |v|
-        v.volume 0
-        v.swell :fast
-        v.note :G4, :whole
-      end
-    end
-  end
-
-  # THE CONSOLE IS TOLD, in each voice's control register: its tone in bits 6 and 7, the step in
-  # bits 8 to 10, 8 more when it swells, and the volume it starts at on top. The register's low six
-  # bits are a note length the voice never shows back, so they are left out of what is read.
-  def test_the_console_is_told_how_each_note_fades
-    console = assert_emulator_loads_rom(assemble_rom(fade_and_swell_game, name: "FADES"), frames: 4)
-    half = 2 << 6
-
-    assert_equal 0xC000 | 0x0500 | half, console.mem16(VBlank::Console::Hardware::REG_SOUND1CNT_H) & 0xFFC0,
-                 "the lead starts at 12 and steps down every five 64ths of a second"
-    assert_equal 0x0800 | 0x0100 | half, console.mem16(VBlank::Console::Hardware::REG_SOUND2CNT_L) & 0xFFC0,
-                 "the pad starts at nothing and steps up every 64th"
   end
 end

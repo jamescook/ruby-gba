@@ -7,7 +7,13 @@ require "test_helper"
 # A part's volume is written into the song. `music_volume` scales every part of whatever song
 # is playing, while it plays — a settings screen's music slider, and the level `fade_music_out`
 # walks down to silence.
-class TestMusicVolume < Minitest::Test
+#
+# What the Advance's cartridge sets its voices to, and what its speaker plays, is read in the
+# emulator in test/lowering/gba/vblank/builder/test_music_volume_cartridge.rb, which plays the
+# games kept here in MusicVolumeGames.
+module MusicVolumeGames
+  include SharedConstants # Builder, which the games below name from inside the module
+
   # A song holding one long note at volume 12 — on the first square voice, or on whichever voice
   # +plays+ names — and a game that runs +body+ on each pass with the pass number. The game names
   # the song on every pass, or with +named_once+ on its first pass only and then whenever +body+
@@ -44,6 +50,34 @@ class TestMusicVolume < Minitest::Test
     b.finalize_program
     b.program
   end
+
+  # A drum part: a hit every second, at volume 12.
+  private def drum_game(&body)
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      enable_sound
+      song :drums do
+        tempo 60
+        voice(:kit, plays: :noise) do
+          volume 12
+          4.times { note :C4, :quarter }
+        end
+      end
+      pass = var :pass, 0
+      game_loop do
+        pass.add! 1
+        play_song :drums
+        instance_exec(pass, &body)
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+end
+
+class TestMusicVolume < Minitest::Test
+  include MusicVolumeGames
 
   # How loud each voice was set, on the frames it was set, from the interpreter:
   # { frame => [[channel, volume 0..15], ...] }. With +stops+, a frame the music stopped on
@@ -119,51 +153,6 @@ class TestMusicVolume < Minitest::Test
     heard = loudness_by_frame(program, 30).select { |frame, _| frame > 15 }
 
     assert_equal [[[1, 6]], [[1, 12]]], heard.values
-  end
-
-  # THE TWO BACKENDS AGREE ON WHAT SOUNDED: over a whole fade out and back in, the volumes the
-  # console's first square voice is set to, one after another, are the volumes the interpreter
-  # logs, one after another — every step of the way, not only where it ends up.
-  def test_both_backends_step_through_the_same_volumes
-    program = held_note_game(named_once: true) do |pass|
-      (pass == 10).then { fade_music_out frames: 9 }
-      (pass == 30).then { fade_music_in frames: 9 }
-    end
-    interpreted = game_player.run(program, frames: 60).audio
-                           .select { |entry| entry[0] == :loudness && entry[1] == 1 }.map(&:last)
-    console = console_volumes(assemble_rom(program, name: "MUSSTEPS"), frames: 70)
-
-    assert_equal interpreted.chunk_while { |a, b| a == b }.map(&:first), console
-  end
-
-  # The volume the console's first square voice was set to, frame by frame, with a run of the
-  # same volume counted once.
-  private def console_volumes(rom, frames:)
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "volumes.gba")
-      rom.write(path)
-      probe = VBlank::Diagnostics::Emulator.probe(path)
-      volumes = Array.new(frames) do
-        probe.step(1)
-        (probe.read32(VBlank::Console::Hardware::REG_SOUND1CNT_H) >> 12) & 0xF
-      end
-      probe.close
-      volumes.chunk_while { |a, b| a == b }.map(&:first).drop_while(&:zero?)
-    end
-  end
-
-  # ...and on the console, where it can be heard: loud, then silent, then loud again.
-  def test_the_console_fades_the_music_out_and_back_in
-    program = held_note_game(named_once: true) do |pass|
-      (pass == 10).then { fade_music_out frames: 10 }
-      (pass == 40).then { fade_music_in }
-    end
-    energy = assert_emulator_loads_rom(assemble_rom(program, name: "MUSFADE"), frames: 70).audio_energy_by_frame
-    loud = energy.max / 4
-
-    assert_operator energy[4..9].min, :>, loud, "the song sounds (#{energy.inspect})"
-    assert_operator energy[26..40].max, :<, loud, "then fades to nothing (#{energy.inspect})"
-    assert_operator energy[58..].min, :>, loud, "and comes back (#{energy.inspect})"
   end
 
   # --- guardrails ---
@@ -307,79 +296,7 @@ class TestMusicVolume < Minitest::Test
     assert_equal({ 2 => [[1, 12]], 6 => [[1, 6]] }, loudness_by_frame(program, 10))
   end
 
-  # ...and the console agrees about the volume the voice was set to.
-  def test_the_console_sets_the_voice_to_the_same_volume
-    program = held_note_game { |pass| (pass == 5).then { music_volume 50 } }
-    console = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOL"), frames: 20)
-
-    assert_equal 6, console.mem16(VBlank::Console::Hardware::REG_SOUND1CNT_H) >> 12
-  end
-
-  # ...and the speaker agrees: silence where the note is still being held. (On the console a
-  # square voice takes its volume only as a note starts, so the player starts the held note
-  # again. The emulator takes a new volume without that, so this cannot see the start itself —
-  # see Audio#emit_scaled_note.)
-  def test_no_music_volume_silences_a_note_the_console_is_already_holding
-    program = held_note_game { |pass| (pass == 20).then { music_volume 0 } }
-    energy = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOL0"), frames: 40).audio_energy_by_frame
-    loud = energy.max / 4
-
-    assert_operator energy[5..15].min, :>, loud, "the note sounds at its own volume (#{energy.inspect})"
-    assert_operator energy[28..].max, :<, loud, "and is silent once the music volume is 0 (#{energy.inspect})"
-  end
-
-  # --- a part that plays a recording ---
-
-  def test_the_console_sets_the_recorded_notes_voice_to_the_same_loudness
-    program = held_note_game(plays: :piano) { |pass| (pass == 5).then { music_volume 50 } }
-    console = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOLR"), frames: 20)
-
-    assert_equal [205], console.voices.map(&:volume)
-  end
-
-  def test_no_music_volume_silences_a_recorded_note_already_sounding
-    program = held_note_game(plays: :piano) { |pass| (pass == 20).then { music_volume 0 } }
-    energy = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOLR0"), frames: 40).audio_energy_by_frame
-    loud = energy.max / 4
-
-    assert_operator energy[5..15].min, :>, loud, "the note sounds at its own volume (#{energy.inspect})"
-    assert_operator energy[28..].max, :<, loud, "and is silent once the music volume is 0 (#{energy.inspect})"
-  end
-
-  def test_the_console_silences_a_recorded_note_without_a_shape_in_a_game_that_shapes
-    program = held_note_game(plays: :piano, shaped_elsewhere: true) { |pass| (pass == 20).then { music_volume 0 } }
-    energy = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOLRS"), frames: 40).audio_energy_by_frame
-    loud = energy.max / 4
-
-    assert_operator energy[5..15].min, :>, loud, "the note sounds at its own volume (#{energy.inspect})"
-    assert_operator energy[28..].max, :<, loud, "and is silent once the music volume is 0 (#{energy.inspect})"
-  end
-
   # --- a part on the noise voice ---
-
-  # A drum part: a hit every second, at volume 12.
-  private def drum_game(&body)
-    b = Builder.new
-    b.instance_eval do
-      screen :bitmap
-      enable_sound
-      song :drums do
-        tempo 60
-        voice(:kit, plays: :noise) do
-          volume 12
-          4.times { note :C4, :quarter }
-        end
-      end
-      pass = var :pass, 0
-      game_loop do
-        pass.add! 1
-        play_song :drums
-        instance_exec(pass, &body)
-      end
-    end
-    b.finalize_program
-    b.program
-  end
 
   # A drum hit is struck, rings and fades by itself, so there is no held note to set again —
   # striking it again would be a second hit. The level reaches the next hit instead: the first at
@@ -390,13 +307,6 @@ class TestMusicVolume < Minitest::Test
     assert_equal({ 2 => [[4, 12]], 62 => [[4, 6]] }, loudness_by_frame(program, 70))
   end
 
-  def test_the_console_strikes_the_next_drum_hit_at_the_new_volume
-    program = drum_game { |pass| (pass == 5).then { music_volume 50 } }
-    console = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOLN"), frames: 80)
-
-    assert_equal 6, console.mem16(VBlank::Console::Hardware::REG_SOUND4CNT_L) >> 12
-  end
-
   # --- a part on the wave voice ---
 
   # The wave voice holds its note at whatever volume it is given, while it plays — so a held
@@ -405,23 +315,5 @@ class TestMusicVolume < Minitest::Test
     program = held_note_game(plays: :triangle) { |pass| (pass == 5).then { music_volume 50 } }
 
     assert_equal({ 2 => [[3, 12]], 6 => [[3, 6]] }, loudness_by_frame(program, 10))
-  end
-
-  # The wave voice has five volumes rather than sixteen, so the console sets the one nearest.
-  def test_the_console_sets_the_wave_voice_to_the_nearest_of_its_volumes
-    program = held_note_game(plays: :triangle) { |pass| (pass == 5).then { music_volume 50 } }
-    console = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOLW"), frames: 20)
-    nearest = VBlank::Audio::Sound::Registers::WAVE_VOLUMES.fetch(VBlank::Audio::Sound.wave_level(6))
-
-    assert_equal nearest, console.mem16(VBlank::Console::Hardware::REG_SOUND3CNT_H) & 0xE000
-  end
-
-  def test_no_music_volume_silences_a_note_the_wave_voice_is_holding
-    program = held_note_game(plays: :triangle) { |pass| (pass == 20).then { music_volume 0 } }
-    energy = assert_emulator_loads_rom(assemble_rom(program, name: "MUSVOLW0"), frames: 40).audio_energy_by_frame
-    loud = energy.max / 4
-
-    assert_operator energy[5..15].min, :>, loud, "the note sounds at its own volume (#{energy.inspect})"
-    assert_operator energy[28..].max, :<, loud, "and is silent once the music volume is 0 (#{energy.inspect})"
   end
 end

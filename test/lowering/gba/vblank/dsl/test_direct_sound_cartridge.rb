@@ -1,0 +1,72 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+# A RECORDING ON THE ADVANCE'S CARTRIDGE: the clip lowered into it, and heard in the emulator. A
+# recording as every run logs it is in test/all/vblank/dsl/test_direct_sound.rb.
+class TestDirectSoundCartridge < Minitest::Test
+  LoweringError = VBlank::IR::Backends::GBA::LoweringError
+
+  # A short square-wave clip — a real, audible waveform to play.
+  private def square_wave(cycles: 250)
+    ([100] * 4 + [-100] * 4) * cycles
+  end
+
+  def test_a_clip_longer_than_the_length_counter_still_builds
+    # A clip past the 65536-sample length counter used to be a hard error; now it streams
+    # straight from ROM in chunks, so it lowers to a ROM without complaint.
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      long = sample :long, pcm: [0, 40, 0, -40] * 20_000, rate: 8000 # 80000 samples, over one chunk
+      long.play(loop: true)
+      game_loop { wait_vblank }
+    end
+    code = GBA.new.lower(b.program) # no LoweringError
+    assert code.bytesize.positive?, "a long looping clip lowers to a ROM"
+  end
+
+  # --- hardware: the sample really sounds on the console ---
+
+  def test_a_sample_plays_real_audio_on_the_console
+    b = Builder.new
+    wave = square_wave
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      tone = sample :tone, pcm: wave, rate: 8000
+      tone.play
+      game_loop { wait_vblank }
+    end
+    b.finalize_program
+    rom = ROM.assemble(GBA.new.lower(b.program), title: "PCM0", code: "BPCM", maker: "01")
+    v = assert_emulator_loads_rom(rom, frames: 6)
+    assert v.sound?, "Direct Sound should be audibly playing the sample (energy #{v.audio_energy})"
+  end
+
+  # SWITCHING SOUND ON MUST NOT SWITCH THE RECORDINGS OFF. They share one register: its low
+  # bits are the volume of the console's own voices, which `enable_sound` sets, and its high
+  # bits route the recordings to the speakers, which the mixer sets. Written whole with only
+  # the first, a program that says `enable_sound` silences every recording in it — and says
+  # nothing, because the console's own voices go on playing.
+  #
+  # The test above does not say `enable_sound`, and neither did any other hardware test of a
+  # recording, which is how this went unseen. This one says it.
+  def test_switching_sound_on_leaves_the_recordings_playing
+    b = Builder.new
+    wave = square_wave
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      enable_sound
+      tone = sample :tone, pcm: wave, rate: 8000
+      tone.play(loop: true)
+      game_loop { wait_vblank }
+    end
+    b.finalize_program
+    rom = ROM.assemble(GBA.new.lower(b.program), title: "PCM1", code: "BPC1", maker: "01")
+    v = assert_emulator_loads_rom(rom, frames: 6)
+    assert v.sound?, "`enable_sound` must keep the recordings routed to the speakers " \
+                     "(energy #{v.audio_energy})"
+  end
+end

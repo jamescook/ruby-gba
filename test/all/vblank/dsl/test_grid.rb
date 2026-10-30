@@ -7,7 +7,8 @@ require "test_helper"
 # clear_cell do the "* cell" arithmetic and the erase-to-background trick that a
 # game like Snake otherwise hand-rolls. So the test of correctness is "one cell
 # paints exactly its own square, at the right place, in the right color, and
-# nothing else moves" — asserted on the interpreter's screen.
+# nothing else moves" — asserted on the interpreter's screen. The same board on the
+# Advance's cartridge is in test/lowering/gba/vblank/dsl/test_grid_cartridge.rb.
 class TestGrid < Minitest::Test
   private def interpret_screen(&block)
     builder = Builder.new
@@ -116,32 +117,5 @@ class TestGrid < Minitest::Test
     end
     assert_match(/320px wide/, err.message)
     assert_match(/240px/, err.message)
-  end
-
-  # ---- cross-backend: the same board renders on the console ----
-
-  private def grid_rom
-    builder = Builder.new
-    builder.instance_eval do
-      screen :bitmap
-      clear_screen :black
-      board = grid :board, cols: 30, rows: 20, cell: 8, over: :black
-      board.set_cell 3, 2, :white   # the 8x8 square at (24, 16)
-      halt
-    end
-    builder.finalize_program
-    ROM.assemble(GBA.new.lower(builder.program), title: "GRIDTEST", code: "BGRD", maker: "01")
-  end
-
-  def test_grid_lowers_to_a_valid_rom
-    assert grid_rom.size.positive?
-  end
-
-  # ---- hardware: the same cell paints on the console ----
-
-  def test_a_cell_renders_white_on_the_console
-    v = assert_emulator_loads_rom(grid_rom, frames: 2)
-    assert v.white?(28, 20), "cell (3,2) not white on hardware — got #{v.pixel_gba(28, 20).to_s(16)}"
-    assert v.black?(4, 4), "an unpainted cell should stay the background"
   end
 end

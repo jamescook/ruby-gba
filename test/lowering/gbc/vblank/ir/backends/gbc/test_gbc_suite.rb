@@ -15,12 +15,11 @@ class TestGBCSuite < Minitest::Test
     assert_kind_of VBlank::Testing::CartridgeCheckedPlayer.for(:gbc), game_player
   end
 
-  # A file of tests about the game keeps its tests of the Advance's cartridge, which skip
-  # themselves here.
-  def test_a_test_of_the_advance_cartridge_skips_itself_and_says_why
-    skipped = assert_raises(Minitest::Skip) { require_emulator! }
+  # A test of the Advance's cartridge belongs in test/lowering/gba/; reached here, it fails saying so.
+  def test_a_test_of_the_advance_cartridge_fails_here_and_says_where_it_goes
+    failed = assert_raises(Minitest::Assertion) { require_emulator! }
 
-    assert_match(/emulator/, skipped.message)
+    assert_match(%r{test/lowering/gba/}, failed.message)
   end
 
   # A test's program that names no console is played here as a Color program, on the Color's
