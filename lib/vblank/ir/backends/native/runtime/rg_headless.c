@@ -210,6 +210,7 @@ static void print_moment(const char *heading, int with_picture) {
   print_sprites();
   print_mix();
   printf("camera %d %d\n", (int)rg_screen_camera_x(), (int)rg_screen_camera_y());
+  printf("motor %d\n", (int)rg_motor_on());
   const uint16_t *shown = rg_screen_shown();
   if (with_picture) {
     print_pixels("picture", shown);

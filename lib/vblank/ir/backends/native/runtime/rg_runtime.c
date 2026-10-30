@@ -4,6 +4,7 @@
  */
 #include <stdlib.h>
 #include "rg_runtime.h"
+#include "rg_console.h"
 #include "rg_driver.h"
 #include "rg_mix.h"
 #include "rg_pacing.h"
@@ -113,17 +114,25 @@ static int32_t clock_counts_frames; /* moved on a frame at each boundary, rather
 static int64_t clock_seconds;       /* the time now, as seconds from the start of 1970... */
 static int64_t clock_ticks;         /* ...and the console's ticks into the next second */
 
-void rg_clock_starts_at(int64_t seconds, int64_t ticks, int32_t set) {
-  clock_present = 1;
-  clock_set = set != 0;
-  clock_counts_frames = 1;
-  clock_seconds = seconds;
-  clock_ticks = ticks;
-}
+/* 1 January 2000, in days from the start of 1970: the day a clock that keeps no date reads as
+ * starting on. */
+#define UNDATED_FIRST_DAY 10957
 
 /* Division that rounds down rather than towards nothing, so a moment before 1970 lands on the
  * day it is in. */
 static int64_t floor_div(int64_t a, int64_t b) { return a / b - (a % b != 0 && (a < 0) != (b < 0)); }
+
+/* A CHIP THAT KEEPS NO DATE (RG_CLOCK_KEEPS_DATE 0, the Color's; IR::Clock.undated) counts only
+ * the days and the time of day since it started, taken as that many days on from 1 January 2000:
+ * so it starts on that day, at the time of day it was started at. */
+void rg_clock_starts_at(int64_t seconds, int64_t ticks, int32_t set) {
+  clock_present = 1;
+  clock_set = set != 0;
+  clock_counts_frames = 1;
+  clock_seconds = RG_CLOCK_KEEPS_DATE ? seconds
+                                      : (int64_t)UNDATED_FIRST_DAY * SECONDS_A_DAY + (seconds - floor_div(seconds, SECONDS_A_DAY) * SECONDS_A_DAY);
+  clock_ticks = ticks;
+}
 
 /* The days from the start of 1970 to a date, and back. A calendar of plain arithmetic rather than
  * the C library's, which would bring the computer's time zone into it: every fourth year a leap
@@ -168,10 +177,13 @@ static void clock_frame(void) {
   clock_ticks %= RG_CONSOLE_TICKS_A_SECOND;
 }
 
+/* A chip that keeps no date has no date of its own to give, so it reads as never set until the
+ * game has set a time on it: an offset of anything but nought (IR::Clock.undated_set?). */
 int32_t rg_clock_reading(int32_t reading, int32_t offset_days, int32_t offset_seconds) {
   if (!clock_present) return 0;
   if (reading == CLOCK_PRESENT) return 1;
   if (!clock_set) return 0;
+  if (!RG_CLOCK_KEEPS_DATE && offset_days == 0 && offset_seconds == 0) return 0;
   if (reading == CLOCK_SET) return 1;
 
   int64_t now = clock_seconds + (int64_t)offset_days * SECONDS_A_DAY + offset_seconds;
@@ -218,6 +230,33 @@ void rg_clock_set_to(int32_t year, int32_t month, int32_t day, int32_t hour, int
 int32_t rg_clock_kept_days(int32_t current) { return clock_present ? clock_kept_days : current; }
 int32_t rg_clock_kept_seconds(int32_t current) { return clock_present ? clock_kept_seconds : current; }
 
+/* --- the motor (Reference#exec_rumble, #step_motor) --- */
+
+/* THE CARTRIDGE'S MOTOR, which shakes the player's hands: on a console whose cartridge carries
+ * one, it runs on or off each frame by an eight-frame pattern, for the frames the game said. A
+ * desktop or a web page shakes nothing yet, but the motor is kept all the same, so a test can
+ * ask whether it runs. The pattern is read as IR::Rumble reads it: turned a place to the right
+ * each frame, and on where its lowest bit is 1. */
+static int32_t rumble_left, rumble_bits, motor_on;
+
+void rg_rumble(int32_t frames, int32_t pattern) {
+  if (!RG_CONSOLE_RUMBLES) return;
+  rumble_left = frames < 0 ? 0 : frames > 0xFFFF ? 0xFFFF : frames;
+  rumble_bits = pattern & 0xFF;
+}
+
+static void motor_frame(void) {
+  if (rumble_left <= 0) {
+    motor_on = 0;
+    return;
+  }
+  rumble_bits = ((rumble_bits >> 1) | (rumble_bits << 7)) & 0xFF;
+  motor_on = rumble_bits & 1;
+  rumble_left--;
+}
+
+int32_t rg_motor_on(void) { return motor_on; }
+
 /* The middle of Reference#advance_frame, in its order: the picture is switched on, the timers
  * tick, and then the music moves on. */
 void rg_frame_begins(void) {
@@ -229,11 +268,15 @@ void rg_frame_begins(void) {
   rg_mix_frame();
   rg_music_frame();
   rg_mix_step_shapes();
+  motor_frame();
   clock_frame();
 }
 
-/* A driver's halt and fault never come back; abort() is only there to say so to the compiler. */
+/* A driver's halt and fault never come back; abort() is only there to say so to the compiler.
+ * A game that halts stops the motor (Reference#exec_halt). */
 _Noreturn void rg_halt(void) {
+  rumble_left = 0;
+  motor_on = 0;
   rg_active_driver->halt();
   abort();
 }

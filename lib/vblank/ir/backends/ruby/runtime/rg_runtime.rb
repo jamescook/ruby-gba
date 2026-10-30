@@ -95,13 +95,39 @@ def rg_frame_begins
   rg_mix_frame
   rg_music_frame
   rg_mix_step_shapes
+  rg_motor_frame
   rg_clock_frame
 end
 
+# --- the motor (Reference#exec_rumble, #step_motor) ---
+
+# The cartridge's motor, kept as the native runtime keeps it (rg_runtime.c says how a pattern is
+# read), on a console whose cartridge carries one. Nothing here shakes a gamepad yet.
+def rg_rumble(frames, pattern)
+  return unless RG_CONSOLE_RUMBLES
+
+  @rg_rumble_left = frames.clamp(0, 0xFFFF)
+  @rg_rumble_bits = pattern & 0xFF
+end
+
+def rg_motor_frame
+  return @rg_motor_on = false unless (@rg_rumble_left || 0).positive?
+
+  @rg_rumble_bits = ((@rg_rumble_bits >> 1) | (@rg_rumble_bits << 7)) & 0xFF
+  @rg_motor_on = @rg_rumble_bits.odd?
+  @rg_rumble_left -= 1
+end
+
+def rg_motor_on = @rg_motor_on ? 1 : 0
+
 # --- stopping ---
 
-# The game stopped on purpose (`halt`). The driver never comes back.
-def rg_halt = rg_driver_halt
+# The game stopped on purpose (`halt`), which stops the motor too. The driver never comes back.
+def rg_halt
+  @rg_rumble_left = 0
+  @rg_motor_on = false
+  rg_driver_halt
+end
 
 # The game did something the interpreter refuses: says so in +message+, and stops. The driver
 # never comes back.

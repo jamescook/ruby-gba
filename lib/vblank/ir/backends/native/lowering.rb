@@ -71,8 +71,7 @@ module VBlank
                                                copy_owed_tiles: :lower_copy_owed_tiles,
                                                present_objects: :lower_present_objects,
                                                hide_sprites: :lower_hide_sprites,
-                                               # a desktop or web page shakes no gamepad yet: nothing is felt
-                                               rumble: :lower_nothing,
+                                               rumble: :lower_rumble,
                                                fade: :lower_fade, tint: :lower_tint,
                                                pixelate: :lower_pixelate,
                                                see_through: :lower_see_through,
@@ -189,6 +188,7 @@ module VBlank
              *variable_names.map { |name| C::Global.new(name: variable(name)) },
              *list_storage,
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),
+             *(loops_ending_passes.empty? ? [] : [C::Global.new(name: loop_running, value: 0)]),
              *held_colors_globals, *sprites_hidden_globals,
              *constant_arrays, *picture_data, *@drawing_arrays, title_array, *sound_tables,
              save_memory_table,
@@ -219,7 +219,7 @@ module VBlank
           def statements_from(*roots) = Reach.statements_from(*roots)
           def routines_named(nodes) = Reach.routines_named(nodes)
           def called_routines = Reach.routines(@program, also: [*@bends.values, *@tick_handlers.values])
-          def variable_names = Reach.variables(@program)
+          def variable_names = @variable_names ||= (Reach.variables(@program) + loop_variables).uniq
 
           def by_name(nodes, *kinds) = nodes.select { |node| kinds.include?(node.kind) }.to_h { |node| [node.name, node] }
 
@@ -325,11 +325,25 @@ module VBlank
           # Each statement of a body, after where it was written — and, before any statement the
           # interpreter paints an owed rebuild of the picture for, the same painting (see
           # Reference.defers_repaint?, which this asks rather than keeping a copy of the rule).
-          def body_of(node)
-            node.children.flat_map do |child|
+          def body_of(node) = statements_of(node.children)
+
+          # The same for a list of statements. +order+ is the game loop they are a pass of
+          # (IR::Frames::ConsoleLoop), whose writes placed at the end of the pass are lowered as
+          # placed there (#placed_at_pass_end).
+          def statements_of(children, order: nil)
+            children.flat_map do |child|
               paint = Reference.defers_repaint?(child) ? [] : [eval_call("rg_screen_paint_owed_rebuild")]
-              [*source_comment(child), *paint, *lower(child)]
+              lowered = lower(child)
+              lowered = placed_at_pass_end(lowered) if order&.placed?(child)
+              [*source_comment(child), *paint, *lowered]
             end
+          end
+
+          # +statements+ run as the end of a pass places the frame's scroll and status bars
+          # (Reference#exec_in_loop): a background the pass put up still shows from its corner.
+          def placed_at_pass_end(statements)
+            [eval_call("rg_screen_placing_at_pass_end", C::Int.new(1)), *statements,
+             eval_call("rg_screen_placing_at_pass_end", C::Int.new(0))]
           end
 
           # Where in the game a statement was written, for a person reading the C.
@@ -371,7 +385,33 @@ module VBlank
             [C::If.new(condition: value(node.cond), body: body_of(node), otherwise: otherwise)]
           end
 
-          def lower_loop(node) = [C::While.new(condition: C::Int.new(1), body: body_of(node))]
+          # Reference#exec_loop: the loop's statements in the order its console runs them
+          # (IR::Frames.loop_in_console_order). On a console that places a frame's sprites and
+          # scroll before its wait, each pass ends by placing them, and the first wait comes once
+          # before the loop.
+          def lower_loop(node)
+            order = console_loop(node)
+            running = loops_ending_passes.any? ? [C::Assign.new(loop_running, C::Int.new((loops_ending_passes.index(node) || -1) + 1))] : []
+            [*statements_of(order.before), *running,
+             C::While.new(condition: C::Int.new(1), body: statements_of(order.each_time, order: order))]
+          end
+
+          def console_loop(node)
+            (@console_loops ||= {})[node.object_id] ||= Frames.loop_in_console_order(node.children, @program.described_console)
+          end
+
+          # The game loops that end each pass by placing the frame's writes
+          # (IR::Frames::ConsoleLoop#pass_end), which a halt has to end as the running one does.
+          def loops_ending_passes
+            @loops_ending_passes ||= @program.walk.select { |node| node.kind == :loop && console_loop(node).pass_end.any? }
+          end
+
+          # Which of those is running, counted from 1, and nought for none: a halt can be anywhere,
+          # in a routine called from any loop or from none (#lower_halt).
+          def loop_running = @names.own("loop_running")
+
+          # The variables the game loops keep of their own in their console's order.
+          def loop_variables = @program.walk.select { |node| node.kind == :loop }.flat_map { |node| console_loop(node).variables }
 
           # A counted loop. The count is read once, before the first pass, as the interpreter
           # reads it; the index counts 0, 1, 2... and is stored in the game's variable at the
@@ -444,7 +484,20 @@ module VBlank
                        otherwise: work)]
           end
 
-          def lower_halt(_node) = [eval_call("rg_halt")]
+          # A pass that halts ends as every pass does, with its sprites and scroll placed: the
+          # running game loop's (Reference#place_pass_end_before_halt), and nothing before any runs.
+          def lower_halt(_node)
+            ends = loops_ending_passes.each_with_index.map do |ending, i|
+              order = console_loop(ending)
+              C::If.new(condition: call("rg_eq", loop_running, C::Int.new(i + 1)),
+                        body: statements_of(order.pass_end, order: order))
+            end
+            [*ends, eval_call("rg_halt")]
+          end
+
+          # Reference#exec_rumble. A desktop or a web page shakes no gamepad yet, but the runtime
+          # keeps the motor as the console runs it, on a console whose cartridge carries one.
+          def lower_rumble(node) = [eval_call("rg_rumble", value(node.frames), value(node.pattern))]
 
           # --- timers (Reference#exec_timer_start, #exec_timer_stop, #timer_ticks) ---
 

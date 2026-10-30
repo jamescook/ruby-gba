@@ -31,4 +31,23 @@
 #define RG_CONSOLE_TICKS_A_FRAME 280896
 #endif
 
+/* Whether the console's display can mix the finished picture toward a colour as it draws it. One
+ * that cannot has every fade and tint mixed into its colour tables instead
+ * (Console::Description#blends). */
+#ifndef RG_CONSOLE_BLENDS
+#define RG_CONSOLE_BLENDS 1
+#endif
+
+/* Whether the console's cartridge carries a motor that a game's `rumble` runs
+ * (Console::Description#rumbles). */
+#ifndef RG_CONSOLE_RUMBLES
+#define RG_CONSOLE_RUMBLES 0
+#endif
+
+/* Whether the clock chip its cartridges carry holds the date, or only counts the days and the
+ * time of day since it started (Console::Description#clock_keeps_date). */
+#ifndef RG_CLOCK_KEEPS_DATE
+#define RG_CLOCK_KEEPS_DATE 1
+#endif
+
 #endif

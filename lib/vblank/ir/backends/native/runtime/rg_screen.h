@@ -86,6 +86,9 @@ void rg_background_forget_cells(int32_t background);
 void rg_background_scroll(int32_t background, int32_t x, int32_t y);
 /* Reference#exec_place_bar: a status bar's top at a row of the screen. */
 void rg_place_bar(int32_t background, int32_t top);
+/* Reference#exec_in_loop: while +on+, a scroll or a bar's top is the end of a pass placing the
+ * frame's writes, and a background that pass put up still shows from its corner. */
+void rg_screen_placing_at_pass_end(int32_t on);
 /* One cell becomes tile number +tile+ of the background's tiles. A cell the map does not have is
  * left alone. */
 void rg_background_set_tile(int32_t background, int32_t col, int32_t row, int32_t tile);

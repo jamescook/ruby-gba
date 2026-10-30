@@ -181,7 +181,8 @@ module VBlank
           def moment_of(interpreter, frame)
             Moment.new(frame: frame, variables: interpreter.vars.dup, picture: HeadlessRun.picture_check(interpreter.screen.shown),
                        sounds: interpreter.audio.size, sprites: interpreter.sprites,
-                       collections: interpreter.game_state.except(:vars), sounding: interpreter.active_samples)
+                       collections: interpreter.game_state.except(:vars), sounding: interpreter.active_samples,
+                       motor: interpreter.motor_on?)
           end
 
           # A picture that differs is played again with every pixel of every frame, to say where.

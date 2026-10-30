@@ -42,6 +42,12 @@ void rg_wait_vblank(void);
 /* The game stopped on purpose (`halt`). Never comes back. */
 _Noreturn void rg_halt(void);
 
+/* `rumble`: the cartridge's motor runs by +pattern+'s eight frames for +frames+ frames, from the
+ * next frame on — on a console whose cartridge carries one. rg_motor_on says whether it runs on
+ * the frame shown now. */
+void rg_rumble(int32_t frames, int32_t pattern);
+int32_t rg_motor_on(void);
+
 /* The game did something the interpreter refuses (pushed onto a full list, read past the end
  * of one): says so, in the words given printf-style, and stops. Never comes back. A program
  * with no window ends with RG_GAME_WENT_WRONG, so whoever started it can tell the game going

@@ -745,8 +745,8 @@ def rg_screen_fade_under(layer_place, toward_white, steps, walked)
 end
 
 # Reference#tint_by_display?: does the display mix a tint in as it draws, which only the plain
-# bitmap screen does? Every other screen has it mixed into a colour table.
-def rg_tint_mixed_by_display? = rg_painted_screen? && @rg_pixels.equal?(@rg_viewed)
+# bitmap screen does, on a console that blends? Every other screen has it mixed into a colour table.
+def rg_tint_mixed_by_display? = rg_painted_screen? && @rg_pixels.equal?(@rg_viewed) && RG_CONSOLE_BLENDS
 
 # Reference#exec_tint, through Framebuffer#tint_steps_to. A tint takes the place of whatever fade
 # was in force, one placed in the stack included, and the picture is built again when a fade that
@@ -1065,11 +1065,17 @@ def rg_showing?(background)
   scene == RG_EVERY_SCENE || scene == @rg_scene
 end
 
+# Reference#exec_in_loop: while +on+ is not nought, the end of a pass is placing the frame's writes,
+# and a background that pass put up still shows from its corner.
+def rg_screen_placing_at_pass_end(on)
+  @rg_placing_at_pass_end = on != 0
+end
+
 # Reference#exec_scroll_background
 def rg_background_scroll(background, x, y)
   keeper = rg_keeper_of(background)
   @rg_scrolls[keeper] = [x, y]
-  @rg_from_corner[keeper] = false
+  @rg_from_corner[keeper] = false unless @rg_placing_at_pass_end
   rg_request_repaint
 end
 
@@ -1081,7 +1087,7 @@ def rg_place_bar(background, top)
   keeper = rg_keeper_of(background)
   @rg_bar_tops[keeper] = rg_clamp_wide(top, 0, RG_SCREEN_HEIGHT)
   @rg_bar_placed[keeper] = true
-  @rg_from_corner[keeper] = false
+  @rg_from_corner[keeper] = false unless @rg_placing_at_pass_end
   rg_request_repaint
 end
 

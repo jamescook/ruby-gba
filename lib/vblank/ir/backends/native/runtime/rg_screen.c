@@ -659,9 +659,10 @@ void rg_screen_fade_under(int32_t layer_place, int32_t toward_white, int32_t ste
 }
 
 /* Reference#tint_by_display?: does the display mix a tint in as it draws, which only the plain
- * bitmap screen does? Every other screen has it mixed into a colour table. */
+ * bitmap screen does, on a console that blends? Every other screen has it mixed into a colour
+ * table. */
 static int32_t painted_screen(void);
-static int32_t tint_mixed_by_display(void) { return painted_screen() && pixels == viewed; }
+static int32_t tint_mixed_by_display(void) { return painted_screen() && pixels == viewed && RG_CONSOLE_BLENDS; }
 
 /* Reference#exec_tint, through Framebuffer#tint_steps_to. A tint takes the place of whatever
  * fade was in force, one placed in the stack included. A fade that goes may have been holding a
@@ -1004,10 +1005,15 @@ static int32_t showing(int32_t background) {
   return scene == RG_EVERY_SCENE || scene == current_scene;
 }
 
+/* Whether the end of a pass is placing the frame's writes (Reference @placing_at_pass_end). */
+static int32_t placing_at_pass_end;
+
+void rg_screen_placing_at_pass_end(int32_t on) { placing_at_pass_end = on; }
+
 /* Reference#exec_scroll_background */
 void rg_background_scroll(int32_t background, int32_t x, int32_t y) {
   scrolls[keeper_of(background)] = (background_scroll){x, y};
-  from_corner[keeper_of(background)] = 0;
+  if (!placing_at_pass_end) from_corner[keeper_of(background)] = 0;
   request_repaint();
 }
 
@@ -1020,7 +1026,7 @@ static uint8_t bar_placed[RG_MAX_BACKGROUNDS];
 void rg_place_bar(int32_t background, int32_t top) {
   bar_tops[keeper_of(background)] = clamp32(top, 0, RG_SCREEN_HEIGHT);
   bar_placed[keeper_of(background)] = 1;
-  from_corner[keeper_of(background)] = 0;
+  if (!placing_at_pass_end) from_corner[keeper_of(background)] = 0;
   request_repaint();
 }
 

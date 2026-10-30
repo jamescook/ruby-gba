@@ -174,6 +174,7 @@ def rg_headless_print_moment(heading, with_picture)
   end
   rg_headless_print_mix
   $stdout.write("camera #{rg_screen_camera_x} #{rg_screen_camera_y}\n")
+  $stdout.write("motor #{rg_motor_on}\n")
   shown = rg_screen_shown
   if with_picture
     rg_headless_print_pixels("picture", shown)

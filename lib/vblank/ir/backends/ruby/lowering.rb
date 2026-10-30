@@ -33,7 +33,8 @@ module VBlank
             { "RG_SCREEN_WIDTH" => console.screen_width, "RG_SCREEN_HEIGHT" => console.screen_height,
               "RG_CONSOLE_CYCLES_PER_SECOND" => console.cycles_a_second,
               "RG_CONSOLE_CYCLES_PER_FRAME" => console.cycles_a_frame,
-              "RG_CLOCK_KEEPS_DATE" => console.clock_keeps_date }.map { |name, value| "#{name} = #{value}\n" }.join
+              "RG_CLOCK_KEEPS_DATE" => console.clock_keeps_date, "RG_CONSOLE_BLENDS" => console.blends,
+              "RG_CONSOLE_RUMBLES" => console.rumbles }.map { |name, value| "#{name} = #{value}\n" }.join
           end
 
           private

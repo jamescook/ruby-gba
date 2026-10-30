@@ -290,8 +290,9 @@ module VBlank
           # never reaches the C at all (CheckedRun#refuse_endless_game_without_frames!).
           def stopped_at_budget? = false
 
-          # A desktop or web build shakes no gamepad yet, so its motor never runs (Reference#motor_on?).
-          def motor_on? = false
+          # Whether the cartridge's motor runs on the frame shown now (Reference#motor_on?), as the
+          # runtime keeps it: a desktop or web build shakes no gamepad yet, but keeps the motor.
+          def motor_on? = @motor_on || false
 
           # The rest of what the interpreter answers, each said by name, so a test asking one meets
           # a sentence saying so rather than a NoMethodError that reads like a typo in the test.
@@ -440,7 +441,7 @@ module VBlank
             @screen = nil
             check = rows.find { |row| row.start_with?("picture-crc ") }.delete_prefix("picture-crc ").to_i(16)
             @moments << Moment.new(frame: frame, variables: @vars, picture: check, sounds: @audio_played.size, sprites: @sprites,
-                                   collections: game_state.except(:vars), sounding: active_samples)
+                                   collections: game_state.except(:vars), sounding: active_samples, motor: motor_on?)
             buttons = @input_script ? @input_script.call(frame) : @held
             @on_vblank&.call(frame)
             stdin.puts(self.class.button_mask(buttons))
@@ -461,7 +462,7 @@ module VBlank
             @buffered = rows.include?("pages 2")
             @moments << Moment.new(frame: :end, variables: @vars, picture: self.class.picture_check(@screen.shown),
                                    sounds: @audio_played.size, sprites: @sprites, collections: game_state.except(:vars),
-                                   sounding: active_samples)
+                                   sounding: active_samples, motor: motor_on?)
           end
 
           # Where the game stands, as the program printed it at one moment.
@@ -470,6 +471,7 @@ module VBlank
             @lists = self.class.lists_in(rows)
             @sprites = @drawn_sprites.rows_in(rows)
             @camera = self.class.camera_in(rows)
+            @motor_on = rows.include?("motor 1")
             read_mix_from(rows)
           end
 
