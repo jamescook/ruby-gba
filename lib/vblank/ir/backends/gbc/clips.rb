@@ -13,6 +13,10 @@ module VBlank
         # thousands of times a second (Runtime::Clips). Each sample is the one bit of whether it
         # stands above the middle or below it. The sound is rough, and the words are clear.
         #
+        # Pokémon Pinball's player (PlayPikachuPCM) spends 45 of the processor's steps on each bit, at
+        # the Color's plain speed, with every interrupt held off and the game stopped until the clip
+        # ends: near three times as many bits a second as this, which plays with the game running.
+        #
         # THE BITS ARE THE INTERPRETER'S OWN READING. The interpreter's mix reads a recording at
         # the console's sample clock (Console::SampleClock, 133 samples a frame on a Color), a
         # step of the recording at a time, which rolls the rate it was recorded at against the
@@ -39,12 +43,12 @@ module VBlank
           RECORDINGS = SM83::Holding.new(what: "the game's recordings",
                                          fix: "make its recordings shorter, or use fewer of them")
 
-          # The table's label, and how many bytes an entry takes: the address, the bank, the count
-          # and the recording; and in a game that loops one, the place it goes back to, the count
-          # from there and its laps.
+          # The table's label, and how many bytes an entry takes: the address, the bank, the count,
+          # the recording and whether its last byte is part full (#packed); and in a game that loops
+          # one, the place it goes back to, the count from there and its laps.
           TABLE = "clips"
-          ENTRY_BYTES = 6
-          LOOPING_ENTRY_BYTES = 6 + 4 + (3 * 5)
+          ENTRY_BYTES = 7
+          LOOPING_ENTRY_BYTES = 7 + 4 + (3 * 5)
 
           # A LAP'S THREE NUMBERS, each five bytes, low byte first, in 65536ths of a sample of the
           # recording, as the interpreter's walk counts where it is (Sound::STEP_SHIFT): how far it
@@ -59,12 +63,13 @@ module VBlank
           # One recording at one note the game plays it at: the number its entry in the table has,
           # the number of the recording, its section's label, its bits, the byte it goes back to
           # when it loops, and its laps.
-          Clip = Data.define(:name, :note, :number, :recording, :label, :bytes, :hold_byte, :laps)
+          Clip = Data.define(:name, :note, :number, :recording, :label, :bytes, :hold_byte, :laps, :part_way)
 
           def initialize(program)
             declared = program.walk.select { |node| node.kind == :sample }.to_h { |node| [node.name, node] }
             plays = program.walk.select { |node| node.kind == :play_sample }
             @loops = plays.any?(&:loop)
+            @rows_bent = program.walk.any? { |node| node.kind == :scroll_rows }
             # The Color's clock, whichever console the program names: this is the Color's cartridge.
             @clock = Console::COLOR.sample_clock(Mixing.requested_rate(program)) unless plays.empty?
             @recordings = plays.map(&:name).uniq
@@ -83,6 +88,10 @@ module VBlank
           def timer_counts = @clock.period / Console::COLOR.sample_timer_step
 
           def any? = !@clips.empty?
+
+          # Whether the game bends a background's rows: then a line's interrupt is let in while a
+          # sample is played (Runtime::Clips#emit_tick).
+          def rows_bent? = @rows_bent
 
           # Whether the game loops any recording: only then is a lap counted.
           def loops? = @loops
@@ -114,6 +123,7 @@ module VBlank
               table.data_bank_of(clip.label)
               table.data_words(clip.bytes.bytesize)
               table.data_bytes(clip.recording)
+              table.data_bytes(clip.part_way ? 1 : 0)
               next unless @loops
 
               table.data_words("#{clip.label}_hold")
@@ -131,13 +141,31 @@ module VBlank
             [table.section, *clips]
           end
 
+          # HOW NEAR THE MIDDLE A SAMPLE IS STILL. A bit is all or nothing, so a sample's sign alone
+          # turns the quiet between a recording's words — a little noise either side of nought — into
+          # bits as loud as the words. A sample this near the middle plays as the one before it did,
+          # so the voice holds still there and is quiet: a sixteenth of the way to either end.
+          STILL_NEAR_MIDDLE = 8
+
           # +samples+ a bit each, the first in the top bit of the first byte: 1 for a sample at or above
-          # the middle. The last byte is filled out with the bits for nought.
+          # the middle, and for one near it (STILL_NEAR_MIDDLE) the bit before it, 1 at the start. A
+          # last byte part full has a 1 just past its samples, and noughts after it: the timer reads it
+          # with nothing below it, so the 1 leaving it is the clip's end (Runtime::Clips#emit_tick), on
+          # its last sample as the interpreter's voice ends.
           def self.packed(samples)
-            bits = samples.map { |sample| sample.negative? ? 0 : 1 }
-            bits.each_slice(8).map { |eight| (eight + ([1] * (8 - eight.length))).inject(0) { |byte, bit| (byte << 1) | bit } }
-                .pack("C*")
+            last = 1
+            bits = samples.map do |sample|
+              last = sample.negative? ? 0 : 1 unless sample.abs < STILL_NEAR_MIDDLE
+              last
+            end
+            bits.each_slice(8).map do |eight|
+              eight += [1] + ([0] * (7 - eight.length)) if eight.length < 8
+              eight.inject(0) { |byte, bit| (byte << 1) | bit }
+            end.pack("C*")
           end
+
+          # Whether a clip of +samples+ ends part way through its last byte (#packed).
+          def self.ends_part_way?(samples) = !(samples.length % 8).zero?
 
           private
 
@@ -156,7 +184,8 @@ module VBlank
             shift = VBlank::Audio::Sound::STEP_SHIFT
             laps = Laps.new(to_end: (info.length << shift) - 1, a_frame: @clock.samples_a_frame * step, back: back << shift)
             Clip.new(name: sample.name, note: note, number: number, recording: @recordings.index(sample.name),
-                     label: "clip_#{number}", bytes: self.class.packed(samples), hold_byte: hold / 8, laps: laps)
+                     label: "clip_#{number}", bytes: self.class.packed(samples), hold_byte: hold / 8, laps: laps,
+                     part_way: self.class.ends_part_way?(samples))
           end
 
           def refuse_too_long!(clip)

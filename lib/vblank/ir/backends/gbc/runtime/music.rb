@@ -569,12 +569,14 @@ module VBlank
               asm.and_a(:a)
               asm.ret(:z)
               asm.di
-              if sharing
-                asm.call("rt_music_switch")
-                asm.call("rt_music_tune_rank")
-                asm.call("rt_music_song_frame")
-              else
-                asm.call(steps_each_frame?(memory) ? "rt_music_tick_body" : "rt_music_tick") # no wobble or shape moves here
+              Clips.emit_timer_let_in_around(asm, memory) do
+                if sharing
+                  asm.call("rt_music_switch")
+                  asm.call("rt_music_tune_rank")
+                  asm.call("rt_music_song_frame")
+                else
+                  asm.call(steps_each_frame?(memory) ? "rt_music_tick_body" : "rt_music_tick") # no wobble or shape moves here
+                end
               end
               asm.ei
               asm.ret
@@ -584,7 +586,7 @@ module VBlank
               asm.xor_a(:a)
               asm.load([memory[NAMED]], :a)
               asm.load([memory[START]], :a)
-              asm.call("rt_music_quiet")
+              Clips.emit_timer_let_in_around(asm, memory) { asm.call("rt_music_quiet") }
               asm.xor_a(:a)
               asm.load([memory[PLAYING]], :a)
               asm.reti

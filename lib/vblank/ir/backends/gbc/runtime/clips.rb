@@ -52,6 +52,11 @@ module VBlank
             # In a game that loops one: 1 while the clip playing loops, where it goes back to (its
             # place, then how many bytes are left from there), and its laps' three numbers, five
             # bytes each, as the table lays them out.
+            # Which interrupts the console takes, kept while the timer's alone is let in
+            # (#emit_timer_let_in).
+            HELD_INTERRUPTS = "rt clip held interrupts"
+            # 1 while the clip playing ends part way through its last byte (GBC::Clips.packed).
+            PART_WAY = "rt clip part way"
             LOOPING = "rt clip looping"
             HOLD_PLACE = "rt clip hold place"
             HOLD_LEFT = "rt clip hold left"
@@ -81,6 +86,8 @@ module VBlank
                 [TO_END, A_FRAME, BACK].each { |name| memory.reserve(name, GBC::Clips::LAP_BYTES) }
               end
               memory.reserve(NUMBER, 1)
+              memory.reserve(HELD_INTERRUPTS, 1)
+              memory.reserve(PART_WAY, 1)
               memory.reserve(LEFT, 2)
               memory.reserve(PLACE, 2)
               memory.reserve(BANK, 1)
@@ -96,11 +103,13 @@ module VBlank
             def laps?(memory) = memory.reserved?(LOOPING)
 
             # +counts+ is how many of the timer's counts a sample lasts (GBC::Clips#timer_counts).
-            # +entry_bytes+ is how many bytes an entry of the table takes (GBC::Clips#entry_bytes).
-            def emit(asm, memory, counts:, entry_bytes:)
+            # +entry_bytes+ is how many bytes an entry of the table takes (GBC::Clips#entry_bytes). +lines+
+            # says the game bends a background's rows (GBC::Clips#rows_bent?).
+            def emit(asm, memory, counts:, entry_bytes:, lines: false)
               emit_play(asm, memory, counts, entry_bytes)
               emit_stop(asm, memory)
-              emit_tick(asm, memory)
+              emit_timer_let_in(asm, memory)
+              emit_tick(asm, memory, lines)
               emit_lap(asm, memory) if laps?(memory)
             end
 
@@ -155,7 +164,8 @@ module VBlank
               end
               asm.load(:de, GBC::Clips::TABLE)
               asm.add_hl(:de)
-              places = [memory[PLACE], memory[PLACE] + 1, memory[BANK], memory[LEFT], memory[LEFT] + 1, memory[NUMBER]]
+              places = [memory[PLACE], memory[PLACE] + 1, memory[BANK], memory[LEFT], memory[LEFT] + 1, memory[NUMBER],
+                        memory[PART_WAY]]
               if laps?(memory)
                 places += [memory[HOLD_PLACE], memory[HOLD_PLACE] + 1, memory[HOLD_LEFT], memory[HOLD_LEFT] + 1]
                 places += [TO_END, A_FRAME, BACK].flat_map { |name| Array.new(GBC::Clips::LAP_BYTES) { |k| memory[name] + k } }
@@ -196,6 +206,41 @@ module VBlank
               asm.load(:a, TIMER_ON)
               asm.load_high(h::TAC, :a)
               asm.ret
+            end
+
+            # A SAMPLE IS LOST, not only late, when the timer waits longer than a sample for the
+            # processor (a few hundred cycles), since the timer counts on and interrupts once for both.
+            # So the game's own routines that hold every interrupt off while they play a frame of
+            # music — a tune or an effect started where the game names it, the music stopped — let the
+            # timer's alone in for that time, as the screen's interrupt does (Runtime::Frame):
+            #
+            # rt_timer_let_in, called with interrupts off, keeps which the console takes and lets the
+            # timer's in; rt_timer_let_out turns them off again and puts back the ones kept. A is spent.
+            def emit_timer_let_in(asm, memory)
+              h = Console::GBCHardware
+              asm.label("rt_timer_let_in")
+              asm.load_high(:a, h::IE)
+              asm.load([memory[HELD_INTERRUPTS]], :a)
+              asm.and_a(h::INT_STAT) # a bent screen's lines go on being drawn
+              asm.or_a(h::INT_TIMER)
+              asm.load_high(h::IE, :a)
+              asm.ei
+              asm.ret
+              asm.label("rt_timer_let_out")
+              asm.di
+              asm.load(:a, [memory[HELD_INTERRUPTS]])
+              asm.load_high(h::IE, :a)
+              asm.ret
+            end
+
+            # ...around what +block+ emits, in a game that plays a recording: interrupts are off on the
+            # way in and on the way out, as they were. A is spent at each end.
+            def emit_timer_let_in_around(asm, memory)
+              return yield unless any?(memory)
+
+              asm.call("rt_timer_let_in")
+              yield
+              asm.call("rt_timer_let_out")
             end
 
             # Stopped: the timer off, so no more samples come, and the wave voice off, quiet.
@@ -242,12 +287,27 @@ module VBlank
             # bit plays. With no byte left, the clip is over, or a looping one goes back to where it
             # holds from and reads on.
             #
-            # Nothing on the way changes the carry once the bit is in it: loads leave every flag as
-            # it was.
-            def emit_tick(asm, memory)
+            # THE LAST BYTE OF A CLIP THAT ENDS PART WAY THROUGH IT is read with nothing below its bits:
+            # the 1 just past its last sample (GBC::Clips.packed) is then what leaves it, and the clip is
+            # over on its last sample. The carry put below is settled before the byte is read, and
+            # nothing on the way changes it: loads leave every flag as it was.
+            #
+            # A LINE OF A BENT SCREEN IS NOT HELD UP BY IT, in a game that bends one (+lines+). Each
+            # row's bend is written as the line before it ends, and has to land in the short gap
+            # before the display draws the next (Runtime::Picture, rt_hblank_interrupt); reading a
+            # byte of the clip takes most of that gap. So the line's interrupt alone is let in while
+            # this one runs, and the ones the console took before are put back as it ends.
+            def emit_tick(asm, memory, lines)
               h = Console::GBCHardware
               asm.label("rt_clip_tick")
               asm.push(:af)
+              if lines
+                asm.load_high(:a, h::IE)
+                asm.push(:af)
+                asm.and_a(h::INT_STAT)
+                asm.load_high(h::IE, :a)
+                asm.ei
+              end
               asm.load_high(:a, memory[BITS])
               asm.add_a(:a)
               asm.jump_relative(:z, "rt_clip_tick_byte")
@@ -258,8 +318,7 @@ module VBlank
               asm.load_high(:a, memory[LEVEL])
               asm.label("rt_clip_tick_set")
               asm.load_high(h::NR32, :a)
-              asm.pop(:af)
-              asm.reti
+              emit_tick_return(asm, lines)
 
               asm.label("rt_clip_tick_byte")
               asm.push(:hl)
@@ -275,6 +334,14 @@ module VBlank
               asm.load([memory[LEFT]], :a)
               asm.load(:a, :h)
               asm.load([memory[LEFT] + 1], :a)
+              asm.or_a(:l)
+              asm.jump_relative(:nz, "rt_clip_tick_whole")
+              asm.load(:a, [memory[PART_WAY]])
+              asm.and_a(:a) # no carry
+              asm.jump_relative(:nz, "rt_clip_tick_read_byte")
+              asm.label("rt_clip_tick_whole")
+              asm.scf
+              asm.label("rt_clip_tick_read_byte")
               asm.load(:a, [memory[BANK]])
               asm.load([h::MBC_ROM_BANK_LOW], :a)
               asm.load(:a, [memory[PLACE]])
@@ -282,7 +349,6 @@ module VBlank
               asm.load(:a, [memory[PLACE] + 1])
               asm.load(:h, :a)
               asm.load(:a, [:hli])
-              asm.scf
               asm.rla
               asm.load_high(memory[BITS], :a)
               asm.load(:a, :l)
@@ -317,6 +383,17 @@ module VBlank
               emit_wave_back(asm, memory)
               asm.pop(:bc)
               asm.pop(:hl)
+              emit_tick_return(asm, lines)
+            end
+
+            # The tick's end: the interrupts the console took before put back, where the line's alone
+            # was let in, and A and the flags as they were.
+            def emit_tick_return(asm, lines)
+              if lines
+                asm.di
+                asm.pop(:af)
+                asm.load_high(Console::GBCHardware::IE, :a)
+              end
               asm.pop(:af)
               asm.reti
             end

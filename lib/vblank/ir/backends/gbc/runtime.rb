@@ -104,7 +104,7 @@ module VBlank
                                     by_rank: music&.effects_by_rank || [], fades: music&.fades? || false,
                                     slides: music&.slides? || false, pans: music&.pans? || false)
             Saving.emit(asm, memory)
-            Clips.emit(asm, memory, counts: clips.timer_counts, entry_bytes: clips.entry_bytes) if shown
+            Clips.emit(asm, memory, counts: clips.timer_counts, entry_bytes: clips.entry_bytes, lines: clips.rows_bent?) if shown
             Rumble.emit(asm, memory) if Rumble.any?(memory)
             KeptSprites.emit(asm, memory, lends: art.lends?) if KeptSprites.any?(memory)
             emit_start(asm)

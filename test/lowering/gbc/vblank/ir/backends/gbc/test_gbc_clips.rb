@@ -258,6 +258,127 @@ class TestGBCClips < Minitest::Test
     assert_in_delta 880, pitch_held_through(heard, 38..46), 10, "the effect's next note, once the recording is over"
   end
 
+  # A RECORDING KEEPS ITS LENGTH WHILE THE GAME STARTS ITS TUNE WHERE IT NAMES IT, every pass: the
+  # tune's first frame played then lets the timer in, rather than holding it off longer than a
+  # sample, which loses samples and draws the recording out. 250 waves are 8000 samples, a little
+  # over 60 frames.
+  private def clip_beside_a_tune_started_each_pass(started)
+    b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
+    recording = square_recording(250)
+    b.instance_eval do
+      screen :tiled
+      enable_sound
+      song(:tune) { voice(:lead) { |v| 16.times { v.note :C5, :quarter } } }
+      hum = sample :hum, pcm: recording
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 3).then { hum.play }
+        if started
+          stop_music
+          play_song :tune, this_frame: true
+        end
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  private def quiet_from(program)
+    heard = console_voice(program, :wave, frames: 80)
+    (10...80).find { |frame| heard.loudness(frame) < SoundComparison::HEARD }
+  end
+
+  def test_a_recording_keeps_its_length_while_the_game_starts_its_tune_each_pass
+    assert_equal quiet_from(clip_beside_a_tune_started_each_pass(false)),
+                 quiet_from(clip_beside_a_tune_started_each_pass(true))
+  end
+
+  # A BENT SCREEN KEEPS ITS ROWS WHILE A RECORDING PLAYS. Each row's offset is written as the line
+  # before it ends (the line interrupt), and the timer's interrupt for a sample, which reads the
+  # clip's next byte every eighth sample, comes between any two lines: the line's must still land in
+  # its blank. Bars of red, every row moved by its own amount, under a recording looping the whole
+  # time, checked against the interpreter after every pass.
+  def test_a_bent_screen_keeps_its_rows_while_a_recording_plays
+    b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
+    recording = square_recording(20)
+    b.instance_eval do
+      screen :tiled
+      image(:bar, "." => :transparent, "#" => :red) { (["##......"] * 8).join("\n") }
+      tiles :stripes, "#" => :bar
+      water = background :water, tiles: :stripes, map: Array.new(18) { "#" * 20 }
+      water.scroll_each_row { |row| row % 5 }
+      hum = sample :hum, pcm: recording
+      hum.play(loop: true)
+      game_loop { water.scroll_by 1, 0 }
+    end
+    b.finalize_program
+
+    i = game_player.run(b.program, frames: 20)
+    assert_equal Color.resolve(:red), i.screen.pixel(3, 2), "row 2 moved 2 to the right"
+  end
+
+  # A RECORDING IN A GAME WHOSE OWN CODE IS IN THE CARTRIDGE'S BANKS: a routine of 2000 additions is
+  # more than a bank, so its parts are in banks of their own, and the timer's interrupt comes while
+  # one of them is in view. It reads the clip from the clip's bank and puts the game's back, so the
+  # game runs on as the interpreter does — the checked run holds every variable to it — and the
+  # recording is heard at its own pitch.
+  def test_a_recording_plays_beside_code_kept_in_the_cartridges_banks
+    b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
+    recording = square_recording(200)
+    b.instance_eval do
+      screen :tiled
+      hum = sample :hum, pcm: recording
+      x = var :x, 0
+      count = var :count, 0
+      func(:big) { 2000.times { x.add! 1 } }
+      game_loop do
+        count.add! 1
+        (count == 3).then { hum.play }
+        call :big
+      end
+    end
+    b.finalize_program
+
+    assert_equal 2000 * 10, game_player.run(b.program, frames: 10)[:x]
+    assert_in_delta 256, pitch_held_through(console_voice(b.program, :wave, frames: 30), 12..20), 4
+  end
+
+  # A SPEECH-LIKE RECORDING: quiet stretches between loud ones, which a sample's sign alone would
+  # turn into full on and off bits — a hiss as loud as the words. A sample near the middle plays as
+  # the one before it did, so a quiet stretch is still. A little noise either side of nought, then
+  # a loud square wave.
+  def test_a_quiet_stretch_of_a_recording_is_quiet
+    noise = Array.new(4000) { |i| ((i * 7919) % 7) - 3 }
+    b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
+    recording = noise + square_recording(200)
+    b.instance_eval do
+      screen :tiled
+      hum = sample :hum, pcm: recording
+      count = var :count, 0
+      game_loop do
+        count.add! 1
+        (count == 3).then { hum.play }
+      end
+    end
+    b.finalize_program
+    heard = console_voice(b.program, :wave, frames: 50)
+
+    assert_operator heard.loudness(15), :<, SoundComparison::HEARD, "the quiet stretch"
+    assert_in_delta 256, pitch_held_through(heard, 38..46), 4, "the words after it"
+  end
+
+  # A CLIP ENDS ON ITS LAST SAMPLE, as the interpreter's voice does, not at the end of its last
+  # byte: a last byte part full holds a 1 just past its samples and noughts after, which the timer
+  # reads as the clip's end. A last byte that is full needs none.
+  def test_a_clip_part_way_through_its_last_byte_marks_its_end_there
+    clips = VBlank::IR::Backends::GBC::Clips
+
+    assert_equal [0xFF, 0b1111_1000], clips.packed([80] * 12).bytes
+    assert_equal [0x00, 0b0000_1000], clips.packed([-80] * 12).bytes
+    assert_equal [0xFF, 0xFF], clips.packed([80] * 16).bytes
+  end
+
   def test_stopping_a_recording_quiets_the_wave_voice
     heard = console_voice(clip_game(waves: 400, stop_at: 10), :wave, frames: 25)
 

@@ -163,7 +163,8 @@ module VBlank
               if clips
                 asm.load_high(:a, h::IE)
                 asm.push(:af)
-                asm.load(:a, h::INT_TIMER)
+                asm.and_a(h::INT_STAT) # a bent screen's lines go on being drawn
+                asm.or_a(h::INT_TIMER)
                 asm.load_high(h::IE, :a)
                 asm.ei
               end
@@ -218,7 +219,8 @@ module VBlank
               if clips
                 asm.load_high(:a, h::IE)
                 asm.push(:af)
-                asm.load(:a, h::INT_TIMER)
+                asm.and_a(h::INT_STAT) # a bent screen's lines go on being drawn
+                asm.or_a(h::INT_TIMER)
                 asm.load_high(h::IE, :a)
               else
                 asm.di

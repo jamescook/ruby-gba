@@ -340,7 +340,7 @@ module VBlank
               at = memory[state(effect)]
               asm.load(:a, 1)
               asm.load([at + ASKED], :a)
-              emit_start_here(asm, memory, effect, by_rank) if now
+              Clips.emit_timer_let_in_around(asm, memory) { emit_start_here(asm, memory, effect, by_rank) } if now
               asm.reti
             end
 
