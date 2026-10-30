@@ -8,7 +8,7 @@ with each verb, what does it say, and how does a game say it is meant for both c
 
 **The answer per verb is in code**, `Console::GBCFeatures::ANSWERS`
 (`lib/vblank/console/gbc_features.rb`), where the build checks read it and the DSL reference
-shows it beside each verb. `test/vblank/console/test_gbc_features.rb` fails for a verb with no
+shows it beside each verb. `test/all/vblank/console/test_gbc_features.rb` fails for a verb with no
 answer, so a new verb cannot reach a Game Boy Color undecided. This note is the policy behind the
 table.
 

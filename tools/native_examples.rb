@@ -13,7 +13,7 @@
 #
 # It is its own program rather than something a test calls in-process, because finding the game
 # an example declares means watching VBlank.game while the example loads, and that is a change
-# to the whole process no test may make (test/vblank/ir/backends/native/test_native_examples.rb
+# to the whole process no test may make (test/lowering/native/vblank/ir/backends/native/test_native_examples.rb
 # runs this and reads what it prints).
 require_relative "../lib/vblank"
 

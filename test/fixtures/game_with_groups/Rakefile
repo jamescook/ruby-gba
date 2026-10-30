@@ -2,7 +2,7 @@
 
 # A game's own Rakefile that keeps its own rake test and a task for each group of its tests, and
 # asks the library only for a native twin of a group: VBlank::Testing::TestTask. Its game code is
-# not under lib/. test/vblank/testing/test_game_suite.rb runs it.
+# not under lib/. test/all/vblank/testing/test_game_suite.rb runs it.
 require "vblank/testing/test_task" # rake's own test task comes with it
 
 LIBS = %w[game/code test].freeze

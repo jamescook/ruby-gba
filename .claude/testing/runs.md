@@ -2,15 +2,15 @@
 
 ```bash
 rake test:all                                                   # the suite, on every lowering
-rake test TEST=test/vblank/dsl/test_thing.rb                    # one file, on each lowering that plays it
-rake test TEST=test/vblank/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test; -n /pat/ trips shell quoting
+rake test TEST=test/all/vblank/dsl/test_thing.rb                    # one file, on each lowering that plays it
+rake test TEST=test/all/vblank/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test; -n /pat/ trips shell quoting
 rake test:lowering:gba                                          # the GBA lowering's run alone (TEST= too)
 rake test:lowering:native                                       # the native lowering's run alone (TEST= too)
 rake test:lowering:js                                           # the JavaScript lowering's run alone (TEST= too)
 rake test:lowering:ruby                                         # the Ruby lowering's run alone (TEST= too)
 rake test:lowering:gbc                                          # the Game Boy Color lowering's run alone (TEST= too)
-rake test:playthroughs                                          # every test in test/vblank/playthroughs/
-bundle exec ruby -Itest test/vblank/dsl/test_thing.rb           # one file, plain minitest (needs bundle exec)
+rake test:playthroughs                                          # every test in test/lowering/gba/vblank/playthroughs/
+bundle exec ruby -Itest test/all/vblank/dsl/test_thing.rb           # one file, plain minitest (needs bundle exec)
 ```
 
 | what changed | what to run |

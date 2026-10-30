@@ -57,7 +57,7 @@ module VBlank
     # serves every such console, made from its kit (CartridgeCheckedPlayer.for).
     #
     # A test of what the console's hardware cannot do is not here to play at all: it lives with
-    # the Advance's tests, which such a run never loads (TestSuites::ADVANCE_DIR in this
+    # the Advance's tests, which such a run never loads (test/console/gba in this
     # repository). What its build does not make yet is a skip naming the part (the picture, the
     # sound), when the lowering says so (IR::Backends::NotMadeYet), so the run's count of skips by
     # reason says what is left to make; any other refusal fails, since it is a fault. What the run

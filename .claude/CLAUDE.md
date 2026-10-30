@@ -116,14 +116,14 @@ with a line for each and fails if any did. It needs zig 0.17 (`mise use zig@0.17
 
 ```bash
 rake test:all                                                   # the suite, on every lowering
-rake test TEST=test/vblank/dsl/test_thing.rb                    # one file, on every lowering that plays it
-rake test TEST=test/vblank/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test
+rake test TEST=test/all/vblank/dsl/test_thing.rb                    # one file, on every lowering that plays it
+rake test TEST=test/all/vblank/dsl/test_thing.rb TESTOPTS="--name=/pattern/"  # one test
 rake test:lowering:gba                                          # the GBA lowering's run alone (takes TEST= too)
 rake test:lowering:native                                       # the native lowering's run alone (takes TEST= too)
 rake test:lowering:js                                           # the JavaScript lowering's run alone (takes TEST= too)
 rake test:lowering:ruby                                         # the Ruby lowering's run alone (takes TEST= too)
 rake test:lowering:gbc                                          # the Game Boy Color lowering's run alone (takes TEST= too)
-rake test:playthroughs                                          # one module's tests: every file in test/vblank/playthroughs/
+rake test:playthroughs                                          # one module's tests: every file in test/lowering/gba/vblank/playthroughs/
 VBLANK_SUITE_LOCK=checkout rake test                            # in a worktree: go ahead beside another checkout's run
 ```
 
@@ -169,19 +169,19 @@ JavaScript on the JavaScript one, the game as Ruby on the Ruby one, the Color ca
 Boy Color one), and a test that
 reaches for the Advance's cartridge in the emulator skips itself on the other runs. A test that does not pass on all of them fails `rake test:all`. The one
 exception is a test of one lowering's own output, which lives in a folder that lowering owns and
-is played by its run alone: `test/vblank/ir/backends/gba/`, the cartridge-reading
-`diagnostics/` and `playthroughs/` for the GBA lowering, `test/vblank/ir/backends/native/`
-for the native one, `test/vblank/ir/backends/js/` for the JavaScript one,
-`test/vblank/ir/backends/ruby/` for the Ruby one and
-`test/vblank/ir/backends/gbc/` for the Game Boy Color one (`TestSuites::LOWERING_FOLDERS` in `test/support/suites.rb`).
+is played by its run alone: `test/lowering/gba/vblank/ir/backends/gba/`, the cartridge-reading
+`diagnostics/` and `playthroughs/` for the GBA lowering, `test/lowering/native/vblank/ir/backends/native/`
+for the native one, `test/lowering/js/vblank/ir/backends/js/` for the JavaScript one,
+`test/lowering/ruby/vblank/ir/backends/ruby/` for the Ruby one and
+`test/lowering/gbc/vblank/ir/backends/gbc/` for the Game Boy Color one (`TestSuites::LOWERING_FOLDERS` in `test/support/suites.rb`).
 What only the Advance can do — and every example game for the Advance alone — is tested in
-`test/advance/`, which the GBA, native, JavaScript and Ruby runs load and the Color's never does: the
+`test/console/gba/`, which the GBA, native, JavaScript and Ruby runs load and the Color's never does: the
 Color run never sees a test it cannot make work, and a test is not bent to play on both.
 `.claude/rules/testing.md` has the details.
 
 The test tree mirrors the code's directories: a test of a file in `lib/vblank/audio/`
-lives in `test/vblank/audio/`, a test of an example in `test/examples/`, a test of a
-tool in `test/tools/`. A test that builds a game through the DSL belongs to the builder
+lives in `test/all/vblank/audio/`, a test of an example in `test/all/examples/`, a test of a
+tool in `test/all/tools/`. A test that builds a game through the DSL belongs to the builder
 file that defines the verb it is about. Tests are NOT split by which backend they assert
 against; most assert against both. The shared helpers stay at `test/` and are loaded by
 bare name. See `.claude/rules/testing.md` for the rule that decides a new file's home.
@@ -210,7 +210,7 @@ Test each layer the way a player experiences it, not by restating the code.
     `i = Reference.new.run(program); i.screen.pixel(x, y)` — or its variables (`i[:name]`).
     In-process, deterministic, no emulator. Assert a green pixel at (x, y), a
     marker whose position reveals a computed value, an edge that fires once, frame
-    by frame. `test/vblank/dsl/test_dsl_expression.rb` is the worked example.
+    by frame. `test/all/vblank/dsl/test_dsl_expression.rb` is the worked example.
   - **Hardware path: the emulator** runs the real ROM and reads real pixels/audio
     (`assert_emulator_loads_rom` → `Verifier`). Keep a couple per feature to confirm
     the lowering; they fail loudly when the emulator is absent.
@@ -227,9 +227,9 @@ Test each layer the way a player experiences it, not by restating the code.
     not the wording verbatim.
 
 - **IR backend level — opcodes and lowering are fair game.** Here the generated
-  code *is* the contract, so `test/vblank/ir/backends/gba/test_ir_backend_gba.rb` may assert
+  code *is* the contract, so `test/lowering/gba/vblank/ir/backends/gba/test_ir_backend_gba.rb` may assert
   the two-pass jump math, register conventions, or instruction shapes, and
-  `test/vblank/ir/backends/test_ir_backend_reference.rb` asserts interpreter state. These build hand-made
+  `test/all/vblank/ir/backends/test_ir_backend_reference.rb` asserts interpreter state. These build hand-made
   `IR::Build` trees (not the DSL) because they test the backend, not the surface.
 
 - **Cross-backend:** a feature isn't done until it's tested on every backend it
@@ -356,7 +356,7 @@ Keep the IR **target-agnostic**: `IR::Node` describes *what the program does*, n
 
 **Cross-backend rule:** a hardware feature (sound, tiles, sprites, paged modes…) isn't *done* until it works on every backend — the GBA lowering, the native lowering (`Backends::Native`, the game as C, built by zig into a desktop program), the JavaScript lowering (`Backends::JS`, whose runtime is the native one's written again in JavaScript), the Ruby lowering (`Backends::Ruby`, the game as Ruby on a runtime written in Ruby), the Game Boy Color lowering (`Backends::GBC`, where "works" may also be a stated answer from `Console::ColorAnswers`: or refused in plain words naming the hardware it lacks) **and** the Ruby interpreter. `rake test:all` holds it to that: every test plays on every lowering, so a feature one of them lacks fails the run (see the comment atop `IR::Backends`). The moment a feature is on the radar, write down each backend's slice as its own piece of work — even before the details are known — so it can't be forgotten while you're heads-down on the feature elsewhere. Don't lean on this principle to remember; record it.
 
-**Conformance-fixture obligation:** a new IR feature (a `Node::CATEGORY` kind or a `binop` operator) isn't done until it's added to the kitchen-sink fixture in `test/conformance_fixture.rb`. That one program is run through every backend by `test/vblank/ir/test_cross_backend_conformance.rb` — on the native run it is built as C and checked against the interpreter, and on the JavaScript run as JavaScript — and a backend missing a feature the fixture uses hits its "unsupported" branch and fails. The coverage test asserts the fixture touches every kind/operator, so a forgotten feature fails loudly — but only if you added it to the fixture. Hardware-only kinds (`raw` and `read_scanline` today) are exempt via `HARDWARE_ONLY_KINDS` and kept in an uncalled func. This guards *coverage*; the differential test (behavioral *agreement*) is separate.
+**Conformance-fixture obligation:** a new IR feature (a `Node::CATEGORY` kind or a `binop` operator) isn't done until it's added to the kitchen-sink fixture in `test/conformance_fixture.rb`. That one program is run through every backend by `test/all/vblank/ir/test_cross_backend_conformance.rb` — on the native run it is built as C and checked against the interpreter, and on the JavaScript run as JavaScript — and a backend missing a feature the fixture uses hits its "unsupported" branch and fails. The coverage test asserts the fixture touches every kind/operator, so a forgotten feature fails loudly — but only if you added it to the fixture. Hardware-only kinds (`raw` and `read_scanline` today) are exempt via `HARDWARE_ONLY_KINDS` and kept in an uncalled func. This guards *coverage*; the differential test (behavioral *agreement*) is separate.
 
 ### Key Patterns
 
@@ -402,7 +402,7 @@ GOOD  finalize_program
 - **Check before you rename.** Builder and `IR::Backends::GBA` are many modules mixed into one class,
   so a name that already exists in any of them silently overrides it: grep `def new_name` first.
 
-`test/vblank/test_method_names.rb` fails the build on the mechanical half of this — articles,
+`test/all/vblank/test_method_names.rb` fails the build on the mechanical half of this — articles,
 vague-verb prefixes, two-letter abbreviations, and names of seven words or more. It cannot judge the rest, so a
 name that passes it is not thereby a good name.
 

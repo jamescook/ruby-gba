@@ -1,0 +1,8 @@
+-std=c11
+-Wall
+-Wextra
+-Wconversion
+-Wsign-conversion
+-Werror
+-I/Users/jamescook/open_source/ruby-gba/lib/vblank/ir/backends/native/runtime
+-I/Users/jamescook/.cache/vblank/native/packages/sdl-0.6.0+3.4.18-SDL--p-gqAGWpnfTLlhs0dgjDtc4P4_CHeNLGY_SX_Fv/include

@@ -6,7 +6,7 @@
 require "vblank/testing"
 require_relative "one_pixel_off"
 
-# Run by test/vblank/testing/test_game_suite.rb.
+# Run by test/all/vblank/testing/test_game_suite.rb.
 class CartridgeTest < Minitest::Test
   include VBlank::Testing
   include VBlank::Testing::Pictures

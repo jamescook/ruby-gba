@@ -1,7 +1,7 @@
 ---
 paths:
   - "lib/vblank/ir/backends/**"
-  - "test/vblank/ir/backends/**"
+  - "test/all/vblank/ir/backends/**"
 ---
 
 # Adding a backend
@@ -75,7 +75,7 @@ a console of its own needs beyond a lowering:
   they draw one screen size today, the Advance's, so `Console.drawn_by_runtimes` picks the console
   those builds are made as). The build, the reader, the cartridge-file reader and the command line ask the kit, so a
   console is added by describing it and giving it a kit. Nothing outside a console's own code
-  compares console names (`test/vblank/console/test_kit.rb` fails the build if something does).
+  compares console names (`test/all/vblank/console/test_kit.rb` fails the build if something does).
 - **No console by default.** A game names its consoles, a build (`VBlank.build(..., console:)`)
   and a Rakefile (`t.consoles`) name theirs, and a name is held as its Symbol however it was
   written (`Console.named`). Only an unbound program, a tree built for a test (a Builder told
@@ -113,7 +113,7 @@ is what both consoles' headless runs are: the interpreter's calls, the pass-by-p
 buttons decided a frame at a time, the lists read back, and the words for a fault, whose number is
 one table for every console (`Backends::CartridgeFaults`). A console's run says only how its memory
 is read, how its runtime keeps its state and its fault, its picture, and what else it can answer
-(the sound, the clock). `test/vblank/ir/backends/test_cartridge_headless_run.rb` holds each to
+(the sound, the clock). `test/all/vblank/ir/backends/test_cartridge_headless_run.rb` holds each to
 every public method of the interpreter. Where a runtime keeps a list's header stays its own.
 
 **Adding a console, what is still written by hand.** A console is one kit and one lowering; the
@@ -187,11 +187,11 @@ What a new lowering needs for this, following Native:
   (kind to method name); Native keeps the same two, so the two read side by side and a missing
   kind is one line to find. A new backend keeps them too. A kind it cannot do yet goes on a list
   of its own (Native has `NOT_LOWERED_YET`, empty now), held by a coverage test
-  (`test/vblank/ir/backends/native/test_native_kind_coverage.rb`) so every kind is either done
-  or listed. `test/vblank/ir/test_kind_coverage.rb` holds Reference and the GBA lowering to
+  (`test/lowering/native/vblank/ir/backends/native/test_native_kind_coverage.rb`) so every kind is either done
+  or listed. `test/all/vblank/ir/test_kind_coverage.rb` holds Reference and the GBA lowering to
   every kind the same way.
 - **The conformance fixture.** `test/conformance_fixture.rb` is one program that touches every
-  kind and every operator. `test/vblank/ir/test_cross_backend_conformance.rb` plays it on the
+  kind and every operator. `test/all/vblank/ir/test_cross_backend_conformance.rb` plays it on the
   lowering under test (`test_the_lowering_under_test_plays_the_whole_fixture`); a new lowering
   joins that test rather than getting a copy of it.
 - **`Node#source`** is the DSL line that made a node (`"file.rb:12"`), where the builder knew it.
@@ -245,7 +245,7 @@ game's own suite uses:
 - `Testing::TestTask` says how a run is started (every checked one in several processes, never in Ractors, since they start programs); `Testing::RakeTasks` makes `rake test:all` and a
   `test:lowering:<name>` task for each.
 - `TestSuites::LOWERING_FOLDERS` (test/support/suites.rb) names the folders only one lowering's
-  run loads: put the new backend's own tests in `test/vblank/ir/backends/<name>/`.
+  run loads: put the new backend's own tests in `test/all/vblank/ir/backends/<name>/`.
 - **What a checked run does differently** is asked as `Testing.checked?`, which a new lowering
   joins through its record's `checked`: `require_emulator!` in `test/test_helper.rb` (a test of the
   cartridge skips on every run but the GBA one), `Testing::Pictures` and `test/mixed_sound.rb`

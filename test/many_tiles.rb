@@ -4,7 +4,7 @@ require "test_helper"
 
 # Backgrounds of many different tiles, or of many lists of colours, for the tests of what a console
 # does when a game's tiles or colours together are more than it holds at once
-# (test/vblank/builder/test_scene_backgrounds.rb, test/vblank/builder/test_background_tile_sets.rb).
+# (test/all/vblank/builder/test_scene_backgrounds.rb, test/all/vblank/builder/test_background_tile_sets.rb).
 module ManyTiles
   # Tiles a row of such a map holds, and so how wide it is.
   ACROSS = 20

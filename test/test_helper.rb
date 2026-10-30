@@ -42,7 +42,7 @@ module SharedConstants
   # the same. It is here once now.
   #
   # Shareable, like everything else here: a test may run in a Ractor, and a worker can read a
-  # constant only when nothing in it can change. See test/vblank/test_ractor_safety.rb.
+  # constant only when nothing in it can change. See test/all/vblank/test_ractor_safety.rb.
   SOLID_TILE = Ractor.make_shareable((["########"] * 8).join("\n"))
 end
 
@@ -192,7 +192,7 @@ class Minitest::Test # rubocop:disable Style/ClassAndModuleChildren
   # take the whole run down, from here, with an error pointing somewhere else entirely.
   #
   # Anything that refuses to freeze is left exactly as it was and named by
-  # test/vblank/test_ractor_safety.rb rather than passing quietly. Only one thing does
+  # test/all/vblank/test_ractor_safety.rb rather than passing quietly. Only one thing does
   # refuse: a block that reaches for a variable around it, which can never be shared.
   # That is the one error caught here — anything else raising is a mistake in this method
   # and should be heard.

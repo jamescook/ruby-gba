@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Small games with a status bar, shared by the tests of the `status_bar` verb
-# (test/vblank/builder/test_status_bar.rb) and of its handle (test/vblank/dsl/test_status_bar.rb).
+# (test/all/vblank/builder/test_status_bar.rb) and of its handle (test/all/vblank/dsl/test_status_bar.rb).
 # Every game is laid out from the size of the console the run plays it on, so it plays on the
 # Advance and on the Color alike.
 module StatusBarGames

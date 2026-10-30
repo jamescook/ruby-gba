@@ -136,7 +136,7 @@ namespace :test do
   # well; this is for working on that one module without waiting for the rest.
   Rake::TestTask.new(playthroughs: %i[compile_emulator clear_coverage]) do |t|
     t.libs << "test" << "lib"
-    t.test_files = FileList["test/vblank/playthroughs/**/test_*.rb"]
+    t.test_files = FileList["test/lowering/gba/vblank/playthroughs/**/test_*.rb"]
     t.description = "Run the tests of playthroughs, tapes and comparisons"
   end
 

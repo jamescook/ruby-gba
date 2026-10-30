@@ -18,7 +18,7 @@ module VBlank
     #     into the exact sound-register writes the hardware needs. A backend that
     #     lowers to a real ROM uses this; the interpreter never does, and a test says
     #     so rather than leaving it to whoever edits next
-    #     (test/vblank/audio/test_registers_seam.rb).
+    #     (test/all/vblank/audio/test_registers_seam.rb).
     module Sound
       # One resolved beep, purely musical — no hardware in sight. The four parts are fixed
       # here rather than named by a caller, so it is a value object and asking it for anything

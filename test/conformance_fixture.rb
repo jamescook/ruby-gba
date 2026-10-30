@@ -244,7 +244,7 @@ module ConformanceFixture
       # a backend that moved the grid, or drew it as a bar, differs. A real bar cannot be here,
       # since this program also fades under a layer, which the Advance refuses beside one
       # (Checks::StatusBarCannotShare); the bar is played on every lowering by
-      # test/vblank/builder/test_status_bar.rb.
+      # test/all/vblank/builder/test_status_bar.rb.
       B.place_bar(:grid, top: B.var_ref(:y)),
       # A tile the program paints itself: its pixels are a list's bytes, two places to a
       # byte, shown once the list is copied over. This program's screen is a bitmap, where

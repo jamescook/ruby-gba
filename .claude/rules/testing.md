@@ -14,7 +14,7 @@ you need before writing a test that uses it:
 | `interpreter.md` | the reference interpreter: reading pixels, variables, lists, pools, sprites; input; late passes; the step budget |
 | `emulator.md` | the emulator's reader: pixels, whole-screen questions, sprites, palettes, sound, stepping, counting passes |
 | `differential.md` | interpreter against console: every pixel (`assert_backends_agree`), every byte of mixed sound |
-| `lowerings.md` | the native, JavaScript and Game Boy Color runs: what `game_player` is there, what it compares, saves, examples, `test/advance/`, the library's test kit |
+| `lowerings.md` | the native, JavaScript and Game Boy Color runs: what `game_player` is there, what it compares, saves, examples, `test/console/gba/`, the library's test kit |
 | `native-sound.md` | the game as C's speaker against the cartridge's, and the frame-apart trap |
 | `desktop.md` | the desktop window: keys, Retina, the save file, frame pacing, the editor's C checker |
 | `runs.md` | rake commands, which run a change needs, the machine-wide lock, worktrees, the native run's processes |
@@ -23,23 +23,23 @@ you need before writing a test that uses it:
 ## Where a test file goes
 
 `test/` mirrors lib's directories (not its files): a test of `lib/vblank/audio/score.rb` is in
-`test/vblank/audio/`, of `cli.rb` in `test/vblank/`, of an example in `test/examples/` (or
-`test/advance/examples/` for a game for the Advance alone), of a tool in `test/tools/`. A new
+`test/all/vblank/audio/`, of `cli.rb` in `test/all/vblank/`, of an example in `test/all/examples/` (or
+`test/console/gba/examples/` for a game for the Advance alone), of a tool in `test/all/tools/`. A new
 directory under `test/` needs one under `lib/` first. The exceptions are
-`test/vblank/ir/backends/native/examples/`, `test/vblank/ir/backends/gbc/examples/` and
-`test/vblank/ir/backends/snes/examples/`, which mirror `examples/`, and `test/advance/`, which mirrors `test/` (below).
+`test/lowering/native/vblank/ir/backends/native/examples/`, `test/lowering/gbc/vblank/ir/backends/gbc/examples/` and
+`test/lowering/snes/vblank/ir/backends/snes/examples/`, which mirror `examples/`, and `test/console/gba/`, which mirrors `test/` (below).
 
 A test belongs to the file a person opens first when it fails:
 
 - A DSL program checked for what it does → the builder file that defines the verb,
-  `test/vblank/builder/` (`grep -n "def <verb>" lib/vblank/builder/*.rb`). A method on a
-  handle (`sprite.face_angle`, `list.shift`) → the dsl file defining it, `test/vblank/dsl/`.
+  `test/all/vblank/builder/` (`grep -n "def <verb>" lib/vblank/builder/*.rb`). A method on a
+  handle (`sprite.face_angle`, `list.shift`) → the dsl file defining it, `test/all/vblank/dsl/`.
 - Hand-built IR checked on one backend → that backend's folder.
-- One guardrail's friendly error → `test/vblank/ir/guardrails/`.
+- One guardrail's friendly error → `test/all/vblank/ir/guardrails/`.
 - A number about the build or the run (bytes, frames, dropped sounds) → the file that makes the
-  number, usually a backend or `test/vblank/diagnostics/`.
+  number, usually a backend or `test/lowering/gba/vblank/diagnostics/`.
 - A command → the file that does its work. `vblank play` and `compare` are done by
-  `lib/vblank/playthroughs/command_line.rb`, so their tests are in `test/vblank/playthroughs/`.
+  `lib/vblank/playthroughs/command_line.rb`, so their tests are in `test/lowering/gba/vblank/playthroughs/`.
 
 Never by which backend a test asserts against: one behaviour checked on the interpreter and the
 emulator is one test, with the thing.
@@ -102,7 +102,7 @@ folder that lowering owns and is played by its run alone (`TestSuites::LOWERING_
 `ir/backends/gba/`, `diagnostics/` and `playthroughs/` for GBA, `ir/backends/native/`,
 `ir/backends/js/`, `ir/backends/ruby/`, `ir/backends/gbc/`, `ir/backends/snes/`). See `lowerings.md`.
 
-**What only the Advance can do is tested in `test/advance/`**, which the GBA, native, JavaScript
+**What only the Advance can do is tested in `test/console/gba/`**, which the GBA, native, JavaScript
 and Ruby runs load and the Color's never does: fading part of the screen, a recording in a song,
 more colours in one 8×8 square of a painted screen than the Color holds, and every example whose
 game is for the Advance alone. A new test of such a thing goes there, mirroring `test/`, in a file
@@ -145,7 +145,7 @@ and on real hardware:
 
 On the Advance a position decided while a frame is being drawn cannot appear in that frame, so
 this is not something to design away. In a test, run `framework_drawing_lag` frames further
-before reading the picture, or read the variable that many frames earlier. `test/vblank/ir/test_frame_pairing.rb` pins both halves. It only
+before reading the picture, or read the variable that many frames earlier. `test/all/vblank/ir/test_frame_pairing.rb` pins both halves. It only
 bites a test that pairs a picture with a variable.
 
 ## Building the program under test

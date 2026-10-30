@@ -17,17 +17,17 @@ checked as the Color shows it. The sound log is read off the cartridge that ship
 added to it: the emulator records the processor at each of the runtime's sound routines, and what
 each was handed says what it played (`GBC::SoundLog`). What the Color's hardware cannot do — fading
 part of the screen, a recording in a song, a save on flash, more colours in one 8×8 square of a
-painted screen, more tiles or memory than it holds — is tested in `test/advance/`
+painted screen, more tiles or memory than it holds — is tested in `test/console/gba/`
 (`TestSuites::ADVANCE_DIR`), which every run of an Advance game loads (GBA, native, JavaScript, Ruby) and
 the Color's never does; so is every example whose game says it is for the Advance alone. A new test
-of such a thing goes there, mirroring test/ (`test/advance/vblank/builder/`), in a file of its own
+of such a thing goes there, mirroring test/ (`test/console/gba/vblank/builder/`), in a file of its own
 beside the shared one (`test_fade_held_to_area_on_the_advance.rb`), rather than skipping on the
 Color. Don't bend a test to make it play on both: one about the Advance's picture is the
 Advance's. What the Color could do and its build does not make yet (`GBC::Lowering::NOT_LOWERED_YET`)
 fails on the Color run until it is made — that failure is the work still owed. The one skip is a
 call its run cannot answer (`GBC::HeadlessRun::CannotAnswer`), counted by reason at the end;
 `skip_on_gbc` is there for a test the Color cannot play for a reason no folder says, and
-`test/vblank/ir/backends/gbc/` is its own folder. A game built for both consoles
+`test/lowering/gbc/vblank/ir/backends/gbc/` is its own folder. A game built for both consoles
 (`consoles: %i[gba gbc]`) is played there as a Color game, as `examples/pacman.rb` and
 `examples/breakout.rb` are; `examples/pong_gbc.rb` is a game for the Color alone, a copy of
 `examples/pong.rb` changed for it, since the Advance's title zooms on a screen the Color cannot turn.
@@ -37,10 +37,10 @@ call its run cannot answer (`GBC::HeadlessRun::CannotAnswer`), counted by reason
 the picture and sprites with the interpreter's after every pass. A test whose program reaches a
 part its build does not make yet (`SNES::Lowering::NOT_LOWERED_YET`) skips, saying which part, and
 the run counts those skips by reason; `skip_on_snes` is there for a test it cannot play for a
-reason no folder says. `test/vblank/ir/backends/snes/` is its own folder, and its `examples/`
+reason no folder says. `test/lowering/snes/vblank/ir/backends/snes/` is its own folder, and its `examples/`
 mirrors `examples/`: a test there plays one example built for the Super Nintendo too
 (`consoles: %i[gba snes]`).
-`test/advance/` is owned by the GBA, native, JavaScript and Ruby lowerings together; a folder several
+`test/console/gba/` is owned by the GBA, native, JavaScript and Ruby lowerings together; a folder several
 lowerings name in `TestSuites::LOWERING_FOLDERS` is loaded by each of them
 (`Testing::Lowering.files_for`).
 
@@ -48,13 +48,13 @@ lowerings name in `TestSuites::LOWERING_FOLDERS` is loaded by each of them
 printed as JavaScript, its windowless program prints what the native one prints, and its player
 (`JSCheckedPlayer`, `JS::CheckedRun`) is the native checked run with that program swapped in. So
 all of this file holds for it too, with `skip_on_js` for its own skip and
-`test/vblank/ir/backends/js/` for its own folder. The sound a speaker would make is compared
+`test/lowering/js/vblank/ir/backends/js/` for its own folder. The sound a speaker would make is compared
 with the cartridge's on the native run alone (`.claude/testing/native-sound.md`); the JavaScript
 runtime's voices are the native one's, function for function.
 
 **The Ruby run is played and read the same way.** Its windowless program, a Ruby script run by a
 Ruby of its own, prints the same lines, and its player (`RubyCheckedPlayer`, `Ruby::CheckedRun`)
-compares the same things. `skip_on_ruby` is its own skip and `test/vblank/ir/backends/ruby/` its
+compares the same things. `skip_on_ruby` is its own skip and `test/lowering/ruby/vblank/ir/backends/ruby/` its
 own folder. While its runtime is still being written, a game that needs a part it lacks is found
 when the game is built (`Ruby::Lowering#runtime_gaps`) and the test skips naming the part; the
 run's count of skips by reason is the list of what is left.
@@ -105,11 +105,11 @@ and the native run starts the C afresh each time. Read frames as they settle wit
 
 `ruby tools/native_examples.rb` lists the examples the native lowering can write as C today and
 why each other is refused. `test_native_examples.rb` fails when one that builds has no recorded
-run (`native/examples/test_<example>_picture.rb`), or when a file in `test/examples/` whose
+run (`native/examples/test_<example>_picture.rb`), or when a file in `test/all/examples/` whose
 examples all build still plays them by `Reference.new`. A file whose tests are all of the
 cartridge has nothing for the C to play.
 
-A whole example gets files under `test/vblank/ir/backends/native/examples/`:
+A whole example gets files under `test/lowering/native/vblank/ir/backends/native/examples/`:
 `test_<game>_picture.rb` plays a recorded run of buttons and compares every variable, pixel and
 the sound log with the interpreter's on every frame, and `test_<game>_sounds.rb` compares the
 speaker with the cartridge's. `test_pong_*.rb` and `test_pacman_*.rb` are the worked examples. A
@@ -130,7 +130,7 @@ game's Rakefile that names none gets no Color run), and adds only the machine lo
 build and coverage. Each `test:lowering:`
 task is a `VBlank::Testing::TestTask`, which holds how a native run starts (no Ractors, several
 processes, zig asked for first). The README's "Testing a game on every lowering" is the game's
-side; `test/vblank/testing/test_game_suite.rb` runs the rake of a small game suite
+side; `test/all/vblank/testing/test_game_suite.rb` runs the rake of a small game suite
 (`test/fixtures/game_suite/`) that has the library as a gem and nothing from this folder.
 
 A native player needs zig and starts the game as a separate program, so it cannot run inside a

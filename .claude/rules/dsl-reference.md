@@ -6,7 +6,7 @@ Each verb's options, friendly errors, cost and worked example are in the group f
 names, under `.claude/dsl/`. **Read that file before using, changing or documenting a verb**, and
 grep `.claude/dsl/` for an option or handle method not named here.
 
-A drift test (`test/vblank/test_dsl_reference.rb`) fails if a builder verb is missing from
+A drift test (`test/all/vblank/test_dsl_reference.rb`) fails if a builder verb is missing from
 this index or from its section's group file. A new verb gets a few words here and its whole
 story in the group file.
 

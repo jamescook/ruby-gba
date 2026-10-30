@@ -4,7 +4,7 @@ require "open3"
 require "tmpdir"
 
 # A web build's page, played in node with a stand-in for the browser
-# (test/vblank/ir/backends/js/page_harness.js, which says what each step does), and the two
+# (test/lowering/js/vblank/ir/backends/js/page_harness.js, which says what each step does), and the two
 # small games the page's tests play on it. `include WebPage` in a test of the page or of
 # createGame.
 module WebPage

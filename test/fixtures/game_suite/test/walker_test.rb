@@ -5,7 +5,7 @@
 require "vblank/testing"
 require_relative "one_pixel_off"
 
-# Run by test/vblank/testing/test_game_suite.rb, which reads what these leave behind.
+# Run by test/all/vblank/testing/test_game_suite.rb, which reads what these leave behind.
 class WalkerTest < Minitest::Test
   include VBlank::Testing
 
