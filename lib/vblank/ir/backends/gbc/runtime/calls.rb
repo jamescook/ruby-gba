@@ -110,7 +110,8 @@ module VBlank
             TABLE_PART_BYTES = 8192
 
             # The entry DE bytes into a big table, read by the reader at BC: HL is the table's list
-            # of parts. The offset never passes sixteen bits, so a table has eight parts at most.
+            # of parts. A table of up to 64 kilobytes, so eight parts at most, comes here; a bigger
+            # one comes to rt_far_read_part, below.
             def emit_parted_read(asm)
               part_shift = TABLE_PART_BYTES.bit_length - 1 # 13: the part is the offset's top three bits
               asm.label("rt_far_read_parts")
@@ -129,6 +130,7 @@ module VBlank
               asm.load(:a, :d)
               asm.and_a((TABLE_PART_BYTES >> 8) - 1)
               asm.load(:d, :a) # DE = the entry's place in its part
+              asm.label("rt_far_read_part_held")
               asm.load(:a, [:hli])
               asm.load(:c, :a)
               asm.load(:a, [:hli])
@@ -139,6 +141,13 @@ module VBlank
               asm.add_hl(:de)
               asm.pop(:de) # the reader
               asm.jump("rt_far_read")
+
+              # The same read for a table past 64 kilobytes, whose offset is more than DE can hold:
+              # the lowering finds the part itself (Lowering#emit_far_part_found), HL its place in
+              # the list of parts, DE the entry's place in it, and BC the reader, as above.
+              asm.label("rt_far_read_part")
+              asm.push(:bc)
+              asm.jump_relative("rt_far_read_part_held")
             end
 
             # BCDE = the table entry at HL, widened to 32 bits with its sign (or without).

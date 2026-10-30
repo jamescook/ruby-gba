@@ -56,6 +56,38 @@ class TestTable < Minitest::Test
     end
   end
 
+  # Tables whose entries run past 65536 bytes, read by an index the game works out: a table of
+  # halves whose length is a power of two (an index past it goes round), one of bytes and one of
+  # whole numbers whose lengths are not (an index past either end is held there). The places are
+  # the edges of what two bytes of index, or of offset, can say.
+  def test_a_table_past_sixty_four_kilobytes_reads_the_entry_named
+    halves = Array.new(131_072) { |n| n % 65_521 }
+    bytes = Array.new(70_000) { |n| ((n * 37) + (n / 251)) % 256 }
+    words = Array.new(20_000) { |n| (n * 104_729) - 1_000_000_000 }
+    reads = { halves: [27, 32_767, 32_768, 46_363, 65_535, 65_536, 100_000, 131_071, 131_072, -1],
+              bytes: [16_384, 65_535, 65_536, 69_999, 70_000, -5],
+              words: [16_383, 16_384, 19_999, 20_000] }
+    i = interpret do
+      tables = { halves: table(:halves, halves, width: :half, signed: false),
+                 bytes: table(:bytes, bytes, width: :byte, signed: false), words: table(:words, words, width: :word) }
+      at = var :at, 0
+      reads.each do |name, places|
+        places.each_with_index do |place, n|
+          var :"#{name}_#{n}", 0
+          at.set! place
+          set! :"#{name}_#{n}", tables.fetch(name)[at]
+        end
+      end
+      halt
+    end
+    { halves: ->(at) { halves[at % halves.length] }, bytes: ->(at) { bytes[at.clamp(0, bytes.length - 1)] },
+      words: ->(at) { words[at.clamp(0, words.length - 1)] } }.each do |name, entry|
+      reads.fetch(name).each_with_index do |place, n|
+        assert_equal entry[place], i[:"#{name}_#{n}"], "#{name} entry #{place}"
+      end
+    end
+  end
+
   def test_signed_values_round_trip
     i = interpret do
       t = table :sines, [0, 127, -128, -1], width: :byte # signed is inferred (a negative present)

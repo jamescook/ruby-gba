@@ -931,12 +931,14 @@ module VBlank
                    end
             bytes, signed = table_keeping(table)
             value(safe)
-            # HL = the table + the index × the entry's size; the index is never past 16 bits.
+            reader = TABLE_KEPT.fetch([bytes, signed]).last
+            return emit_far_entry_read(table, bytes, reader) if bytes * count > 0x10000
+
+            # HL = the table + the index × the entry's size; the offset is never past 16 bits.
             (bytes / 2).times do
               @asm.sla(:e)
               @asm.rl(:d)
             end
-            reader = TABLE_KEPT.fetch([bytes, signed]).last
             if banked_tables.include?(table.name)
               @asm.load(:hl, table_parts_label(table.name))
               @asm.load(:bc, reader)
@@ -946,6 +948,42 @@ module VBlank
             @asm.load(:hl, table_label(table.name))
             @asm.add_hl(:de)
             emit_entry_read(bytes, signed)
+          end
+
+          # A TABLE PAST 64 KILOBYTES, read at the index in BCDE, which is already held inside it.
+          # The entry's offset (the index × the entry's size) is more than two bytes can say, so it
+          # is kept in three, CDE, and the part it is in is found here rather than by
+          # rt_far_read_parts: the offset's bits from the part's size up are the part's number, and
+          # its place in the list of parts (three bytes a part: its address and its bank) is that
+          # number × 3. Such a table is always kept in banks, being far past BANKED_TABLE_BYTES.
+          def emit_far_entry_read(table, bytes, reader)
+            (bytes / 2).times do
+              @asm.sla(:e)
+              @asm.rl(:d)
+              @asm.rl(:c)
+            end
+            in_part_bits = Runtime::Calls::TABLE_PART_BYTES.bit_length - 1 - 8 # the part's own bits of D
+            # HL = the part's number: C's bits above those of D.
+            @asm.load(:h, 0)
+            @asm.load(:l, :c)
+            (8 - in_part_bits).times { @asm.add_hl(:hl) }
+            @asm.load(:a, :d)
+            (8 - in_part_bits).times { @asm.rlca } # D's top bits brought round to the bottom
+            @asm.and_a((1 << (8 - in_part_bits)) - 1)
+            @asm.or_a(:l)
+            @asm.load(:l, :a)
+            # × 3, and the list's place added.
+            @asm.load(:b, :h)
+            @asm.load(:c, :l)
+            @asm.add_hl(:hl)
+            @asm.add_hl(:bc)
+            @asm.load(:bc, table_parts_label(table.name))
+            @asm.add_hl(:bc)
+            @asm.load(:a, :d)
+            @asm.and_a((1 << in_part_bits) - 1)
+            @asm.load(:d, :a) # DE = the entry's place in its part
+            @asm.load(:bc, reader)
+            @asm.call("rt_far_read_part")
           end
 
           # BCDE = the entry at HL, +bytes+ wide, widened with its sign or without: what the
