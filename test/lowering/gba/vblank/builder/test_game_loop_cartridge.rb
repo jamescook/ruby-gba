@@ -18,7 +18,7 @@ class TestGameLoopCartridge < Minitest::Test
   VBLANK_INTR_WAIT = 0xEF000000 | (0x05 << 16)
 
   private def build(validate: false, &block)
-    VBlank.build("LOOPTEST", console: :gba, code: "BLPT", maker: "01", validate: validate, &block)
+    VBlank.build("LOOPTEST", console: :gba, code: "BLPT", maker: "01", validate: validate, out: nil, err: nil, &block)
   end
 
   # Lower a DSL program built in +block+ and return the backend (for its label table)

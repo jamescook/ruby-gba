@@ -9,7 +9,7 @@ module InputGames
   include SharedConstants
 
   private def build(validate: false, &block)
-    VBlank.build("INPTEST", console: :gba, validate: validate, &block)
+    VBlank.build("INPTEST", console: :gba, validate: validate, out: nil, err: nil, &block)
   end
 
   # A BUTTON HELD WHILE THE POWER COMES ON IS ONE PRESS. Nothing was down before the game

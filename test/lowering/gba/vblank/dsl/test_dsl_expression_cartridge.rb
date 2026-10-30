@@ -7,7 +7,7 @@ require "test_helper"
 class TestDSLExpressionCartridge < Minitest::Test
   # Build a real ROM, for the emulator to run.
   private def build(&block)
-    VBlank.build("EXPR", console: :gba, validate: false, &block)
+    VBlank.build("EXPR", console: :gba, validate: false, out: nil, err: nil, &block)
   end
 
   def test_then_gates_a_draw_on_hardware

@@ -19,7 +19,7 @@ class TestBufferedBounceExample < Minitest::Test
   # VBlank.build runs the guardrails (raising on any fatal footgun) and the
   # ROM-image validation, so a clean build IS the check.
   def test_the_example_builds_clean
-    rom = BufferedBounce.build_rom
+    rom = BufferedBounce.build_rom(out: nil, err: nil)
     assert_operator rom.size, :>, 0, "the built ROM should be non-empty"
   end
 

@@ -9,7 +9,7 @@ require "test_helper"
 # How both files build a game.
 module SubroutinesGames
   private def build(validate: false, &block)
-    VBlank.build("SUBTEST", console: :gba, code: "BSUB", maker: "01", validate: validate, &block)
+    VBlank.build("SUBTEST", console: :gba, code: "BSUB", maker: "01", validate: validate, out: nil, err: nil, &block)
   end
 end
 

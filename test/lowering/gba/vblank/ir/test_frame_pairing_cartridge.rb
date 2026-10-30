@@ -26,7 +26,7 @@ class TestFramePairingCartridge < Minitest::Test
   # The same pair read off the console, the way a game's own test reads them: run the ROM
   # for a number of frames, then read a variable and a pixel.
   private def console_pair(source)
-    rom = VBlank.build("PAIRING", console: :gba, validate: false, &source)
+    rom = VBlank.build("PAIRING", console: :gba, validate: false, out: nil, err: nil, &source)
     verifier = assert_emulator_loads_rom(rom, frames: FRAMES, vars: rom.var_addresses)
     [verifier.var(:n), marker_column { |x, y| verifier.red?(x, y) }]
   end

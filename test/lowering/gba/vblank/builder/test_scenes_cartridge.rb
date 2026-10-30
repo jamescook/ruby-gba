@@ -11,7 +11,7 @@ class TestScenesCartridge < Minitest::Test
   include ScenesGames
 
   private def build(validate: false, &block)
-    VBlank.build("SCNTEST", console: :gba, code: "BSCN", maker: "01", validate: validate, &block)
+    VBlank.build("SCNTEST", console: :gba, code: "BSCN", maker: "01", validate: validate, out: nil, err: nil, &block)
   end
 
   # ========================================================================

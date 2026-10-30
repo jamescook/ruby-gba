@@ -7,7 +7,7 @@ require "test_helper"
 # sound verb raises are in test/all/vblank/builder/test_sound.rb.
 class TestSoundCartridge < Minitest::Test
   private def build(validate: false, &block)
-    VBlank.build("SNDTEST", console: :gba, code: "BSND", maker: "01", validate: validate, &block)
+    VBlank.build("SNDTEST", console: :gba, code: "BSND", maker: "01", validate: validate, out: nil, err: nil, &block)
   end
 
   # ========================================================================
@@ -167,7 +167,7 @@ class TestSoundCartridge < Minitest::Test
 
   def test_beep_writes_correct_frequency_value
     # 440 Hz: freq_val = 2048 - 131072/440 = 2048 - 298 = 1750
-    rom = VBlank.build("TEST", console: :gba, code: "BTST", maker: "01", validate: false) do
+    rom = VBlank.build("TEST", console: :gba, code: "BTST", maker: "01", validate: false, out: nil, err: nil) do
       enable_sound
       beep 440
       halt

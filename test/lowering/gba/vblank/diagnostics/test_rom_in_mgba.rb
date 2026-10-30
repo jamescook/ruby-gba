@@ -11,7 +11,7 @@ require "test_helper"
 require "tempfile"
 
 def build_and_run(name, &block)
-  rom = VBlank.build(name, console: :gba, code: "BTST", maker: "01", &block)
+  rom = VBlank.build(name, console: :gba, code: "BTST", maker: "01", out: nil, err: nil, &block)
   puts "Built #{name}: #{rom.size} bytes"
   puts VBlank::Diagnostics::Inspector.from_rom(rom).header_report
   puts VBlank::Diagnostics::Inspector.from_rom(rom).code_report(max_instructions: 20)

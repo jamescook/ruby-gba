@@ -10,7 +10,7 @@ class TestSpriteMoverExampleCartridge < Minitest::Test
   include SpriteMoverPlaces
 
   def test_it_builds_a_rom
-    assert SpriteMover.build_rom.size.positive?
+    assert SpriteMover.build_rom(out: nil, err: nil).size.positive?
   end
 
   # The same thing the console draws, since this is the bug's whole point.

@@ -12,7 +12,7 @@ class TestROMValidator < Minitest::Test
   ROMValidator = VBlank::Cartridge::ROMValidator
 
   def test_a_valid_rom_passes
-    rom = VBlank.build("GOOD", console: :gba, code: "BGOD", maker: "01") do
+    rom = VBlank.build("GOOD", console: :gba, code: "BGOD", maker: "01", out: nil, err: nil) do
       screen :bitmap
       pixel 120, 80, :red
       halt
@@ -86,12 +86,12 @@ class TestROMValidator < Minitest::Test
   end
 
   def test_report_says_ok_for_a_clean_rom
-    rom = VBlank.build("GOOD", console: :gba, code: "BGOD", maker: "01") { halt }
+    rom = VBlank.build("GOOD", console: :gba, code: "BGOD", maker: "01", out: nil, err: nil) { halt }
     assert_includes ROMValidator.check(rom).report, "OK"
   end
 
   def test_check_file_validates_a_gba_on_disk
-    rom = VBlank.build("FILE", console: :gba, code: "BFIL", maker: "01") do
+    rom = VBlank.build("FILE", console: :gba, code: "BFIL", maker: "01", out: nil, err: nil) do
       screen :bitmap
       halt
     end
@@ -117,7 +117,7 @@ class TestROMValidator < Minitest::Test
   end
 
   def test_finalize_validation_can_be_disabled
-    rom = VBlank.build("SKIP", console: :gba, code: "BSKP", maker: "01", validate: false) do
+    rom = VBlank.build("SKIP", console: :gba, code: "BSKP", maker: "01", validate: false, out: nil, err: nil) do
       entry { loop_forever }
     end
     assert_kind_of ROM, rom

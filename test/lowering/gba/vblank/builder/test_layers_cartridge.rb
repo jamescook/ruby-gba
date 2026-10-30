@@ -22,7 +22,7 @@ class TestLayersCartridge < Minitest::Test
   # --- it survives the whole build ---
 
   def test_a_layered_game_builds_a_rom
-    rom = VBlank.build("LAYERS", console: :gba, code: "BLYR", maker: "01") do
+    rom = VBlank.build("LAYERS", console: :gba, code: "BLYR", maker: "01", out: nil, err: nil) do
       screen :tiled
       layers :scenery, :actors
       image(:grass, "#" => :green) { (["#" * 8] * 8).join("\n") }

@@ -16,21 +16,23 @@ class TestRomBuilderCartridge < Minitest::Test
     # The build's own streams take the debug_halt reminder, rather than catching it off the
     # process. Where a build prints is a thing you pass it, so there is no need to reach for
     # the process's own output — and reaching for it is something a worker may not do.
+    said = StringIO.new
     rom = VBlank.build("DBGHLT", console: :gba, code: "BDBG", maker: "01", validate: false,
-                        out: StringIO.new, err: StringIO.new) do
+                        out: StringIO.new, err: said) do
       screen :bitmap
       clear_screen :blue
       debug_halt
       clear_screen :red # never reached
     end
 
+    assert_match(/debug_halt stops the build here/, said.string, "the reminder goes where the build prints")
     v = assert_emulator_loads_rom(rom, frames: 5)
     assert v.blue?(120, 80), "the pre-debug_halt draw rendered"
     refute v.red?(120, 80), "everything after debug_halt is dropped"
   end
 
   def test_build_produces_valid_header
-    rom = VBlank.build("TEEKTEST", console: :gba, code: "BTKE", maker: "01") do
+    rom = VBlank.build("TEEKTEST", console: :gba, code: "BTKE", maker: "01", out: nil, err: nil) do
       halt # lowers to a branch-to-self at the code start
     end
 
@@ -68,7 +70,7 @@ class TestRomBuilderCartridge < Minitest::Test
   # program's own first instruction sits where the code starts, with no timing write
   # in front of it.
   def test_a_build_can_keep_the_power_on_cartridge_timing
-    rom = VBlank.build("SLOWCART", console: :gba, code: "BSLW", maker: "01", fast_cartridge: false) do
+    rom = VBlank.build("SLOWCART", console: :gba, code: "BSLW", maker: "01", fast_cartridge: false, out: nil, err: nil) do
       halt
     end
 
@@ -77,7 +79,7 @@ class TestRomBuilderCartridge < Minitest::Test
 
   def test_build_embeds_nintendo_logo
     require "digest"
-    rom = VBlank.build("LOGOTEST", console: :gba, code: "BLGO", maker: "01") do
+    rom = VBlank.build("LOGOTEST", console: :gba, code: "BLGO", maker: "01", out: nil, err: nil) do
       entry { loop_forever }
     end
 
@@ -95,7 +97,7 @@ class TestRomBuilderCartridge < Minitest::Test
   end
 
   def test_write_creates_file
-    rom = VBlank.build("WRITETEST", console: :gba, code: "BWTE", maker: "99") do
+    rom = VBlank.build("WRITETEST", console: :gba, code: "BWTE", maker: "99", out: nil, err: nil) do
       entry { loop_forever }
     end
 
@@ -139,7 +141,7 @@ class TestRomBuilderCartridge < Minitest::Test
   end
 
   def test_title_truncated_to_12_chars
-    rom = VBlank.build("LONGERTHANTWELVE", console: :gba, code: "BXXX", maker: "01") do
+    rom = VBlank.build("LONGERTHANTWELVE", console: :gba, code: "BXXX", maker: "01", out: nil, err: nil) do
       entry { loop_forever }
     end
 
@@ -147,7 +149,7 @@ class TestRomBuilderCartridge < Minitest::Test
   end
 
   def test_nop_emits_correctly
-    rom = VBlank.build("NOPTEST", console: :gba, code: "BNOP", maker: "01") do
+    rom = VBlank.build("NOPTEST", console: :gba, code: "BNOP", maker: "01", out: nil, err: nil) do
       entry do
         nop
         loop_forever
@@ -161,7 +163,7 @@ class TestRomBuilderCartridge < Minitest::Test
 
   def test_header_intact_after_code_emission
     # Verify that emitted code doesn't overwrite the header region (0x00-0xBF)
-    rom = VBlank.build("TEEKTEST", console: :gba, code: "BTKE", maker: "01") do
+    rom = VBlank.build("TEEKTEST", console: :gba, code: "BTKE", maker: "01", out: nil, err: nil) do
       entry { loop_forever }
     end
 

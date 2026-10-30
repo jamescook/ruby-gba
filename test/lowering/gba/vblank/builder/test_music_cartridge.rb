@@ -7,7 +7,7 @@ require "test_helper"
 # emulator. A song's notes and the friendly errors are in test/all/vblank/builder/test_music.rb.
 class TestMusicCartridge < Minitest::Test
   private def build(validate: false, &block)
-    VBlank.build("MUSTEST", console: :gba, code: "BMUS", maker: "01", validate: validate, &block)
+    VBlank.build("MUSTEST", console: :gba, code: "BMUS", maker: "01", validate: validate, out: nil, err: nil, &block)
   end
 
   # ========================================================================

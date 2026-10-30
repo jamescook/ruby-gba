@@ -16,7 +16,7 @@ class TestBufferedBounceExampleCartridge < Minitest::Test
   # palette, and presents the flipped page. The blue field and at least one ball
   # must render — not a black screen.
   def test_it_renders_on_the_console
-    v = assert_emulator_loads_rom(BufferedBounce.build_rom, frames: 6)
+    v = assert_emulator_loads_rom(BufferedBounce.build_rom(out: nil, err: nil), frames: 6)
     assert on_screen?(v, :blue), "the blue field should render on the console"
     assert BALL_COLORS.any? { |c| on_screen?(v, c) },
            "at least one ball should render on the console"

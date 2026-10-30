@@ -50,7 +50,7 @@ class TestGameCode < Minitest::Test
   # A game says what it is called and nothing else: the four characters underneath
   # are the framework's business.
   def test_a_game_that_writes_no_code_gets_a_free_one
-    rom = VBlank.build("SNAKE", console: :gba) { halt }
+    rom = VBlank.build("SNAKE", console: :gba, out: nil, err: nil) { halt }
 
     assert_equal VBlank::Cartridge::GameCode.for("SNAKE"), rom.buffer[CODE, 4], "game code"
     refute_equal "01", rom.buffer[MAKER, 2], "01 is Nintendo's maker code"
@@ -58,7 +58,7 @@ class TestGameCode < Minitest::Test
 
   def test_a_code_a_real_cartridge_carries_stops_the_build
     error = assert_raises(ArgumentError) do
-      VBlank.build("SHMUP", console: :gba, code: "BSMP", maker: "01") { halt }
+      VBlank.build("SHMUP", console: :gba, code: "BSMP", maker: "01", out: nil, err: nil) { halt }
     end
 
     assert_includes error.message, "BSMP"
@@ -66,7 +66,7 @@ class TestGameCode < Minitest::Test
   end
 
   def test_a_free_code_written_by_hand_is_left_alone
-    rom = VBlank.build("SHMUP", console: :gba, code: "HSMP", maker: "01") { halt }
+    rom = VBlank.build("SHMUP", console: :gba, code: "HSMP", maker: "01", out: nil, err: nil) { halt }
 
     assert_equal "HSMP", rom.buffer[CODE, 4]
     assert_equal "01", rom.buffer[MAKER, 2]

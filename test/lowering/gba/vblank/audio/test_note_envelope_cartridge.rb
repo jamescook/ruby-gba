@@ -46,7 +46,7 @@ class TestNoteEnvelopeCartridge < Minitest::Test
   end
 
   private def build(envelope, holds_from: nil, tune: score(envelope))
-    VBlank.build("ENVELOPE", console: :gba, code: "BENV", maker: "01", validate: false) do
+    VBlank.build("ENVELOPE", console: :gba, code: "BENV", maker: "01", validate: false, out: nil, err: nil) do
       screen :bitmap
       enable_sound
       instrument :tone, pcm: RECORDING, rate: RATE, note: :C4, holds_from: holds_from
@@ -67,7 +67,7 @@ class TestNoteEnvelopeCartridge < Minitest::Test
   # there is nothing in it but the wave, and measured rather than worked out because what
   # reaches the test is the console's output through the emulator's own resampling.
   private def the_waves_own_step
-    control = VBlank.build("ENVELOPE", console: :gba, code: "BENV", maker: "01", validate: false) do
+    control = VBlank.build("ENVELOPE", console: :gba, code: "BENV", maker: "01", validate: false, out: nil, err: nil) do
       screen :bitmap
       enable_sound
       tone = sample :tone, pcm: RECORDING, rate: RATE, note: :C4
@@ -172,7 +172,7 @@ class TestNoteEnvelopeCartridge < Minitest::Test
       parts: [VBlank::Audio::Score::Part.new(plays: :tone, notes: [VBlank::Audio::Score::Note.new(at: 0, key: :C4, length: 60)])],
       tempo: TEMPO, ticks_per_beat: TICKS_PER_BEAT, length: 90
     )
-    held = VBlank.build("ENVELOPE", console: :gba, code: "BENV", maker: "01", validate: false) do
+    held = VBlank.build("ENVELOPE", console: :gba, code: "BENV", maker: "01", validate: false, out: nil, err: nil) do
       screen :bitmap
       enable_sound
       instrument :tone, pcm: short, rate: RATE, note: :C4, holds_from: 0

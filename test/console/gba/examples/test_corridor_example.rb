@@ -17,7 +17,7 @@ class TestCorridorExample < Minitest::Test
   # VBlank.build runs the guardrails and the ROM-image validation, so a clean build IS
   # the check.
   def test_the_example_builds_clean
-    assert_operator Corridor.build_rom.size, :>, 0, "the built ROM should be non-empty"
+    assert_operator Corridor.build_rom(out: nil, err: nil).size, :>, 0, "the built ROM should be non-empty"
   end
 
   # It is a first-person view, so a settled frame shows sky above the eye line, floor below it,

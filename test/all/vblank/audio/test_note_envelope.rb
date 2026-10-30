@@ -86,7 +86,7 @@ class TestNoteEnvelope < Minitest::Test
 
   def test_a_hold_point_outside_the_recording_names_itself
     error = assert_raises(ArgumentError) do
-      VBlank.build("ENVELOPE", console: :gba, code: "BENV", maker: "01", validate: false) do
+      VBlank.build("ENVELOPE", console: :gba, code: "BENV", maker: "01", validate: false, out: nil, err: nil) do
         screen :bitmap
         enable_sound
         instrument :tone, pcm: SINE, rate: RATE, note: :C4, holds_from: 5.0

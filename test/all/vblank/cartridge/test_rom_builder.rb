@@ -8,13 +8,13 @@ require "test_helper"
 class TestRomBuilder < Minitest::Test
   def test_invalid_game_code_raises
     assert_raises(ArgumentError) do
-      VBlank.build("TEST", console: :gba, code: "AB", maker: "01") { entry { loop_forever } }
+      VBlank.build("TEST", console: :gba, code: "AB", maker: "01", out: nil, err: nil) { entry { loop_forever } }
     end
   end
 
   def test_invalid_maker_code_raises
     assert_raises(ArgumentError) do
-      VBlank.build("TEST", console: :gba, code: "ABCD", maker: "X") { entry { loop_forever } }
+      VBlank.build("TEST", console: :gba, code: "ABCD", maker: "X", out: nil, err: nil) { entry { loop_forever } }
     end
   end
 end

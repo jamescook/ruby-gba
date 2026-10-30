@@ -144,7 +144,49 @@ class TestSuitesSplit < Minitest::Test
                         "test/console/<console>/ or test/lowering/<lowering>/"
   end
 
+  # A BUILD IN A TEST SAYS WHERE IT PRINTS. VBlank.build and build_rom print the game's warnings
+  # (and a debug_halt's reminder) to the process's own streams unless told otherwise, which is
+  # right for a person building a game and wrong in a run of the suite, whose output is a line of
+  # dots. So every build in a test passes `err:` — a StringIO to read the words back, or nil.
+  def test_every_build_in_a_test_says_where_it_prints
+    # A game's own suite (the fixtures), a debugging script, and this file, whose pattern names the calls.
+    skipped = ["test/debug_render.rb", "test/all/test_suites.rb"]
+    unsaid = Dir.glob("test/**/*.rb").reject { |path| path.start_with?("test/fixtures/") || skipped.include?(path) }
+                .flat_map { |path| builds_naming_no_stream(path) }
+
+    assert_empty unsaid, "give each of these builds `err:` (a StringIO, or nil), and `out:` too"
+  end
+
   private
+
+  # "path:line" for each VBlank.build or build_rom call in +path+ whose arguments name no `err:`.
+  def builds_naming_no_stream(path)
+    text = File.read(path)
+    text.to_enum(:scan, /VBlank\.build\(|\.build_rom(?!\w)/).filter_map do
+      at = Regexp.last_match.begin(0)
+      opened = Regexp.last_match.end(0)
+      args = if text[opened - 1] == "(" then text[opened...closing_paren(text, opened - 1)]
+             elsif text[opened] == "(" then text[(opened + 1)...closing_paren(text, opened)]
+             else ""
+             end
+      "#{path}:#{text[0...at].count("\n") + 1}" unless args.include?("err:")
+    end
+  end
+
+  # Where the parenthesis opened at +from+ in +text+ closes, skipping quoted strings.
+  def closing_paren(text, from)
+    depth = 0
+    quote = nil
+    (from...text.length).each do |i|
+      c = text[i]
+      if quote then quote = nil if c == quote && text[i - 1] != "\\"
+      elsif ['"', "'"].include?(c) then quote = c
+      elsif c == "(" then depth += 1
+      elsif c == ")" && (depth -= 1).zero? then return i
+      end
+    end
+    text.length
+  end
 
   # The files +lowering+'s run loads, worked out as the Rakefile has the library's rake tasks do it.
   def files_for(lowering)

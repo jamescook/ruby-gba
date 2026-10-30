@@ -89,7 +89,7 @@ class TestProfiler < Minitest::Test
   # A game costs what the player makes it cost, so the buttons held have to reach the
   # measured frames — otherwise every reading is of a game standing still.
   def test_the_buttons_it_is_given_are_held_while_it_measures
-    game = VBlank.build("PHLD", console: :gba, code: "PHLD", maker: "01") do
+    game = VBlank.build("PHLD", console: :gba, code: "PHLD", maker: "01", out: nil, err: nil) do
       screen :bitmap
       clear_screen :black
       var :x, 0
@@ -308,7 +308,7 @@ class TestProfiler < Minitest::Test
   # A game boots to its title and a held button will not get past one, because a menu reads
   # the press EDGE. So which screen gets measured has to be said rather than played to.
   private def scened_game
-    VBlank.build("PSCN", console: :gba, code: "PSCN", maker: "01") do
+    VBlank.build("PSCN", console: :gba, code: "PSCN", maker: "01", out: nil, err: nil) do
       screen :bitmap
       clear_screen :black
       var :state, 0
@@ -342,7 +342,7 @@ class TestProfiler < Minitest::Test
   # (a snake with nobody steering dies in a few frames), and then the measuring is of the
   # screen it fell into, under the name of the one that was asked for. So it is held there.
   def test_a_scene_is_held_rather_than_merely_entered
-    rom = VBlank.build("PHLD2", console: :gba, code: "PHL2", maker: "01") do
+    rom = VBlank.build("PHLD2", console: :gba, code: "PHL2", maker: "01", out: nil, err: nil) do
       screen :bitmap
       clear_screen :black
       var :state, 1
@@ -380,7 +380,7 @@ class TestProfiler < Minitest::Test
   # that can DOES is a race between the display's row and the game's, and only running it
   # settles that — so it is measured here rather than priced.
   def test_a_game_that_draws_more_than_fits_is_seen_to_tear
-    heavy = VBlank.build("PTER", console: :gba, code: "PTER", maker: "01") do
+    heavy = VBlank.build("PTER", console: :gba, code: "PTER", maker: "01", out: nil, err: nil) do
       screen :bitmap
       var :x, 0
       game_loop do
@@ -396,7 +396,7 @@ class TestProfiler < Minitest::Test
   end
 
   def test_a_game_that_keeps_up_is_seen_not_to_tear
-    light = VBlank.build("PTEL", console: :gba, code: "PTEL", maker: "01") do
+    light = VBlank.build("PTEL", console: :gba, code: "PTEL", maker: "01", out: nil, err: nil) do
       screen :bitmap
       var :x, 0
       game_loop { fill_rect 0, 0, 8, 8, :red; add! :x, 1 }
@@ -409,7 +409,7 @@ class TestProfiler < Minitest::Test
   # "We did not look" must never read as "nothing was wrong", so a screen that cannot tear
   # reports nothing at all rather than a reassuring zero.
   def test_a_screen_that_cannot_tear_reports_nothing_rather_than_no_tear
-    buffered = VBlank.build("PTEB", console: :gba, code: "PTEB", maker: "01") do
+    buffered = VBlank.build("PTEB", console: :gba, code: "PTEB", maker: "01", out: nil, err: nil) do
       screen :bitmap, tear_free: true
       var :x, 0
       game_loop { clear_screen :black; add! :x, 1 }
@@ -427,7 +427,7 @@ class TestProfiler < Minitest::Test
   # this and no scene contains it — it is STATE, which is what a saved moment carries and a
   # booted scene does not.
   private def armed_game(bump = 1)
-    VBlank.build("PSAV", console: :gba, code: "PSAV", maker: "01") do
+    VBlank.build("PSAV", console: :gba, code: "PSAV", maker: "01", out: nil, err: nil) do
       screen :bitmap
       clear_screen :black
       armed = var :armed, 0

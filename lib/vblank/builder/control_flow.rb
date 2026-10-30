@@ -18,8 +18,8 @@ module VBlank
 
       # Debug breakpoint: stop building here, so everything after this call is
       # ignored. Use it to bisect rendering issues — everything before debug_halt
-      # runs, everything after never makes it into the ROM. Prints a warning so you
-      # remember to remove it.
+      # runs, everything after never makes it into the ROM. The build says so with its
+      # warnings (VBlank.build), so you remember to remove it.
       #
       # @example Bisecting a black screen
       #   screen :bitmap
@@ -28,7 +28,6 @@ module VBlank
       #   draw_text "HELLO"      # ← never recorded
       #   game_loop { ... }      # ← never recorded
       def debug_halt
-        warn "[VBlank] debug_halt stops the build here. The code after debug_halt is not in the ROM. Remove debug_halt when you are done."
         record(Build.halt) # the lowered ROM stops (branches to self) at this point
         @debug_halted = true
         throw :debug_halt

@@ -9,7 +9,7 @@ class TestConditionalsCartridge < Minitest::Test
   include VBlank::Console::Hardware
 
   private def build(validate: false, &block)
-    VBlank.build("CONDTEST", console: :gba, code: "BCND", maker: "01", validate: validate, &block)
+    VBlank.build("CONDTEST", console: :gba, code: "BCND", maker: "01", validate: validate, out: nil, err: nil, &block)
   end
 
   private def instructions(rom)

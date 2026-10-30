@@ -9,7 +9,7 @@ class TestSound < Minitest::Test
   include VBlank::Console::Hardware
 
   private def build(validate: false, &block)
-    VBlank.build("SNDTEST", console: :gba, code: "BSND", maker: "01", validate: validate, &block)
+    VBlank.build("SNDTEST", console: :gba, code: "BSND", maker: "01", validate: validate, out: nil, err: nil, &block)
   end
 
   # ========================================================================

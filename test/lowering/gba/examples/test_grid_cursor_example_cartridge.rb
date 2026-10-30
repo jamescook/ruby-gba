@@ -10,7 +10,7 @@ class TestGridCursorExampleCartridge < Minitest::Test
   include GridCursorPlaces
 
   def test_it_builds_a_rom
-    rom = GridCursor.build_rom
+    rom = GridCursor.build_rom(out: nil, err: nil)
     assert rom.size.positive?
   end
 

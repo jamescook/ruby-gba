@@ -8,7 +8,7 @@ class TestFontCartridge < Minitest::Test
   # ---- draw_text through the builder ----
 
   private def build(validate: false, &block)
-    VBlank.build("FONTEST", console: :gba, code: "BFNT", maker: "01", validate: validate, &block)
+    VBlank.build("FONTEST", console: :gba, code: "BFNT", maker: "01", validate: validate, out: nil, err: nil, &block)
   end
 
   def test_draw_text_builds_and_emits_pixels

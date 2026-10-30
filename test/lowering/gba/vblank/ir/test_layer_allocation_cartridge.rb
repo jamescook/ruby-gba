@@ -39,7 +39,7 @@ class TestLayerAllocationCartridge < Minitest::Test
   # --- the report ---
 
   def test_the_report_says_what_each_layer_became
-    rom = VBlank.build("STACKED", console: :gba, code: "BSTK", maker: "01") do
+    rom = VBlank.build("STACKED", console: :gba, code: "BSTK", maker: "01", out: nil, err: nil) do
       screen :tiled
       image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
       image(:guy, "#" => :red) { (["#" * 8] * 8).join("\n") }
@@ -64,7 +64,7 @@ class TestLayerAllocationCartridge < Minitest::Test
   end
 
   def test_the_report_says_nothing_about_a_stack_a_game_never_declared
-    rom = VBlank.build("PLAIN", console: :gba, code: "BPLN", maker: "01") do
+    rom = VBlank.build("PLAIN", console: :gba, code: "BPLN", maker: "01", out: nil, err: nil) do
       screen :bitmap
       fill_rect 0, 0, 10, 10, :red
       halt

@@ -16,6 +16,8 @@ module VBlank
     #   rom = VBlank::Cartridge::TestPatterns.solid_fill(:red)
     #   v = VBlank::Diagnostics::Verifier.new(rom)
     #   v.red?(120, 80) # => true if rendering works
+    #
+    # Each is a fixed program with nothing to warn about, so its build prints nothing.
     module TestPatterns
       module_function
 
@@ -25,7 +27,7 @@ module VBlank
       # @param color [Symbol, Integer] fill color (default: :red)
       # @return [VBlank::Cartridge::ROM]
       def solid_fill(color = :red)
-        VBlank.build("SOLIDFILL", console: :gba) do
+        VBlank.build("SOLIDFILL", console: :gba, out: nil, err: nil) do
           screen :bitmap
           fill_rect 0, 0, 240, 160, color
           halt
@@ -37,7 +39,7 @@ module VBlank
       #
       # @return [VBlank::Cartridge::ROM]
       def color_bars
-        VBlank.build("COLORBARS", console: :gba) do
+        VBlank.build("COLORBARS", console: :gba, out: nil, err: nil) do
           screen :bitmap
           fill_rect 0,   0, 80, 160, :red
           fill_rect 80,  0, 80, 160, :green
@@ -52,7 +54,7 @@ module VBlank
       #
       # @return [VBlank::Cartridge::ROM]
       def corners
-        VBlank.build("CORNERS", console: :gba) do
+        VBlank.build("CORNERS", console: :gba, out: nil, err: nil) do
           screen :bitmap
           size = 20
           fill_rect 0, 0, size, size, :red                                # top-left
@@ -68,7 +70,7 @@ module VBlank
       #
       # @return [VBlank::Cartridge::ROM]
       def crosshair
-        VBlank.build("CROSSHAIR", console: :gba) do
+        VBlank.build("CROSSHAIR", console: :gba, out: nil, err: nil) do
           screen :bitmap
           # Horizontal line at y=80
           fill_rect 0, 79, 240, 2, :white

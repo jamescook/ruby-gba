@@ -13,7 +13,7 @@ require "stringio"
 class TestBuildReport < Minitest::Test
   # Two routines far too big for the 32K, so something must be kept and something passed over.
   private def crowded_game
-    VBlank.build("BRPT", console: :gba, code: "BRPT", maker: "01") do
+    VBlank.build("BRPT", console: :gba, code: "BRPT", maker: "01", out: nil, err: nil) do
       screen :bitmap, tear_free: true
       clear_screen :black
       var :x, 0
@@ -174,7 +174,7 @@ class TestBuildReport < Minitest::Test
   end
 
   def test_it_says_how_much_of_a_font_the_game_actually_draws
-    rom = VBlank.build("BRFT", console: :gba, code: "BRFT", maker: "01") do
+    rom = VBlank.build("BRFT", console: :gba, code: "BRFT", maker: "01", out: nil, err: nil) do
       screen :bitmap
       clear_screen :black
       draw_text "HI", 10, 10, :white
@@ -189,7 +189,7 @@ class TestBuildReport < Minitest::Test
   # A game that draws straight into the picture the display is reading CAN tear, and that is
   # a fact about the screen it chose rather than about how long anything takes.
   def test_a_single_buffered_game_is_told_it_can_tear
-    rom = VBlank.build("BRTR", console: :gba, code: "BRTR", maker: "01") do
+    rom = VBlank.build("BRTR", console: :gba, code: "BRTR", maker: "01", out: nil, err: nil) do
       screen :bitmap
       var :x, 0
       game_loop { clear_screen :black; add! :x, 1 }
@@ -222,7 +222,7 @@ class TestBuildReport < Minitest::Test
   # A tiled game that fades out over +frames+, placed under a HUD when +under+ says so.
   private def fading_game(frames, under: nil)
     tile = SOLID_TILE
-    VBlank.build("BRFD", console: :gba) do
+    VBlank.build("BRFD", console: :gba, out: nil, err: nil) do
       screen :tiled
       image(:red_art, "#" => :red) { tile }
       image(:badge, "#" => :green) { tile }
@@ -357,7 +357,7 @@ class TestBuildReport < Minitest::Test
   # Each scene is a screen of its own with four levels of its own, so two scenes using three
   # each are three of four apiece, never six of four.
   def test_the_stack_counts_levels_per_scene
-    rom = VBlank.build("SCENESTK", console: :gba) do
+    rom = VBlank.build("SCENESTK", console: :gba, out: nil, err: nil) do
       screen :tiled
       image(:tile, "#" => :green) { (["#" * 8] * 8).join("\n") }
       tiles :set, "#" => :tile

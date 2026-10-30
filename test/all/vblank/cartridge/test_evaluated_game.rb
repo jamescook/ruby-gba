@@ -30,8 +30,7 @@ class TestEvaluatedGame < Minitest::Test
   # answered a truncated ROM; asking the same game for its program raised instead, so a
   # game anyone was bisecting could not be run in a test, profiled, or explained.
   def test_a_game_that_stops_early_answers_its_program_the_way_it_answers_its_rom
-    program = nil
-    capture_io { program = truncated_game.program(console: game_console) } # swallow the debug_halt reminder
+    program = truncated_game.program(console: game_console)
 
     screen = game_player.run(program).screen
     assert_equal Color.resolve(:blue), screen.pixel(120, 80), "the draw before debug_halt ran"
@@ -40,13 +39,9 @@ class TestEvaluatedGame < Minitest::Test
 
   # ...and the two answers describe the same short program, which is the thing that drifted.
   def test_the_two_paths_truncate_a_game_at_the_same_point
-    rom = nil
-    program = nil
-    capture_io do
-      game = truncated_game
-      program = game.program
-      rom = game.build_rom(out: StringIO.new, err: StringIO.new, validate: false)
-    end
+    game = truncated_game
+    program = game.program
+    rom = game.build_rom(out: StringIO.new, err: StringIO.new, validate: false)
 
     same = VBlank::Cartridge::ROM.assemble(GBA.new.lower(program), title: "DBGHLT", code: "ZDBG",
                                                          maker: "01", validate: false)

@@ -13,7 +13,7 @@ class TestInspector < Minitest::Test
   end
 
   private def minimal_rom
-    VBlank.build("TEST", console: :gba, code: "BTST", maker: "01", validate: false) do
+    VBlank.build("TEST", console: :gba, code: "BTST", maker: "01", validate: false, out: nil, err: nil) do
       halt
     end
   end
@@ -338,7 +338,7 @@ class TestInspector < Minitest::Test
   # ========================================================================
 
   def test_no_unknown_instructions_in_pong
-    rom = VBlank.build("PONG", console: :gba, code: "BPNG", maker: "01", validate: false) do
+    rom = VBlank.build("PONG", console: :gba, code: "BPNG", maker: "01", validate: false, out: nil, err: nil) do
       screen :bitmap
       set! :state, 0
       scene :title do

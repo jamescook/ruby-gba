@@ -219,7 +219,13 @@ module VBlank
     progress.done
     findings = request.findings if request
     findings&.print_findings(to: err)
-    # Last of all, because the line above is the last thing anybody prints: hand back any
+    # A build cut short by `debug_halt` says so where it says the rest, so a test that captures
+    # the build's words has these too and the terminal is spared them.
+    if evaluated&.debug_halted?
+      err&.puts "debug_halt stops the build here. The code after debug_halt is not in the ROM. Remove " \
+                "debug_halt when you are done."
+    end
+    # Last of all, because the lines above are the last thing anybody prints: hand back any
     # file this build opened for itself. A stream the caller opened is left alone.
     output&.close
   end
