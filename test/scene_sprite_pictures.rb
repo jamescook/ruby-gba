@@ -39,8 +39,9 @@ module SceneSpritePictures
   end
 
   # Declare it in +builder+. +scenes+ are the scenes that have pictures of their own, all of them
-  # unless said; +poses+ how many each steps through.
-  def declare(builder, scenes: SCENES, poses: POSES)
+  # unless said; +poses+ how many each steps through; +clock+, the frames since power-on in :seen
+  # every pass.
+  def declare(builder, scenes: SCENES, poses: POSES, clock: false, backgrounds: nil)
     builder.instance_eval do
       screen :tiled
       image(:heart, "#" => :red, "." => :black) { SceneSpritePictures.art(1000) }
@@ -50,12 +51,26 @@ module SceneSpritePictures
         names.each_with_index do |name, n|
           image(name, "#" => :white, "." => :blue) { SceneSpritePictures.art((s * poses) + n) }
         end
-        scene(scene) { sprite :"#{scene}_walker", at: [40, 40], frames: names, rate: 1 }
+        if backgrounds
+          keys = (0...backgrounds).to_h do |n|
+            tile = :"#{scene}_tile_#{n}"
+            image(tile, "#" => :green, "." => :black) { SceneSpritePictures.art((s * backgrounds) + n).lines.first(8).map { |row| row.chomp[0, 8] }.join("\n") }
+            [n + 1, tile]
+          end
+          tiles :"#{scene}_tiles", keys
+          map = Array.new(18) { |row| Array.new(20) { |col| ((row * 20) + col) % backgrounds + 1 } }
+        end
+        scene(scene) do
+          background :"#{scene}_field", tiles: :"#{scene}_tiles", map: map if backgrounds
+          sprite :"#{scene}_walker", at: [40, 40], frames: names, rate: 1
+        end
       end
       state = var :state, 0
       tick = var :tick, 0
+      seen = clock ? var(:seen, 0) : nil
       game_loop do
         tick.add! 1
+        seen&.set! frames_since_power_on
         state.set!((tick / PASSES_A_SCENE) % scenes.length)
         case_var(:state) do
           scenes.each_with_index { |scene, s| when_val s, scene }

@@ -159,19 +159,31 @@ module VBlank
             # A background counts the tiles its maps show and the ones `set_tile` puts in its cells, as
             # a game whose tiles all fit counts them (a tile is numbered as something first names it),
             # not every tile of its tileset.
+            #
+            # A GAME WHOSE BACKGROUNDS FIT, and whose scenes bring only their sprite pictures in, keeps
+            # every background's tiles from power-on, as a game with no rooms does: each scene's room
+            # is its pictures alone. Its screens then come up as they would with every picture already
+            # in, a grid a few rows a blank (Runtime::Picture#emit_rooms).
             def plan_tile_rooms
               tile_runs.each_value { |run| run.tiles.each { |tile| @art.run_tile(tile, run.colors) } unless run.picture }
-              every = tiled_scenery.reject(&:scene)
-              every.reject(&:several_sets?).each { |bg| tiles_shown(bg).each { |name| background_tile_named(name, bg) } }
+              if @plans_background_rooms
+                every = tiled_scenery.reject(&:scene)
+                every.reject(&:several_sets?).each { |bg| tiles_shown(bg).each { |name| background_tile_named(name, bg) } }
+              else
+                every = tiled_scenery
+                every.each { |bg| bg.tiles.compact.uniq.each { |name| background_tile_named(name, bg) } }
+              end
               @art.keep_art_asked_so_far
               @tile_rooms = {} # [scene, area] -> the Room brought in for a screen of that scene, at that area
               @scene_rooms = {} # a scene -> the Room its own tiles are numbered in
               @room_scenes = {} # a Room's id -> the scene it is brought in for, :every for every screen
-              tiled_scenery.filter_map(&:scene).uniq.each { |scene| plan_scene_room(scene) }
-              plan_rooms_for_bare_scenes
+              if @plans_background_rooms
+                tiled_scenery.filter_map(&:scene).uniq.each { |scene| plan_scene_room(scene) }
+                plan_rooms_for_bare_scenes
+              end
               plan_rooms_for_scene_pictures
               walking = every.find(&:several_sets?)
-              return unless walking
+              return unless walking && @plans_background_rooms
 
               refuse_rooms_of_two_kinds!(walking)
               plan_area_rooms(walking, nil)
@@ -259,7 +271,6 @@ module VBlank
               @art.scenes_with_own_pictures.each do |scene|
                 room = @scene_rooms[scene] || begin
                   made = @art.add_room(scene_words(scene))
-                  @scene_rooms[scene] = made
                   @room_scenes[made.id] = scene
                   @tile_rooms[[scene, nil]] = made
                 end
@@ -1128,7 +1139,7 @@ module VBlank
             def emit_show_map_for_declaration(bg, node)
               return emit_show_changed_big_map(bg, node) if big?(bg) && changed_big?(bg)
 
-              emit_area_room(bg, node.which) if bg.several_sets? && @tile_rooms
+              emit_area_room(bg, node.which) if bg.several_sets? && @plans_background_rooms
 
               routine = big?(bg) ? "rt_big_show" : "rt_background_put_up"
               grids = bg.every_map.each_index.map { |which| big?(bg) ? big_map_of(bg, which) : grid_of(bg, which) }
@@ -1514,7 +1525,7 @@ module VBlank
             def build_background_colors_table(bg, step)
               swaps = step && swaps_for(bg, step)
               palettes = {}
-              (@tile_rooms ? tiles_shown(bg) : bg.tiles.compact.uniq).each do |name|
+              (@plans_background_rooms ? tiles_shown(bg) : bg.tiles.compact.uniq).each do |name|
                 _, palette = background_tile_named(name, bg, tile_room(bg))
                 colors = tile_colors_with(name, swaps)
                 if palettes.key?(palette) && palettes[palette] != colors

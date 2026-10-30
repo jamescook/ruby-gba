@@ -366,6 +366,9 @@ module VBlank
           # Whether +room+, or a room it carries, brings sprite pictures in.
           def brings_pictures_in?(room) = room.chain.any? { |link| @room_scenes.key?(link.id) }
 
+          # Whether every room brings sprite pictures and nothing else: no background's tiles or colours.
+          def rooms_bring_only_pictures? = @rooms.any? && @rooms.none?(&:brings_in?)
+
           # THE FIRST TILE EVERY SCENE'S OWN ARE NUMBERED FROM: past the tiles every screen keeps and
           # the groups' rooms, once every picture is known, at an even number where pieces are tall.
           # Every scene's own start here, so they take turns with the same sprite memory.

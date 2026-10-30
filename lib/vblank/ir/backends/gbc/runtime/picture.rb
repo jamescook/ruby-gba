@@ -157,8 +157,8 @@ module VBlank
             # the number, one up, of the first list every scene keeps (Art#first_kept_list).
             # +tall_pieces+ says the console draws every sprite piece 8×16 (Art#tall_pieces?).
             def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false,
-                     palettes_in_use:, groups: false, bar_rows: nil, rooms: false, room_colors: false, lent_families: false,
-                     backdrop: nil, banked_colors: false, first_kept_list: nil, tall_pieces: false)
+                     palettes_in_use:, groups: false, bar_rows: nil, rooms: false, picture_rooms: false, room_colors: false,
+                     lent_families: false, backdrop: nil, banked_colors: false, first_kept_list: nil, tall_pieces: false)
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
                                       drawn_palettes: drawn_palettes, bar: !bar_rows.nil?, backdrop: backdrop,
                                       tall_pieces: tall_pieces)
@@ -170,8 +170,9 @@ module VBlank
               emit_sprites(asm, memory, lends: lends, tall_pieces: tall_pieces)
               emit_lend_colors(asm, memory, drawn_palettes, families: lent_families,
                                                             first_kept: (first_kept_list if lends == :by_scene)) if lends
-              emit_background(asm, memory, bar: !bar_rows.nil?)
-              emit_bar(asm, memory, bar_rows) if bar_rows
+              paced = (memory[ROOMS] + ROOM_DISPLAY_OFF if picture_rooms)
+              emit_background(asm, memory, bar: !bar_rows.nil?, paced: paced)
+              emit_bar(asm, memory, bar_rows, paced: paced) if bar_rows
               emit_choices(asm, memory)
               emit_overlap(asm, memory)
               emit_tint(asm, memory, drawn_palettes, palettes_in_use)
@@ -1413,7 +1414,7 @@ module VBlank
             # #emit_background_hardware) and the interpreter shows (Reference#put_up_background);
             # handing a background another of its maps keeps the view where it is (rt_big_show
             # likewise, beside rt_big_put_up).
-            def emit_background(asm, memory, bar: false)
+            def emit_background(asm, memory, bar: false, paced: nil)
               h = Console::GBCHardware
               emit_background_cell(asm, memory)
               # ...and one of a status bar's, in the window's grid (#emit_bar).
@@ -1454,7 +1455,7 @@ module VBlank
               asm.bit(7, :a)
               asm.ret(:nz)
 
-              emit_map_rows(asm, memory[MAP_JOB], "rt_picture_map_rows")
+              emit_map_rows(asm, memory[MAP_JOB], "rt_picture_map_rows", paced: paced)
 
               # A change of the kind of screen takes everything down: the grid with nothing in it
               # (GBC::Art's first) goes up, at the scroll's start.
@@ -1625,14 +1626,29 @@ module VBlank
             # The next rows of the grid being put up, from where +job+ has got to — all of them
             # while the screen is off, MAP_ROWS_PER_BLANK in a blank — each row's 32 tiles into
             # bank 0 of the console's grid and its 32 cells' colours, 1024 bytes on, into bank 1.
-            def emit_map_rows(asm, job, label)
+            #
+            # +paced+, where a game whose rooms bring only sprite pictures in keeps whether a room
+            # turned the screen off (ROOM_DISPLAY_OFF): a screen off for that alone puts up as many
+            # rows as a screen on does. Its background tiles are the ones from power-on, so the grid
+            # shown is right meanwhile, and the screen comes up on the frame it would with every
+            # picture in already.
+            def emit_map_rows(asm, job, label, paced: nil)
               h = Console::GBCHardware
               asm.label(label)
               asm.load_high(:a, h::LCDC)
               asm.bit(7, :a)
-              asm.load(:b, 32)
-              asm.jump_relative(:z, "#{label}_counted")
-              asm.load(:b, MAP_ROWS_PER_BLANK)
+              if paced
+                asm.load(:b, MAP_ROWS_PER_BLANK)
+                asm.jump_relative(:nz, "#{label}_counted") # on
+                asm.load(:a, [paced])
+                asm.and_a(:a)
+                asm.jump_relative(:nz, "#{label}_counted") # off for a room of pictures alone
+                asm.load(:b, 32)
+              else
+                asm.load(:b, 32)
+                asm.jump_relative(:z, "#{label}_counted")
+                asm.load(:b, MAP_ROWS_PER_BLANK)
+              end
               asm.label("#{label}_counted")
               asm.load(:a, [job])
               asm.cp_a(:b)
@@ -1705,7 +1721,7 @@ module VBlank
             # rt_place_bar(top): its top at +top+, kept between 0 and the bottom of the screen.
             # rt_bar_take_down: the window off, for a screen with no bar; and its grid forgotten too
             # when the kind of screen changes, since a painted screen keeps its own grid there.
-            def emit_bar(asm, memory, rows)
+            def emit_bar(asm, memory, rows, paced: nil)
               h = Console::GBCHardware
               top = Calls.arg(memory, 0, 1)
               asm.label("rt_bar_put_up")
@@ -1779,7 +1795,7 @@ module VBlank
               asm.ret
 
               emit_map_job(asm, memory[BAR_JOB], "rt_bar_map_job", "rt_bar_map_rows")
-              emit_map_rows(asm, memory[BAR_JOB], "rt_bar_map_rows")
+              emit_map_rows(asm, memory[BAR_JOB], "rt_bar_map_rows", paced: paced)
             end
 
             # CHOOSING BY NUMBER. rt_place_of_choice(which, others) is which list of colours a

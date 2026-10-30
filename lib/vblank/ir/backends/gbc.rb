@@ -166,7 +166,7 @@ module VBlank
         def build_cartridge(program, title, lends:, tile_rooms:, room_colors:, banked_songs: false, bank_pose_tables: false,
                             bank_background_colors: false)
           memory = Memory.new
-          lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends, tile_rooms: tile_rooms || @scene_pictures,
+          lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends, tile_rooms: tile_rooms,
                                            scene_pictures: @scene_pictures,
                                            room_colors: room_colors, banked_songs: banked_songs, bank_pose_tables: bank_pose_tables,
                                            bank_background_colors: bank_background_colors, known: @known)

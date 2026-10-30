@@ -153,7 +153,8 @@ module VBlank
           # +known+ holds what is worked out from +program+ alone, kept from one attempt at a build to
           # the next (GBC#build): nothing in it depends on how this one is built.
           # +scene_pictures+ says each scene brings its own sprite pictures in (Art::TooManySpriteTiles),
-          # which takes rooms (+tile_rooms+).
+          # which takes rooms: of nothing but those pictures, unless +tile_rooms+ says the backgrounds
+          # need rooms too.
           def initialize(program, memory:, lends_sprite_colors: false, tile_rooms: false, room_colors: false,
                          banked_songs: false, bank_pose_tables: false, bank_background_colors: false, known: {},
                          scene_pictures: false)
@@ -165,7 +166,8 @@ module VBlank
             @banked_songs = banked_songs
             @bank_pose_tables = bank_pose_tables
             @bank_background_colors = bank_background_colors
-            @plans_tile_rooms = tile_rooms # each screen brings its own tiles in (Picture#plan_tile_rooms)
+            @plans_tile_rooms = tile_rooms || scene_pictures # each screen brings its own in (Picture#plan_tile_rooms)
+            @plans_background_rooms = tile_rooms # ...its background tiles among them
             @plans_room_colors = room_colors
             # What the program is before any instruction is made, worked out as the Super Nintendo's
             # is (LoweringPlan), and kept here under the names the rest of the lowering reads.

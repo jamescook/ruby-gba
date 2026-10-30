@@ -129,8 +129,9 @@ module VBlank
                       "`scale`, `face_angle` and `turn` are refused: a Game Boy " \
                       "Color cannot turn or resize a sprite. Draw the turns as poses. The console holds " \
                       "256 tiles of sprite pictures at once. When a game needs more, the pictures that " \
-                      "only one scene's sprites show come in as that scene takes over, with its " \
-                      "background tiles. The display is off for that one frame. A scene that needs more " \
+                      "only one scene's sprites show come in as that scene takes over. The display " \
+                      "is off while they come in, and the scene takes over on the same frame as when " \
+                      "every picture fits. A scene that needs more " \
                       "than 256 tiles, with the pictures that every scene shows, is refused."),
         draw_in_order: works,
         hide_sprites: works("on the next frame, no sprite shows. On the frame after, every sprite shows where it is."),
