@@ -23,15 +23,13 @@ module VBlank
             module_function
 
             # Every routine, written into +asm+, and the quick memory they use (from +memory+).
-            # +by_byte+ says the game multiplies by a byte written in the program
-            # (Lowering#emit_product_by_byte), which has a routine of its own.
-            def emit(asm, memory, by_byte: false)
+            def emit(asm, memory)
               s = memory.scratch
               emit_sums(asm)
               emit_compare(asm, s)
               emit_bits(asm)
               emit_multiply(asm, s)
-              emit_multiply_by_byte(asm, s) if by_byte
+              emit_multiply_by_byte(asm, s)
               emit_divide(asm, s)
               emit_shifts(asm)
               emit_fractions(asm, s)
@@ -235,9 +233,10 @@ module VBlank
               end
             end
 
-            # BCDE = BCDE × A, A a byte from 1 to 255: the same long multiplication as rt_mul32, with
-            # the byte walked in a register rather than four bytes of memory, so a number times a
-            # small count — a row of poses times how many poses — is a few turns of a short loop.
+            # BCDE = BCDE × A, A a byte: the same long multiplication as rt_mul32, with the byte
+            # walked in a register rather than four bytes of memory, so a number times a small count
+            # — a row of poses times how many poses, a speed times a sine kept in 256ths — is a few
+            # turns of a short loop. rt_mul32 comes here when the smaller of its two is a byte.
             def emit_multiply_by_byte(asm, s)
               asm.label("rt_mul32_byte")
               asm.load(:l, :a)
@@ -300,6 +299,17 @@ module VBlank
                 asm.load(reg, :l)
               end
               asm.label("rt_mul32_ready")
+              # The one walked a byte (its three upper bytes nought) is walked in a register.
+              asm.load_high(:a, s.mul_by + 1)
+              (2..3).each do |i|
+                asm.load(:l, :a)
+                asm.load_high(:a, s.mul_by + i)
+                asm.or_a(:l)
+              end
+              asm.jump_relative(:nz, "rt_mul32_wide")
+              asm.load_high(:a, s.mul_by)
+              asm.jump("rt_mul32_byte")
+              asm.label("rt_mul32_wide")
               asm.xor_a(:a)
               4.times { |i| asm.load_high(s.product + i, :a) }
               asm.label("rt_mul32_loop")

@@ -68,6 +68,7 @@ module VBlank
           include Sound
           include TileRuns
           include Clock
+          include WrittenNumbers
 
           # EVERY KIND THIS LOWERING CANNOT MAKE YET, by what it is part of. A kind leaves the list the
           # day the Color does it; test_gbc_kind_coverage.rb holds the list and the tables above to
@@ -234,10 +235,6 @@ module VBlank
             @program.walk.any? { |node| node.kind == :var_ref && node.name == Frames::COUNT } &&
               @program.walk.any? { |node| node.kind == :wait_vblank } && !clips.any?
           end
-
-          # Does the game multiply by a byte written in the program (#emit_product_by_byte)? Asked
-          # once its sections are made.
-          def multiplies_by_byte? = @multiplies_by_byte || false
 
           private
 
@@ -516,9 +513,17 @@ module VBlank
             @asm.label(same)
           end
 
+          # The four bytes written where they are, lowest first: four bytes of code more than a
+          # call to a routine that did it, and done in a little over half the time, which a
+          # variable written many times a pass is worth.
           def emit_store_number(name)
             @asm.load(:hl, place_of(name))
-            @asm.call("rt_store32")
+            BCDE_LOW_FIRST.each_with_index do |register, i|
+              next @asm.load([:hl], register) if i == 3
+
+              @asm.load(:a, register)
+              @asm.load([:hli], :a)
+            end
           end
 
           # A variable set to itself changes nothing, so nothing is made for one.
@@ -1164,6 +1169,13 @@ module VBlank
               @asm.load(:a, [place_of(name) + 3])
               @asm.bit(7, :a)
               @asm.jump(condition.op == :>= ? :nz : :z, label)
+            elsif (ordered = ordering_with_number(condition))
+              other, number, below = ordered
+              if number
+                jump_unless_below(other, number, below, label)
+              elsif !below
+                @asm.jump(label)
+              end
             elsif binop?(condition, :and)
               # The interpreter works both sides out; the second is skipped here when the first does
               # not hold, which is the same thing, since nothing this lowering makes can stop the game.
@@ -1343,13 +1355,21 @@ module VBlank
 
           def value_of_binop(node)
             if COMPARISONS.key?(node.op)
+              if (ordered = ordering_with_number(node))
+                other, number, below = ordered
+                return number ? emit_bool_of_below(other, number, below) : load_constant(below ? 1 : 0)
+              end
+
               compare(node)
               _, holds_when = COMPARISONS.fetch(node.op)
               return @asm.call(holds_when == :z ? "rt_bool_of_z" : "rt_bool_of_nz")
             end
-            return if node.op == :* && (emit_product_by_power_of_two(node) || emit_product_by_byte(node))
+            return if node.op == :* && (emit_product_by_power_of_two(node) || emit_product_by_byte(node) ||
+                                        emit_product_by_byte_value(node))
             return if %i[+ -].include?(node.op) && emit_sum_with_constant(node)
             return if node.op == :& && emit_and_with_byte(node)
+            return if %i[& | ^].include?(node.op) && emit_bitwise_with_written_number(node)
+            return if %i[<< >>].include?(node.op) && emit_shift_by_written_count(node)
 
             sum_of_two(node.lhs, node.rhs, SUMS.fetch(node.op))
           end
@@ -1442,7 +1462,10 @@ module VBlank
           def byte_range?(low, high) = low && high && low.between?(0, 0xFF) && high.between?(low, 0xFF)
           def value_of_mul_fix(node) = sum_of_three(node.lhs, node.rhs, fraction_bits(node), "rt_mul_fix")
           def value_of_div_fix(node) = sum_of_three(node.lhs, node.rhs, fraction_bits(node), "rt_div_fix")
-          def value_of_shift_right(node) = sum_of_two(node.operand, Build.int(node.bits), "rt_shr32")
+          def value_of_shift_right(node)
+            value(node.operand)
+            emit_shift_in_place(:>>, node.bits)
+          end
           # A chance holds when the random draw lands below the threshold.
           def value_of_chance(node) = value(Build.binop(:<, node.draw, Build.int(node.percent)))
 
@@ -1481,9 +1504,15 @@ module VBlank
             Buttons::NAMES.index(button) or raise LoweringError, "unknown button #{button.inspect}"
           end
 
+          # The four bytes read where they are, as #emit_store_number writes them.
           def load_variable(name)
             @asm.load(:hl, place_of(name))
-            @asm.call("rt_load32")
+            BCDE_LOW_FIRST.each_with_index do |register, i|
+              next @asm.load(register, [:hl]) if i == 3
+
+              @asm.load(:a, [:hli])
+              @asm.load(register, :a)
+            end
           end
 
           def load_constant(number)
@@ -1532,7 +1561,6 @@ module VBlank
               value(other)
               @asm.load(:a, number)
               @asm.call("rt_mul32_byte")
-              @multiplies_by_byte = true
               return true
             end
             false

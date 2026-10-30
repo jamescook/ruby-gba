@@ -98,16 +98,6 @@ module VBlank
 
               emit_parted_read(asm)
 
-              # The number at HL = BCDE: a variable written in the three bytes of a call rather than
-              # the seven of the stores themselves. Reading one is rt_load32, which is rt_read_int32.
-              asm.label("rt_store32")
-              %i[e d c].each do |reg|
-                asm.load(:a, reg)
-                asm.load([:hli], :a)
-              end
-              asm.load([:hl], :b)
-              asm.ret
-
               emit_table_readers(asm)
               emit_clamp(asm)
             end
@@ -184,7 +174,7 @@ module VBlank
               asm.load(:bc, 0)
               asm.ret
               asm.label("rt_read_int32")
-              asm.label("rt_load32") # a variable read in the three bytes of a call, not the eight of the loads
+              asm.label("rt_load32") # the runtime's own reads of a number at HL; the game's are written in place
               asm.load(:a, [:hli])
               asm.load(:e, :a)
               asm.load(:a, [:hli])

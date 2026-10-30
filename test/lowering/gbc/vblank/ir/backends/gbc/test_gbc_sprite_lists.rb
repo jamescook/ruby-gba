@@ -75,7 +75,7 @@ class TestGBCSpriteLists < Minitest::Test
   # that the bank put back would otherwise be the code's, not the pieces': the later scenes' code
   # is in the second bank, the ship's pieces in what room is left in the first.
   def test_scenes_fading_sprites_of_many_pieces_play_as_the_interpreter_plays_them
-    game = TestGBCSpriteLists.fading_scenes(size: 16, filler: 550)
+    game = TestGBCSpriteLists.fading_scenes(size: 16, filler: 450)
     code = GBC.new.build(game.program(console: :gbc)).built.code
     assert_operator code.fetch("art_lent_scene_1_colors").bank, :positive?
     refute_equal code.fetch("art_pieces_0").bank, code.fetch("routine _scene_fading1").bank,
