@@ -255,7 +255,7 @@ module VBlank
             def tiled_scenes
               return [nil] if @scenes.empty?
 
-              @scenes.keys.reject { |scene| Modes::SCREEN_OF_MODE.fetch(Modes.resolve(@program).mode_of(scene)) == :bitmap }
+              @scenes.keys.reject { |scene| Modes::SCREEN_OF_MODE.fetch(screen_modes.mode_of(scene)) == :bitmap }
             end
 
             # What +scene+ shows (nil for a game with no scenes) is put up as it arrives
@@ -297,11 +297,20 @@ module VBlank
 
             # The tile pictures +bg+ shows: the ones its maps name — the maps of area number +area+ alone,
             # for a background that walks between areas — and the ones `set_tile` puts in its cells.
+            # Worked out once a declaration and area, for every attempt at the build (Lowering's +known+).
             def tiles_shown(bg, area = nil)
-              maps = bg.every_map.each_index.select { |which| area.nil? || bg.map_sets.fetch(which) == area }
-              named = maps.flat_map { |which| bg.every_map.fetch(which).flat_map { |row| Array(row) } }
-              named += @reachable.filter_map { |node| node.tile if node.kind == :set_tile && node.name == bg.name }
-              named.compact.reject(&:negative?).uniq.map { |index| bg.tiles.fetch(index) }
+              (@known[:tiles_shown] ||= {})[[bg.object_id, area]] ||= begin
+                maps = bg.every_map.each_index.select { |which| area.nil? || bg.map_sets.fetch(which) == area }
+                named = maps.flat_map { |which| bg.every_map.fetch(which).flat_map { |row| Array(row) } }
+                named += tiles_set_in.fetch(bg.name, [])
+                named.compact.reject(&:negative?).uniq.map { |index| bg.tiles.fetch(index) }
+              end
+            end
+
+            # The tiles each background's `set_tile`s put in its cells, by the background's name.
+            def tiles_set_in
+              @known[:tiles_set_in] ||= @reachable.select { |node| node.kind == :set_tile }
+                                          .group_by(&:name).transform_values { |nodes| nodes.map(&:tile) }
             end
 
             # A background that walks between areas on every screen has its areas' rooms numbered past
@@ -960,7 +969,10 @@ module VBlank
 
             # Whether a background is declared where the screen is painted: its scene's screen, or the
             # game's for one in no scene.
-            def painted_screen_for?(bg) = Modes::SCREEN_OF_MODE.fetch(Modes.resolve(@program).mode_of(bg.scene)) == :bitmap
+            def painted_screen_for?(bg) = Modes::SCREEN_OF_MODE.fetch(screen_modes.mode_of(bg.scene)) == :bitmap
+
+            # Which screen each scene shows (IR::Modes), worked out once a build.
+            def screen_modes = @known[:screen_modes] ||= Modes.resolve(@program)
 
             # Reference#stamp_background on a painted screen: each cell's tile painted where the cell
             # is, its see-through pixels leaving what is there, and nothing past the screen's edge.
@@ -1459,7 +1471,15 @@ module VBlank
             # colours with every list (#recolor_steps_of). Where each screen brings its own tiles in,
             # the tiles counted are the ones the background shows, as its screen's tiles and colours
             # were planned (#plan_tile_rooms).
+            #
+            # Worked out once a declaration and step. What it reads — the tiles shown, their numbers
+            # and palettes in the art — a measuring of a statement's size does not take back
+            # (Lowering#bytes_of), and the table holds no label.
             def background_colors_table(bg, step)
+              (@background_colors_tables ||= {})[[bg.object_id, step]] ||= build_background_colors_table(bg, step)
+            end
+
+            def build_background_colors_table(bg, step)
               swaps = step && swaps_for(bg, step)
               palettes = {}
               (@tile_rooms ? tiles_shown(bg) : bg.tiles.compact.uniq).each do |name|
@@ -1535,12 +1555,14 @@ module VBlank
             def recolor_steps_of(name, bg)
               return nil if Array(bg.recolors).empty?
 
+              # Kept by which declaration it is: a node's own hash walks everything under it.
               @recolor_steps ||= {}
-              return @recolor_steps[[name, bg]] if @recolor_steps.key?([name, bg])
+              key = [name, bg.object_id]
+              return @recolor_steps[key] if @recolor_steps.key?(key)
 
               own = tile_colors_with(name, nil)
               steps = bg.recolors.each_index.map { |step| tile_colors_with(name, swaps_for(bg, step)) }
-              @recolor_steps[[name, bg]] = steps.all?(own) ? nil : [bg.name, steps]
+              @recolor_steps[key] = steps.all?(own) ? nil : [bg.name, steps]
             end
 
             # The backgrounds drawn with other lists of colours.
@@ -2203,8 +2225,10 @@ module VBlank
               run = picture_painting(name)
               return @art.painted_sprite_palette(name, painted_colors(run, colors), scene: scene) if run
 
+              # The pixels read once a picture and list a build: every sprite showing it asks again.
               image = picture_named(name)
-              @art.sprite_palette(name, image, sprite_pixels(image, colors), scene: scene)
+              pixels = (@known[:sprite_pixels] ||= {})[[name, colors]] ||= sprite_pixels(image, colors)
+              @art.sprite_palette(name, image, pixels, scene: scene)
             end
 
             # A sprite picture's pixels as the interpreter draws them (Reference#blit_image): the

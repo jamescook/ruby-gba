@@ -124,7 +124,11 @@ module VBlank
         # cartridge always in view is too full is built again with its songs' notes kept in the
         # banks (Linker::TooBigForView, GBC::Music#sections), and then, if it is still too full, with
         # its sprites' tables of poses in each list kept there as well (Lowering::Picture).
+        #
+        # What a lowering works out from the program alone, and not from how this attempt is built,
+        # is kept from one attempt to the next (Lowering's +known+).
         def build(program, title: "RUBYGBA")
+          @known = {}
           build_with_rooms_if_needed(program, title)
         rescue Art::TooManyBackgroundLists
           build_lending_if_needed(program, title, tile_rooms: true, room_colors: true)
@@ -153,7 +157,7 @@ module VBlank
           memory = Memory.new
           lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends, tile_rooms: tile_rooms,
                                            room_colors: room_colors, banked_songs: banked_songs, bank_pose_tables: bank_pose_tables,
-                                           bank_background_colors: bank_background_colors)
+                                           bank_background_colors: bank_background_colors, known: @known)
           # The runtime's places first, so they are in the half of work memory always in view.
           Runtime.reserve(memory, art: lowering.art, effects: lowering.music.effects, together: lowering.groups_up_together?,
                                   bar_rows: lowering.bar_rows, slides: lowering.music.slides?,

@@ -150,9 +150,12 @@ module VBlank
           # +banked_songs+ keeps its songs' notes in the cartridge's banks (GBC::Music#sections), and
           # +bank_pose_tables+ the tables of its sprites' poses in each list (Picture#picture_and_attributes_drawn),
           # and +bank_background_colors+ the tables of its backgrounds' colours (Picture#emit_background_colors_for_declaration).
+          # +known+ holds what is worked out from +program+ alone, kept from one attempt at a build to
+          # the next (GBC#build): nothing in it depends on how this one is built.
           def initialize(program, memory:, lends_sprite_colors: false, tile_rooms: false, room_colors: false,
-                         banked_songs: false, bank_pose_tables: false, bank_background_colors: false)
+                         banked_songs: false, bank_pose_tables: false, bank_background_colors: false, known: {})
             @program = program
+            @known = known
             @memory = memory
             @lends_sprite_colors = lends_sprite_colors
             @banked_songs = banked_songs

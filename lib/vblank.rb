@@ -117,10 +117,13 @@ module VBlank
   # Super FX 2 chip on a Super Nintendo cartridge; see {Console::Variant}), or is nil.
   # +sprite_piece_size+ is the size a console draws a sprite's pieces at, by console
   # (`{ gbc: [8, 16] }`); see {Cartridge::Options}.
+  # +cartridge+ false stops once the program is checked and hands back the program, not a cartridge:
+  # for a game played as Ruby (`vblank run`), which has no use for one. Every guardrail runs, and
+  # what only making the cartridge finds (a game too big for it) is not asked.
   def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: nil,
                  fast_code: nil, out: $stdout, err: $stderr, progress: Messages::Progress.silent,
                  profile: false, settings: {}, save_memory: nil, stack_room: nil, console: nil, variant: nil,
-                 sprite_piece_size: {}, &block)
+                 sprite_piece_size: {}, cartridge: true, &block)
     # The eight that say how the game is built travel as one value from here on (see
     # {Cartridge::Options}), checked now so a setting that cannot be right stops the build first.
     options = Cartridge::Options.new(frame_sync: frame_sync, fast_cartridge: fast_cartridge,
@@ -140,7 +143,7 @@ module VBlank
 
     # Measuring chooses what goes in a quick memory, which only some consoles have.
     kit = Console.for(options.console)
-    profile = false unless kit.measured_builds?
+    profile = false unless kit.measured_builds? && cartridge
     if profile == true
       return build_measured(title, code: code, maker: maker, validate: validate, out: out, err: err,
                             progress: progress, settings: settings, **options.to_h, &block)
@@ -197,6 +200,8 @@ module VBlank
               "build stopped by #{findings.errors.size} problem(s) — see the explanation(s) above"
       end
     end
+
+    return program unless cartridge
 
     # The cartridge is made by the build the console's kit names, from the same checked tree. The
     # findings travel with the request, so what that build adds to them is printed below however

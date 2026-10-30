@@ -830,12 +830,11 @@ module VBlank
 
     # The checked program of +game+, as the console --console names plays it, or the first the game
     # names, saying so when there was a choice. The Ruby runtime draws whichever console's screen
-    # the program is for.
+    # the program is for. The game plays as Ruby, so no cartridge is made for it.
     def program_to_run(game)
       console = console_to_play(game)
-      # A big game takes a while to build, and somebody is waiting for the window.
-      game.build_rom(profile: false, progress: VBlank::Messages::Progress.to($stderr),
-                     settings: given_settings, console: console).source_program
+      # A big game takes a while to read and check, and somebody is waiting for the window.
+      game.checked_program(progress: VBlank::Messages::Progress.to($stderr), settings: given_settings, console: console)
     rescue ArgumentError, VBlank::BuildError => e
       raise Thor::Error, e.message
     end

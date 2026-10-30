@@ -122,13 +122,14 @@ module VBlank
 
         # How +table+ keeps its entries — [bytes an entry, whether signed] — as the cartridge keeps
         # it: at the width the game declared when every entry fits it, and whole words otherwise.
-        # Reading an entry widens it back to a whole number either way.
+        # Reading an entry widens it back to a whole number either way. Worked out once a table, since
+        # a lowering asks at every read of it.
         def table_keeping(table)
-          signed = table.signed ? true : false
-          bytes, range = TABLE_WIDTHS[[table.width, signed]]
-          return [bytes, signed] if bytes && table.values.all? { |entry| range.cover?(Int32.wrap(entry)) }
-
-          [4, true]
+          (@table_keepings ||= {})[table.object_id] ||= begin
+            signed = table.signed ? true : false
+            bytes, range = TABLE_WIDTHS[[table.width, signed]]
+            bytes && table.values.all? { |entry| range.cover?(Int32.wrap(entry)) } ? [bytes, signed] : [4, true]
+          end
         end
 
         # The number +node+ comes to when everything in it is written in the program, or nil.

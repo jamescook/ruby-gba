@@ -141,6 +141,31 @@ class TestGame < Minitest::Test
     refute rom.compression.any?, "a plain bitmap packs nothing"
   end
 
+  # The program a game played as Ruby runs (`vblank run`): checked as a build checks it, with no
+  # cartridge made.
+  def test_checked_program_is_the_game_without_a_cartridge
+    g = VBlank.game("CHECKED", consoles: %i[gba gbc snes]) do
+      screen :bitmap
+      clear_screen :red
+      halt
+    end
+    program = g.checked_program(console: game_console, err: StringIO.new)
+    assert_equal Color.resolve(:red), game_player.run(program).screen.pixel(10, 10)
+  end
+
+  def test_checked_program_stops_a_game_its_console_refuses
+    g = VBlank.game("TURNS", consoles: %i[gba gbc]) do
+      screen :rotozoom
+      image(:dark, "#" => :black) { "########\n" * 8 }
+      tiles :floor, "#" => :dark
+      board = background :board, tiles: :floor, map: ["#" * 4] * 4
+      game_loop { board.rotate 30 }
+    end
+    err = StringIO.new
+    assert_raises(VBlank::ROMError) { g.checked_program(console: :gbc, err: err) }
+    assert_match(/turn/i, err.string)
+  end
+
   def test_declaring_a_game_registers_it
     before = VBlank.registered_games.length
     g = VBlank.game("REG", consoles: %i[gba], code: "BREG", maker: "01") { screen :bitmap }

@@ -110,6 +110,14 @@ module VBlank
         evaluated(settings, refuse_console_not_for!(console), variant).program
       end
 
+      # THE PROGRAM A GAME PLAYED AS RUBY RUNS: checked as a build checks it, every guardrail on and
+      # their warnings printed to +err+, without making the cartridge (VBlank.build's +cartridge+).
+      # +progress+, +settings+ and +console+ are as for #build_rom.
+      def checked_program(err: $stderr, progress: Messages::Progress.silent, settings: {}, console: @consoles.first)
+        build_rom(out: nil, err: err, progress: progress, profile: false, settings: settings, console: console,
+                  cartridge: false)
+      end
+
       # The variant the game names for +console+ in `variants:`, or nil.
       def variant_for(console) = @variants[console.to_sym]
 
@@ -139,12 +147,12 @@ module VBlank
       #
       # +variant+ is as for #program; the command line's `--variant` hands one here.
       def build_rom(out: $stdout, err: $stderr, validate: true, progress: Messages::Progress.silent,
-                    profile: true, settings: {}, console: @consoles.first, variant: variant_for(console))
+                    profile: true, settings: {}, console: @consoles.first, variant: variant_for(console), cartridge: true)
         console = refuse_console_not_for!(console)
         options = { code: @code, maker: @maker, **@options.with(console: console, variant: variant).to_h }
         options = options.except(*(Console.console_settings - Console.for(console).console_settings))
         VBlank.build(@title, validate: validate, out: out, err: err, progress: progress, profile: profile,
-                              settings: settings, **options, &@block)
+                              settings: settings, cartridge: cartridge, **options, &@block)
       end
 
       # A friendly output filename from the title, ending as the console's cartridges do:
