@@ -532,8 +532,11 @@ module VBlank
           # that put the scenery every screen shows up again as declared, and what says which
           # map each of those backgrounds shows then goes back to the first, and what every
           # screen shows that the game paints is copied in from its list as it is now, as
-          # Reference#put_up_always_up does both.
+          # Reference#put_up_always_up does both. A tear-free screen is two pages only on a console
+          # that has two to paint (Console::Description#painted_pages); on one that has one, it is
+          # the one, as the interpreter has it.
           def screen_change(function, screen, two_pages, backdrop)
+            two_pages &&= @program.described_console.painted_pages == 2
             change = call(function, C::Int.new(SCREEN_KINDS.fetch(screen)), yes_or_no(two_pages), C::Int.new(backdrop))
             always = @handover.always_up
             put_back = [*always.map_choices.map { |var| assign(var, C::Int.new(0)) },

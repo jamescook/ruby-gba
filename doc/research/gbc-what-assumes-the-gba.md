@@ -42,7 +42,7 @@ Paths are under `lib/vblank/`. **C** marks a console fact, to be read from the d
 | `dsl/sprite.rb:208,222`, `dsl/hardware_sprite.rb:213,231`, `dsl/pool.rb:889`, `dsl/bounds.rb:47,57`, `dsl/grid.rb:100` | clamp to the screen, centre on it, the edge tests, a grid bigger than the screen | C — read the builder's console |
 | `builder/drawing.rb:270,397,661`, `builder/spotlights.rb:78`, `builder/text.rb:314`, `effects/packs/iris.rb:43` | a fade's rectangle, the light's centre, `validate_coords!`, centred text, the iris's middle | C |
 | `testing/pictures.rb:32` | a third literal copy, `SCREEN_W = 240` | P — the picture size comes from the run |
-| `ir/backends/native/runtime/rg_screen.h:23`, `js/runtime/rg_screen.js:17` | `RG_SCREEN_WIDTH 240` in C and JavaScript | stays: those runtimes draw the GBA picture, and a program built for another screen is refused by them |
+| `ir/backends/native/runtime/rg_screen.h:23`, `js/runtime/rg_screen.js:17` | `RG_SCREEN_WIDTH 240` in C and JavaScript | stays: those runtimes draw the GBA picture, and a program built for another screen is refused by them (since 2026-10-30 the size is the console's, written in when the game is built: `Native::ConsoleNumbers`) |
 | `playthroughs/*` (four files), `diagnostics/verifier.rb:72`, `diagnostics/tearing.rb`, `flicker.rb` | GBA cartridge readers | L for now; `Verifier` takes its size from the emulator (below) |
 | `cartridge/test_patterns.rb` | test cartridges drawn at 240×160 | L |
 
