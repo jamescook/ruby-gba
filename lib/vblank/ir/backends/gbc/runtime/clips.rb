@@ -49,6 +49,11 @@ module VBlank
             # sample with a 1 below the bits still to play, and the volume a 1 plays at.
             BITS = "rt clip bits"
             LEVEL = "rt clip level"
+            # ...and 1 from a clip's play to its end, which is what says one is playing to the music
+            # and to the game's own sound. Not the timer running: in a game that counts the frames its
+            # screen is off for, the timer counts those until the first frame (Frame#emit_dark_start),
+            # and a clip played while the game sets up waits for it.
+            PLAYING = "rt clip playing"
             # In a game that loops one: 1 while the clip playing loops, where it goes back to (its
             # place, then how many bytes are left from there), and its laps' three numbers, five
             # bytes each, as the table lays them out.
@@ -94,6 +99,7 @@ module VBlank
               memory.reserve(SHOWN, 1)
               memory.reserve_quick(BITS, 1)
               memory.reserve_quick(LEVEL, 1)
+              memory.reserve_quick(PLAYING, 1)
               Sound.reserve(memory)
             end
 
@@ -116,19 +122,30 @@ module VBlank
             # WHILE A RECORDING PLAYS THE WAVE VOICE IS ITS OWN: the music player's writes to it are
             # passed over. When the recording is over the music has it back on its next frame: a wave
             # note held across it is put back, waveform and all (Music#emit_wave_back), and a part
-            # that rested is heard at its next note. The timer running is what says one is playing. A
-            # and the flags are spent.
-            def emit_return_while_recording_plays(asm)
-              asm.load_high(:a, Console::GBCHardware::TAC)
-              asm.bit(2, :a)
+            # that rested is heard at its next note. PLAYING is what says one is playing. A and the
+            # flags are spent.
+            def emit_return_while_recording_plays(asm, memory)
+              asm.load_high(:a, memory[PLAYING])
+              asm.and_a(:a)
               asm.ret(:nz)
             end
 
             # ...and the same, going on at +past+ rather than returning.
-            def emit_skip_while_recording_plays(asm, past)
-              asm.load_high(:a, Console::GBCHardware::TAC)
-              asm.bit(2, :a)
+            def emit_skip_while_recording_plays(asm, memory, past)
+              asm.load_high(:a, memory[PLAYING])
+              asm.and_a(:a)
               asm.jump_relative(:nz, past)
+            end
+
+            # Whether the game counts the frames its screen is off for (Frame#emit_dark_start), whose
+            # timer a clip shares.
+            def shares_timer?(memory) = Frame.dark?(memory)
+
+            # A clip played while the game sets up, in a game whose timer counts those frames, waits
+            # for the first frame: Z clear while they are being counted. A is spent.
+            def emit_setting_up_test(asm, memory)
+              asm.load(:a, [memory[Frame::DARK_IN_MEMORY]])
+              asm.cp_a(Frame::DARK_OVER)
             end
 
             def emit_play(asm, memory, counts, entry_bytes)
@@ -143,8 +160,8 @@ module VBlank
               asm.ret
               asm.label("rt_clip_play_held")
               asm.load(:c, :a)
-              asm.load_high(:a, h::TAC)
-              asm.bit(2, :a)
+              asm.load_high(:a, memory[PLAYING])
+              asm.and_a(:a)
               asm.ret(:nz) # one is playing: this one is not heard
               if laps?(memory)
                 asm.load(:a, :d)
@@ -177,6 +194,14 @@ module VBlank
               # Nothing left to play of the byte before the first, so the first sample reads one.
               asm.load(:a, 0x80)
               asm.load_high(memory[BITS], :a)
+              asm.load(:a, 1)
+              asm.load_high(memory[PLAYING], :a)
+              if shares_timer?(memory)
+                emit_setting_up_test(asm, memory)
+                asm.ret(:nz) # the first frame starts it (Frame#emit_dark_end)
+              end
+              # rt_clip_start: the clip set up, its voice and its timer started.
+              asm.label("rt_clip_start")
               # The wave voice: off while its steps are written, every step full, then on, at nothing,
               # and started. Whatever waveform a song or a sound effect had there is gone, so the
               # next wave note puts its own back (Music.reloads_wave?).
@@ -248,8 +273,8 @@ module VBlank
               h = Console::GBCHardware
               asm.label("rt_clip_stop")
               asm.load(:c, :a)
-              asm.load_high(:a, h::TAC)
-              asm.bit(2, :a)
+              asm.load_high(:a, memory[PLAYING])
+              asm.and_a(:a)
               asm.ret(:z) # none is playing
               asm.load(:a, :c)
               asm.cp_a(ALL)
@@ -259,8 +284,15 @@ module VBlank
               asm.ret(:nz) # another is playing
               asm.label("rt_clip_end")
               asm.xor_a(:a)
+              asm.load_high(memory[PLAYING], :a)
+              if shares_timer?(memory) # one waiting for the first frame has no timer or voice of its own yet
+                emit_setting_up_test(asm, memory)
+                asm.jump_relative(:nz, "rt_clip_end_waiting")
+                asm.xor_a(:a)
+              end
               asm.load_high(h::TAC, :a)
               asm.load_high(h::NR30, :a)
+              asm.label("rt_clip_end_waiting") if shares_timer?(memory)
               emit_wave_back(asm, memory)
               asm.ret
             end
@@ -377,6 +409,7 @@ module VBlank
                 asm.label("rt_clip_tick_end")
               end
               asm.xor_a(:a)
+              asm.load_high(memory[PLAYING], :a)
               asm.load_high(h::TAC, :a)
               asm.load_high(h::NR30, :a)
               asm.push(:bc)
@@ -409,8 +442,8 @@ module VBlank
               asm.load(:a, [memory[LOOPING]])
               asm.and_a(:a)
               asm.ret(:z)
-              asm.load_high(:a, h::TAC)
-              asm.bit(2, :a)
+              asm.load_high(:a, memory[PLAYING])
+              asm.and_a(:a)
               asm.ret(:z)
               emit_lap_sum(asm, memory, A_FRAME, :sbc_a, "rt_clip_lap_frame")
               asm.label("rt_clip_lap_check")

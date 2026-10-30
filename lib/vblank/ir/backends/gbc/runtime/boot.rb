@@ -43,6 +43,7 @@ module VBlank
               vectors.jump("rt_hblank_interrupt") # 0x48: the display's, raised as a line ends
               [0x50, 0x58, 0x60].each do |at|
                 vectors.bytes_of(Array.new(at - vectors.here, 0x00))
+                next vectors.jump("rt_timer_tick") if clips && dark && at == Console::GBCHardware::TIMER_VECTOR
                 next vectors.jump("rt_clip_tick") if clips && at == Console::GBCHardware::TIMER_VECTOR
                 next vectors.jump("rt_dark_tick") if dark && at == Console::GBCHardware::TIMER_VECTOR
 
@@ -138,7 +139,7 @@ module VBlank
               else
                 asm.xor_a(:a)
               end
-              asm.load_high(h::TAC, :a) if clips
+              asm.load_high(h::TAC, :a) if clips && !dark # a timer counting the dark frames counts on
               asm.load_high(h::IF, :a)
               asm.load(:a, clips || dark ? h::INT_VBLANK | h::INT_TIMER : h::INT_VBLANK)
               asm.load_high(h::IE, :a)

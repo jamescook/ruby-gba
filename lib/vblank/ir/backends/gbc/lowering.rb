@@ -243,7 +243,7 @@ module VBlank
           # counts from its first frame.
           def counts_dark_frames?
             @program.walk.any? { |node| node.kind == :var_ref && node.name == Frames::COUNT } &&
-              @program.walk.any? { |node| node.kind == :wait_vblank } && !clips.any?
+              @program.walk.any? { |node| node.kind == :wait_vblank }
           end
 
           private

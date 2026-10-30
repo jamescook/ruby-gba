@@ -52,7 +52,7 @@ module VBlank
               asm.load([memory[GAME_WAVE]], :a)
               asm.load(:a, :h)
               asm.load([memory[GAME_WAVE] + 1], :a)
-              Clips.emit_return_while_recording_plays(asm)
+              Clips.emit_return_while_recording_plays(asm, memory)
             end
           end
         end

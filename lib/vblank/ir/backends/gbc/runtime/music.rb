@@ -472,7 +472,7 @@ module VBlank
               if Clips.any?(memory) # the wave voice's speakers are a playing recording's (Runtime::Clips)
                 asm.cp_a(GBC::Music::WAVE_VOICE)
                 asm.jump_relative(:nz, "rt_set_speakers_free")
-                Clips.emit_skip_while_recording_plays(asm, "rt_set_speakers_kept")
+                Clips.emit_skip_while_recording_plays(asm, memory, "rt_set_speakers_kept")
                 asm.label("rt_set_speakers_free")
               end
               asm.load(:a, 0x11) # the first voice's two switches, moved up to this voice's
@@ -533,7 +533,7 @@ module VBlank
             # the recording's to end. Keeps every register but A and the flags.
             def emit_wave_quiet(asm, memory)
               past = "rt_wave_quiet_past_#{asm.here}" # emitted in several places, each its own
-              Clips.emit_skip_while_recording_plays(asm, past) if Clips.any?(memory)
+              Clips.emit_skip_while_recording_plays(asm, memory, past) if Clips.any?(memory)
               asm.xor_a(:a)
               asm.load_high(Console::GBCHardware::NR30, :a)
               asm.label(past)
@@ -1006,7 +1006,7 @@ module VBlank
               asm.ret
 
               asm.label("rt_music_note_wave")
-              Clips.emit_return_while_recording_plays(asm) if Clips.any?(memory)
+              Clips.emit_return_while_recording_plays(asm, memory) if Clips.any?(memory)
               asm.load(:a, :d)
               asm.and_a(:e)
               asm.inc(:a)
@@ -1128,7 +1128,7 @@ module VBlank
               asm.ret(:z)
               asm.xor_a(:a)
               asm.load([memory[WAVE_BACK]], :a)
-              Clips.emit_return_while_recording_plays(asm)
+              Clips.emit_return_while_recording_plays(asm, memory)
               if sharing
                 asm.load(:a, [memory[Effects::HOLDERS] + GBC::Music::WAVE_VOICE - 1])
                 asm.load(:e, :a)
@@ -1456,7 +1456,7 @@ module VBlank
                   asm.load_high(high, :a)
                 else
                   # ...but not under a recording, whose voice it is while it plays (Runtime::Clips).
-                  Clips.emit_skip_while_recording_plays(asm, "rt_music_relevel_past_#{voice}") if Clips.any?(memory)
+                  Clips.emit_skip_while_recording_plays(asm, memory, "rt_music_relevel_past_#{voice}") if Clips.any?(memory)
                   asm.load(:a, :b)
                   asm.load(:hl, "rt_music_wave_levels")
                   asm.add_a(:l)

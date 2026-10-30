@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "many_tiles"
+require "sound_comparison"
 
 # WHAT A COLOR CARTRIDGE SHOWS FROM POWER-ON UNTIL THE GAME'S FIRST FRAME. The cartridge copies its
 # art into the console before the game's first line, and a game sets itself up before its first
@@ -9,6 +10,8 @@ require "many_tiles"
 # never shows black on the way: the screen shows the backdrop, the first colour of its first list,
 # from power-on until the game draws. A game whose backdrop is black shows black, as it always did.
 class TestGBCPowerOn < Minitest::Test
+  include SoundComparison
+
   # A tile of each number, drawn by place from a list whose first colour is white: none of the
   # screen is ever black, so a black pixel is the console showing nothing.
   TILES = 300
@@ -134,11 +137,14 @@ class TestGBCPowerOn < Minitest::Test
 
   # THE FRAMES SPENT SETTING UP ARE COUNTED, though the screen is off for all of them: a game that
   # spins before its loop notes what `frames_since_power_on` read on its first pass, and the frame
-  # that pass's change is first seen on is one after that.
-  private def counting_game(setting_up)
+  # that pass's change is first seen on is one after that. A game that +plays+ a recording starts it
+  # before it spins: a square wave of 256Hz, long enough to be heard after the first frame.
+  private def counting_game(setting_up, plays: false)
     b = Builder.new(options: VBlank::Cartridge::Options.new(console: :gbc))
+    recording = ([80] * 16 + [-80] * 16) * 400
     b.instance_eval do
       screen :bitmap
+      sample(:hum, pcm: recording).play if plays
       count = var :count, 0
       passes = var :passes, 0
       first = var :first, -1
@@ -153,8 +159,8 @@ class TestGBCPowerOn < Minitest::Test
   end
 
   # [the frame the first pass is first seen on, what it read]
-  private def first_pass_on_color(setting_up)
-    rom = VBlank::Console.for(:gbc).builder.cartridge_for(counting_game(setting_up), title: "POWERON")
+  private def first_pass_on_color(setting_up, plays: false)
+    rom = VBlank::Console.for(:gbc).builder.cartridge_for(counting_game(setting_up, plays: plays), title: "POWERON")
     v = VBlank::Diagnostics::Verifier.new(rom, frames: 1, vars: rom.built.variables)
     frame = 1
     until v.var(:passes).positive?
@@ -172,5 +178,24 @@ class TestGBCPowerOn < Minitest::Test
     assert_equal quick_frame - 1, quick, "a game that sets up at once reads the frames before its first pass"
     assert_operator slow_frame, :>, quick_frame + 3, "spinning first should make setting up take longer"
     assert_equal slow_frame - 1, slow, "and the frames spent setting up are counted"
+  end
+
+  # A GAME THAT PLAYS A RECORDING COUNTS THEM TOO: the timer that counts the frames the screen is
+  # off for plays the recording's samples once the screen is on, and a recording started while the
+  # game sets up starts with its first frame, as the interpreter's mix does.
+  def test_the_frames_spent_setting_up_are_counted_in_a_game_that_plays_a_recording
+    quick_frame, = first_pass_on_color(0, plays: true)
+    slow_frame, slow = first_pass_on_color(3_000, plays: true)
+
+    assert_operator slow_frame, :>, quick_frame + 3, "spinning first should make setting up take longer"
+    assert_equal slow_frame - 1, slow, "and the frames spent setting up are counted"
+  end
+
+  def test_a_recording_started_while_the_game_sets_up_is_heard_once_it_runs
+    program = counting_game(3_000, plays: true)
+    first = game_player.run(program, frames: 3)[:first]
+    heard = console_voice(program, :wave, frames: first + 20)
+
+    assert_in_delta 256, heard.held_note(first + 10).pitch, 4
   end
 end

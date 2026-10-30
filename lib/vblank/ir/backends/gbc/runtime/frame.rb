@@ -91,6 +91,9 @@ module VBlank
             DARK_FRAMES = "rt frames dark" # 16 bits, which a reader of the run reads too
             DARK_TICKS = "rt dark ticks" # the timer's interrupts since the last whole frame
             DARK_IN_MEMORY = "rt dark in memory" # 1 once the count is kept in memory (#emit_dark_to_memory)
+            # ...and DARK_OVER there once the screen is on, from when a game that plays a recording has
+            # the timer for its samples (#emit_dark_end, #emit_timer_tick).
+            DARK_OVER = 2
             TIMER_COUNTS_A_FRAME = Console.described(:gbc).then { |gbc| gbc.cycles_a_frame / gbc.sample_timer_step }
             DARK_COUNTS = (1..256).select { |counts| (TIMER_COUNTS_A_FRAME % counts).zero? }.max
             DARK_TICKS_A_FRAME = TIMER_COUNTS_A_FRAME / DARK_COUNTS
@@ -249,7 +252,7 @@ module VBlank
               asm.jump_relative(:nz, "rt_wait_vblank_sleep")
               # The screen is still off: this is the first frame. Everything set up so far is
               # copied while nothing is being drawn, and the screen comes on showing it.
-              emit_dark_end(asm) if dark?(memory)
+              emit_dark_end(asm, memory) if dark?(memory)
               asm.call("rt_upload_whole")
               asm.call("rt_shown_is_passes")
               asm.call("rt_display_on")
@@ -320,6 +323,7 @@ module VBlank
               asm.ret
 
               emit_dark_tick(asm, memory) if dark?(memory)
+              emit_timer_tick(asm, memory) if dark?(memory) && Clips.any?(memory)
               emit_increment(asm)
               emit_buttons(asm, memory)
               emit_stopping(asm, memory)
@@ -401,18 +405,45 @@ module VBlank
             end
 
             # As the screen comes on for the first frame: the timer stopped, so the frame that follows
-            # is the screen's interrupt's to count.
-            def emit_dark_end(asm)
+            # is the screen's interrupt's to count. In a game that plays a recording the timer is the
+            # recording's from here, its interrupt left on, and a clip the game played while it set up
+            # starts now (Runtime::Clips, rt_clip_start), as the interpreter's mix starts it.
+            def emit_dark_end(asm, memory)
               h = Console::GBCHardware
+              clips = Clips.any?(memory)
               asm.di
               asm.xor_a(:a)
               asm.load_high(h::TAC, :a)
-              asm.load(:a, h::INT_VBLANK)
+              asm.load(:a, clips ? h::INT_VBLANK | h::INT_TIMER : h::INT_VBLANK)
               asm.load_high(h::IE, :a)
               asm.load_high(:a, h::IF)
               asm.and_a(~h::INT_TIMER & 0xFF)
               asm.load_high(h::IF, :a)
+              if clips
+                asm.load(:a, DARK_OVER)
+                asm.load([memory[DARK_IN_MEMORY]], :a)
+                asm.load_high(:a, memory[Clips::PLAYING])
+                asm.and_a(:a)
+                asm.call(:nz, "rt_clip_start")
+              end
               asm.ei
+            end
+
+            # THE TIMER'S INTERRUPT IN A GAME THAT BOTH COUNTS THE FRAMES ITS SCREEN IS OFF FOR AND PLAYS A
+            # RECORDING: a tick of the count until the first frame, a sample of the clip after it.
+            # Before work memory is cleared the place it asks holds the nought the count started with
+            # (#emit_dark_start), and clearing it writes nought again.
+            def emit_timer_tick(asm, memory)
+              asm.label("rt_timer_tick")
+              asm.push(:af)
+              asm.load(:a, [memory[DARK_IN_MEMORY]])
+              asm.cp_a(DARK_OVER)
+              asm.jump_relative(:z, "rt_timer_tick_sample")
+              asm.pop(:af)
+              asm.jump("rt_dark_tick")
+              asm.label("rt_timer_tick_sample")
+              asm.pop(:af)
+              asm.jump("rt_clip_tick")
             end
 
             # ...and once the first frame boundary has come, the frames it was off for added to the

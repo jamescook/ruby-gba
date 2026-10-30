@@ -51,9 +51,7 @@ module VBlank
         debug_halt: works("the game stops there, as `halt` does; the cartridge is not cut short."),
         game_loop: works,
         once_a_frame: works,
-        frames_since_power_on: works("the number includes the frames that the console uses to set up the game. " \
-                                     "If a game plays a recording (`sample`), the number starts at its first frame " \
-                                     "shown. The recording uses the timer that measures the frames before it."),
+        frames_since_power_on: works("the number includes the frames that the console uses to set up the game."),
         each_pass: works("a step can start its own job again. A step that starts its own job through a " \
                          "routine it calls, or two jobs whose steps start each other, is refused for now: " \
                          "the Game Boy Color build cannot make a routine that calls itself yet."),
