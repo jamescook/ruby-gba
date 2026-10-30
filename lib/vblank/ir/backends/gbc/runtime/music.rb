@@ -44,6 +44,14 @@ module VBlank
             # The waveform in the wave voice, 1 up, in a game with sound effects: a song's part and an
             # effect's can each sound in their own, so a note puts its own in when it is not there.
             WAVE_LOADED = "rt music wave loaded"
+            # A WAVE NOTE HELD ACROSS A RECORDING, in a game that plays one (Runtime::Clips): the
+            # recording has the voice while it plays, so the note's tuning and waveform are kept
+            # beside what HELD keeps of it, and WAVE_BACK is set as the recording ends, for the next
+            # frame to put the note back (rt_music_wave_back) rather than leave it quiet until the
+            # part's next note.
+            WAVE_TUNING = "rt music wave tuning"
+            WAVE_SHAPE = "rt music wave shape"
+            WAVE_BACK = "rt music wave back"
 
             # A square part's first register, by voice.
             SQUARE_REGISTERS = { 1 => Console::GBCHardware::NR11, 2 => Console::GBCHardware::NR21 }.freeze
@@ -63,10 +71,18 @@ module VBlank
             # own (WAVE_LOADED says which is in), so a note after them finds its own gone.
             def reloads_wave?(memory) = memory.reserved?(WAVE_LOADED)
 
+            # Whether a wave note held across a recording is put back as it ends (WAVE_BACK).
+            def wave_back?(memory) = memory.reserved?(WAVE_BACK)
+
             def reserve(memory, effects: [], slides: false, wobbles: false, shapes: false, swells: false, banked: false)
               memory.reserve(BANK_NOTED, 1) if banked
               reserve_song_player(memory, banked)
               memory.reserve(WAVE_LOADED, 1) unless effects.empty? && !Clips.any?(memory)
+              if Clips.any?(memory)
+                memory.reserve(WAVE_TUNING, 2)
+                memory.reserve(WAVE_SHAPE, 1)
+                memory.reserve(WAVE_BACK, 1)
+              end
               memory.reserve(NOTE_SLIDE, 1) if slides
               memory.reserve(WOBBLES, WOBBLE_BYTES * WOBBLE_VOICES) if wobbles
               memory.reserve(SHAPE_WALKS, SHAPE_BYTES * SHAPE_VOICES) if shapes
@@ -664,6 +680,8 @@ module VBlank
               # A new level reaches the notes already sounding before any new note is played, which
               # is the order the interpreter does it in (Reference::Player#play_song_frame).
               asm.call("rt_music_relevel") if level
+              # ...and a wave note a recording had the voice from, before any new note takes it.
+              asm.call("rt_music_wave_back") if wave_back?(memory)
               # Every part: each note whose frame this is.
               asm.call("rt_music_song")
               asm.inc(:hl)
@@ -1001,6 +1019,8 @@ module VBlank
                 asm.cp_a([:hl])
                 asm.call(:nz, "rt_music_wave_load")
               end
+              # B = the volume, DE = the tuning, the waveform in: the voice on, and the note started.
+              asm.label("rt_music_note_wave_sound")
               asm.load(:a, 0x80)
               asm.load_high(h::NR30, :a)
               asm.load(:a, :b)
@@ -1054,6 +1074,7 @@ module VBlank
               asm.ret
 
               emit_wave_load(asm, memory) if reloads_wave?(memory)
+              emit_wave_back(asm, memory, level, sharing) if wave_back?(memory)
               emit_hold(asm, memory, part, fades, slides)
               emit_relevel(asm, memory, level, fades) if level
 
@@ -1091,6 +1112,49 @@ module VBlank
               asm.cp_a((h::WAVE_RAM + 16) & 0xFF)
               asm.jump_relative(:nz, "rt_music_wave_load_byte")
               asm.ret
+            end
+
+            # rt_music_wave_back: the wave note a song is holding, sounded again once a recording that
+            # had the voice is over (WAVE_BACK) — its waveform put back, at the music's level now, at
+            # its own pitch — as a game of the Color's puts its wave table back at a clip's end. Not
+            # while another recording has started, nor when a sound effect holds the voice, nor for
+            # a rest or a note that fades by itself (HELD keeps nothing for those).
+            def emit_wave_back(asm, memory, level, sharing)
+              asm.label("rt_music_wave_back")
+              asm.load(:a, [memory[WAVE_BACK]])
+              asm.and_a(:a)
+              asm.ret(:z)
+              asm.xor_a(:a)
+              asm.load([memory[WAVE_BACK]], :a)
+              Clips.emit_return_while_recording_plays(asm)
+              if sharing
+                asm.load(:a, [memory[Effects::HOLDERS] + GBC::Music::WAVE_VOICE - 1])
+                asm.load(:e, :a)
+                asm.load(:d, 0)
+                asm.load(:hl, "music_rank_effects")
+                asm.add_hl(:de)
+                asm.load(:a, [:hl])
+                asm.and_a(:a)
+                asm.ret(:nz)
+              end
+              asm.load(:a, [memory[HELD] + GBC::Music::WAVE_VOICE - 1])
+              asm.and_a(:a)
+              asm.ret(:z)
+              asm.load(:b, :a)
+              if level
+                asm.call("rt_music_level")
+                asm.call("rt_music_scale")
+                asm.load(:b, :a)
+              end
+              asm.load(:a, [memory[WAVE_TUNING]])
+              asm.load(:e, :a)
+              asm.load(:a, [memory[WAVE_TUNING] + 1])
+              asm.load(:d, :a)
+              asm.load(:a, [memory[WAVE_SHAPE]])
+              asm.inc(:a)
+              asm.load(:hl, memory[WAVE_LOADED])
+              asm.call("rt_music_wave_load")
+              asm.jump("rt_music_note_wave_sound")
             end
 
             # rt_music_hold: the note being played (DE its tuning, NOTE_VOLUME its volume) is what its
@@ -1143,6 +1207,13 @@ module VBlank
                   asm.load(:a, [part + 1])
                   asm.load([memory[DUTIES] + voice - 1], :a)
                   emit_start_swell(asm, memory, voice) if swells?(memory)
+                elsif wave_back?(memory)
+                  asm.load(:a, :e)
+                  asm.load([memory[WAVE_TUNING]], :a)
+                  asm.load(:a, :d)
+                  asm.load([memory[WAVE_TUNING] + 1], :a)
+                  asm.load(:a, [part + 1])
+                  asm.load([memory[WAVE_SHAPE]], :a)
                 end
                 asm.ret
               end

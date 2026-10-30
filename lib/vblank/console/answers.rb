@@ -58,16 +58,12 @@ module VBlank
       # EVERY LINE OF +nodes+ (a program's steps) THAT +console+ CANNOT DO, as Refusals in this
       # table's words, in the program's order. Empty for a program the console plays.
       def refusals(nodes, console)
-        asked = nodes.filter_map do |node|
+        nodes.filter_map do |node|
           question = Questions.question_for(node, console) or next
           verdict = answer(question.verb)
           next if question.can.nil? ? verdict.works? : question.can
 
           Refusal.new(node, "#{question.words}, and a #{console.title} cannot: #{verdict.words}")
-        end
-        asked + Questions.wave_beside_recordings(nodes, console).map do |node|
-          Refusal.new(node, "This line uses the wave voice in a game that plays a recording, and a " \
-                            "#{console.title} cannot: #{answer(:sample).words}")
         end
       end
 

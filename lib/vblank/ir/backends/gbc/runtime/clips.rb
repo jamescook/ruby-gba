@@ -62,6 +62,7 @@ module VBlank
               memory.reserve(SHOWN, 1)
               memory.reserve_quick(BITS, 1)
               memory.reserve_quick(LEVEL, 1)
+              Sound.reserve(memory)
             end
 
             def any?(memory) = memory.reserved?(SHOWN)
@@ -74,9 +75,10 @@ module VBlank
             end
 
             # WHILE A RECORDING PLAYS THE WAVE VOICE IS ITS OWN: the music player's writes to it are
-            # passed over, so a part on the wave voice is not heard until its next note after the
-            # recording (rt_clip_play marks its waveform gone, which that note puts back). The timer
-            # running is what says one is playing. A and the flags are spent.
+            # passed over. When the recording is over the music has it back on its next frame: a wave
+            # note held across it is put back, waveform and all (Music#emit_wave_back), and a part
+            # that rested is heard at its next note. The timer running is what says one is playing. A
+            # and the flags are spent.
             def emit_return_while_recording_plays(asm)
               asm.load_high(:a, Console::GBCHardware::TAC)
               asm.bit(2, :a)
@@ -175,7 +177,24 @@ module VBlank
               asm.xor_a(:a)
               asm.load_high(h::TAC, :a)
               asm.load_high(h::NR30, :a)
+              emit_wave_back(asm, memory)
               asm.ret
+            end
+
+            # THE VOICE IS THE GAME'S AGAIN as a recording ends: the last `wave` or `stop_wave` the game
+            # said is written now (Sound::GAME_WAVE), and a wave note the music is holding is put back
+            # on its next frame (Music::WAVE_BACK). A, C and HL are spent.
+            def emit_wave_back(asm, memory)
+              asm.load(:a, [memory[Sound::GAME_WAVE]])
+              asm.load(:l, :a)
+              asm.load(:a, [memory[Sound::GAME_WAVE] + 1])
+              asm.load(:h, :a)
+              asm.or_a(:l)
+              asm.call(:nz, "rt_sound_writes_next")
+              return unless Music.wave_back?(memory)
+
+              asm.load(:a, 1)
+              asm.load([memory[Music::WAVE_BACK]], :a)
             end
 
             # THE TIMER'S INTERRUPT: one sample. The byte being played moves up a bit, and the bit that
@@ -238,6 +257,9 @@ module VBlank
               asm.xor_a(:a)
               asm.load_high(h::TAC, :a)
               asm.load_high(h::NR30, :a)
+              asm.push(:bc)
+              emit_wave_back(asm, memory)
+              asm.pop(:bc)
               asm.pop(:hl)
               asm.pop(:af)
               asm.reti

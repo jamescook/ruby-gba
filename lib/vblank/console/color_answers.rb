@@ -236,9 +236,11 @@ module VBlank
                       "turns the voice full on or off, so the sound is rough, as a Color game's voice " \
                       "clips are. A play while a recording sounds is not heard. A recording cannot " \
                       "loop, play at another note (`pitch:`), play at three quarters of its volume, or " \
-                      "have a shape (`envelope:`). A game that plays a recording cannot use `wave` or " \
-                      "`stop_wave`. A part of a song or a sound effect on the wave voice is not heard while a recording plays, " \
-                      "and its next note after the recording sounds."),
+                      "have a shape (`envelope:`). The wave voice is the recording's while it plays: a " \
+                      "`wave` or `stop_wave` said then takes effect as the recording ends, a wave the " \
+                      "game was sounding comes back then, and so does a wave note a song is holding. A " \
+                      "sound effect's wave part is not heard while a recording plays, and its next note " \
+                      "after the recording sounds."),
         instrument: refused("an instrument plays a recording at many notes. A Game Boy Color plays a " \
                             "recording only at its own note (see `sample`). Write the part for the " \
                             "square or wave voice.")

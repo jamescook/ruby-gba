@@ -99,7 +99,7 @@ module VBlank
                                       first_kept_list: art.first_kept_list, tall_pieces: art.tall_pieces?)
             BigMaps.emit(asm, memory, buffer: big_maps&.first, staged: big_maps&.last)
             Paint.emit(asm, memory, painting: art.painting?, map_count: art.square_maps.length, bar: !bar_rows.nil?)
-            Sound.emit(asm)
+            Sound.emit(asm, memory)
             Music.emit(asm, memory, level: music_level, songs: songs, effects: music&.effects || [],
                                     by_rank: music&.effects_by_rank || [], fades: music&.fades? || false,
                                     slides: music&.slides? || false, pans: music&.pans? || false)

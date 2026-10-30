@@ -80,16 +80,6 @@ module VBlank
         asked ? Question.new(:sample, asked, mixes) : Question.new(:sample, "This game plays a recording", nil)
       end
 
-      # THE WAVE VOICE IN A GAME THAT PLAYS A RECORDING, on a console that plays recordings on it:
-      # each line that sounds or stops the wave voice itself (`wave`, `stop_wave`) would take the
-      # voice from under the recording. A song's wave part stands aside while one plays. The lines
-      # of +nodes+ that do, on +console+.
-      def wave_beside_recordings(nodes, console)
-        return [] if console.mixes_recordings || nodes.none? { |node| node.kind == :play_sample }
-
-        nodes.select { |node| %i[wave stop_wave].include?(node.kind) }
-      end
-
       # Whether +console+ has the button +button+ names; any button at all, every console has.
       def button?(button, console) = button == IR::Buttons::ANY || console.buttons.include?(button)
 

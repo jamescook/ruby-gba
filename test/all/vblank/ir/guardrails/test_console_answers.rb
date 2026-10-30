@@ -76,14 +76,16 @@ class TestConsoleAnswers < Minitest::Test
     envelope: VBlank.game("CLIPSHAPE", consoles: %i[gba gbc]) do
       sample(:hum, pcm: [60, -60] * 200, envelope: { release: 0.2 }).play
       game_loop { wait_vblank }
-    end,
-    wave: VBlank.game("CLIPWAVE", consoles: %i[gba gbc]) do
-      enable_sound
-      sample(:hum, pcm: [60, -60] * 200).play
-      wave :triangle, 440
-      game_loop { wait_vblank }
     end
   }.freeze
+
+  # The game's own wave beside a recording: it takes effect as the recording ends.
+  CLIP_AND_WAVE = VBlank.game("CLIPWAVE", consoles: %i[gba gbc]) do
+    enable_sound
+    sample(:hum, pcm: [60, -60] * 200).play
+    wave :triangle, 440
+    game_loop { stop_wave }
+  end
 
   # A song with a part on the wave voice beside a recording: the part stands aside while the
   # recording plays, so the Color plays both.
@@ -145,14 +147,17 @@ class TestConsoleAnswers < Minitest::Test
     assert_empty findings(CLIP_AND_SONG, :gbc)
   end
 
+  def test_the_games_own_wave_beside_a_recording_works_on_the_color
+    assert_empty findings(CLIP_AND_WAVE, :gbc)
+  end
+
   def test_a_recording_played_once_as_recorded_works_on_the_color
     assert_empty findings(CLIP, :gbc)
   end
 
   # Each is one error, naming what the line asks for; the Advance's build hears none of them.
   def test_what_a_clip_player_cannot_do_is_refused_on_the_color
-    said = { loop: /`loop: true`/, pitch: /`pitch:`/, volume: /three quarters/, envelope: /`envelope:`/,
-             wave: /wave voice/ }
+    said = { loop: /`loop: true`/, pitch: /`pitch:`/, volume: /three quarters/, envelope: /`envelope:`/ }
     CLIP_PARTS.each do |part, game|
       found = findings(game, :gbc)
 
