@@ -188,7 +188,7 @@ module VBlank
              *variable_names.map { |name| C::Global.new(name: variable(name)) },
              *list_storage,
              *(@scenes.empty? ? [] : [C::Global.new(name: @names.own("scene"), value: -1)]),
-             *(loops_ending_passes.empty? ? [] : [C::Global.new(name: loop_running, value: 0)]),
+             *(loops_ending_passes.empty? ? [] : [C::Global.new(name: running_loop_variable, value: 0)]),
              *held_colors_globals, *sprites_hidden_globals,
              *constant_arrays, *picture_data, *@drawing_arrays, title_array, *sound_tables,
              save_memory_table,
@@ -329,19 +329,19 @@ module VBlank
 
           # The same for a list of statements. +order+ is the game loop they are a pass of
           # (IR::Frames::ConsoleLoop), whose writes placed at the end of the pass are lowered as
-          # placed there (#placed_at_pass_end).
+          # placed there (#wrapped_for_pass_end).
           def statements_of(children, order: nil)
             children.flat_map do |child|
               paint = Reference.defers_repaint?(child) ? [] : [eval_call("rg_screen_paint_owed_rebuild")]
               lowered = lower(child)
-              lowered = placed_at_pass_end(lowered) if order&.placed?(child)
+              lowered = wrapped_for_pass_end(lowered) if order&.placed?(child)
               [*source_comment(child), *paint, *lowered]
             end
           end
 
           # +statements+ run as the end of a pass places the frame's scroll and status bars
           # (Reference#exec_in_loop): a background the pass put up still shows from its corner.
-          def placed_at_pass_end(statements)
+          def wrapped_for_pass_end(statements)
             [eval_call("rg_screen_placing_at_pass_end", C::Int.new(1)), *statements,
              eval_call("rg_screen_placing_at_pass_end", C::Int.new(0))]
           end
@@ -391,7 +391,7 @@ module VBlank
           # before the loop.
           def lower_loop(node)
             order = console_loop(node)
-            running = loops_ending_passes.any? ? [C::Assign.new(loop_running, C::Int.new((loops_ending_passes.index(node) || -1) + 1))] : []
+            running = loops_ending_passes.any? ? [C::Assign.new(running_loop_variable, C::Int.new((loops_ending_passes.index(node) || -1) + 1))] : []
             [*statements_of(order.before), *running,
              C::While.new(condition: C::Int.new(1), body: statements_of(order.each_time, order: order))]
           end
@@ -408,7 +408,7 @@ module VBlank
 
           # Which of those is running, counted from 1, and nought for none: a halt can be anywhere,
           # in a routine called from any loop or from none (#lower_halt).
-          def loop_running = @names.own("loop_running")
+          def running_loop_variable = @names.own("loop_running")
 
           # The variables the game loops keep of their own in their console's order.
           def loop_variables = @program.walk.select { |node| node.kind == :loop }.flat_map { |node| console_loop(node).variables }
@@ -489,7 +489,7 @@ module VBlank
           def lower_halt(_node)
             ends = loops_ending_passes.each_with_index.map do |ending, i|
               order = console_loop(ending)
-              C::If.new(condition: call("rg_eq", loop_running, C::Int.new(i + 1)),
+              C::If.new(condition: call("rg_eq", running_loop_variable, C::Int.new(i + 1)),
                         body: statements_of(order.pass_end, order: order))
             end
             [*ends, eval_call("rg_halt")]

@@ -613,11 +613,15 @@ module VBlank
       give it to anybody.
 
       Options:
+        --console NAME           #{CONSOLE_CHOICES}: which console to play the
+                                 game as. Default: the first console in
+                                 consoles:.
         --port N                 The port to serve the page on. Default: 8000.
         --template FILE          Make the page from FILE, an .html.erb file with
                                  <%= game %> in it.
         #{SET}
     TEXT
+    option :console, banner: "NAME", enum: CONSOLES
     option :port, type: :numeric, default: 8000
     option :template, banner: "FILE"
     option :set, type: :array, banner: "NAME=VALUE", default: []
@@ -625,7 +629,7 @@ module VBlank
       raise Thor::Error, "I cannot find the game file #{game_file}." unless File.file?(game_file)
 
       server = VBlank::IR::Backends::JS::Preview.new(game_file, settings: options[:set], template: options[:template],
-                                                                 port: options[:port])
+                                                                 console: options[:console], port: options[:port])
       trap("INT") { server.stop }
       server.serve
     rescue Errno::EADDRINUSE
@@ -1031,6 +1035,7 @@ module VBlank
     # program as the Advance's cartridge (IR::Dump.class_source), so it is the Advance's build.
     def build_ir(game_file)
       game = load_game(game_file)
+      refuse_ir_for_other_console!(game)
       rom = game.build_rom(settings: given_settings, console: :gba)
       source = VBlank::IR::Dump.class_source(rom.source_program, class_name: "#{constantize(game.title)}IR",
                                             **rom.build_options)
@@ -1040,6 +1045,21 @@ module VBlank
       else
         Pager.new.page(source)
       end
+    end
+
+    # The IR a dump writes is a class that builds the Advance's cartridge (IR::Dump), so it is made
+    # for the Advance alone: another console asked for, or a game that is not for the Advance, is
+    # refused rather than quietly dumped as the Advance's.
+    def refuse_ir_for_other_console!(game)
+      asked = options[:console]&.to_sym
+      if asked && asked != :gba
+        raise Thor::Error, "--format ir writes the game for the Game Boy Advance only. To write the IR, " \
+                           "remove --console #{asked}."
+      end
+      return if game.consoles.include?(:gba)
+
+      raise Thor::Error, "#{game.title} is not for the Game Boy Advance, and --format ir writes the game for " \
+                         "the Game Boy Advance only. To write the IR, add :gba to the game's consoles:."
     end
 
     # The "native" format: the game as a program for this computer, with a window. Written

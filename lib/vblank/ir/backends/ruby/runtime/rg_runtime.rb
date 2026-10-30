@@ -111,7 +111,10 @@ def rg_rumble(frames, pattern)
 end
 
 def rg_motor_frame
-  return @rg_motor_on = false unless (@rg_rumble_left || 0).positive?
+  unless (@rg_rumble_left || 0).positive?
+    @rg_motor_on = false
+    return
+  end
 
   @rg_rumble_bits = ((@rg_rumble_bits >> 1) | (@rg_rumble_bits << 7)) & 0xFF
   @rg_motor_on = @rg_rumble_bits.odd?
@@ -212,7 +215,7 @@ end
 
 # The windowless driver starts the clock at a moment of the test's: +seconds+ from the start of
 # 1970 as such a clock counts them, +ticks+ more in cycles of the console's own clock
-# (RG_CONSOLE_CYCLES_PER_SECOND), and whether the clock was ever set. From then it moves on one of
+# (RG_CONSOLE_TICKS_A_SECOND), and whether the clock was ever set. From then it moves on one of
 # the console's frames at each frame boundary.
 #
 # A CHIP THAT KEEPS NO DATE (RG_CLOCK_KEEPS_DATE false, the Color's; IR::Clock.undated) counts
@@ -267,9 +270,9 @@ end
 def rg_clock_frame
   return if @rg_clock_counts_frames == 0
 
-  @rg_clock_ticks += RG_CONSOLE_CYCLES_PER_FRAME
-  @rg_clock_seconds += @rg_clock_ticks / RG_CONSOLE_CYCLES_PER_SECOND
-  @rg_clock_ticks %= RG_CONSOLE_CYCLES_PER_SECOND
+  @rg_clock_ticks += RG_CONSOLE_TICKS_A_FRAME
+  @rg_clock_seconds += @rg_clock_ticks / RG_CONSOLE_TICKS_A_SECOND
+  @rg_clock_ticks %= RG_CONSOLE_TICKS_A_SECOND
 end
 
 # A chip that keeps no date has no date of its own to give, so it reads as never set until the

@@ -26,11 +26,13 @@ module VBlank
         # mistake — is shown in the page in its own words instead of a game.
         class Preview
           # +game_file+ is the game; +settings+ are what `--set` hands its build; +template+ is the
-          # template every page is written from, nil for the default; +port+ is the one to serve on,
+          # template every page is written from, nil for the default; +console+ the one the page
+          # plays the game as, nil for the first the game names; +port+ is the one to serve on,
           # 0 for any that is free; +out+ is told where the page is and what happens.
-          def initialize(game_file, settings: [], template: nil, host: "127.0.0.1", port: 8000, out: $stdout)
+          def initialize(game_file, settings: [], template: nil, console: nil, host: "127.0.0.1", port: 8000, out: $stdout)
             @game_file = File.expand_path(game_file)
             @settings = settings
+            @console = console
             @template = template && File.expand_path(template)
             @server = TCPServer.new(host, port)
             @out = out
@@ -83,7 +85,7 @@ module VBlank
               path = File.join(dir, "game.html")
               said, status = Open3.capture2e(RbConfig.ruby, VBlank.root.join("bin", "vblank").to_s, "build", @game_file,
                                              "--format", "web", "-o", path, *(["--template", @template] if @template),
-                                             *settings_arguments)
+                                             *(["--console", @console] if @console), *settings_arguments)
               built = status.success? && File.exist?(path)
               @out.puts(built ? "Built #{File.basename(@game_file)}" : "The build stopped:\n#{said}")
               built ? File.read(path, encoding: Encoding::UTF_8) : stopped_page(said)

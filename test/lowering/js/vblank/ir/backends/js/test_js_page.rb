@@ -21,6 +21,19 @@ class TestJSPage < Minitest::Test
     refute_match(/<script src=/, page)
   end
 
+  # A console with no L and R, the Color, gets a page that names none: not in the keys said in
+  # words, and not on the pad.
+  def test_a_console_without_l_and_r_has_none_on_its_page
+    with = JS::Page.html(title: "BOTH", script: "")
+    without = JS::Page.html(title: "BOTH", script: "", screen: [160, 144], shoulders: false)
+
+    assert_match(/are L and R/, with)
+    assert_match(/id="pad-l"/, with)
+    refute_match(/L and R/, without)
+    refute_match(/id="pad-[lr]"/, without)
+    assert_match(/id="pad-start"/, without)
+  end
+
   # The page plays a frame of the game on each of the browser's frames, reads the keyboard as the
   # buttons, and puts up the picture the interpreter draws. A key is read after each frame, for
   # the next: one held as the page opens counts from frame 2, and one let go after frame 10 still

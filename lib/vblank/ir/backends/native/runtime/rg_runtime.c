@@ -168,8 +168,8 @@ void rg_clock_reads(int32_t year, int32_t month, int32_t day, int32_t hour, int3
   clock_ticks = 0;
 }
 
-/* A frame of the console's later: 280,896 of its ticks, a little more than a sixtieth of a
- * second. */
+/* A frame of the console's later: as many of its clock's ticks as it takes to draw one
+ * (RG_CONSOLE_TICKS_A_FRAME, from rg_console.h), close to a sixtieth of a second. */
 static void clock_frame(void) {
   if (!clock_counts_frames) return;
   clock_ticks += RG_CONSOLE_TICKS_A_FRAME;

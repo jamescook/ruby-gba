@@ -27,14 +27,10 @@ module VBlank
           # reads each as a constant: the size of its screen, the cycles its clock counts a second,
           # the cycles a frame lasts, and whether its cartridge's clock keeps the date. A frame's
           # share of a second is what decides how many samples of sound a frame makes, and how far
-          # the cartridge's clock moves on.
+          # the cartridge's clock moves on. The names and numbers are the C and JavaScript
+          # runtimes' (Native::ConsoleNumbers), with true and false kept as Ruby's own.
           def console_text
-            console = @program.described_console
-            { "RG_SCREEN_WIDTH" => console.screen_width, "RG_SCREEN_HEIGHT" => console.screen_height,
-              "RG_CONSOLE_CYCLES_PER_SECOND" => console.cycles_a_second,
-              "RG_CONSOLE_CYCLES_PER_FRAME" => console.cycles_a_frame,
-              "RG_CLOCK_KEEPS_DATE" => console.clock_keeps_date, "RG_CONSOLE_BLENDS" => console.blends,
-              "RG_CONSOLE_RUMBLES" => console.rumbles }.map { |name, value| "#{name} = #{value}\n" }.join
+            Native::ConsoleNumbers.values(@program.described_console).map { |name, value| "#{name} = #{value}\n" }.join
           end
 
           private

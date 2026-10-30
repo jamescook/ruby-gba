@@ -8,7 +8,7 @@
 # waveform of 32 steps, and a hiss from a row of bits. The Game Boy Advance and the Game Boy Color
 # carry the same chip, and nothing here knows which of them the game was built for. Every number
 # that belongs to a console comes in the game's own tables: how fast each voice's clock ticks
-# (@rg_game_sound_rules), how long a frame is (RG_CONSOLE_CYCLES_PER_FRAME), and whether there is a
+# (@rg_game_sound_rules), how long a frame is (RG_CONSOLE_TICKS_A_FRAME), and whether there is a
 # mixer for recordings at all (@rg_game_mix, rg_mix.rb).
 #
 # The voices are worked out a sample at a time when a driver asks for a frame's sound
@@ -391,9 +391,9 @@ def rg_sound_heard(voice, sample) = @rg_heard_only == 0 || @rg_heard_only == voi
 # and the right's: that frame's share of a second's, by the console's own clock, with the part of a
 # sample left over carried to the next frame so no time is lost or made up.
 def rg_sound_render_frame
-  @rg_sample_carry += RG_SOUND_RATE * RG_CONSOLE_CYCLES_PER_FRAME
-  count = @rg_sample_carry / RG_CONSOLE_CYCLES_PER_SECOND
-  @rg_sample_carry %= RG_CONSOLE_CYCLES_PER_SECOND
+  @rg_sample_carry += RG_SOUND_RATE * RG_CONSOLE_TICKS_A_FRAME
+  count = @rg_sample_carry / RG_CONSOLE_TICKS_A_SECOND
+  @rg_sample_carry %= RG_CONSOLE_TICKS_A_SECOND
 
   # The mixer's newest slice is stretched over the frame, and heard only with every voice.
   mixed = @rg_heard_only == 0 ? rg_mix_newest_slice : nil

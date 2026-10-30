@@ -21,8 +21,8 @@ class TestJSPreview < Minitest::Test
   end
 
   # Serves +file+ for the length of the block, which is handed a way to fetch the page.
-  private def serving(file, settings: [], template: nil)
-    preview = Preview.new(file, settings: settings, template: template, port: 0, out: StringIO.new)
+  private def serving(file, settings: [], template: nil, console: nil)
+    preview = Preview.new(file, settings: settings, template: template, console: console, port: 0, out: StringIO.new)
     server = Thread.new { preview.serve }
     yield -> { Net::HTTP.get_response(URI(preview.url)) }
   ensure
@@ -41,6 +41,18 @@ class TestJSPreview < Minitest::Test
 
         File.write(file, game_source("SECOND", :red))
         assert_match(/<title>SECOND<\/title>/, fetch.call.body.force_encoding(Encoding::UTF_8))
+      end
+    end
+  end
+
+  # A game for two consoles is previewed as the one asked for: here the Color, whose screen the
+  # page's canvas is the size of.
+  def test_the_page_plays_the_game_as_the_console_asked_for
+    Dir.mktmpdir do |dir|
+      file = File.join(dir, "game.rb")
+      File.write(file, game_source("BOTH", :blue).sub("%i[gba]", "%i[gba gbc]"))
+      serving(file, console: "gbc") do |fetch|
+        assert_match(/<canvas id="screen" width="160" height="144"/, fetch.call.body.force_encoding(Encoding::UTF_8))
       end
     end
   end

@@ -505,6 +505,19 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # The IR is written for the Advance alone, so asking for it as another console is refused rather
+  # than answered with the Advance's.
+  def test_ir_refuses_another_console
+    Dir.mktmpdir do |dir|
+      cli("new", "demo", dir: dir)
+      out, status = cli("build", "demo.rb", "--format", "ir", "--console", "gbc", "-o", "demo_ir.rb", dir: dir)
+
+      refute status.success?, out
+      assert_match(/remove --console gbc/, out)
+      refute File.exist?(File.join(dir, "demo_ir.rb"))
+    end
+  end
+
   # --console picks the console a web page is made as, for a game of two.
   def test_web_takes_the_console_to_make_the_page_as
     Dir.mktmpdir do |dir|

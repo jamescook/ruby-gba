@@ -160,7 +160,8 @@ module VBlank
           write_output(game, path, console: console, settings: settings, data: data, err: err) do |text, data_file, described|
             script = WRITTEN_BY + in_own_function(data_beside_declaration(data_file, JSON.generate(data_file_name(path))),
                                                   text, *runtime_text(["rg_mount.js"]), "rg_mount_page(createGame);\n")
-            Page.html(title: game.title, script: script, scale: scale, template: template, screen: described.screen_size)
+            Page.html(title: game.title, script: script, scale: scale, template: template, screen: described.screen_size,
+                      shoulders: described.buttons.include?(:l))
           end
         end
 
@@ -205,12 +206,9 @@ module VBlank
         # is, and how its clock counts a frame, from +console+ (a Console::Description). As the
         # native runtime has them (Native::ConsoleNumbers).
         def console_text(console)
-          <<~JS
-            const RG_SCREEN_WIDTH = #{console.screen_width}, RG_SCREEN_HEIGHT = #{console.screen_height};
-            const RG_CONSOLE_TICKS_A_SECOND = #{console.cycles_a_second}, RG_CONSOLE_TICKS_A_FRAME = #{console.cycles_a_frame};
-            const RG_CONSOLE_BLENDS = #{console.blends ? 1 : 0}, RG_CONSOLE_RUMBLES = #{console.rumbles ? 1 : 0};
-            const RG_CLOCK_KEEPS_DATE = #{console.clock_keeps_date ? 1 : 0};
-          JS
+          Native::ConsoleNumbers.values(console).map do |name, value|
+            "const #{name} = #{Native::ConsoleNumbers.as_number(value)};\n"
+          end.join
         end
 
         # +parts+ inside a function of their own, in strict mode, so nothing they declare leaks

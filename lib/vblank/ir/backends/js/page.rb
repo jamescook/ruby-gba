@@ -47,10 +47,11 @@ module VBlank
 
           # The page for +title+'s game, its +script+ inside, written by +template+, its canvas
           # +screen+ ([width, height] in pixels: the console the game is built as) +scale+ times
-          # over. A template that leaves the game out is a LoweringError, as anything else that
-          # stops a web build is.
-          def html(title:, script:, scale: 3, template: DEFAULT, screen: [Screen::WIDTH, Screen::HEIGHT])
-            pieces = pieces(title: title, script: script, scale: scale, screen: screen)
+          # over, its key help and pad showing L and R only when +shoulders+ (the console has them).
+          # A template that leaves the game out is a LoweringError, as anything else that stops a
+          # web build is.
+          def html(title:, script:, scale: 3, template: DEFAULT, screen: [Screen::WIDTH, Screen::HEIGHT], shoulders: true)
+            pieces = pieces(title: title, script: script, scale: scale, screen: screen, shoulders: shoulders)
             page = ERB.new(File.read(template, encoding: Encoding::UTF_8), trim_mode: "-").result_with_hash(pieces)
             return page if page.include?(pieces[:game])
 
@@ -58,16 +59,17 @@ module VBlank
                                  "play it. Put <%= game %> in the template where the game goes."
           end
 
-          def pieces(title:, script:, scale:, screen: [Screen::WIDTH, Screen::HEIGHT])
+          def pieces(title:, script:, scale:, screen: [Screen::WIDTH, Screen::HEIGHT], shoulders: true)
+            l_and_r = shoulders ? " <kbd>A</kbd> and <kbd>S</kbd> are L and R," : ""
             keys = <<~HTML.chomp
               <p class="keys">Arrows move. <kbd>X</kbd> is A, <kbd>Z</kbd> is B, <kbd>Enter</kbd> is Start, <kbd>Backspace</kbd> is
-              Select, <kbd>A</kbd> and <kbd>S</kbd> are L and R, <kbd>F</kbd> fills the screen. Press a key or click
+              Select,#{l_and_r} <kbd>F</kbd> fills the screen. Press a key or click
               to hear the sound.</p>
             HTML
             controller = '<p id="controller"></p>'
             fullscreen = '<button id="fullscreen" type="button">Full screen</button>'
             pause = '<label><input type="checkbox" id="pause" checked> Pause when another window is in front</label>'
-            touchpad = touchpad()
+            touchpad = touchpad(shoulders: shoulders)
             message = '<p id="said" hidden></p>'
             { title: CGI.escapeHTML(title.to_s), style: style(scale, screen), game: game(script, screen), keys: keys,
               controller: controller, fullscreen: fullscreen, pause: pause, touchpad: touchpad, message: message,
@@ -80,12 +82,12 @@ module VBlank
           # the button's name, and the cross, "pad-cross", is one piece a thumb rocks round; its
           # arrows are only drawn. It is hidden until the page finds a finger is the screen's main
           # pointer. How it is laid out is in `style`, so a template that leaves that out lays the
-          # pad out itself.
-          def touchpad
+          # pad out itself. A console with no L and R (+shoulders+ false) has none on its pad.
+          def touchpad(shoulders: true)
             pad_button = ->(name, label) { %(<button id="pad-#{name}" type="button">#{label}</button>) }
             arrow = ->(direction, label) { %(<span class="pad-#{direction}">#{label}</span>) }
             [%(<div id="touchpad" class="touchpad" hidden>),
-             pad_button.call("l", "L"), pad_button.call("r", "R"),
+             *([pad_button.call("l", "L"), pad_button.call("r", "R")] if shoulders),
              %(<div id="pad-cross" class="pad-cross">), arrow.call("up", "▲"), arrow.call("left", "◀"),
              arrow.call("right", "▶"), arrow.call("down", "▼"), "</div>",
              %(<div class="pad-middle">), pad_button.call("select", "SELECT"), pad_button.call("start", "START"), "</div>",

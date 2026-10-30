@@ -3,8 +3,8 @@
  *
  * The console draws a frame every so many ticks of its clock (rg_console.h: on the Advance 280,896
  * of 2^24 a second), which is a little under sixty frames a second, and a game is written to that
- * pace. A monitor shows a
- * new picture only when it refreshes, and almost none refreshes at exactly the console's rate.
+ * pace. A monitor shows a new picture only when it refreshes, and almost none refreshes at exactly
+ * the console's rate.
  * Timing the frames from the console's clock on a monitor that is very nearly as fast, sixty a
  * second say, lets the two drift past each other: for a stretch every few seconds a picture is
  * finished just before or just after a refresh, by chance, so some pictures are shown twice and
