@@ -12,10 +12,6 @@
 # and FileList reads a constant of rake's that a Ractor may not.
 module TestSuites
   NATIVE_DIR = "test/vblank/ir/backends/native"
-  JS_DIR = "test/vblank/ir/backends/js"
-  RUBY_DIR = "test/vblank/ir/backends/ruby"
-  GBC_DIR = "test/vblank/ir/backends/gbc"
-  SNES_DIR = "test/vblank/ir/backends/snes"
 
   # WHAT ONLY THE GAME BOY ADVANCE CAN DO: fading part of the screen, a recording in a song, a
   # save on flash, more colours or memory than a Game Boy Color holds, and every example whose
@@ -33,13 +29,18 @@ module TestSuites
   # lowering's run loads it. Each folder mirrors a part of lib that is that lowering's alone: the
   # GBA backend; the diagnostics, which read back a finished cartridge; the playthroughs, which
   # drive one in the emulator; the native backend; and the JavaScript backend.
-  LOWERING_FOLDERS = Ractor.make_shareable({
-                                             gba: ["test/vblank/ir/backends/gba", "test/vblank/diagnostics",
-                                                   "test/vblank/playthroughs", ADVANCE_DIR],
-                                             native: [NATIVE_DIR, ADVANCE_DIR], js: [JS_DIR, ADVANCE_DIR],
-                                             ruby: [RUBY_DIR, ADVANCE_DIR],
-                                             gbc: [GBC_DIR], snes: [SNES_DIR]
-                                           })
+  #
+  # Every lowering's run owns the folder of its backend's tests (test/vblank/ir/backends/<name>),
+  # and every run that plays a game as an Advance game owns the Advance's folder too, so a lowering
+  # added to VBlank::Testing::Lowering::RUNS has its folder here with nothing written. The GBA
+  # lowering's run owns the folders that read the Advance's cartridge back as well.
+  ADVANCE_CARTRIDGE_DIRS = ["test/vblank/diagnostics", "test/vblank/playthroughs"].freeze
+  LOWERING_FOLDERS = Ractor.make_shareable(VBlank::Testing::Lowering::RUNS.to_h do |run|
+    own = ["test/vblank/ir/backends/#{run.name}"]
+    own += ADVANCE_CARTRIDGE_DIRS if run.name == :gba
+    own << ADVANCE_DIR if run.console == :gba
+    [run.name, own]
+  end)
 
   # The test of the program a player runs, with its window. It builds with SDL, whose first build
   # fetches its source over the network, so it is loaded only when asked (SDL=1).

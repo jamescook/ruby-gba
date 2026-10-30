@@ -121,14 +121,46 @@ class TestCLI < Minitest::Test
     end
   end
 
+  # Every console whose cartridge the inspector cannot read is named as what it is.
   def test_inspect_refuses_a_cartridge_that_is_not_the_advances
     Dir.mktmpdir do |dir|
-      rom = VBlank.build("COLOR", console: :gbc, out: StringIO.new, err: StringIO.new) { game_loop {} }
-      rom.write(File.join(dir, "color.gbc"))
-      out, status = cli("inspect", "color.gbc", dir: dir)
-      refute status.success?
-      assert_match(/color\.gbc is not a Game Boy Advance cartridge/, out)
-      refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+      VBlank::Console.kits.reject(&:inspector).each do |kit|
+        rom = VBlank.build("OTHER", console: kit.name, out: StringIO.new, err: StringIO.new) { game_loop {} }
+        file = "other#{kit.description.extension}"
+        rom.write(File.join(dir, file))
+        out, status = cli("inspect", file, dir: dir)
+
+        refute status.success?, kit.name
+        assert_match(/#{Regexp.escape(file)} is a #{kit.title} cartridge/, out)
+        assert_match(/Game Boy Advance/, out)
+        refute_match(/\.rb:\d+:in/, out, "should not leak a backtrace")
+      end
+    end
+  end
+
+  # EVERY CONSOLE IS OFFERED wherever a command asks which console: its name in the help of each
+  # command that takes --console, and a flag named for it that says how to build for it.
+  def test_every_console_is_named_where_a_command_takes_a_console
+    Dir.mktmpdir do |dir|
+      %w[build profile play run].each do |command|
+        out, = cli(command, "--help", dir: dir)
+        line = out.lines.find { |said| said.include?("--console NAME") }
+
+        refute_nil line, command
+        VBlank::Console.kits.each { |kit| assert_match(/\b#{kit.name}\b/, line, "#{command} --help") }
+      end
+    end
+  end
+
+  def test_a_flag_named_for_each_console_says_how_to_build_for_it
+    Dir.mktmpdir do |dir|
+      VBlank::Console.kits.each do |kit|
+        out, status = cli("build", "game.rb", "--#{kit.name}", dir: dir)
+
+        refute status.success?
+        assert_match(/--console=#{kit.name}/, out, kit.name)
+        assert_match(/#{kit.title}'s cartridge alone/, out)
+      end
     end
   end
 

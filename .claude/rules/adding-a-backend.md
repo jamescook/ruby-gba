@@ -68,8 +68,9 @@ a console of its own needs beyond a lowering:
   cartridges cannot answer is not in its module, so a reader over one of them does not have it: a
   Color reader has no `registers` at all. No reader subclasses another's.
 - **A kit naming all of it** (`Console::Kit`, `Console.for(:gbc)`, in `console/kit.rb`): its
-  description, its answers, the build that makes its cartridge (`Cartridge::ColorBuild`, handed a
-  `Cartridge::BuildRequest`), the cartridge kind, its part of the reader (`reading`), whether its
+  description, its answers, the build that makes its cartridge (`Cartridge::LoweredBuild`, the one
+  every console but the Advance shares, handed a `Cartridge::BuildRequest`), the cartridge kind,
+  its lowering and checked run (`Console::CheckedKit`), its part of the reader (`reading`), whether its
   builds are measured, and whether the desktop and web runtimes can draw it (`drawn_by_runtimes?`;
   they draw one screen size today, the Advance's, so `Console.drawn_by_runtimes` picks the console
   those builds are made as). The build, the reader, the cartridge-file reader and the command line ask the kit, so a
@@ -106,6 +107,30 @@ lowering made the routines a bend calls and the other did not):
 
 A third console that sees its cartridge a bank at a time starts from these. A decision found
 written in two lowerings goes here rather than being fixed in each.
+
+Reading such a cartridge back as it plays is shared the same way. `Backends::CartridgeHeadlessRun`
+is what both consoles' headless runs are: the interpreter's calls, the pass-by-pass loop, the
+buttons decided a frame at a time, the lists read back, and the words for a fault, whose number is
+one table for every console (`Backends::CartridgeFaults`). A console's run says only how its memory
+is read, how its runtime keeps its state and its fault, its picture, and what else it can answer
+(the sound, the clock). `test/vblank/ir/backends/test_cartridge_headless_run.rb` holds each to
+every public method of the interpreter. Where a runtime keeps a list's header stays its own.
+
+**Adding a console, what is still written by hand.** A console is one kit and one lowering; the
+build, the test run's player (`Testing::CartridgeCheckedPlayer`, made from the kit), the
+`skip_on_<name>` helper, the run's own test folder, the Rakefile's console list, the players the
+suite test holds to the interpreter's words, and the command line's console choices, its
+`--<name>` flag, `compare` and `inspect` all read the kits and the run records. What is left:
+
+- its description (`console/description.rb`), its hardware file, and its answers table;
+- its kit, a `Console::CheckedKit` subclass in `console/kit.rb`, and its entry in `KITS`;
+- its lowering, with a `CheckedRun` and a `HeadlessRun` on `CartridgeHeadlessRun`;
+- its cartridge class (`Cartridge::GBCROM`), its part of the reader (`Diagnostics::ColorReading`),
+  its emulator's opening (`Kit#open_core`), and its profiler;
+- its run's record in `Testing::Lowering::RUNS` (with `player: nil`), and in the Rakefile a task
+  that builds its emulator core if it plays in an emulator of its own;
+- `Testing::Pictures::LINE_UPS`, once the one cartridge reader plays its cartridges;
+- the CI workflow's shell, and its page under `.claude/dsl/` (generated from the answers).
 
 ## Start from the native lowering's statements
 

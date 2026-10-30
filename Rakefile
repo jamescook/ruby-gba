@@ -106,8 +106,8 @@ VBlank::Testing::RakeTasks.new do |t|
   # SDL=1 also builds and runs the desktop program, with its window (TestSuites::DESKTOP_TEST).
   t.test_files = TestSuites.all_files(desktop: ENV["SDL"] == "1")
   t.lowering_folders = TestSuites::LOWERING_FOLDERS
-  # The library builds for the Game Boy Color and the Super Nintendo too, so its suite plays their runs as well.
-  t.consoles = %i[gba gbc snes]
+  # The library builds for every console it has a kit for, so its suite plays every run there is.
+  t.consoles = VBlank::Console::KITS.keys
 end
 
 # What this repository's runs need besides: a whole run waits for any other on the machine, the

@@ -97,22 +97,15 @@ module VBlank
     # The class game_player makes one of, for this run (Lowering::Run#player).
     def self.player_class = RUN.player_class
 
-    # A test the native lowering cannot play yet skips itself on a native run, saying +why+ — and
-    # a native run ends by counting its skips by reason, so these cannot pile up unseen. On the
-    # GBA lowering's run it does nothing.
-    def skip_on_native(why) = skip_on_lowering(:native, why)
-
-    # The same, for the JavaScript lowering's run.
-    def skip_on_js(why) = skip_on_lowering(:js, why)
-
-    # The same, for the Ruby lowering's run.
-    def skip_on_ruby(why) = skip_on_lowering(:ruby, why)
-
-    # The same, for the Game Boy Color lowering's run.
-    def skip_on_gbc(why) = skip_on_lowering(:gbc, why)
-
-    # The same, for the Super Nintendo lowering's run.
-    def skip_on_snes(why) = skip_on_lowering(:snes, why)
+    # A test the native lowering cannot play yet skips itself on a native run, saying +why+
+    # (skip_on_native) — and a checked run ends by counting its skips by reason, so these cannot
+    # pile up unseen. On the GBA lowering's run it does nothing. There is one for every checked
+    # run in Lowering::RUNS, by its name: skip_on_native, skip_on_js, skip_on_ruby, skip_on_gbc,
+    # skip_on_snes. Each is written out as a plain method, not made from a block, so a test in a
+    # Ractor can call it.
+    Lowering::RUNS.select(&:checked?).each do |run|
+      module_eval("def skip_on_#{run.name}(why) = skip_on_lowering(:#{run.name}, why)", __FILE__, __LINE__)
+    end
 
     # The same, for the run of the lowering named +lowering+.
     # A name no lowering has is refused on every run, so a misspelt one cannot quietly never skip.

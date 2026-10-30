@@ -160,9 +160,9 @@ module VBlank
     CARTRIDGE = [nil, "a cartridge for each console the game names"].freeze
     FORMAT_FLAGS = {
       "--native" => NATIVE, "--desktop" => NATIVE, "--web" => WEB, "--html" => WEB,
-      "--gba" => ["--console=gba", "the Game Boy Advance's cartridge alone"],
-      "--gbc" => ["--console=gbc", "the Game Boy Color's cartridge alone"],
-      "--cartridge" => CARTRIDGE, "--rom" => CARTRIDGE
+      "--cartridge" => CARTRIDGE, "--rom" => CARTRIDGE,
+      # --gba, --gbc and one for every other console: its cartridge alone.
+      **VBlank::Console.kits.to_h { |kit| ["--#{kit.name}", ["--console=#{kit.name}", "the #{kit.title}'s cartridge alone"]] }
     }.freeze
 
     def self.refuse_unknown_option!(args, word, switch, known)
@@ -249,6 +249,21 @@ module VBlank
       Run vblank COMMAND --help to see a command's options.
     TEXT
 
+    # THE CONSOLES, as the help pages name them, from the kits (Console::KITS): every console a game
+    # can be for is offered wherever a command takes --console, with nothing to add here for one.
+    CONSOLE_NAMES = VBlank::Console.kits.map { |kit| kit.name.to_s }.freeze
+    # "gba, gbc or snes"
+    CONSOLE_CHOICES = "#{CONSOLE_NAMES[0...-1].join(', ')} or #{CONSOLE_NAMES.last}".freeze
+    # A line for each console: its name, the console, and the ending of its cartridge's file.
+    CONSOLE_LINES = VBlank::Console.kits.map do |kit|
+      "  #{kit.name.to_s.ljust(6)}the #{kit.title}, a #{kit.description.extension}"
+    end.join("\n").freeze
+    # The consoles whose cartridges `compare` can line up side by side
+    # (Console::Kit#compared_side_by_side?), and how a sentence says them.
+    COMPARED = VBlank::Console.kits.select(&:compared_side_by_side?).freeze
+    COMPARED_TITLES = COMPARED.map(&:title).join(" and ").freeze
+    COMPARED_NAMES = COMPARED.map(&:name).freeze
+
     # The words for --set, the same on every command that takes it.
     SET = "--set NAME=VALUE ...     Values for the game's `setting` lines."
 
@@ -272,15 +287,17 @@ module VBlank
           # ...the game...
         end
 
-      consoles: names the consoles the game is for: gba for the Game Boy Advance,
-      gbc for the Game Boy Color. The build makes a cartridge for each, beside
-      GAME_FILE and named from the game's title: a .gba for the Advance and a
-      .gbc for the Color. If one console's cartridge cannot be built, the build
-      still writes the others, says why, and ends as a failure.
+      consoles: names the consoles the game is for. The build makes a cartridge
+      for each, beside GAME_FILE and named from the game's title:
 
-      A game for the Color must lay itself out from `screen_width` and
-      `screen_height`, since the Color's screen is smaller. The build says what
-      the Color shows differently and what it cannot do.
+      #{CONSOLE_LINES}
+
+      If one console's cartridge cannot be built, the build still writes the
+      others, says why, and ends as a failure.
+
+      A game for more than one console must lay itself out from `screen_width`
+      and `screen_height`, since the screens are not the same size. The build
+      says what each console shows differently and what it cannot do.
 
       Examples:
         vblank build game.rb                    a .gba cartridge, and a .gbc if
@@ -298,10 +315,10 @@ module VBlank
         -o, --output PATH        Where to write what is built. PATH is one file,
                                  so a game for two consoles needs --console too.
         --format FORMAT          game, ir, native, ruby or web. Default: game.
-        --console NAME           gba or gbc: build that console's cartridge
-                                 alone. Default: one for each console the game
-                                 names. With --format ruby: the console to
-                                 play the game as. Default: the first one.
+        --console NAME           #{CONSOLE_CHOICES}: build that console's
+                                 cartridge alone. Default: one for each console
+                                 the game names. With --format ruby: the console
+                                 to play the game as. Default: the first one.
         --variant NAME           The chip on the cartridge, such as superfx
                                  for a Super Nintendo cartridge with a Super
                                  FX 2, or none. Default: what the game names
@@ -410,8 +427,8 @@ module VBlank
         vblank profile game.rb --console gbc      its Game Boy Color cartridge
 
       Options:
-        --console NAME           gba or gbc: which console's cartridge to run.
-                                 A game for both consoles needs it.
+        --console NAME           #{CONSOLE_CHOICES}: which console's cartridge
+                                 to run. A game for several consoles needs it.
         --keys BUTTON ...        Hold these buttons for the whole run. The
                                  buttons are:
                                  #{BUTTONS}
@@ -484,8 +501,9 @@ module VBlank
 
       Options:
         #{PRESSES.gsub("\n", "\n  ")}
-        --console NAME           gba or gbc: which console's cartridge to build
-                                 a game file as. A game for both needs it.
+        --console NAME           #{CONSOLE_CHOICES}: which console's cartridge
+                                 to build a game file as. A game for several
+                                 consoles needs it.
         --lead-in NAME           Play this playthrough first, and do not count it:
                                  a way past logos and a title screen. Needs
                                  --script, even with --tape.
@@ -512,8 +530,8 @@ module VBlank
 
       Play two cartridges on the same presses, and say the first frame on which
       their screens differ. Each is a game file (a .rb, built first) or a .gba.
-      A comparison compares Game Boy Advance cartridges only, so a game file for
-      both consoles needs --console gba.
+      A comparison compares #{COMPARED_TITLES} cartridges only, so a game file
+      for several consoles needs --console #{COMPARED_NAMES.join(" or ")}.
 
       Exit status: 0 the same, 1 different, 2 not compared (a file that is not
       there, a script that gave up).
@@ -525,7 +543,8 @@ module VBlank
 
       What to press, as for vblank play:
         #{PRESSES.gsub("\n", "\n  ")}
-        --console gba            Build a game file for both consoles as its .gba.
+        --console NAME           #{COMPARED_NAMES.join(" or ")}: which console's cartridge to
+                                 build a game file for several consoles as.
         --same WHICH             tape or script. Default: tape.
                                  tape: both get the same presses on the same
                                  frames.
@@ -577,8 +596,8 @@ module VBlank
     option :lead_ins, type: :array, banner: "NAME"
     option :reports_in, banner: "DIR"
     def compare(first_file, second_file)
-      # A comparison lines screens up at the Advance's size, so the Advance's is the one to offer.
-      result = with_playthroughs_command_line("compare", offered: [:gba]) do |command|
+      # A comparison lines screens up at one size, so only the consoles whose kits say it can are offered.
+      result = with_playthroughs_command_line("compare", offered: COMPARED_NAMES) do |command|
         command.compare(first_file, second_file)
       end
       exit DRIFTED if result.drift?
@@ -680,8 +699,9 @@ module VBlank
       shows fewer pictures than the game has frames.
 
       Options:
-        --console NAME           gba or gbc: which console to play the game as.
-                                 Default: the first console in consoles:.
+        --console NAME           #{CONSOLE_CHOICES}: which console to play the
+                                 game as. Default: the first console in
+                                 consoles:.
         --scale N                The window is N times the size of the screen.
                                  Default: the size in the settings file, which
                                  is 3 until you change it. You can change the
@@ -742,14 +762,19 @@ module VBlank
     TEXT
     def inspect(rom_file)
       raise Thor::Error, "I cannot find the ROM file #{rom_file}." unless File.file?(rom_file)
-      # The inspector reads the Advance's header and disassembles ARM, so another console's
-      # cartridge would come out as numbers that look like an answer and mean nothing.
-      unless VBlank::Cartridge::ROM.header?(File.binread(rom_file))
-        raise Thor::Error, "#{rom_file} is not a Game Boy Advance cartridge. `vblank inspect` reads only the " \
-                           "header and the code of an Advance cartridge. Give it a .gba file."
-      end
 
-      VBlank::Diagnostics::Inspector.new(rom_file).report
+      # The cartridge's own header says which console it is for. A console with no inspector yet
+      # is refused by name: the Advance's reads its header and disassembles ARM, so another
+      # console's cartridge would come out as numbers that look like an answer and mean nothing.
+      bytes = File.binread(rom_file)
+      kit = VBlank::Console.kits.find { |each| each.cartridge.header?(bytes) }
+      return kit.inspector.new(rom_file).report if kit&.inspector
+
+      inspected = VBlank::Console.kits.select(&:inspector)
+      what = kit ? "is a #{kit.title} cartridge" : "is not a cartridge of a console that VBlank builds for"
+      raise Thor::Error, "#{rom_file} #{what}. `vblank inspect` reads only the header and the code of a " \
+                         "#{inspected.map(&:title).join(' or ')} cartridge. To fix this, give it a " \
+                         "#{inspected.map { |each| each.description.extension }.join(' or ')} file."
     end
 
     desc "new NAME", "Write a starter game to NAME.rb"
