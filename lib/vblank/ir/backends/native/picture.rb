@@ -880,14 +880,14 @@ module VBlank
           # program has one place for them, settled before it runs (#names_left_out_of_blocks).
           def lower_pixelate(node) = [eval_call("rg_screen_pixelate", value(node.size))]
 
-          # Reference#exec_tint: counted in thirty-seconds however it reaches the screen. Which way
+          # Reference#exec_tint: counted in 256ths however it reaches the screen. Which way
           # it is mixed follows the screen up, which rg_screen.c knows.
           def lower_tint(node)
             steps = call("rg_fade_steps", value(node.amount), C::Int.new(node.fraction_bits || -1), C::Int.new(1))
             [eval_call("rg_screen_tint", color(node.color), steps)]
           end
 
-          # 1 where this fade or tint walks the colors in thirty-seconds rather than having the
+          # 1 where this fade or tint walks the colors in 256ths rather than having the
           # display blend in sixteenths, which the whole program decides (see IR::Fading).
           def walks_colors(node) = C::Int.new(@fading.palette_walk?(node) ? 1 : 0)
 

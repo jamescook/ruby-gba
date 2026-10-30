@@ -222,7 +222,7 @@ void rg_see_through_answer(int32_t shows, int32_t behind);
 void rg_game_see_through_amounts(void);
 
 /* A fade toward black (0) or white (1), in sixteenths of the display or, when +walked+, in
- * thirty-seconds of a walk through the colors (see Backends::FadeSteps). */
+ * 256ths of a walk through the colors (see Backends::FadeSteps). */
 void rg_screen_fade(int32_t toward_white, int32_t steps, int32_t walked);
 /* The same fade PLACED IN THE STACK: what is behind the layer it names fades, and that layer and
  * everything in front of it are left as drawn. +layer_place+ is how far forward that layer is
@@ -239,7 +239,7 @@ void rg_screen_fade_under(int32_t layer_place, int32_t toward_white, int32_t ste
 #define RG_FADE_OUTSIDE 2
 void rg_screen_fade_in_area(int32_t reaches, int32_t left, int32_t top, int32_t right, int32_t bottom,
                             int32_t toward_white, int32_t steps);
-/* A tint toward +color+, in thirty-seconds. On the plain bitmap screen the display mixes it in as
+/* A tint toward +color+, in 256ths. On the plain bitmap screen the display mixes it in as
  * it draws, at eight bits a channel; on every other screen the game writes the tinted colors
  * itself. That follows the screen up, so a tint kept across a change of screen changes with it. */
 void rg_screen_tint(int32_t color, int32_t steps);

@@ -27,8 +27,8 @@ module FadeGames
   # because the share taken from 31 rounds down exactly half the time.
   RED_FADED_TO_BLACK = [31, 30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2, 0].freeze
 
-  # Thirty-two steps rather than sixteen: one for each thirty-second of the way, which is
-  # as fine as a five-bit channel can go. A percentage for each.
+  # Thirty-two steps rather than sixteen: one for each thirty-second of the way, eight of
+  # the walk's 256ths each. A percentage for each.
   EVERY_FINE_LEVEL = (0..32).map { |step| step * 100.0 / 32 }.freeze
 
   # Written out, for the reason RED_FADED_TO_BLACK is, and by the same rule: a share is taken
@@ -297,7 +297,7 @@ class TestFade < Minitest::Test
   end
 
   # An amount the game works out far past 100 is a fade all the way, as one of 100 is: eight
-  # times over is 256 thirty-seconds, which a console that reads the steps a byte at a time
+  # times over is 2048 256ths, which a console that reads the steps a byte at a time
   # would see as none.
   def test_a_fraction_worked_out_far_past_the_end_fades_all_the_way
     tile = SOLID_TILE

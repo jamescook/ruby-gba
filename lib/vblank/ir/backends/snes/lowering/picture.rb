@@ -756,7 +756,7 @@ module VBlank
             # --- fades and tints ---
 
             # Reference#exec_fade, as a fade that walks the colours (IR::Fading walks every fade on a
-            # console that cannot blend, Runtime::Tint): toward black or white by the thirty-seconds
+            # console that cannot blend, Runtime::Tint): toward black or white by the 256ths
             # the amount comes to. A fade placed under a layer or held to part of the screen needs a
             # blend the build does not make.
             def emit_fade(node)
@@ -766,7 +766,7 @@ module VBlank
               runtime_call("rt_tint", [Build.int(toward), Build.int(0), walk_steps(node)])
             end
 
-            # Reference#exec_tint: toward the colour, in thirty-seconds.
+            # Reference#exec_tint: toward the colour, in 256ths.
             def emit_tint(node)
               runtime_call("rt_tint", [Build.int(Runtime::Tint::TOWARD_COLOR), Build.int(Graphics::Color.resolve(node.color)),
                                        walk_steps(node)])

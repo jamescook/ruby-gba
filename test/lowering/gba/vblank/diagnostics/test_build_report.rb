@@ -239,15 +239,15 @@ class TestBuildReport < Minitest::Test
 
   # The one place the author sees the price of a long fade: the colors are walked on each
   # frame it moves, where the display's own fade is free.
-  def test_a_long_fade_is_said_to_walk_the_colors_in_33_levels
+  def test_a_long_fade_is_said_to_walk_the_colors_in_257_levels
     text = report_for(fading_game(33))
 
-    assert_match(/33 levels/, text)
+    assert_match(/257 levels/, text)
     assert_match(/each frame it moves/, text)
   end
 
   def test_a_short_fade_is_not_mentioned
-    refute_match(/33 levels|17 levels/, report_for(fading_game(12)))
+    refute_match(/257 levels|17 levels/, report_for(fading_game(12)))
   end
 
   # A placed fade cannot walk the colors, so a long one is told what it gives up.
@@ -255,7 +255,7 @@ class TestBuildReport < Minitest::Test
     text = report_for(fading_game(33, under: :ui))
 
     assert_match(/17 levels/, text)
-    refute_match(/33 levels/, text)
+    refute_match(/257 levels/, text)
   end
 
   # --- save memory, whose size the build picks and nothing else reports ---

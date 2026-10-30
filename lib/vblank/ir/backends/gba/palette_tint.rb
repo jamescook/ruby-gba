@@ -46,49 +46,59 @@ module VBlank
 
           # The last tint written into the color table, so a tint that has not moved can
           # be skipped. It packs the color and how far, because both have to match for the
-          # table to already be right: (color << 5) | steps. Zero steps means "the table
-          # holds the originals", whatever color was asked for — so every un-tinted state
+          # table to already be right: (color << #state_shift) | steps. Zero steps means "the
+          # table holds the originals", whatever color was asked for — so every un-tinted state
           # is the same state and a game that never tints never rewrites anything.
           TINT_STATE = :__tint_state
 
           # The two halves of a 15-bit color, chosen so each can be blended with ONE
           # multiply. Red and blue sit five bits apart with green between them, so masking
-          # green away leaves two fields far enough apart that multiplying by up to 16
+          # green away leaves two fields far enough apart that multiplying by up to 32
           # cannot make either overflow into the other. Green is then done on its own.
           RB_MASK = 0x7C1F
           G_MASK = 0x03E0
 
-          # A walk counts in thirty-seconds, as fine as a channel goes, so dividing by 32 is a
-          # shift of 5 (see IR::Fading). The display's blend counts in sixteenths, and a
-          # sixteenth is two thirty-seconds, so a tint asked for in sixteenths walks to the
-          # same colors it always did.
+          # HOW FINELY THE WALK COUNTS. A walk means 256ths (see Backends::FadeSteps), and a
+          # whole percentage is always a whole number of sixteenths, which is a whole number of
+          # thirty-seconds. So a game that never asks for a fraction counts in thirty-seconds,
+          # dividing by 32 with a shift of 5, and red times 32 still fits in the ten bits below
+          # blue: red and blue go through one multiply as they are. That is the COARSE walk,
+          # and it is the same picture to the bit as the fine one would be.
           #
-          # Why no finer: red and blue are blended in one multiply, and red times 32 still
-          # fits in the ten bits below blue. Times 64 would run into it.
-          WALK_STEPS = FadeSteps::WALK
-          BLEND_SHIFT = 5
+          # A game that asks for a fraction anywhere gets the FINE walk, in 256ths, dividing by
+          # 256 with a shift of 8. Red times 256 runs into blue, so blue is moved up to sit
+          # sixteen bits above red for the multiply and back down after it: four instructions
+          # more for each colour, on a frame the tint moves. Only such a game pays them.
+          COARSE_WALK = 32
+          COARSE_SHIFT = 5
+          FINE_WALK = FadeSteps::WALK
+          FINE_SHIFT = 8
+
+          # Where blue sits for the fine walk's multiply, and where it is moved from: red stays
+          # at the bottom, and a channel times 256 plus a share is thirteen bits, short of 16.
+          FINE_BLUE_LANE = 16
+          BLUE_MASK = 0x7C00
+          RED_MASK = 0x001F
 
           # Registers held across the walk. It runs as a whole statement, so every
           # register but the variable-address scratch is free.
           TINT_SRC = 2   # where the originals are being read from (the cartridge)
           TINT_DST = 3   # where the blended entries are being written (the color table)
           TINT_END = 4   # one past the last original, which is what ends the walk
-          TINT_KEEP = 5  # how much of the original survives, in thirty-seconds
-          TINT_RB = 6    # the red/blue mask, held rather than rebuilt per entry
+          TINT_KEEP = 5  # how much of the original survives, in the walk's steps
+          TINT_RB = 6    # the red/blue mask, held rather than rebuilt per entry (the fine walk's spare)
           TINT_G = 7     # the green mask, likewise
           TINT_ADD = 8   # the color's own red and blue share — the same for every entry
           TINT_ADD_G = 9 # ...and its green one
           TINT_STEPS = 10 # where the steps wait while the remembered tint is compared
-
-          TINT_COLOR_SHIFT = 6 # the steps (0..32) sit below the color in the state word
 
           # A FADE TOWARD BLACK, which is not quite a tint toward black. A mix KEEPS a share of
           # each channel and drops the fraction, so it rounds down; the display's own fade takes
           # a share AWAY and drops the fraction of that, so it rounds up. On a dark picture the
           # two are a whole frame apart at the end of a fade in — the mix is still flat black
           # on a frame where the display's fade already shows the picture. So a walked fade
-          # rounds the way the display does: nearly one whole step (31 thirty-seconds) is added
-          # to each channel before the fraction is dropped. Toward white the two rules are
+          # rounds the way the display does: nearly one whole step (one of the walk's steps
+          # short of it) is added to each channel before the fraction is dropped. Toward white the two rules are
           # already the same one.
           #
           # It is said as a color no picture can have — the bit above a 15-bit color — so it
@@ -292,7 +302,58 @@ module VBlank
             @darkens = program.walk.any? do |node|
               node.kind == :fade && node.toward == :black && fading.palette_walk?(node)
             end
+            @fine = program.walk.any? { |node| %i[tint fade].include?(node.kind) && node.fraction_bits }
             mark_tint_tables_unpacked if @palette_tint
+          end
+
+          # The steps a walk counts in for this game: 256ths when it asks for a fraction
+          # anywhere, thirty-seconds otherwise (see COARSE_WALK).
+          def walk_levels = @fine ? FINE_WALK : COARSE_WALK
+
+          # How far the colour sits above the steps in the state word: past the most steps
+          # there are.
+          def state_shift = (walk_levels << 1).bit_length - 1
+
+          # A walk's steps, from the 256ths a walk means (FadeSteps.steps): exact, since a game
+          # walking coarse only ever asks for whole sixteenths.
+          def walk_steps(steps) = steps * walk_levels / FINE_WALK
+
+          # The same for an amount the game works out.
+          def walk_steps_value(amount, fraction_bits)
+            return FadeSteps.steps_value(amount, fraction_bits: fraction_bits, walked: true) if @fine
+
+            sixteenths = FadeSteps.steps_value(amount, fraction_bits: nil, walked: false)
+            Build.binop(:*, sixteenths, Build.int(COARSE_WALK / FadeSteps::DISPLAY))
+          end
+
+          # The steps of the state word in +src+, into +dest+. Thirty-seconds take six bits,
+          # which one AND keeps; 256ths take nine, which no AND can say in one instruction, so
+          # the colour is shifted off the top and the steps back down.
+          def emit_state_steps(dest, src)
+            return @emitter.emit(ASM.and_imm(dest, src, (1 << state_shift) - 1)) unless @fine
+
+            @emitter.emit(ASM.lsl_imm(dest, src, 32 - state_shift))
+            @emitter.emit(ASM.lsr_imm(dest, dest, 32 - state_shift))
+          end
+
+          # The steps of the state word in +src+, as the display's sixteenths, into ACC.
+          def emit_state_steps_in_sixteenths(src)
+            emit_state_steps(ACC, src)
+            @emitter.emit(ASM.lsr_imm(ACC, ACC, Math.log2(walk_levels / FadeSteps::DISPLAY).to_i))
+          end
+
+          # What a fade toward black adds to each channel before the fraction is dropped: one of
+          # the walk's steps short of a whole one (see DARKEN). Coarse, that is 31 in each field,
+          # which is the masks themselves; fine, 255 in each lane.
+          def darken_rb = @fine ? (FINE_WALK - 1) | ((FINE_WALK - 1) << FINE_BLUE_LANE) : RB_MASK
+          def darken_g = @fine ? (FINE_WALK - 1) << 5 : G_MASK
+
+          # Red and blue of +color+ as the walk multiplies them: in place coarse, and with blue
+          # moved up to its lane fine.
+          def blend_lanes(color)
+            return color & RB_MASK unless @fine
+
+            (color & RED_MASK) | ((color & BLUE_MASK) << (FINE_BLUE_LANE - 10))
           end
 
           # A TINT LEFT ON WHILE THE GAME CHANGES SCREEN. The plain bitmap screen tints through
@@ -313,11 +374,11 @@ module VBlank
           # Keep the tint a statement asks for, worked out the way a walk counts it.
           def emit_remember_tint(color, amount, fraction_bits)
             if (written = @primitives.const_int(amount))
-              steps = FadeSteps.steps(written, fraction_bits: fraction_bits, walked: true)
+              steps = walk_steps(FadeSteps.steps(written, fraction_bits: fraction_bits, walked: true))
               return @primitives.store_word_immediate(tint_state_word(color, steps), @primitives.var_addr(TINT_ASKED))
             end
 
-            emit_tint_word(color, FadeSteps.steps_value(amount, fraction_bits: fraction_bits, walked: true))
+            emit_tint_word(color, walk_steps_value(amount, fraction_bits))
             @primitives.store_var(TMP, TINT_ASKED)
           end
 
@@ -380,8 +441,8 @@ module VBlank
 
             done = @emitter.gensym
             written = @primitives.const_int(amount)
-            steps = written && FadeSteps.steps(written, fraction_bits: fraction_bits, walked: true)
-            asked = steps || FadeSteps.steps_value(amount, fraction_bits: fraction_bits, walked: true)
+            steps = written && walk_steps(FadeSteps.steps(written, fraction_bits: fraction_bits, walked: true))
+            asked = steps || walk_steps_value(amount, fraction_bits)
             emit_tint_state(color, asked, done) # r0 = the steps, when the game works them out
             emit_tint_shares(color, steps)
             tint_tables(mode).each { |blob, dest, units| emit_tint_table(blob, dest, units) }
@@ -395,7 +456,7 @@ module VBlank
           #
           # A tint the author wrote down settles to a number of steps while building, so the
           # compare is against a plain number. One the game works out arrives as the value
-          # that turns it into thirty-seconds as it runs, and r0 carries those steps on to
+          # that turns it into the walk's steps as it runs, and r0 carries those steps on to
           # #emit_tint_shares rather than their being worked out twice.
           def emit_tint_state(color, steps, done)
             if steps.is_a?(Integer)
@@ -417,16 +478,16 @@ module VBlank
           end
 
           def tint_state_word(color, steps)
-            steps.zero? ? 0 : (color << TINT_COLOR_SHIFT) | steps
+            steps.zero? ? 0 : (color << state_shift) | steps
           end
 
           # The same word for steps the game works out: r1 holds it after, and the steps are
           # left in r0 and kept in TINT_STEPS.
           def emit_tint_word(color, steps)
             @lowering.value(steps)
-            @drawing.emit_clamp_blend_steps(WALK_STEPS)
+            @drawing.emit_clamp_blend_steps(walk_levels)
             @emitter.emit(ASM.mov_reg(TINT_STEPS, ACC))                      # kept while the state is compared
-            @emitter.emit_number(TMP, color << TINT_COLOR_SHIFT)
+            @emitter.emit_number(TMP, color << state_shift)
             @emitter.emit(ASM.orr_reg(TMP, TMP, ACC))                        # r1 = the state asked for
             @emitter.emit(ASM.cmp_imm(ACC, 0))
             @emitter.emit(ASM.mov_imm_cond(:eq, TMP, 0))                     # ...but no tint is one state
@@ -446,25 +507,43 @@ module VBlank
           # r0 holds the steps on the way in; +steps+ is them again when they were written
           # down, and nil when the game works them out.
           def emit_tint_shares(color, steps)
-            @emitter.emit_number(TINT_RB, RB_MASK)
+            @emitter.emit_number(TINT_RB, RB_MASK) unless @fine
             @emitter.emit_number(TINT_G, G_MASK)
-            @emitter.emit_number(TINT_KEEP, WALK_STEPS)
-            @emitter.emit(ASM.sub_reg(TINT_KEEP, TINT_KEEP, ACC)) # 32 thirty-seconds, less the tint's
+            @emitter.emit_number(TINT_KEEP, walk_levels)
+            @emitter.emit(ASM.sub_reg(TINT_KEEP, TINT_KEEP, ACC)) # every step of the walk, less the tint's
 
             darken = color == DARKEN
             if steps
-              @emitter.emit_number(TINT_ADD, ((color & RB_MASK) * steps) + (darken ? RB_MASK : 0))
-              return @emitter.emit_number(TINT_ADD_G, ((color & G_MASK) * steps) + (darken ? G_MASK : 0))
+              @emitter.emit_number(TINT_ADD, (blend_lanes(color) * steps) + (darken ? darken_rb : 0))
+              return @emitter.emit_number(TINT_ADD_G, ((color & G_MASK) * steps) + (darken ? darken_g : 0))
             end
 
-            @emitter.emit_number(TMP, color & RB_MASK)
+            @emitter.emit_number(TMP, blend_lanes(color))
             @emitter.emit(ASM.mul(TINT_ADD, TMP, ACC))
             @emitter.emit_number(TMP, color & G_MASK)
             @emitter.emit(ASM.mul(TINT_ADD_G, TMP, ACC))
             return unless darken
 
-            @emitter.emit(ASM.add_reg(TINT_ADD, TINT_ADD, TINT_RB))   # ...rounded the display's way
-            @emitter.emit(ASM.add_reg(TINT_ADD_G, TINT_ADD_G, TINT_G))
+            emit_darken_rounding # ...rounded the display's way
+          end
+
+          # Add a fade toward black's rounding to the color's shares (see #darken_rb). Coarse,
+          # the masks the walk holds are the rounding; fine, it is loaded.
+          def emit_darken_rounding(cond: nil)
+            unless @fine
+              @emitter.emit(add_shares(TINT_ADD, TINT_RB, cond))
+              @emitter.emit(add_shares(TINT_ADD_G, TINT_G, cond))
+              return
+            end
+
+            @emitter.emit_number(TMP, darken_rb)
+            @emitter.emit(add_shares(TINT_ADD, TMP, cond))
+            @emitter.emit_number(TMP, darken_g)
+            @emitter.emit(add_shares(TINT_ADD_G, TMP, cond))
+          end
+
+          def add_shares(share, rounding, cond)
+            cond ? ASM.add_reg_cond(cond, share, share, rounding) : ASM.add_reg(share, share, rounding)
           end
 
           # Walk one color table: read each original from the cartridge, blend it, write
@@ -503,15 +582,11 @@ module VBlank
             top = @emitter.gensym
             @emitter.place_label(top)
             @emitter.emit(ASM.load_halfword(ACC, TINT_SRC))        # r0 = the original color
-            @emitter.emit(ASM.and_reg(TMP, ACC, TINT_RB))
-            @emitter.emit(ASM.mul(TMP, TINT_KEEP, TMP))            # red and blue, both at once
-            @emitter.emit(ASM.add_reg(TMP, TMP, TINT_ADD))         # + the color's share, before the drop
-            @emitter.emit(ASM.lsr_imm(TMP, TMP, BLEND_SHIFT))
-            @emitter.emit(ASM.and_reg(TMP, TMP, TINT_RB))
+            @fine ? emit_fine_red_and_blue : emit_coarse_red_and_blue
             @emitter.emit(ASM.and_reg(ACC, ACC, TINT_G))
             @emitter.emit(ASM.mul(ACC, TINT_KEEP, ACC))            # ...then green
             @emitter.emit(ASM.add_reg(ACC, ACC, TINT_ADD_G))
-            @emitter.emit(ASM.lsr_imm(ACC, ACC, BLEND_SHIFT))
+            @emitter.emit(ASM.lsr_imm(ACC, ACC, @fine ? FINE_SHIFT : COARSE_SHIFT))
             @emitter.emit(ASM.and_reg(ACC, ACC, TINT_G))
             @emitter.emit(ASM.add_reg(ACC, ACC, TMP))
             @emitter.emit(ASM.store_halfword(ACC, TINT_DST))
@@ -519,6 +594,29 @@ module VBlank
             @emitter.emit(ASM.add_imm(TINT_DST, TINT_DST, 2))
             @emitter.emit(ASM.cmp_reg(TINT_SRC, TINT_END))
             @emitter.emit_branch(:bcond, top, cond: :ne)
+          end
+
+          # The red and blue of the color in r0, blended, into TMP where they sit in a color.
+          def emit_coarse_red_and_blue
+            @emitter.emit(ASM.and_reg(TMP, ACC, TINT_RB))
+            @emitter.emit(ASM.mul(TMP, TINT_KEEP, TMP))            # red and blue, both at once
+            @emitter.emit(ASM.add_reg(TMP, TMP, TINT_ADD))         # + the color's share, before the drop
+            @emitter.emit(ASM.lsr_imm(TMP, TMP, COARSE_SHIFT))
+            @emitter.emit(ASM.and_reg(TMP, TMP, TINT_RB))
+          end
+
+          # The same in 256ths: blue moved up to its lane (FINE_BLUE_LANE) so one multiply still
+          # does both, and each taken out of its lane and put back where it sits in a color.
+          def emit_fine_red_and_blue
+            @emitter.emit(ASM.and_imm(TMP, ACC, RED_MASK))
+            @emitter.emit(ASM.and_imm(TINT_RB, ACC, BLUE_MASK))
+            @emitter.emit(ASM.orr_reg_lsl(TMP, TMP, TINT_RB, FINE_BLUE_LANE - 10))
+            @emitter.emit(ASM.mul(TMP, TINT_KEEP, TMP))            # red and blue, both at once
+            @emitter.emit(ASM.add_reg(TMP, TMP, TINT_ADD))         # + the color's share, before the drop
+            @emitter.emit(ASM.and_imm(TINT_RB, TMP, BLUE_MASK >> 10 << (FINE_BLUE_LANE + FINE_SHIFT)))
+            @emitter.emit(ASM.and_imm(TMP, TMP, RED_MASK << FINE_SHIFT))
+            @emitter.emit(ASM.lsr_imm(TMP, TMP, FINE_SHIFT))
+            @emitter.emit(ASM.add_reg_lsr(TMP, TMP, TINT_RB, FINE_BLUE_LANE + FINE_SHIFT - 10))
           end
 
           # PUT A LAYER'S OTHER COLOURS INTO THE GROUP ITS TILES READ, through whatever tint
@@ -530,7 +628,7 @@ module VBlank
           # layer told `draw_with` replaces sixteen of them. A plain copy would put full
           # brightness back into the middle of a screen that is meant to be dark — one layer
           # glowing through a fade. With no tint in force the arithmetic is the identity
-          # (keep all thirty-two thirty-seconds, add nothing), so a game that never tints pays a few
+          # (keep every step of the walk, add nothing), so a game that never tints pays a few
           # instructions on a frame where the colours changed and nothing else.
           def emit_colors_into_bank(dest, units)
             @emitter.emit(ASM.mov_reg(TINT_SRC, ACC))
@@ -605,23 +703,28 @@ module VBlank
           # nought means the table holds the originals, which comes out as the identity.
           def emit_tint_shares_from_state
             @primitives.load_var(ACC, TINT_STATE)
-            @emitter.emit(ASM.lsr_imm(TINT_STEPS, ACC, TINT_COLOR_SHIFT))  # the colour
-            @emitter.emit(ASM.and_imm(ACC, ACC, (1 << TINT_COLOR_SHIFT) - 1)) # ...and the steps
-            @emitter.emit_number(TINT_RB, RB_MASK)
+            @emitter.emit(ASM.lsr_imm(TINT_STEPS, ACC, state_shift))  # the colour
+            emit_state_steps(ACC, ACC)                                  # ...and the steps
+            @emitter.emit_number(TINT_RB, RB_MASK) unless @fine
             @emitter.emit_number(TINT_G, G_MASK)
-            @emitter.emit_number(TINT_KEEP, WALK_STEPS)
+            @emitter.emit_number(TINT_KEEP, walk_levels)
             @emitter.emit(ASM.sub_reg(TINT_KEEP, TINT_KEEP, ACC))
-            @emitter.emit(ASM.and_reg(TMP, TINT_STEPS, TINT_RB))
+            if @fine
+              @emitter.emit(ASM.and_imm(TMP, TINT_STEPS, RED_MASK))
+              @emitter.emit(ASM.and_imm(TINT_RB, TINT_STEPS, BLUE_MASK))
+              @emitter.emit(ASM.orr_reg_lsl(TMP, TMP, TINT_RB, FINE_BLUE_LANE - 10))
+            else
+              @emitter.emit(ASM.and_reg(TMP, TINT_STEPS, TINT_RB))
+            end
             @emitter.emit(ASM.mul(TINT_ADD, TMP, ACC))
             @emitter.emit(ASM.and_reg(TMP, TINT_STEPS, TINT_G))
             @emitter.emit(ASM.mul(TINT_ADD_G, TMP, ACC))
             return unless @darkens
 
             # A fade toward black in force rounds the display's way (see DARKEN). Only a build
-            # that walks one pays the three instructions.
+            # that walks one pays for it.
             @emitter.emit(ASM.tst_imm(TINT_STEPS, DARKEN))
-            @emitter.emit(ASM.add_reg_cond(:ne, TINT_ADD, TINT_ADD, TINT_RB))
-            @emitter.emit(ASM.add_reg_cond(:ne, TINT_ADD_G, TINT_ADD_G, TINT_G))
+            emit_darken_rounding(cond: :ne)
           end
 
           # The color tables a screen draws through, as (blob, where the display reads it,

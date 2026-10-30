@@ -34,6 +34,10 @@ RG_FADE_OUTSIDE = 2
 
 RG_NOT_DRAWN = -1      # a sprite picture's pixel where what is behind shows
 RG_SEE_THROUGH = 0xFFFF # a tile's pixel where the layer behind shows
+
+# Backends::FadeSteps: a walk of the colors counts in 256ths, sixteen to a display's step.
+RG_WALK_STEPS = 256
+RG_WALK_PER_DISPLAY = 16
 RG_SOLID = -1          # a thing in no see-through layer
 RG_NO_NAME = -1
 RG_NOT_IN_BLOCKS = -1
@@ -634,7 +638,7 @@ def rg_walked_toward(color, white, steps)
   out = 0
   3.times do |channel|
     c = (color >> (5 * channel)) & 0x1F
-    c = white != 0 ? c + (((31 - c) * steps) / 32) : c - ((c * steps) / 32)
+    c = white != 0 ? c + (((31 - c) * steps) / RG_WALK_STEPS) : c - ((c * steps) / RG_WALK_STEPS)
     out |= c << (5 * channel)
   end
   out
@@ -647,7 +651,7 @@ end
 def rg_mixed(color, toward, steps, by_display)
   return color if steps == 0
 
-  keep = 32 - steps
+  keep = RG_WALK_STEPS - steps
   red = rg_mixed_channel(color & 0x1F, toward & 0x1F, keep, steps, by_display)
   green = rg_mixed_channel((color >> 5) & 0x1F, (toward >> 5) & 0x1F, keep, steps, by_display)
   blue = rg_mixed_channel((color >> 10) & 0x1F, (toward >> 10) & 0x1F, keep, steps, by_display)
@@ -656,9 +660,9 @@ end
 
 # One channel of rg_mixed, five bits in and five out.
 def rg_mixed_channel(have, want, keep, steps, by_display)
-  return ((have * keep) + (want * steps)) / 32 unless by_display
+  return ((have * keep) + (want * steps)) / RG_WALK_STEPS unless by_display
 
-  (((((have << 3) | (have >> 2)) * keep) + (((want << 3) | (want >> 2)) * steps)) / 32) >> 3
+  (((((have << 3) | (have >> 2)) * keep) + (((want << 3) | (want >> 2)) * steps)) / RG_WALK_STEPS) >> 3
 end
 
 # Framebuffer#faded. +fade_here+ is false where a fade held to a rectangle does not reach.
@@ -666,12 +670,12 @@ def rg_faded_where(color, fade_here)
   case @rg_tint_mode
   when :toward
     # On the plain bitmap screen the display does a walked fade, in sixteenths.
-    return rg_faded_by_display(color, @rg_tint_white, @rg_tint_steps >> 1) if @rg_tint_by_display
+    return rg_faded_by_display(color, @rg_tint_white, @rg_tint_steps / RG_WALK_PER_DISPLAY) if @rg_tint_by_display
 
     return rg_walked_toward(color, @rg_tint_white, @rg_tint_steps)
   when :color
-    # The display counts in sixteenths, the even thirty-seconds, so an odd step is dropped.
-    steps = @rg_tint_by_display ? @rg_tint_steps & ~1 : @rg_tint_steps
+    # The display counts in sixteenths, every sixteenth 256th, so the steps between are dropped.
+    steps = @rg_tint_by_display ? @rg_tint_steps - (@rg_tint_steps % RG_WALK_PER_DISPLAY) : @rg_tint_steps
     return rg_mixed(color, @rg_tint_color, steps, @rg_tint_by_display)
   end
   return color unless fade_here
@@ -766,10 +770,10 @@ end
 
 # Backends::FadeSteps.steps
 def rg_fade_steps(amount, fraction_bits, walked)
-  levels = walked != 0 ? 32 : 16
+  levels = walked != 0 ? RG_WALK_STEPS : 16
   if fraction_bits < 0
     sixteenths = rg_whole_sixteenths(amount)
-    return walked != 0 ? sixteenths * 2 : sixteenths
+    return walked != 0 ? sixteenths * RG_WALK_PER_DISPLAY : sixteenths
   end
   rg_clamp_wide((amount * levels) / (100 << fraction_bits), 0, levels)
 end

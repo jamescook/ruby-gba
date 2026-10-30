@@ -345,7 +345,7 @@ module VBlank
         #
         # The display fades in seventeen levels, so a fade over more frames than that shows
         # some of them twice and the picture changes every other frame. Handed the fraction,
-        # `fade` walks the colors instead, one of 33 levels a frame (see IR::Fading). That
+        # `fade` walks the colors instead, one of 257 levels a frame (see IR::Fading). That
         # costs a blend per declared color on each frame the fade moves, so a game whose
         # fades are all short keeps the display's fade, which costs nothing.
         #

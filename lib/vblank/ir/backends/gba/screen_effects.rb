@@ -148,7 +148,7 @@ module VBlank
           end
 
           # The fade just kept in TINT_ASKED, done by the display on the plain bitmap screen:
-          # toward black or white by the marker, as far as the walk's thirty-seconds come to in
+          # toward black or white by the marker, as far as the walk's steps come to in
           # the display's sixteenths. A fade of nothing leaves the effect off rather than a fade
           # of nothing on, which is what a screen with a see-through layer looks for on arrival.
           def emit_walked_fade_by_display
@@ -161,13 +161,12 @@ module VBlank
             off = gensym
             brighten = gensym
             done = gensym
-            emit(ASM.and_imm(ACC, KEPT, (1 << PaletteTint::TINT_COLOR_SHIFT) - 1))
-            emit(ASM.lsr_imm(ACC, ACC, 1))                     # a walk's thirty-seconds, in sixteenths
+            @palette_tint.emit_state_steps_in_sixteenths(KEPT) # a walk's steps, in the display's sixteenths
             emit(ASM.cmp_imm(ACC, 0))
             emit_branch(:bcond, off, cond: :eq)
             store_halfword_acc(REG_BLDY)
             emit_whole_screen_window
-            emit(ASM.lsr_imm(ACC, KEPT, PaletteTint::TINT_COLOR_SHIFT))
+            emit(ASM.lsr_imm(ACC, KEPT, @palette_tint.state_shift))
             emit(ASM.tst_imm(ACC, PaletteTint::DARKEN))
             emit_branch(:bcond, brighten, cond: :eq)
             write_reg16(REG_BLDCNT, BLD_DARKEN | placed_fade.blend_target_bits(nil))
@@ -427,7 +426,7 @@ module VBlank
             emit_branch(:bcond, skip, cond: :eq)
             # A kept fade is the display's fade on this screen, not a tint (see
             # #emit_walked_fade_by_screen_up).
-            emit(ASM.lsr_imm(ACC, KEPT, PaletteTint::TINT_COLOR_SHIFT))
+            emit(ASM.lsr_imm(ACC, KEPT, @palette_tint.state_shift))
             emit(ASM.tst_imm(ACC, PaletteTint::DARKEN))
             emit_branch(:bcond, fade, cond: :ne)
             emit(ASM.tst_imm(ACC, PaletteTint::BRIGHTEN))
@@ -441,12 +440,11 @@ module VBlank
 
           # KEPT holds a kept tint: the backdrop becomes its color and the picture is mixed with it.
           def emit_tint_from_kept
-            emit(ASM.lsr_imm(ACC, KEPT, PaletteTint::TINT_COLOR_SHIFT))
+            emit(ASM.lsr_imm(ACC, KEPT, @palette_tint.state_shift))
             store_halfword_acc(PALETTE_START) # the backdrop IS the tint
             emit_whole_screen_window # a tint said on another screen did not say where it reaches
             write_reg16(REG_BLDCNT, TINT_BLEND)
-            emit(ASM.and_imm(ACC, KEPT, (1 << PaletteTint::TINT_COLOR_SHIFT) - 1))
-            emit(ASM.lsr_imm(ACC, ACC, 1)) # a walk's thirty-seconds, in the display's sixteenths
+            @palette_tint.emit_state_steps_in_sixteenths(KEPT) # a walk's steps, in the display's sixteenths
             emit_blend_weights_from_acc
           end
 
@@ -503,7 +501,7 @@ module VBlank
           # itself clamps this is free, but a share worked out here can be more than all of
           # it — and that takes a picture somewhere no color goes.
           #
-          # +most+ is the far end: the display's sixteen, or a walk's thirty-two.
+          # +most+ is the far end: the display's sixteen, or a walk's (see PaletteTint#walk_levels).
           def emit_clamp_blend_steps(most = BLD_MAX)
             emit(ASM.cmp_imm(ACC, 0))
             emit(ASM.mov_imm_cond(:lt, ACC, 0))

@@ -23,8 +23,9 @@ module VBlank
           # display contract every backend blends against, so the two agree step for step.
           CHANNEL_MAX = 31
           FADE_STEPS = FadeSteps::DISPLAY
-          # A tint counts in thirty-seconds (see #tint_steps_to).
+          # A tint counts in 256ths (see #tint_steps_to), sixteen of them to a display's step.
           TINT_STEPS = FadeSteps::WALK
+          WALK_PER_DISPLAY = FadeSteps::WALK / FadeSteps::DISPLAY
 
           # @param fill [Integer] the color every cell starts as (0 reads as black)
           def initialize(width:, height:, fill: 0)
@@ -164,10 +165,10 @@ module VBlank
             tint_steps_to(color, FadeSteps.steps(amount, fraction_bits: nil, walked: true), by_display: true)
           end
 
-          # The same, said in thirty-seconds. A tint is counted that finely because a fade
-          # that walks the colors is a tint toward black or white, and a walk can go as fine
-          # as a channel does (see IR::Fading); a tint counted in sixteenths is the even
-          # thirty-seconds, and the same picture.
+          # The same, said in 256ths. A tint is counted that finely because a fade
+          # that walks the colors is a tint toward black or white, and a walk counts as finely
+          # as the console's own games do (see IR::Fading); a tint counted in sixteenths is every sixteenth
+          # 256th, and the same picture.
           #
           # +color+ may also be :black or :white, for a fade that walks the colors: the same
           # effect as a tint, counted as finely, but rounded the way the console's documented
@@ -483,12 +484,12 @@ module VBlank
           def faded(color, fade_here: true)
             if @tint_color.is_a?(Symbol)
               # On the plain bitmap screen the display does a walked fade, in sixteenths.
-              return faded_by_display(color, @tint_color, @tint_steps >> 1) if @tint_by_display
+              return faded_by_display(color, @tint_color, @tint_steps / WALK_PER_DISPLAY) if @tint_by_display
 
               return walked_toward(color, @tint_color, @tint_steps)
             end
-            # The display counts in sixteenths, the even thirty-seconds, so an odd step is dropped.
-            return mixed_by_display(color, @tint_color, @tint_steps & ~1) if @tint_color && @tint_by_display
+            # The display counts in sixteenths, every sixteenth 256th, so the steps between are dropped.
+            return mixed_by_display(color, @tint_color, @tint_steps - (@tint_steps % WALK_PER_DISPLAY)) if @tint_color && @tint_by_display
             return mixed(color, @tint_color, @tint_steps) if @tint_color
             return color unless fade_here
 
@@ -505,7 +506,7 @@ module VBlank
           # keeps 30 of its red that way and 31 this way — so a picture where both sides
           # have something in a channel comes out different.
           #
-          # The two shares are in thirty-seconds and always add to thirty-two, so no channel
+          # The two shares are in 256ths and always add to 256, so no channel
           # can come out above its limit and there is nothing to clamp.
           def mixed(color, toward, steps)
             return color if steps.zero?
@@ -528,7 +529,7 @@ module VBlank
           # the bits five bits throw away would have carried — a channel at 16 taken half way
           # toward 31 is 24 here and 23 there.
           #
-          # The display counts in sixteenths, and those are the even thirty-seconds +steps+
+          # The display counts in sixteenths, and those are every sixteenth of the 256ths +steps+
           # is said in: halving both shares and the whole leaves every answer as it was.
           def mixed_by_display(color, toward, steps)
             return color if steps.zero?
@@ -675,7 +676,7 @@ module VBlank
             !@paint_toward.nil? || !@through.nil?
           end
 
-          # A color walked +steps+ thirty-seconds toward black or white in five bits a
+          # A color walked +steps+ 256ths toward black or white in five bits a
           # channel, the arithmetic a walked fade's colors are written with.
           def walked_toward(color, toward, steps)
             return color if steps.zero?

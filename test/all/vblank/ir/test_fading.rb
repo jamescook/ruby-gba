@@ -149,7 +149,7 @@ class TestFading < Minitest::Test
   # table to walk.
   #
   # An amount with a fraction is the asking. The display counts in sixteenths, so a long
-  # fade on it changes every other frame; a walk counts in thirty-seconds. Nothing about a
+  # fade on it changes every other frame; a walk counts in 256ths. Nothing about a
   # see-through layer comes into this one.
   private def finely_faded(screen_kind, tear_free: false, under: nil)
     tile = SOLID_TILE

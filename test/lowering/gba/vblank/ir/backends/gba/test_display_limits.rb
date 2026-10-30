@@ -12,8 +12,11 @@ class TestDisplayLimits < Minitest::Test
     assert_equal VBlank::IR::Backends::FadeSteps::DISPLAY, Hardware::BLD_MAX
   end
 
-  def test_a_colour_walk_counts_the_levels_a_colour_channel_has
-    assert_equal VBlank::IR::Backends::FadeSteps::WALK, Hardware::CHANNEL_LEVELS
+  # A game that asks for no fraction walks its colours in the levels a channel has, and those
+  # are whole numbers of the 256ths a walk means, so the coarse walk lands on the same colours.
+  def test_the_coarse_colour_walk_counts_the_levels_a_colour_channel_has
+    assert_equal Hardware::CHANNEL_LEVELS, VBlank::IR::Backends::GBA::PaletteTint::COARSE_WALK
+    assert_equal 0, VBlank::IR::Backends::FadeSteps::WALK % Hardware::CHANNEL_LEVELS
   end
 
   def test_the_display_keeps_the_biggest_block_a_pixelate_reaches

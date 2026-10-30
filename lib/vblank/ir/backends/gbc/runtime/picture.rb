@@ -51,7 +51,7 @@ module VBlank
             BENDS_FROM = "rt picture bends from"
             BEND_BASE = "rt picture bend base"
             BENDING = "rt picture bending"
-            TINT = "rt picture tint" # what the colours are moved toward (TOWARD_*), the colour, and how far
+            TINT = "rt picture tint" # what the colours are moved toward (TOWARD_*), the colour, and how far (two bytes)
             # The sprites placed this pass, for a reader of the run: how many, then for each whose it
             # is (one up), which picture, and where, x and y (16 bits each) — DRAWN_BYTES a sprite.
             DRAWN = "rt picture drawn"
@@ -134,7 +134,7 @@ module VBlank
               memory.reserve(LCDC_WANTED, 1)
               memory.reserve(OVERLAP, OVERLAP_BYTES)
               memory.reserve(GRID_UP, 1)
-              memory.reserve(TINT, 4)
+              memory.reserve(TINT, 5)
               memory.reserve(DRAWN, 1 + (MOST_DRAWN * DRAWN_BYTES))
             end
 
@@ -603,7 +603,7 @@ module VBlank
 
             # A colour has three channels of five bits, red in the lowest.
             CHANNEL_MAX = 31
-            STEPS = 32
+            STEPS = FadeSteps::WALK
 
             # At power-on, with the screen off: every tile into the console's memory, every
             # palette into the copy and the console. The data is the game's (GBC::Art, by the
@@ -2144,12 +2144,12 @@ module VBlank
             # FADES AND TINTS. A Game Boy Color's display cannot mix colours as it draws, so a fade
             # is the colours in its lists moved — every palette's every colour, from the game's own
             # (art_palettes) into the copy the blank sends (SHADOW_PALETTES) — by +steps+
-            # thirty-seconds of the way toward black, white or a colour, by the interpreter's rule
+            # 256ths of the way toward black, white or a colour, by the interpreter's rule
             # for a fade that walks the colours (Reference::Framebuffer#walked_toward and #mixed):
             #
-            #   toward black: c - c × steps / 32
-            #   toward white: c + (31 - c) × steps / 32
-            #   toward a colour t: (c × (32 - steps) + t × steps) / 32
+            #   toward black: c - c × steps / 256
+            #   toward white: c + (31 - c) × steps / 256
+            #   toward a colour t: (c × (256 - steps) + t × steps) / 256
             #
             # rt_tint(toward, color, steps) does nothing when nothing changed, which is most
             # frames of a game that says its fade every frame.
@@ -2163,25 +2163,22 @@ module VBlank
               asm.load_hl_sp(2)
               asm.load(:b, 12)
               asm.call("rt_take_args")
-              asm.load_high(:a, arg.call(2)) # the steps, held to 0..32
+              # BC = the steps, held to 0..256 by the lowering, so the high byte is 0 or 1.
+              asm.load_high(:a, arg.call(2))
+              asm.load(:c, :a)
+              asm.load_high(:a, arg.call(2) + 1)
               asm.load(:b, :a)
-              asm.load_high(:a, arg.call(2) + 3)
-              asm.bit(7, :a)
-              asm.jump_relative(:z, "rt_tint_not_below")
-              asm.load(:b, 0)
-              asm.label("rt_tint_not_below")
-              asm.load(:a, :b)
-              asm.cp_a(STEPS + 1)
-              asm.jump_relative(:c, "rt_tint_held")
-              asm.load(:b, STEPS)
-              asm.label("rt_tint_held")
               # The same as before: nothing to do. No steps at all is the colours as they are,
               # whatever they were moved toward.
               asm.load(:hl, at + 3)
+              asm.load(:a, :c)
+              asm.cp_a([:hl])
+              asm.jump_relative(:nz, "rt_tint_changed")
+              asm.inc(:hl)
               asm.load(:a, :b)
               asm.cp_a([:hl])
               asm.jump_relative(:nz, "rt_tint_changed")
-              asm.and_a(:a)
+              asm.or_a(:c)
               asm.ret(:z)
               asm.load_high(:a, arg.call(0))
               asm.load(:hl, at)
@@ -2203,6 +2200,8 @@ module VBlank
               asm.load([:hli], :a)
               asm.load_high(:a, arg.call(1) + 1)
               asm.load([:hli], :a)
+              asm.load(:a, :c)
+              asm.load([:hli], :a)
               asm.load(:a, :b)
               asm.load([:hl], :a)
               # Every colour of the palettes the game uses: its channels apart, each moved, and put
@@ -2212,8 +2211,9 @@ module VBlank
               # game that fades by stepping its lists itself (`draw_with` every frame) keep a pass a
               # frame.
               asm.label("rt_tint_apply")
-              asm.load(:a, [at + 3])
-              asm.and_a(:a)
+              asm.load(:hl, at + 3)
+              asm.load(:a, [:hli])
+              asm.or_a([:hl])
               asm.jump(:z, "rt_tint_copy")
               # HL = where palette +first+'s colours are drawn from now, DE = where in the copy.
               from_and_to = lambda do |first|
@@ -2313,20 +2313,24 @@ module VBlank
               asm.push(:de)
               asm.push(:hl)
               asm.load(:c, :a) # the channel
+              asm.load(:a, [at + 4])
+              asm.and_a(:a)
+              asm.jump_relative(:nz, "rt_tint_whole") # all 256 of the way
               asm.load(:a, [at + 3])
-              asm.load(:e, :a) # the steps
+              asm.load(:e, :a) # the steps, 1..255 here
               asm.load(:a, [at])
               asm.cp_a(TOWARD_BLACK)
               asm.jump_relative(:z, "rt_tint_black")
               asm.cp_a(TOWARD_WHITE)
               asm.jump_relative(:z, "rt_tint_white")
-              # Toward a colour: (c × (32 - s) + t × s) / 32.
+              # Toward a colour: (c × (256 - s) + t × s) / 256, which is the sum's high byte. With
+              # s from 1 to 255, 256 - s is a byte too: nought less s.
               asm.push(:bc)
-              asm.load(:a, STEPS)
+              asm.load(:a, 0)
               asm.sub_a(:e)
               asm.load(:d, :a)
               asm.load(:a, :c)
-              asm.call("rt_times") # HL = c × (32 - s)
+              asm.call("rt_times") # HL = c × (256 - s)
               asm.pop(:bc)
               asm.push(:hl)
               asm.call("rt_tint_wanted") # A = t's channel
@@ -2334,38 +2338,38 @@ module VBlank
               asm.call("rt_times") # HL = t × s
               asm.pop(:de)
               asm.add_hl(:de)
-              asm.jump_relative("rt_tint_thirty_seconds")
-              asm.label("rt_tint_black") # c - c × s / 32
+              asm.load(:a, :h)
+              asm.jump_relative("rt_tint_done")
+              asm.label("rt_tint_black") # c - c × s / 256
               asm.load(:d, :e)
               asm.load(:a, :c)
               asm.call("rt_times")
-              asm.call("rt_tint_halve_five")
-              asm.load(:b, :a)
               asm.load(:a, :c)
-              asm.sub_a(:b)
+              asm.sub_a(:h)
               asm.jump_relative("rt_tint_done")
-              asm.label("rt_tint_white") # c + (31 - c) × s / 32
+              asm.label("rt_tint_white") # c + (31 - c) × s / 256
               asm.load(:d, :e)
               asm.load(:a, CHANNEL_MAX)
               asm.sub_a(:c)
               asm.call("rt_times")
-              asm.call("rt_tint_halve_five")
+              asm.load(:a, :h)
               asm.add_a(:c)
               asm.jump_relative("rt_tint_done")
-              asm.label("rt_tint_thirty_seconds")
-              asm.call("rt_tint_halve_five")
+              # All the way: black is nought, white the top of a channel, and a colour its own.
+              asm.label("rt_tint_whole")
+              asm.load(:a, [at])
+              asm.cp_a(TOWARD_COLOR)
+              asm.jump_relative(:nz, "rt_tint_whole_grey")
+              asm.call("rt_tint_wanted")
+              asm.jump_relative("rt_tint_done")
+              asm.label("rt_tint_whole_grey")
+              asm.cp_a(TOWARD_WHITE)
+              asm.load(:a, 0)
+              asm.jump_relative(:nz, "rt_tint_done")
+              asm.load(:a, CHANNEL_MAX)
               asm.label("rt_tint_done")
               asm.pop(:hl)
               asm.pop(:de)
-              asm.ret
-
-              # A = HL / 32.
-              asm.label("rt_tint_halve_five")
-              5.times do
-                asm.srl(:h)
-                asm.rr(:l)
-              end
-              asm.load(:a, :l)
               asm.ret
 
               # A = channel B of the tint's colour.

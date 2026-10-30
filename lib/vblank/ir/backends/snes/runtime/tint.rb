@@ -9,13 +9,13 @@ module VBlank
           # the result, as it draws, but it cannot move a picture a fraction of the way toward
           # another colour; so a fade here is the colours in the colour memory (CGRAM) moved — all
           # 256, from the game's own ("art colors") into a copy in work RAM (SHADOW) that the blank
-          # sends — by +steps+ thirty-seconds of the way toward black, white or a colour, by the
+          # sends — by +steps+ 256ths of the way toward black, white or a colour, by the
           # interpreter's rule for a fade that walks the colours (Reference::Framebuffer#walked_toward
           # and #mixed), each of a colour's three five-bit channels apart:
           #
-          #   toward black: c - c × steps / 32
-          #   toward white: c + (31 - c) × steps / 32
-          #   toward a colour t: (c × (32 - steps) + t × steps) / 32
+          #   toward black: c - c × steps / 256
+          #   toward white: c + (31 - c) × steps / 256
+          #   toward a colour t: (c × (256 - steps) + t × steps) / 256
           #
           # A channel is one of only 32 numbers, so the routine works out what each of them
           # becomes first — 32 for each channel, a table of 96 — with the console's own 8×8
@@ -31,7 +31,7 @@ module VBlank
             TOWARD_BLACK = 0
             TOWARD_WHITE = 1
             TOWARD_COLOR = 2
-            STEPS = 32
+            STEPS = FadeSteps::WALK
             CHANNEL_MAX = 31
 
             # The colours moved (512 bytes), and the fade in force: toward what, the colour, the
@@ -77,7 +77,7 @@ module VBlank
               emit_upload(asm, memory)
             end
 
-            # The steps held to 0..32 and, when the fade is not the one in force, the colours moved.
+            # The steps held to 0..256 and, when the fade is not the one in force, the colours moved.
             def emit_tint(asm, memory, s)
               state = memory[STATE]
               asm.label("rt_tint")
@@ -132,9 +132,18 @@ module VBlank
               asm.label("rt_tint_prepare_done")
               asm.rtl
 
-              # rt_tint_times (JSR): A = the byte at +channel+ times the byte at +factor+, by the
-              # console's multiplier.
+              # rt_tint_times (JSR): A = the byte at +channel+ times the number at +factor+, by the
+              # console's multiplier. The multiplier takes a byte, and a factor of 256 — a fade all
+              # the way, or none of it kept — is one more: that product is the channel moved up a
+              # byte, which swapping A's two bytes does.
               asm.label("rt_tint_times")
+              asm.lda(asm.direct(s.factor))
+              asm.cmp(STEPS)
+              asm.bne("rt_tint_times_byte")
+              asm.lda(asm.direct(s.channel))
+              asm.xba
+              asm.rts
+              asm.label("rt_tint_times_byte")
               asm.sep(0x20)
               asm.lda(asm.direct(s.channel))
               asm.sta(asm.abs(Console::SNESHardware::WRMPYA))
@@ -144,6 +153,12 @@ module VBlank
               asm.rep(0x20)
               asm.lda(asm.abs(Console::SNESHardware::RDMPYL))
               asm.rts
+            end
+
+            # A divided by 256: its high byte, swapped down and the low one dropped.
+            def emit_over_256(asm)
+              asm.xba
+              asm.and_a(0xFF)
             end
 
             # rt_tint_table (JSR): what each channel's 32 numbers become, for red, green and blue in
@@ -167,7 +182,7 @@ module VBlank
                 asm.lda(asm.abs(state + STEPS_AT))
                 asm.sta(asm.direct(s.factor))
                 asm.jsr(asm.abs("rt_tint_times"))
-                5.times { asm.lsr }
+                emit_over_256(asm)
                 asm.sta(asm.direct(s.product))
                 asm.lda(asm.direct(s.channel))
                 asm.sec
@@ -182,7 +197,7 @@ module VBlank
                 asm.lda(asm.abs(state + STEPS_AT))
                 asm.sta(asm.direct(s.factor))
                 asm.jsr(asm.abs("rt_tint_times"))
-                5.times { asm.lsr }
+                emit_over_256(asm)
                 asm.sta(asm.direct(s.product))
                 asm.pla
                 asm.sta(asm.direct(s.channel))
@@ -206,7 +221,7 @@ module VBlank
                 asm.jsr(asm.abs("rt_tint_times"))
                 asm.clc
                 asm.adc(asm.direct(s.product))
-                5.times { asm.lsr }
+                emit_over_256(asm)
                 asm.sta(asm.direct(s.product))
                 asm.pla
                 asm.sta(asm.direct(s.channel))

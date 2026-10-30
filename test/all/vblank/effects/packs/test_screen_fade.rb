@@ -469,7 +469,7 @@ class TestScreenFade < Minitest::Test
   end
 
   # ...and toward black on a dark picture, which is where the rounding shows: a channel of 4
-  # a thirty-second of the way back from black is nothing if it keeps its share and one if a
+  # a 256th of the way back from black is nothing if it keeps its share and one if a
   # share is taken away. The walk takes one away, as the console's documented fade does, so
   # it is black only while the fade is all the way down, and back on the first frame after.
   #

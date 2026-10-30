@@ -2254,7 +2254,7 @@ module VBlank
             # --- fades and tints ---
 
             # Reference#exec_fade, as a fade that walks the colours (IR::Fading walks every fade on a
-            # console that cannot blend): toward black or white by the thirty-seconds the amount
+            # console that cannot blend): toward black or white by the 256ths the amount
             # comes to. A fade placed in the stack, or held to part of the screen, needs the blend.
             def emit_fade(node)
               if node.under || node.reaches
@@ -2266,14 +2266,14 @@ module VBlank
               runtime_call("rt_tint", [Build.int(toward), Build.int(0), walk_steps(node)])
             end
 
-            # Reference#exec_tint: toward the colour, in thirty-seconds.
+            # Reference#exec_tint: toward the colour, in 256ths.
             def emit_tint(node)
               runtime_call("rt_tint", [Build.int(Runtime::Picture::TOWARD_COLOR),
                                            Build.int(Graphics::Color.resolve(node.color)), walk_steps(node)])
             end
 
             # FadeSteps' steps for a fade that walks the colours, worked out as the game runs, held to
-            # 0..32 here: rt_tint reads only the low byte and the sign of what it is handed, so a fade
+            # 0..256 here: rt_tint reads only the low two bytes of what it is handed, so a fade
             # far past 100 would otherwise come round to a few steps.
             def walk_steps(node)
               steps = FadeSteps.steps_value(node.amount, fraction_bits: node.fraction_bits, walked: true)

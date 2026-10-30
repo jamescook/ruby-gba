@@ -217,7 +217,7 @@ module VBlank
       end
 
       # HOW FINE THE GAME'S FADES GO, which nothing in the program says. A long fade walks the
-      # colours in 33 levels where the display's own fade has 17 and costs nothing, so its
+      # colours in 257 levels where the display's own fade has 17 and costs nothing, so its
       # price is worth a line; a long fade placed in the stack cannot, and the line says what
       # it gives up. A game whose fades are all short hears nothing (see IR::Fading).
       def fade_steps_lines(program, printer)

@@ -112,7 +112,7 @@ module VBlank
 
         # Does this fade move the color table rather than the display's own blend? Asked of
         # a tint, which moves the table wherever there is one: is it counted in the walk's
-        # thirty-seconds?
+        # 256ths?
         def palette_walk?(node) = @walking.key?(node)
 
         # Does any fade walk the colors for the finer steps, whether or not a layer is seen
@@ -181,7 +181,7 @@ module VBlank
         end
 
         # A CONSOLE WHOSE DISPLAY CANNOT BLEND (Console::Description#blends) fades only by
-        # changing the colours in its lists, so every fade there walks them, in thirty-seconds,
+        # changing the colours in its lists, so every fade there walks them, in 256ths,
         # whatever screen it falls on. One placed in the stack or held to a rectangle needs the
         # blend, and is refused by the build for that console; it keeps the display's here.
         def walk_every_fade(fades)
@@ -207,7 +207,7 @@ module VBlank
         end
 
         # A tint on a screen drawn through a table always walks it, so for a tint the only
-        # question is the steps: a fraction counts in thirty-seconds there, and the display
+        # question is the steps: a fraction counts in 256ths there, and the display
         # blends a tint on the plain bitmap screen in sixteenths whatever it is given.
         def mark_fine_tints(tints, modes)
           tints.each do |node|

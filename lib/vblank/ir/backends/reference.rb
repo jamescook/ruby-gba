@@ -2257,7 +2257,7 @@ module VBlank
         #
         # Moving every color toward black by a fraction and moving the finished picture
         # there come to the same picture, so this is a tint toward black or white, counted
-        # in thirty-seconds.
+        # in 256ths.
         #
         # ROUNDED THE WAY THE CONSOLE'S DOCUMENTED FADE IS, not the way a mix is. A mix keeps
         # a share of each channel and rounds that down; the documented fade takes a share
@@ -2369,8 +2369,8 @@ module VBlank
         # reach. Applied as the screen is read, so nothing drawn changes and the picture
         # is all still there when the amount returns to 0.
         #
-        # Counted in thirty-seconds whichever way it reaches the screen. Where the display
-        # blends it, it is counted in sixteenths, and a sixteenth is two thirty-seconds.
+        # Counted in 256ths whichever way it reaches the screen. Where the display
+        # blends it, it is counted in sixteenths, and a sixteenth is sixteen 256ths.
         #
         # The display blends it only on the plain bitmap screen, which holds a whole color
         # in every pixel. Every other screen draws through a color table, and there the game

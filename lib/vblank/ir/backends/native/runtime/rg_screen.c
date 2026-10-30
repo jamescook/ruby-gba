@@ -542,6 +542,10 @@ static void mix_nothing(void) {
 
 /* --- effects over the finished picture (Framebuffer#faded) --- */
 
+/* Backends::FadeSteps: a walk of the colors counts in 256ths, sixteen to a display's step. */
+#define WALK_STEPS 256
+#define WALK_PER_DISPLAY 16
+
 /* Framebuffer#walked_toward: a fade that walks the colors, in five bits a channel, each channel
  * moved a truncated share of the way to black or white. */
 static uint16_t walked_toward(uint16_t color, int32_t white, int32_t steps) {
@@ -549,7 +553,7 @@ static uint16_t walked_toward(uint16_t color, int32_t white, int32_t steps) {
   int32_t out = 0;
   for (int32_t channel = 0; channel < 3; channel++) {
     int32_t c = (color >> (5 * channel)) & 0x1F;
-    c = white ? c + ((31 - c) * steps) / 32 : c - (c * steps) / 32;
+    c = white ? c + ((31 - c) * steps) / WALK_STEPS : c - (c * steps) / WALK_STEPS;
     out |= c << (5 * channel);
   }
   return (uint16_t)out;
@@ -559,13 +563,13 @@ static uint16_t walked_toward(uint16_t color, int32_t white, int32_t steps) {
  * dropped. The display mixes at eight bits a channel; a game writing tinted colors, at five. */
 static uint16_t mixed(uint16_t color, int32_t toward, int32_t steps, int32_t by_display) {
   if (steps == 0) return color;
-  int32_t keep = 32 - steps, out = 0;
+  int32_t keep = WALK_STEPS - steps, out = 0;
   for (int32_t channel = 0; channel < 3; channel++) {
     int32_t have = (color >> (5 * channel)) & 0x1F, want = (toward >> (5 * channel)) & 0x1F;
     if (by_display) {
-      out |= (((widened(have) * keep + widened(want) * steps) / 32) >> 3) << (5 * channel);
+      out |= (((widened(have) * keep + widened(want) * steps) / WALK_STEPS) >> 3) << (5 * channel);
     } else {
-      out |= ((have * keep + want * steps) / 32) << (5 * channel);
+      out |= ((have * keep + want * steps) / WALK_STEPS) << (5 * channel);
     }
   }
   return (uint16_t)out;
@@ -575,10 +579,10 @@ static uint16_t mixed(uint16_t color, int32_t toward, int32_t steps, int32_t by_
  * (fade_reaches). */
 static uint16_t faded_where(uint16_t color, int32_t fade_here) {
   /* On the plain bitmap screen the display does a walked fade, in sixteenths. */
-  if (tint_mode == TINT_TOWARD && tint_by_display) return faded_by_display(color, tint_white, tint_steps >> 1);
+  if (tint_mode == TINT_TOWARD && tint_by_display) return faded_by_display(color, tint_white, tint_steps / WALK_PER_DISPLAY);
   if (tint_mode == TINT_TOWARD) return walked_toward(color, tint_white, tint_steps);
-  /* The display counts in sixteenths, the even thirty-seconds, so an odd step is dropped. */
-  if (tint_mode == TINT_COLOR) return mixed(color, tint_color, tint_by_display ? tint_steps & ~1 : tint_steps, tint_by_display);
+  /* The display counts in sixteenths, every sixteenth 256th, so the steps between are dropped. */
+  if (tint_mode == TINT_COLOR) return mixed(color, tint_color, tint_by_display ? tint_steps - tint_steps % WALK_PER_DISPLAY : tint_steps, tint_by_display);
   if (!fade_here) return color;
   return faded_by_display(color, fade_white, fade_steps);
 }
@@ -682,10 +686,10 @@ void rg_screen_tint(int32_t color, int32_t steps) {
 
 /* Backends::FadeSteps.steps */
 int32_t rg_fade_steps(int32_t amount, int32_t fraction_bits, int32_t walked) {
-  int32_t levels = walked ? 32 : 16;
+  int32_t levels = walked ? WALK_STEPS : 16;
   if (fraction_bits < 0) {
     int32_t sixteenths = whole_sixteenths(amount);
-    return walked ? sixteenths * 2 : sixteenths;
+    return walked ? sixteenths * WALK_PER_DISPLAY : sixteenths;
   }
   return clamp32(floor_div((int64_t)amount * levels, (int64_t)100 << fraction_bits), 0, levels);
 }

@@ -232,6 +232,80 @@ class TestTint < Minitest::Test
     assert_equal 0x01EF, shown(b.program)
   end
 
+  # --- a tint counted in 256ths ---
+
+  # A tile of 31 red, 17 green and 5 blue, tinted toward black or white by +share+ 256ths of the
+  # way, the amount written as the percentage that share is. Read off the scenery.
+  private def tinted_in_256ths(toward, share, worked_out: false)
+    game_player.run(in_256ths(toward, share, worked_out: worked_out), frames: 3).screen.pixel(8, 8)
+  end
+
+  private def in_256ths(toward, share, worked_out: false)
+    tile = SOLID_TILE
+    amount = share * 100.0 / 256
+    b = VBlank::Builder.new
+    b.instance_eval do
+      screen :tiled
+      image(:ground, "#" => rgb(31, 17, 5)) { tile }
+      tiles :ground_set, "#" => :ground
+      background :field, tiles: :ground_set, map: Array.new(20) { "#" * 30 }
+      level = var :level, 0.0
+      game_loop do
+        if worked_out
+          level.set! amount
+          tint toward, level
+        else
+          tint toward, amount
+        end
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_the_console_agrees_on_a_tint_in_256ths
+    [[:black, 13, false], [:white, 13, false], [:black, 255, true], [:white, 3, true], [:red, 77, true]].each do |toward, share, worked_out|
+      assert_backends_agree(in_256ths(toward, share, worked_out: worked_out), frames: 3, name: "FINE")
+    end
+  end
+
+  # What a fade counted in 256ths shows, a channel at a time with the fraction dropped: toward
+  # black floor(c x (256 - a) / 256), toward white floor((c x (256 - a) + 31 x a) / 256). These
+  # are the sums a game's own fade by 256ths writes its colours with.
+  private def channels_in_256ths(toward, share)
+    [31, 17, 5].map.with_index do |c, n|
+      top = toward == :white ? 31 * share : 0
+      ((c * (256 - share)) + top) / 256 << (5 * n)
+    end.sum
+  end
+
+  SHARES_IN_256THS = [1, 3, 13, 100, 128, 255].freeze
+
+  def test_a_tint_toward_black_counts_in_256ths
+    SHARES_IN_256THS.each do |share|
+      assert_equal channels_in_256ths(:black, share), tinted_in_256ths(:black, share), "#{share} of 256 toward black"
+    end
+  end
+
+  def test_a_tint_toward_white_counts_in_256ths
+    SHARES_IN_256THS.each do |share|
+      assert_equal channels_in_256ths(:white, share), tinted_in_256ths(:white, share), "#{share} of 256 toward white"
+    end
+  end
+
+  def test_an_amount_in_256ths_the_game_works_out
+    [1, 13, 255].each do |share|
+      assert_equal channels_in_256ths(:black, share), tinted_in_256ths(:black, share, worked_out: true), "#{share} toward black"
+      assert_equal channels_in_256ths(:white, share), tinted_in_256ths(:white, share, worked_out: true), "#{share} toward white"
+    end
+  end
+
+  # One step of 256 toward black keeps 255 256ths of each channel and drops the fraction, so
+  # every channel that has anything loses one: 31 red, 17 green and 5 blue become 30, 16 and 4.
+  def test_one_256th_toward_black_takes_a_step_off_every_channel
+    assert_equal 30 | (16 << 5) | (4 << 10), tinted_in_256ths(:black, 1)
+  end
+
   # --- the console agrees, which is the point of having two backends ---
 
   # The whole screen, not the five pixels above.

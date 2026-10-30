@@ -7,7 +7,7 @@ require "fade_watch"
 # that the Game Boy Color's run never loads them (test/console/gba); the rest are in that file.
 #
 # The Advance's display fades a plain bitmap screen itself, in sixteenths. A Game Boy Color has no
-# display blend, so every fade there walks the colours, in thirty-seconds.
+# display blend, so every fade there walks the colours, in 256ths.
 class TestScreenFadeOnTheAdvance < Minitest::Test
   include FadeWatch
 
