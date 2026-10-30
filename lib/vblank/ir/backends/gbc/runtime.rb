@@ -89,7 +89,7 @@ module VBlank
             Boot.emit_clear(asm)
             Int32.emit(asm, memory)
             Calls.emit(asm, memory)
-            Frame.emit(asm, memory, together: together, count_at: count_at)
+            Frame.emit(asm, memory, together: together, count_at: count_at, songs: songs)
             Lists.emit(asm, memory)
             Picture.emit(asm, memory, sprite_tiles: art.sprite_tiles.length, background_tiles: art.background_tiles.length,
                                       runs: runs, drawn_palettes: drawn_palettes, lends: art.lending,

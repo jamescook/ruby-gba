@@ -135,7 +135,9 @@ module VBlank
             # +together+ says the game has picture groups with more than one slot, which
             # rt_groups_together asks of. +count_at+ is where the game keeps IR::Frames::COUNT, in a
             # game that counts the frames its screen was off for.
-            def emit(asm, memory, together: false, count_at: nil)
+            # +songs+ says the game plays music (GBC::Music#any?): a frame of it the game waits for
+            # is then played after the blank's copies (#emit_wait_with_songs).
+            def emit(asm, memory, together: false, count_at: nil, songs: false)
               raise ArgumentError, "a game that counts its dark frames needs count_at:" if dark?(memory) && count_at.nil?
 
               clips = Clips.any?(memory)
@@ -171,17 +173,24 @@ module VBlank
                 asm.load_high(h::IE, :a)
                 asm.ei
               end
-              asm.load(:a, [memory[WAITING]])
-              asm.and_a(:a)
-              asm.jump_relative(:nz, "rt_vblank_music")
-              asm.load(:hl, memory[MUSIC_OWED])
-              asm.inc([:hl])
-              asm.jump_relative("rt_vblank_music_done")
-              asm.label("rt_vblank_music")
-              asm.call("rt_clip_frame") if Clips.any?(memory) # the mix's frame before the tune's
-              asm.call("rt_music_tick")
-              asm.call("rt_rumble_tick") if rumble # the motor moves on with the music (Runtime::Rumble)
-              asm.label("rt_vblank_music_done")
+              if songs
+                # Every frame's music is owed, the game waiting or not: a waiting game plays it as it
+                # wakes, after the blank's copies (#emit_wait_with_songs).
+                asm.load(:hl, memory[MUSIC_OWED])
+                asm.inc([:hl])
+              else
+                asm.load(:a, [memory[WAITING]])
+                asm.and_a(:a)
+                asm.jump_relative(:nz, "rt_vblank_music")
+                asm.load(:hl, memory[MUSIC_OWED])
+                asm.inc([:hl])
+                asm.jump_relative("rt_vblank_music_done")
+                asm.label("rt_vblank_music")
+                asm.call("rt_clip_frame") if Clips.any?(memory) # the mix's frame before the tune's
+                asm.call("rt_music_tick")
+                asm.call("rt_rumble_tick") if rumble # the motor moves on with the music (Runtime::Rumble)
+                asm.label("rt_vblank_music_done")
+              end
               asm.call("rt_pad_read")
               asm.load(:hl, memory[FRAMES])
               asm.call("rt_increment32")
@@ -215,55 +224,59 @@ module VBlank
               asm.load_high(vblank, :a)
               asm.call("rt_frame_begins_unless_last")
               asm.call("rt_paint_scan")
-              # Waiting from here, and the music owed by the frames the pass spanned played first,
-              # with the interrupt held off so a frame drawn now is played after them. In a game that
-              # plays a recording, only the screen's is held off: a frame behind can owe several, and
-              # the timer's samples go on between them, as they do in the screen's interrupt.
-              if clips
-                asm.load_high(:a, h::IE)
-                asm.push(:af)
-                asm.and_a(h::INT_STAT) # a bent screen's lines go on being drawn
-                asm.or_a(h::INT_TIMER)
-                asm.load_high(h::IE, :a)
+              if songs
+                emit_wait_with_songs(asm, memory, count_at)
               else
+                # Waiting from here, and the music owed by the frames the pass spanned played first,
+                # with the interrupt held off so a frame drawn now is played after them. In a game that
+                # plays a recording, only the screen's is held off: a frame behind can owe several, and
+                # the timer's samples go on between them, as they do in the screen's interrupt.
+                if clips
+                  asm.load_high(:a, h::IE)
+                  asm.push(:af)
+                  asm.and_a(h::INT_STAT) # a bent screen's lines go on being drawn
+                  asm.or_a(h::INT_TIMER)
+                  asm.load_high(h::IE, :a)
+                else
+                  asm.di
+                end
+                asm.load(:a, 1)
+                asm.load([memory[WAITING]], :a)
+                asm.label("rt_wait_vblank_owed")
+                asm.load(:a, [memory[MUSIC_OWED]])
+                asm.and_a(:a)
+                asm.jump_relative(:z, "rt_wait_vblank_paid")
+                asm.dec(:a)
+                asm.load([memory[MUSIC_OWED]], :a)
+                asm.call("rt_clip_frame") if Clips.any?(memory)
+                asm.call("rt_music_tick")
+                asm.call("rt_rumble_tick") if rumble
+                asm.jump_relative("rt_wait_vblank_owed")
+                asm.label("rt_wait_vblank_paid")
+                if clips
+                  asm.pop(:af)
+                  asm.load_high(h::IE, :a)
+                else
+                  asm.ei
+                end
+                asm.load_high(:a, h::LCDC)
+                asm.bit(7, :a)
+                asm.jump_relative(:nz, "rt_wait_vblank_sleep")
+                # The screen is still off: this is the first frame. Everything set up so far is
+                # copied while nothing is being drawn, and the screen comes on showing it.
+                emit_dark_end(asm, memory) if dark?(memory)
+                asm.call("rt_upload_whole")
+                asm.call("rt_shown_is_passes")
+                asm.call("rt_display_on")
+                asm.call("rt_sleep_until_vblank")
+                emit_add_dark_frames(asm, memory, count_at) if dark?(memory)
                 asm.di
+                asm.jump_relative("rt_wait_vblank_buttons")
+                asm.label("rt_wait_vblank_sleep")
+                asm.call("rt_sleep_until_vblank")
+                asm.call("rt_upload_whole")
+                asm.call("rt_shown_is_passes")
               end
-              asm.load(:a, 1)
-              asm.load([memory[WAITING]], :a)
-              asm.label("rt_wait_vblank_owed")
-              asm.load(:a, [memory[MUSIC_OWED]])
-              asm.and_a(:a)
-              asm.jump_relative(:z, "rt_wait_vblank_paid")
-              asm.dec(:a)
-              asm.load([memory[MUSIC_OWED]], :a)
-              asm.call("rt_clip_frame") if Clips.any?(memory)
-              asm.call("rt_music_tick")
-              asm.call("rt_rumble_tick") if rumble
-              asm.jump_relative("rt_wait_vblank_owed")
-              asm.label("rt_wait_vblank_paid")
-              if clips
-                asm.pop(:af)
-                asm.load_high(h::IE, :a)
-              else
-                asm.ei
-              end
-              asm.load_high(:a, h::LCDC)
-              asm.bit(7, :a)
-              asm.jump_relative(:nz, "rt_wait_vblank_sleep")
-              # The screen is still off: this is the first frame. Everything set up so far is
-              # copied while nothing is being drawn, and the screen comes on showing it.
-              emit_dark_end(asm, memory) if dark?(memory)
-              asm.call("rt_upload_whole")
-              asm.call("rt_shown_is_passes")
-              asm.call("rt_display_on")
-              asm.call("rt_sleep_until_vblank")
-              emit_add_dark_frames(asm, memory, count_at) if dark?(memory)
-              asm.di
-              asm.jump_relative("rt_wait_vblank_buttons")
-              asm.label("rt_wait_vblank_sleep")
-              asm.call("rt_sleep_until_vblank")
-              asm.call("rt_upload_whole")
-              asm.call("rt_shown_is_passes")
               # The reader of a running cartridge takes each pass's sounds where the game reaches
               # this label (GBC::SoundLog), so it is reached with interrupts held off: one taken just
               # as the processor reaches it comes back to it, and the pass would be counted twice.
@@ -334,6 +347,74 @@ module VBlank
               emit_buttons(asm, memory)
               emit_stopping(asm, memory)
               emit_groups_together(asm, memory) if together
+              emit_music_owed(asm, memory) if songs
+            end
+
+            # THE WAIT IN A GAME WITH MUSIC, whose frames of it are all owed (rt_vblank_interrupt): those
+            # the pass spanned are played before the game sleeps, and the one it wakes for after the
+            # blank's copies. A song's first frame reads every part's first note and writes the wave
+            # voice's waveform, which takes longer than the blank leaves, and played first it pushed
+            # the colours and the sprites the pass changed past the blank, part way down the frame:
+            # the frame a song starts on showed torn, or without the change at all.
+            def emit_wait_with_songs(asm, memory, count_at)
+              asm.load(:a, 1)
+              asm.load([memory[WAITING]], :a)
+              asm.call("rt_music_owed")
+              asm.load_high(:a, Console::GBCHardware::LCDC)
+              asm.bit(7, :a)
+              asm.jump_relative(:nz, "rt_wait_vblank_sleep")
+              # The screen is still off: this is the first frame. Everything set up so far is
+              # copied while nothing is being drawn, and the screen comes on showing it.
+              emit_dark_end(asm, memory) if dark?(memory)
+              asm.call("rt_upload_whole")
+              asm.call("rt_shown_is_passes")
+              asm.call("rt_display_on")
+              asm.call("rt_sleep_until_vblank")
+              emit_add_dark_frames(asm, memory, count_at) if dark?(memory)
+              asm.call("rt_music_owed")
+              asm.di
+              asm.jump_relative("rt_wait_vblank_buttons")
+              asm.label("rt_wait_vblank_sleep")
+              asm.call("rt_sleep_until_vblank")
+              asm.call("rt_upload_whole")
+              asm.call("rt_shown_is_passes")
+              asm.call("rt_music_owed")
+            end
+
+            # rt_music_owed: every frame of music owed, played in order, with the screen's interrupt
+            # held off so a frame drawn meanwhile is owed after them. In a game that plays a
+            # recording only the screen's is held off: the timer's samples go on between them.
+            def emit_music_owed(asm, memory)
+              h = Console::GBCHardware
+              clips = Clips.any?(memory)
+              asm.label("rt_music_owed")
+              if clips
+                asm.load_high(:a, h::IE)
+                asm.push(:af)
+                asm.and_a(h::INT_STAT) # a bent screen's lines go on being drawn
+                asm.or_a(h::INT_TIMER)
+                asm.load_high(h::IE, :a)
+              else
+                asm.di
+              end
+              asm.label("rt_music_owed_next")
+              asm.load(:a, [memory[MUSIC_OWED]])
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_music_owed_paid")
+              asm.dec(:a)
+              asm.load([memory[MUSIC_OWED]], :a)
+              asm.call("rt_clip_frame") if clips
+              asm.call("rt_music_tick")
+              asm.call("rt_rumble_tick") if Rumble.any?(memory)
+              asm.jump_relative("rt_music_owed_next")
+              asm.label("rt_music_owed_paid")
+              if clips
+                asm.pop(:af)
+                asm.load_high(h::IE, :a)
+              else
+                asm.ei
+              end
+              asm.ret
             end
 
             # COUNTING THE FRAMES THE SCREEN IS OFF FOR STARTS AS THE BOOT DOES (Runtime::Boot#emit),
