@@ -102,6 +102,10 @@ module VBlank
             # a `screen` that says another (#refuse_backdrops_of_its_own!) is refused.
             def color_backdrop = IR::SceneHandover.of(@program).game_backdrop
 
+            # How tall the console draws every sprite piece: 16 where the game named the Color's 8×16
+            # (`sprite_piece_size: { gbc: [8, 16] }`), 8 otherwise (Art#initialize).
+            def piece_height = (@program.sprite_piece_size_on(Console::COLOR.name) || [8, 8]).last
+
             # A `screen` other than the game's own that says a backdrop the game's does not: a scene's
             # would have every palette written again as it takes over. Named by its scene.
             def refuse_backdrops_of_its_own!
@@ -128,7 +132,7 @@ module VBlank
               @art = Art.new(square_colors: @square_colors&.refusal ? nil : @square_colors, lends: @lends_sprite_colors,
                              grouped: grouped_pictures, room_colors: @plans_room_colors,
                              first_cleared_to: @program.walk.find { |node| node.kind == :clear_screen }&.color,
-                             backdrop: color_backdrop)
+                             backdrop: color_backdrop, piece_height: piece_height)
               @grids = {} # a background declaration -> its grid's number
               @backgrounds = by_name(@program.walk, :background)
               @drawn_sprites = SpriteNames.new(@program) # the numbers a run says its sprites by

@@ -209,6 +209,10 @@ module VBlank
       LINES = 154
       SPRITES = 40
       SPRITES_ON_A_LINE = 10
+      # Every entry of the sprite table is drawn 8×8, or every one 8×16 (LCDC_TALL_SPRITES): one
+      # switch for the whole screen. An 8×16 entry draws its tile and the one numbered after it
+      # beneath, so its tile number is the even one of the two.
+      SPRITE_PIECE_SIZES = [[8, 8].freeze, [8, 16].freeze].freeze
       PALETTES = 8
       PALETTE_COLORS = 4
       MAP_CELLS = 32

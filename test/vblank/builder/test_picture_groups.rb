@@ -22,8 +22,9 @@ class TestPictureGroups < Minitest::Test
   # A boat showing the red box or the blue one by +look+, and the white box in no group. The
   # block says which groups are up, before the game loop and on each pass: the sprites are first
   # drawn in the gap before the loop's first pass, and their pictures have to be up for that.
-  private def harbor(look:, up_together: nil, &up)
-    b = Builder.new
+  # +options+ are how it is built (a size of sprite piece, say).
+  private def harbor(look:, up_together: nil, options: VBlank::Cartridge::Options.new, &up)
+    b = Builder.new(options: options)
     paint = boxes
     b.instance_eval do
       screen :tiled
@@ -71,6 +72,17 @@ class TestPictureGroups < Minitest::Test
 
     assert_match(/groups 0 and 2 of :rooms/, error.message)
     assert_match(/up_together/, error.message)
+  end
+
+  # On a Color whose sprite pieces are 8x16, a grouped picture's tiles are pairs, and each still
+  # comes up with its group.
+  def test_groups_of_tall_pieces_draw_what_they_would_without_them
+    options = VBlank::Cartridge::Options.new(sprite_piece_size: { gbc: [8, 16] })
+    program = harbor(look: 1, up_together: [[0, 1]], options: options) { |rooms| rooms.show 0, 1 }
+    screen = game_player.run(program, frames: 3).screen
+
+    assert_equal Color.resolve(:blue), screen.pixel(42, 42), "the boat, in the blue box of room 1"
+    assert_equal Color.resolve(:white), screen.pixel(82, 42), "a picture in no group is always up"
   end
 
   def test_groups_said_to_be_up_together_can_be

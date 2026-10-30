@@ -38,8 +38,11 @@ module VBlank
 
       # +console+ is the console the program is built for; a tree made by hand for no console in
       # particular leaves it out (see Nodes::Program). +variant+ is the console's variant, or nil.
-      def program(*statements, console: nil, variant: nil)
-        Nodes.build(:program, children: statements, console: console, variant: variant)
+      # +sprite_piece_sizes+ is the size of sprite piece by console, as [console, [width, height]]
+      # pairs.
+      def program(*statements, console: nil, variant: nil, sprite_piece_sizes: [])
+        Nodes.build(:program, children: statements, console: console, variant: variant,
+                              sprite_piece_sizes: sprite_piece_sizes)
       end
 
       # A font the program declares for itself. Draws nothing; it is there to be named by

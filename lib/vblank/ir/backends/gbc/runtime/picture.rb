@@ -155,17 +155,19 @@ module VBlank
             # +banked_colors+ says its backgrounds' colour tables are kept in banks (#emit_background_colors_far).
             # +lends+ is :by_scene when each scene numbers its own lists, and +first_kept_list+ is then
             # the number, one up, of the first list every scene keeps (Art#first_kept_list).
+            # +tall_pieces+ says the console draws every sprite piece 8×16 (Art#tall_pieces?).
             def emit(asm, memory, sprite_tiles:, background_tiles:, runs: [], drawn_palettes: nil, lends: false,
                      palettes_in_use:, groups: false, bar_rows: nil, rooms: false, room_colors: false, lent_families: false,
-                     backdrop: nil, banked_colors: false, first_kept_list: nil)
+                     backdrop: nil, banked_colors: false, first_kept_list: nil, tall_pieces: false)
               emit_start(asm, memory, sprite_tiles: sprite_tiles, background_tiles: background_tiles,
-                                      drawn_palettes: drawn_palettes, bar: !bar_rows.nil?, backdrop: backdrop)
+                                      drawn_palettes: drawn_palettes, bar: !bar_rows.nil?, backdrop: backdrop,
+                                      tall_pieces: tall_pieces)
               emit_rooms(asm, memory, colors: room_colors) if rooms
               emit_upload(asm, memory, groups: groups, bar: !bar_rows.nil?, label: rooms ? "rt_upload_now" : "rt_upload")
               emit_oam_dma_held(asm)
               PictureGroups.emit(asm, memory) if groups
               emit_tile_runs(asm, runs)
-              emit_sprites(asm, memory, lends: lends)
+              emit_sprites(asm, memory, lends: lends, tall_pieces: tall_pieces)
               emit_lend_colors(asm, memory, drawn_palettes, families: lent_families,
                                                             first_kept: (first_kept_list if lends == :by_scene)) if lends
               emit_background(asm, memory, bar: !bar_rows.nil?)
@@ -611,7 +613,8 @@ module VBlank
             # Sprite tiles go 128 to a bank at 0x8000; background tiles 256 to a bank, the first
             # 128 at 0x9000 and the next 128 at 0x8800 — the console's other way of counting
             # tiles, which a background's cells use, so the two kinds never meet.
-            def emit_start(asm, memory, sprite_tiles:, background_tiles:, drawn_palettes: nil, bar: false, backdrop: nil)
+            def emit_start(asm, memory, sprite_tiles:, background_tiles:, drawn_palettes: nil, bar: false, backdrop: nil,
+                           tall_pieces: false)
               h = Console::GBCHardware
               asm.label("rt_picture_start")
               if bar # the window's grid holds no bar yet, and the window starts at the left edge
@@ -675,8 +678,10 @@ module VBlank
                 asm.call("rt_picture_write_palettes")
               end
               # The sprite layer starts on; a painted screen turns it off (rt_screen, rt_paint_start)
-              # and the next sprite pass on a tiled one turns it on again (rt_sprites_end).
-              asm.load(:a, h::LCDC_ON | h::LCDC_SPRITES_ON | h::LCDC_BG_PRIORITY)
+              # and the next sprite pass on a tiled one turns it on again (rt_sprites_end). A game
+              # whose pieces are 8×16 has them so from the first frame: it is one switch for every
+              # entry, and nothing turns it back.
+              asm.load(:a, h::LCDC_ON | h::LCDC_SPRITES_ON | h::LCDC_BG_PRIORITY | (tall_pieces ? h::LCDC_TALL_SPRITES : 0))
               asm.load([memory[LCDC_WANTED]], :a)
               asm.ret
 
@@ -1087,7 +1092,10 @@ module VBlank
             #
             # In a game whose sprites' lists borrow the eight (+lends+), a pass's start makes this
             # pass's eight the pass before's, and its end copies the colours of any list lent in it.
-            def emit_sprites(asm, memory, lends: false)
+            #
+            # A piece is on the screen while any row of it is: one 8×16 (+tall_pieces+) still shows
+            # its lower half when it stands up to fifteen rows above the top.
+            def emit_sprites(asm, memory, lends: false, tall_pieces: false)
               args = ->(i) { Calls.arg(memory, i, 4) }
               asm.label("rt_sprites_begin")
               if lends
@@ -1211,8 +1219,9 @@ module VBlank
               # worked out in 16 bits, and an entry written unless it is wholly off the screen or the
               # table is full.
               asm.label("rt_gbc_place_piece")
-              # On the screen only when -8 < x < 160 and -8 < y < 144: x + 8 and y + 16 (the table's
-              # places), worked out in 16 bits from the low halves of x and y, then fit a byte and
+              # On the screen only when -8 < x < 160 and -8 < y < 144 (-16 < y for a tall piece):
+              # x + 8 and y + 16 (the table's places), worked out in 16 bits from the low halves of x
+              # and y, then fit a byte and
               # are not past the screen.
               # B = the table's x: x + dx + 8.
               asm.load_high(:a, args.call(1))
@@ -1233,7 +1242,7 @@ module VBlank
               asm.jump_relative(:z, "rt_gbc_piece_off_dy")
               asm.cp_a(168)
               asm.jump_relative(:nc, "rt_gbc_piece_off_dy")
-              # C = the table's y: y + dy + 16, on the screen when 9..159.
+              # C = the table's y: y + dy + 16, on the screen when 9..159 (1..159 for a tall piece).
               asm.load_high(:a, args.call(2))
               asm.add_a([:hl])
               asm.load(:e, :a)
@@ -1248,7 +1257,7 @@ module VBlank
               asm.adc_a(0)
               asm.jump_relative(:nz, "rt_gbc_piece_off")
               asm.load(:a, :c)
-              asm.cp_a(9)
+              asm.cp_a(tall_pieces ? 1 : 9)
               asm.jump_relative(:c, "rt_gbc_piece_off")
               asm.cp_a(160)
               asm.jump_relative(:nc, "rt_gbc_piece_off")

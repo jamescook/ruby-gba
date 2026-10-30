@@ -100,6 +100,28 @@ module VBlank
       # The variants of this console a build can ask for (Console::Variant), by name: none, for most.
       def variants = {}
 
+      # THE SIZES ITS BUILD CAN DRAW A SPRITE'S PIECES AT, as [width, height] in pixels, the one a
+      # game gets when it names none first; nil for a console whose build draws a sprite whole. A
+      # console that draws a sprite as pieces of its sprite table draws all of them one size at a
+      # time, so a game names one where it names its consoles (`sprite_piece_size:`).
+      def sprite_piece_sizes = nil
+
+      # +size+, when this console's build draws pieces that size; a plain refusal when it does not.
+      def refuse_unusable_sprite_piece_size!(size)
+        sizes = sprite_piece_sizes
+        unless sizes
+          raise ArgumentError, "sprite_piece_size: names a size for the #{title}, and a #{title} draws each sprite " \
+                               "whole, not in pieces. To fix this, remove :#{name} from sprite_piece_size:."
+        end
+        return size if sizes.include?(size)
+
+        said = sizes.map { |w, h| "#{w}×#{h}" }
+        raise ArgumentError, "sprite_piece_size: #{size.inspect} is not a size of sprite piece. A #{title} draws sprite " \
+                             "pieces #{said.join(' or ')}. To fix this, use one of those, like " \
+                             "`sprite_piece_size: { #{name}: #{sizes.last.inspect} }`. Or remove :#{name}, and the " \
+                             "pieces are #{said.first}."
+      end
+
       # The variant +name+ names, or nil for the console as it is (NO_VARIANT, or no name). A name
       # this console has no variant by is refused, naming the ones it has.
       def variant(name)
@@ -154,6 +176,7 @@ module VBlank
       def lowering = IR::Backends::GBC
       def cartridge = Cartridge::GBCROM
       def reading = Diagnostics::ColorReading
+      def sprite_piece_sizes = GBCHardware::SPRITE_PIECE_SIZES
     end
 
     # The Super Nintendo's. Its cartridges play in bsnes rather than libmgba, through
@@ -167,6 +190,8 @@ module VBlank
       def open_core(path, save_dir:) = Diagnostics::Emulator.open_snes(path, save_dir: save_dir)
       def save_file_extension = ".srm"
       def variants = SNES_VARIANTS
+      # Its build cuts every sprite into 8×8 pieces and has no setting for bigger ones yet.
+      def sprite_piece_sizes = [[8, 8]].freeze
 
       # THE CHIPS A CARTRIDGE CAN CARRY that more than a handful of games used. The one-game chips
       # (the Cx4 of Mega Man X2 and X3, the S-DD1, the SPC7110, the ST010 and the rest) are left out
@@ -245,6 +270,18 @@ module VBlank
                              "the #{holders.first} in `#{named_in}`."
       end
       kits.each { |kit| kit.builder.refuse_unusable_settings!(said.slice(*kit.console_settings)) }
+    end
+
+    # +sizes+, the size of sprite piece a game names for each of its consoles, by console
+    # (`sprite_piece_size: { gbc: [8, 16] }`), with each console held as its Symbol, when every
+    # console draws pieces that size (Kit#refuse_unusable_sprite_piece_size!).
+    def self.refuse_unusable_sprite_piece_sizes!(sizes)
+      unless sizes.is_a?(Hash)
+        raise ArgumentError, "sprite_piece_size: #{sizes.inspect} does not say which console it is for. To fix this, " \
+                             "name the console with the size, like `sprite_piece_size: { gbc: [8, 16] }`."
+      end
+
+      sizes.to_h { |console, size| [named(console), self.for(console).refuse_unusable_sprite_piece_size!(size)] }
     end
 
     # What a game can tell about the console named +name+.

@@ -84,6 +84,23 @@ class TestGameConsoles < Minitest::Test
     assert_match(/add :snes to consoles:/, error.message)
   end
 
+  # Each console reads its own size of sprite piece; a console not named keeps 8×8.
+  def test_a_sprite_piece_size_is_named_by_console
+    game = VBlank.game("TALL", consoles: %i[gba gbc], sprite_piece_size: { gbc: [8, 16] }) { var :x, 1 }
+
+    assert_equal [8, 16], game.program(console: :gbc).sprite_piece_size_on(:gbc)
+    assert_nil game.program(console: :gba).sprite_piece_size_on(:gba)
+  end
+
+  def test_a_sprite_piece_size_for_a_console_the_game_is_not_for_is_refused
+    error = assert_raises(ArgumentError) do
+      VBlank.game("X", consoles: %i[gba], sprite_piece_size: { gbc: [8, 16] }) { var :x, 1 }
+    end
+
+    assert_match(/not for it/, error.message)
+    assert_match(/add :gbc to consoles:/, error.message)
+  end
+
   def test_variants_that_are_not_a_hash_are_refused
     error = assert_raises(ArgumentError) { VBlank.game("X", consoles: %i[snes], variants: :superfx) { var :x, 1 } }
 

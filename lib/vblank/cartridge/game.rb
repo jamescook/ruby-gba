@@ -34,6 +34,7 @@ module VBlank
         @menu = menu
         @consoles = Console.refuse_unknown_consoles!(consoles, setting: "consoles:")
         @variants = refuse_unusable_variants!(variants)
+        refuse_piece_size_not_for_consoles!
         Console.refuse_unusable_console_settings!(console_settings_said, consoles: @consoles, title: title,
                                                                          named_in: "consoles:")
         @block = shareable_if_possible(block)
@@ -220,6 +221,16 @@ module VBlank
         end.compact.freeze
       end
 
+      # A size of sprite piece named for a console the game is not for is refused, as a variant is:
+      # the author asked for something no cartridge of the game's would have.
+      def refuse_piece_size_not_for_consoles!
+        console = @options.sprite_piece_size.each_key.find { |name| !@consoles.include?(name) } or return
+
+        raise ArgumentError, "#{@title} names a sprite_piece_size: for the #{Console.described(console).title}, and " \
+                             "the game is not for it. To fix this, add :#{console} to consoles:, or remove it from " \
+                             "sprite_piece_size:."
+      end
+
       # +console+, when the game is for it; a plain refusal when it is not.
       def refuse_console_not_for!(console)
         console = console.to_sym
@@ -289,8 +300,12 @@ module VBlank
     #
     # +variants+ names a chip on a console's cartridge, by console: `variants: { snes: :superfx }`
     # for a Super Nintendo cartridge with a Super FX 2 (see Console::Variant).
+    #
+    # +sprite_piece_size+ is the size each of its consoles draws a sprite's pieces at, by console:
+    # `sprite_piece_size: { gbc: [8, 16] }` for the Color's tall pieces (see Cartridge::Options).
     def game(title, code: nil, maker: nil, frame_sync: :auto, fast_cartridge: nil, fast_code: nil,
-             save_memory: nil, stack_room: nil, consoles: nil, menu: true, variants: {}, &block)
+             save_memory: nil, stack_room: nil, consoles: nil, menu: true, variants: {}, sprite_piece_size: {},
+             &block)
       unless block
         raise ArgumentError, %(VBlank.game needs a block: VBlank.game("NAME", consoles: %i[gba]) { ... })
       end
@@ -301,7 +316,8 @@ module VBlank
       end
 
       options = Cartridge::Options.new(frame_sync: frame_sync, fast_cartridge: fast_cartridge,
-                                       fast_code: fast_code, save_memory: save_memory, stack_room: stack_room)
+                                       fast_code: fast_code, save_memory: save_memory, stack_room: stack_room,
+                                       sprite_piece_size: sprite_piece_size)
       handle = Cartridge::Game.new(title, code: code, maker: maker, block: block, options: options, consoles: consoles,
                                           menu: menu, variants: variants)
       Ractor.current[:vblank_registered_games] = registered_games + [handle]

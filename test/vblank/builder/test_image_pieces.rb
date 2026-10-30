@@ -54,6 +54,59 @@ class TestImagePieces < Minitest::Test
     assert_backends_agree(built(pieces, at: [20, 40]), frames: 3, name: "PIECES")
   end
 
+  # Twenty-four sprites of two pieces, one under the other: forty-eight pieces, more than the forty
+  # a Color shows. Told its pieces are 8x16, the Color shows each sprite as one, and every sprite
+  # shows whole. Every other console draws the same picture.
+  def test_every_sprite_of_stacked_pieces_shows_when_the_pieces_are_tall
+    options = VBlank::Cartridge::Options.new(sprite_piece_size: { gbc: [8, 16] })
+    b = Builder.new(options: options)
+    places = Array.new(24) { |n| [8 + (24 * (n % 6)), 8 + (24 * (n / 6))] }
+    b.instance_eval do
+      screen :tiled
+      image :stack, colors: %i[transparent red blue],
+                    pieces: [[0, 0, TestImagePieces.solid(1)], [0, 8, TestImagePieces.solid(2)]]
+      places.each { |at| sprite :stack, at: at }
+      game_loop {}
+    end
+    b.finalize_program
+    screen = shown(b.program)
+
+    places.each_with_index do |(x, y), n|
+      assert_equal RED, screen.pixel(x + 3, y + 3), "sprite #{n} shows its upper piece"
+      assert_equal BLUE, screen.pixel(x + 3, y + 11), "...and its lower one"
+    end
+  end
+
+  # Tall pieces turned upside down change halves, a piece with none under it shows alone, and a
+  # picture drawn rather than made of pieces is cut 8x16 too.
+  def test_tall_pieces_turn_stand_alone_and_cut_from_a_drawing
+    options = VBlank::Cartridge::Options.new(sprite_piece_size: { gbc: [8, 16] })
+    b = Builder.new(options: options)
+    b.instance_eval do
+      screen :tiled
+      image :stack, colors: %i[transparent red blue],
+                    pieces: [[0, 0, TestImagePieces.solid(1)], [0, 8, TestImagePieces.solid(2)], [8, 4, TestImagePieces.solid(2)]]
+      image :drawn, "R" => :red, "B" => :blue do
+        ((["RRRRRRRRRRRR"] * 12) + (["BBBBBBBBBBBB"] * 12)).join("\n")
+      end
+      sprite :stack, at: [20, 20]
+      sprite upside_down(:stack), at: [60, 20]
+      sprite :drawn, at: [100, 20]
+      game_loop {}
+    end
+    b.finalize_program
+    screen = shown(b.program)
+
+    assert_equal RED, screen.pixel(23, 23), "the upright stack's upper half"
+    assert_equal BLUE, screen.pixel(23, 31), "...its lower half"
+    assert_equal BLUE, screen.pixel(31, 27), "...and the piece beside, with nothing under it"
+    assert_equal BLUE, screen.pixel(63, 23), "turned upside down, the lower half is on top"
+    assert_equal RED, screen.pixel(63, 31), "...and the upper below"
+    assert_equal BLUE, screen.pixel(71, 27), "...and the piece beside turned with it"
+    assert_equal RED, screen.pixel(110, 30), "the drawing's upper half, cut into tall pieces"
+    assert_equal BLUE, screen.pixel(110, 40), "...and its lower"
+  end
+
   def test_a_piece_of_the_wrong_size_is_a_friendly_error
     error = assert_raises(ArgumentError) { built([[0, 0, Array.new(60, 1)]]) }
 

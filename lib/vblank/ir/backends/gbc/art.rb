@@ -137,7 +137,11 @@ module VBlank
             def brings_in? = chain.any? { |link| link.tiles.any? || link.palettes.any? || link.first_palette }
           end
 
-          attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids, :backdrop
+          attr_reader :sprite_tiles, :sprite_palettes, :background_tiles, :background_palettes, :grids, :backdrop,
+                      :piece_height
+
+          # Whether the console draws every sprite piece 8×16 (#initialize).
+          def tall_pieces? = @piece_height > SpritePieces::SIZE
 
           # A tile of a picture grouped by room: the +index+th of the picture's own, whose number is
           # known once every picture is (#group_rooms).
@@ -160,8 +164,16 @@ module VBlank
           # +backdrop+ is the colour the game shows wherever nothing is drawn (`screen ... backdrop:`):
           # the first colour of every background palette an empty cell or a see-through pixel shows,
           # in place of black.
+          #
+          # +piece_height+ is how tall the console draws every entry of its sprite table: 8, or 16
+          # where the game asked for 8×16 pieces (Console::GBCHardware::SPRITE_PIECE_SIZES). A TALL
+          # PIECE is a tile and the one numbered after it, drawn one under the other from one entry, so
+          # a sprite of pieces stacked in pairs takes half the forty. Each tile a sprite keeps is then
+          # a pair of the console's tiles at an even number, cut 8 wide and 16 tall, and turned upside
+          # down whole, which is how the console turns a tall piece: the two halves change places.
           def initialize(square_colors: nil, lends: false, grouped: {}, room_colors: false, first_cleared_to: nil,
-                         backdrop: BACKDROP)
+                         backdrop: BACKDROP, piece_height: SpritePieces::SIZE)
+            @piece_height = piece_height
             @backdrop = backdrop
             @square_colors = square_colors
             @first_cleared_to = first_cleared_to
@@ -175,8 +187,8 @@ module VBlank
             @all_rooms = [] # ...and every Room, the ones only carried by another too
             @shared_tiles = nil # how many tiles every screen keeps, once rooms are planned
             @grouped_tiles = {} # a grouped picture's name -> its own tiles, 16 bytes each
-            @sprite_tiles = []        # 16 bytes each
-            @sprite_tile_numbers = {} # bytes -> [number, flips]
+            @sprite_tiles = []        # 16 bytes each, a tall piece's two one after the other
+            @sprite_tile_numbers = {} # a piece's bytes -> the number of its first tile
             @sprite_pictures = {}     # picture name -> SpritePicture
             @sprite_palettes = []     # lists of four colours
             @scene_palettes = {}      # a scene -> the lists of four colours its own sprites wear (TooManyLentLists)
@@ -297,7 +309,8 @@ module VBlank
               @grouped.values.uniq(&:name).each_with_index.to_h do |set, number|
                 pictures = by_set.fetch(set.name, [])
                 placed = pictures.map do |name|
-                  IR::PictureGroupPlaces::Picture.new(key: name, units: @grouped_tiles[name].length, even_start: false,
+                  # A tall piece's tiles start at an even number, so a picture of them does too.
+                  IR::PictureGroupPlaces::Picture.new(key: name, units: @grouped_tiles[name].length, even_start: tall_pieces?,
                                                       groups: set.groups_holding(name))
                 end
                 room = GroupRoom.new(set: set, number: number, first_tile: first, pictures: pictures,
@@ -382,11 +395,12 @@ module VBlank
             return @sprite_pictures[name] ||= pieced_sprite_picture(name, image) if image.pieces
 
             @sprite_pictures[name] ||= begin
-              pieces = ((image.width + 7) / 8) * ((image.height + 7) / 8)
+              pieces = ((image.width + 7) / 8) * ((image.height + @piece_height - 1) / @piece_height)
               too_big = image.width > LARGEST_SPRITE || image.height > LARGEST_SPRITE
               if too_big && pieces > Console::GBCHardware::SPRITES
                 raise LoweringError, "the sprite picture #{name.inspect} is #{image.width}×#{image.height}, which is " \
-                                     "#{pieces} pieces of 8×8, and a Game Boy Color shows #{Console::GBCHardware::SPRITES} " \
+                                     "#{pieces} pieces of 8×#{@piece_height}, and a Game Boy Color shows " \
+                                     "#{Console::GBCHardware::SPRITES} " \
                                      "at once. To fix this, make the picture smaller."
               end
               if too_big
@@ -395,8 +409,10 @@ module VBlank
               end
 
               places = sprite_places(name, image)
-              pieces = SpritePieces.cut(image.width, image.height) { |x, y| places[(y * image.width) + x] }
-                                   .map do |x0, y0, piece|
+              squares = SpritePieces.cut(image.width, image.height, piece_height: @piece_height) do |x, y|
+                places[(y * image.width) + x]
+              end
+              pieces = squares.map do |x0, y0, piece|
                 tile, flips = @grouped.key?(name) ? grouped_tile(name, piece) : sprite_tile(piece)
                 Piece.new(dx: x0, dy: y0, tile: tile, flips: flips)
               end
@@ -412,16 +428,16 @@ module VBlank
           # big it is matters only to a test of its pixels against another's (Lowering::Picture
           # #picture_collided); how many pieces it has, to the forty the console shows.
           def pieced_sprite_picture(name, image)
-            if image.pieces.length > Console::GBCHardware::SPRITES
-              raise LoweringError, "the sprite picture #{name.inspect} is made of #{image.pieces.length} pieces, and a " \
+            drawn = drawn_pieces(image.pieces)
+            if drawn.length > Console::GBCHardware::SPRITES
+              raise LoweringError, "the sprite picture #{name.inspect} is made of #{drawn.length} pieces, and a " \
                                    "Game Boy Color shows #{Console::GBCHardware::SPRITES} at once. To fix this, " \
                                    "make it of fewer pieces."
             end
 
             places = sprite_places(name, image)
             refuse_sprite_colors!(name, image.pieces.map { |_, _, own| own.bytes.max }.max)
-            pieces = image.pieces.filter_map do |dx, dy, own|
-              piece = own.bytes
+            pieces = drawn.filter_map do |dx, dy, piece|
               next if piece.all?(&:zero?)
 
               tile, flips = @grouped.key?(name) ? grouped_tile(name, piece) : sprite_tile(piece)
@@ -432,15 +448,42 @@ module VBlank
                               pieces: pieces, places: places, mask: mask)
           end
 
+          # The game's 8×8 pieces, [dx, dy, 64 places as a String], as the console draws them: as they
+          # are where its pieces are 8×8. Where they are 8×16, a piece with the one the game put right
+          # under it (or over it) is one tall piece, in the place of the earlier of the two in the
+          # order, and a piece with none has a see-through half under it. That is a tall piece's
+          # whole saving: a figure the game stacked in halves takes one of the forty for each pair.
+          # A piece the game put between the two in its order, over one of them, goes behind the
+          # pair rather than between its halves; nothing else changes which is in front.
+          def drawn_pieces(pieces)
+            left = pieces.map { |dx, dy, own| [dx, dy, own.bytes] }
+            return left if @piece_height == SpritePieces::SIZE
+
+            blank = Array.new(SpritePieces::SIZE * SpritePieces::SIZE, 0)
+            drawn = []
+            until left.empty?
+              dx, dy, piece = left.shift
+              under = left.index { |x, y, _| x == dx && y == dy + 8 }
+              over = left.index { |x, y, _| x == dx && y == dy - 8 } unless under
+              drawn << if under then [dx, dy, piece + left.delete_at(under)[2]]
+                       elsif over then [dx, dy - 8, left.delete_at(over)[2] + piece]
+                       else [dx, dy, piece + blank]
+                       end
+            end
+            drawn
+          end
+
           # A SPRITE'S PICTURE THE GAME PAINTS from a list (Nodes::TileRun with a picture): every 8×8
           # piece of it, in the order the list keeps them — left to right, then top to bottom — a tile
           # of its own, empty until the game's first copy. Its outline is not known while the game is
           # built, so it collides with nothing.
           def painted_sprite_picture(name, width, height)
             @sprite_pictures[name] ||= begin
-              pieces = (0...height).step(8).flat_map do |y0|
+              pieces = (0...height).step(@piece_height).flat_map do |y0|
                 (0...width).step(8).map do |x0|
-                  Piece.new(dx: x0, dy: y0, tile: (@sprite_tiles << Array.new(16, 0)).length - 1, flips: 0)
+                  tile = @sprite_tiles.length
+                  (@piece_height / 8).times { @sprite_tiles << Array.new(16, 0) }
+                  Piece.new(dx: x0, dy: y0, tile: tile, flips: 0)
                 end
               end
               SpritePicture.new(name: name, number: @sprite_pictures.size, width: width, height: height, pieces: pieces,
@@ -1184,10 +1227,11 @@ module VBlank
                                  "#{OWN_COLORS} colours."
           end
 
-          # Sixty-four places as the Color keeps a tile: two bytes a row, the low bit of each
-          # place in the first and the high bit in the second, the leftmost pixel in bit 7.
+          # Places eight to a row as the Color keeps a tile: two bytes a row, the low bit of each
+          # place in the first and the high bit in the second, the leftmost pixel in bit 7. Sixty-four
+          # are one tile; a tall piece's 128 are its upper tile and then its lower.
           def encode(places)
-            (0...8).flat_map do |row|
+            (0...(places.length / 8)).flat_map do |row|
               line = places[row * 8, 8]
               low = line.each_with_index.sum { |place, x| (place & 1) << (7 - x) }
               high = line.each_with_index.sum { |place, x| ((place >> 1) & 1) << (7 - x) }
@@ -1197,13 +1241,15 @@ module VBlank
 
           # A sprite tile: one already kept, drawn as it is or mirrored, or a new one. The Color
           # mirrors a sprite's tile as it draws it, so a picture and its mirror image share tiles.
+          # +places+ is a piece's, 8 wide and as tall as the console draws a piece (#initialize).
           def sprite_tile(places)
             turnings(places).each do |flips, version|
               number = @sprite_tile_numbers[encode(version)]
               return [number, flips] if number
             end
             bytes = encode(places)
-            @sprite_tile_numbers[bytes] = (@sprite_tiles << bytes).length - 1
+            @sprite_tile_numbers[bytes] = @sprite_tiles.length
+            @sprite_tiles.concat(bytes.each_slice(16).to_a)
             [@sprite_tile_numbers[bytes], 0]
           end
 
@@ -1212,11 +1258,15 @@ module VBlank
           # not be up at the same time.
           def grouped_tile(name, places)
             own = (@grouped_tiles[name] ||= [])
+            halves = @piece_height / 8
             turnings(places).each do |flips, version|
-              index = own.index(encode(version))
+              kept = encode(version).each_slice(16).to_a
+              index = (0...own.length).step(halves).find { |i| own[i, halves] == kept }
               return [GroupedTile.new(picture: name, index: index), flips] if index
             end
-            [GroupedTile.new(picture: name, index: (own << encode(places)).length - 1), 0]
+            index = own.length
+            own.concat(encode(places).each_slice(16).to_a)
+            [GroupedTile.new(picture: name, index: index), 0]
           end
 
           # The tile's places drawn as they are, mirrored, upside down and both, by the flips that

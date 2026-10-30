@@ -97,7 +97,7 @@ module VBlank
                                       palettes_in_use: art.palettes_in_use, groups: art.groups?, bar_rows: bar_rows,
                                       rooms: art.rooms.any?, room_colors: art.room_colors?, lent_families: art.lent_families?,
                                       backdrop: art.first_screen_backdrop, banked_colors: banked_colors,
-                                      first_kept_list: art.first_kept_list)
+                                      first_kept_list: art.first_kept_list, tall_pieces: art.tall_pieces?)
             BigMaps.emit(asm, memory, buffer: big_maps&.first, staged: big_maps&.last)
             Paint.emit(asm, memory, painting: art.painting?, map_count: art.square_maps.length, bar: !bar_rows.nil?)
             Sound.emit(asm)

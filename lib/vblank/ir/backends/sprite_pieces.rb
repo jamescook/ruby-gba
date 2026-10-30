@@ -15,11 +15,12 @@ module VBlank
         # The picture +width+ by +height+ pixels cut into squares, row by row from the top left, as
         # [across, down, the square's 64 numbers] with across and down in pixels. The block gives the
         # number at x, y inside the picture; past its right or bottom edge a square's pixels are 0. A
-        # square that is 0 all over is left out.
-        def self.cut(width, height)
-          (0...height).step(SIZE).flat_map do |down|
+        # square that is 0 all over is left out. On a console told to draw its pieces taller
+        # (+piece_height+ 16, the Color's 8×16), each is that tall, its numbers row after row.
+        def self.cut(width, height, piece_height: SIZE)
+          (0...height).step(piece_height).flat_map do |down|
             (0...width).step(SIZE).filter_map do |across|
-              square = Array.new(SIZE * SIZE) do |i|
+              square = Array.new(SIZE * piece_height) do |i|
                 x = across + (i % SIZE)
                 y = down + (i / SIZE)
                 x >= width || y >= height ? 0 : yield(x, y)

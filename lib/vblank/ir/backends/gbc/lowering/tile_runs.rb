@@ -56,11 +56,19 @@ module VBlank
 
             # Where each of a run's tiles goes in picture memory, as [bank, address]: a background
             # tile's 256 to a bank, the first 128 from 0x9000 and the rest from 0x8800; a sprite's
-            # pieces 128 to a bank from 0x8000.
+            # pieces 128 to a bank from 0x8000. The list keeps a sprite's tiles 8×8, left to right and
+            # then down; where the console draws its pieces 8×16, a tile in an odd row of them is the
+            # lower half of the piece over it.
             def run_tile_places(run)
               if run.picture
-                @art.painted_sprite_picture(run.picture, run.width, run.height).pieces.map do |piece|
-                  [piece.tile / 128, 0x8000 + ((piece.tile % 128) * TILE_BYTES)]
+                pieces = @art.painted_sprite_picture(run.picture, run.width, run.height).pieces
+                columns = run.width / 8
+                Array.new(run_tile_count(run)) do |i|
+                  x = (i % columns) * 8
+                  y = (i / columns) * 8
+                  piece = pieces.find { |each| each.dx == x && y.between?(each.dy, each.dy + @art.piece_height - 8) }
+                  tile = piece.tile + ((y - piece.dy) / 8)
+                  [tile / 128, 0x8000 + ((tile % 128) * TILE_BYTES)]
                 end
               else
                 run.tiles.map do |tile|

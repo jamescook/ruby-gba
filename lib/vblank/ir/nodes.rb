@@ -969,14 +969,23 @@ module VBlank
       #
       # +variant+ names the hardware the console's copy has beyond the plain console (a chip on a
       # Super Nintendo cartridge, Console::Variant), or is nil for the plain console.
+      #
+      # +sprite_piece_sizes+ is the size of piece each console the game named one for draws its
+      # sprites in, as [console, [width, height]] pairs (Cartridge::Options#sprite_piece_size). It
+      # is kept by console, not for the console the program is built for, so a test's unbound
+      # program carries it to whichever console a run plays it as. What a sprite shows is the same
+      # at every size; only how a console's build cuts it up differs.
       class Program
         include Node
         kind :program
         category :root
-        operands console: :name, variant: :name
+        operands console: :name, variant: :name, sprite_piece_sizes: :list
 
         # What the console this program was built for can do: its screen, buttons, sprites.
         def described_console = console ? Console.described(console, variant: variant) : Program.unbound_console
+
+        # The size of piece the game named for +console+'s sprites, or nil where it named none.
+        def sprite_piece_size_on(console) = (sprite_piece_sizes || []).to_h[console]
 
         # What an unbound program is laid out and checked on.
         def self.unbound_console = Console::ADVANCE

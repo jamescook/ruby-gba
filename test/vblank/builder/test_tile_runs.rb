@@ -180,6 +180,35 @@ class TestTileRuns < Minitest::Test
     b.program
   end
 
+  # A 16x32 picture is eight tiles, two to a row. On a Color told its sprite pieces are 8x16, each
+  # tile still comes from its place in the list: the one at the second row's right is the lower
+  # half of a tall piece, and the third row's left is the upper half of the next.
+  def test_a_painted_sprite_of_tall_pieces_shows_each_tile_from_its_place_in_the_list
+    b = Builder.new(options: VBlank::Cartridge::Options.new(sprite_piece_size: { gbc: [8, 16] }))
+    b.instance_eval do
+      screen :tiled
+      colors :ink, [:transparent, :white]
+      canvas = list :canvas, capacity: 256, width: :byte
+      repeat(256) { canvas.push 0 }
+      tag = image :tag, from: canvas, width: 16, height: 32, colors: :ink
+      sprite :tag, at: [40, 20]
+      frame = var :frame, 0
+      game_loop do
+        frame.add! 1
+        (frame == 2).then do
+          canvas[32 * 3] = 0x01 # the second row's right tile, its top-left pixel
+          canvas[32 * 4] = 0x01 # the third row's left tile
+          tag.changed
+        end
+      end
+    end
+    b.finalize_program
+
+    assert_equal WHITE, pixel(b.program, 4, 48, 28), "the second row's right tile"
+    assert_equal WHITE, pixel(b.program, 4, 40, 36), "the third row's left tile"
+    refute_equal WHITE, pixel(b.program, 4, 40, 28), "nothing in the second row's left"
+  end
+
   def test_a_sprite_shows_its_lists_pixels_on_the_frame_after_changed
     prog = tag_game do |canvas, tag, frame|
       (frame == 3).then do

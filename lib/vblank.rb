@@ -115,15 +115,17 @@ module VBlank
   # one is refused.
   # +variant+ names the hardware this copy of +console+ has beyond the plain console (:superfx, a
   # Super FX 2 chip on a Super Nintendo cartridge; see {Console::Variant}), or is nil.
+  # +sprite_piece_size+ is the size a console draws a sprite's pieces at, by console
+  # (`{ gbc: [8, 16] }`); see {Cartridge::Options}.
   def self.build(title, code: nil, maker: nil, validate: true, frame_sync: :auto, fast_cartridge: nil,
                  fast_code: nil, out: $stdout, err: $stderr, progress: Messages::Progress.silent,
                  profile: false, settings: {}, save_memory: nil, stack_room: nil, console: nil, variant: nil,
-                 &block)
-    # The seven that say how the game is built travel as one value from here on (see
+                 sprite_piece_size: {}, &block)
+    # The eight that say how the game is built travel as one value from here on (see
     # {Cartridge::Options}), checked now so a setting that cannot be right stops the build first.
     options = Cartridge::Options.new(frame_sync: frame_sync, fast_cartridge: fast_cartridge,
                                      fast_code: fast_code, save_memory: save_memory, stack_room: stack_room,
-                                     console: console, variant: variant)
+                                     console: console, variant: variant, sprite_piece_size: sprite_piece_size)
     refuse_unnamed_console!(title) if options.console.nil?
     # A measurement taken earlier is a console setting; true and false only say whether to measure.
     said = Console.console_settings_said(code: code, maker: maker, **options.to_h,

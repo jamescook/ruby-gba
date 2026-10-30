@@ -31,11 +31,17 @@ module VBlank
     # +variant+ names the hardware this copy of the console has beyond the plain one (a chip on a
     # Super Nintendo cartridge, Console::Variant), or is nil for the plain console. It is checked
     # against the console's kit, so a variant the console does not have is refused here.
+    #
+    # +sprite_piece_size+ is the size each console draws a sprite's pieces at, by console
+    # (`{ gbc: [8, 16] }`); a console it does not name draws them the size its kit gives first
+    # (Console::Kit#sprite_piece_sizes). It is by console because each has sizes of its own, so one
+    # game for two consoles can name a size for each. A size a console does not draw is refused here.
     Options = Data.define(:frame_sync, :fast_cartridge, :fast_code, :save_memory, :stack_room, :console,
-                          :variant) do
+                          :variant, :sprite_piece_size) do
       def initialize(frame_sync: :auto, fast_cartridge: nil, fast_code: nil, save_memory: nil, stack_room: nil,
-                     console: nil, variant: nil)
+                     console: nil, variant: nil, sprite_piece_size: {})
         console = Console.named(console) unless console.nil?
+        sprite_piece_size = Console.refuse_unusable_sprite_piece_sizes!(sprite_piece_size).freeze
         unless variant.nil?
           raise ArgumentError, "A variant needs a console. To fix this, name the console too." if console.nil?
 
