@@ -1804,14 +1804,13 @@ def rg_forget_drawn_place(sprite)
   place
 end
 
-# Reference#restore_scene_rect: the scenery put back where this sprite was last drawn. All of a
-# sprite's pictures are one size, so any of them says how big the patch is.
-def rg_object_take_off(sprite, image)
+# Reference#restore_scene_rect: the scenery put back where this sprite was last drawn, over the
+# box every one of its pictures fits in, +width+ by +height+ (SpriteCut.canvas_of).
+def rg_object_take_off(sprite, width, height)
   place = rg_forget_drawn_place(sprite)
   return unless place
 
   x, y = place
-  _, _, width, height = rg_picture_of(image)
   rg_restore_patch(x, y, width, height)
 end
 

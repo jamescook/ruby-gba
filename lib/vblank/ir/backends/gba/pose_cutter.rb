@@ -40,7 +40,9 @@ module VBlank
           # it to; and the two attribute bits that mirror an object are the ones that name
           # the rotation group once it is turning, so there are none left to mirror with.
           def cut(node, transformed:)
-            width, height = size_of!(node.name, node.poses)
+            # Poses of different sizes are drawn on the box they all fit in, each from its
+            # top-left corner (see SpriteCut.canvas_of).
+            width, height = SpriteCut.canvas_of(@bitmaps, node.poses)
             guard_canvas!(node, width, height, transformed: transformed)
             # EACH POSE IS STORED AT ITS OWN SIZE, trimmed to what it actually draws
             # (see SpriteCut#pieces_of) rather than at the canvas they were all drawn on.
@@ -121,21 +123,6 @@ module VBlank
             place || indices.fetch(bmp.color_at(index))
           end
 
-          # All of a sprite's poses share one size (they swap in place). Confirm that and
-          # return it; a size mismatch is a build error rather than a garbled sprite.
-          def size_of!(name, poses)
-            sizes = poses.map do |image|
-              bmp = @bitmaps.fetch(image) # presence already checked while building the palette
-              [bmp.width, bmp.height]
-            end
-            return sizes.first if sizes.uniq.size == 1
-
-            raise LoweringError,
-                  "sprite #{name.inspect} has poses of different sizes " \
-                  "(#{sizes.uniq.map { |w, h| "#{w}x#{h}" }.join(', ')}) — a sprite's poses must all be " \
-                  "the same size"
-          end
-
           private
 
           # THE PICTURE THE AUTHOR DREW HAS TO BE MADE OF WHOLE TILES, and small enough that
@@ -145,11 +132,14 @@ module VBlank
           # is the framework's and the author named the art.
           def guard_canvas!(node, width, height, transformed:)
             art = node.poses.first
-            if width % TILE_PX != 0 || height % TILE_PX != 0
+            node.poses.each do |pose|
+              bmp = @bitmaps.fetch(pose)
+              next if (bmp.width % TILE_PX).zero? && (bmp.height % TILE_PX).zero?
+
               raise LoweringError,
                     "A sprite in screen :tiled is built from #{TILE_PX}x#{TILE_PX} tiles. So its picture " \
-                    "must be a multiple of #{TILE_PX} pixels each way. The picture :#{art} is " \
-                    "#{width}x#{height}. To fix this, resize it."
+                    "must be a multiple of #{TILE_PX} pixels each way. The picture :#{pose} is " \
+                    "#{bmp.width}x#{bmp.height}. To fix this, resize it."
             end
             if width > MAX_OBJECT_CANVAS || height > MAX_OBJECT_CANVAS
               raise LoweringError,

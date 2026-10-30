@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "differential"
 
 # The game these tests play, kept once for the faced pose read back on the Advance's cartridge
 # too (test/lowering/gba/vblank/dsl/test_sprite_facing_cartridge.rb).
@@ -34,6 +35,7 @@ end
 class TestSpriteFacing < Minitest::Test
   include VBlank::Console::Hardware
   include SpriteFacingGames
+  include Differential
 
   POSE = 2 # a 2x2 pose
 
@@ -89,16 +91,27 @@ class TestSpriteFacing < Minitest::Test
     assert_match(/poses/, err.message)
   end
 
-  def test_poses_of_different_sizes_are_a_friendly_error
-    err = assert_raises(ArgumentError) do
-      Builder.new.instance_eval do
-        screen :bitmap
-        image(:big, "#" => :green) { "###\n###\n###" } # 3x3
-        image(:small, "#" => :red) { "##\n##" }          # 2x2
-        sprite :guy, at: [0, 0], facing: { right: :big, left: :small }
+  # Poses of different sizes each stand with their top-left corner at the sprite's place, and
+  # facing the smaller leaves nothing of the larger behind.
+  def test_poses_of_different_sizes_share_their_top_left_corner
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      image(:big, "#" => :green) { "###\n###\n###" } # 3x3
+      image(:small, "#" => :red) { "##\n##" }          # 2x2
+      guy = sprite :guy, at: [40, 40], facing: { right: :big, left: :small }
+      ticks = var :ticks, 0
+      game_loop do
+        ticks.add! 1
+        (ticks == 3).then { guy.face :left }
       end
     end
-    assert_match(/same size/, err.message)
+    b.finalize_program
+    screen = game_player.run(b.program, frames: 8).screen
+
+    assert_equal Color.resolve(:red), screen.pixel(41, 41), "the small pose stands at the sprite's place"
+    assert_equal screen.pixel(150, 130), screen.pixel(42, 42), "nothing of the big pose is left"
+    assert_backends_agree(b.program, frames: 8, name: "SIZES")
   end
 
   # The faced pose on the Advance's cartridge, read back in the emulator, is in

@@ -213,9 +213,9 @@ module VBlank
           def boxes_by_picture(obj)
             return [0] if turns_or_resizes?(obj)
 
-            canvas = picture_named(obj.poses.first)
+            width, height = sprite_canvas(obj)
             whole = obj.poses.any? { |pose| painted_picture?(pose) }
-            cut = SpriteCut.new(sprite_pictures).cut(obj.poses, width: canvas.width, height: canvas.height, whole: whole)[:boxes]
+            cut = SpriteCut.new(sprite_pictures).cut(obj.poses, width: width, height: height, whole: whole)[:boxes]
             pictures = obj.poses.uniq
             [pictures.length, *pictures.flat_map do |pose|
               boxes = cut.fetch(obj.poses.index(pose))
@@ -245,6 +245,10 @@ module VBlank
 
           # A picture the game paints from a list is see-through all over until its first copy
           # (Reference#collect_definitions), which is the picture written into the game for it.
+          # The box every one of a sprite's pictures fits in (SpriteCut.canvas_of), a picture the
+          # game paints included.
+          def sprite_canvas(obj) = SpriteCut.canvas_of(obj.poses.to_h { |pose| [pose, picture_named(pose)] }, obj.poses)
+
           def picture_named(name)
             painted = @tile_runs.each_value.find { |run| run.picture == name }
             return painted_image(painted, Array.new(run_pixels(painted), 0), width: painted.width, height: painted.height) if painted
@@ -741,14 +745,17 @@ module VBlank
                                               C::Assign.new(index, call("rg_add", index, C::Int.new(1)))])])
           end
 
-          # Any of a sprite's pictures says how big a patch it covered; the interpreter reads
-          # the first (Reference#restore_scene_rect). One that turns or resizes covered more,
-          # and how much more depends on whether its size ever changes.
+          # A sprite covered the box all its pictures fit in (Reference#restore_scene_rect).
+          # One that turns or resizes, whose pictures are one size, covered more, and how much
+          # more depends on whether its size ever changes.
           def sprite_removal(obj)
-            patch = [sprite_number(obj), C::Int.new(image_number(obj.poses.first))]
-            return eval_call("rg_object_take_off", *patch) unless turns_or_resizes?(obj)
+            unless turns_or_resizes?(obj)
+              width, height = sprite_canvas(obj)
+              return eval_call("rg_object_take_off", sprite_number(obj), C::Int.new(width), C::Int.new(height))
+            end
 
-            eval_call("rg_object_take_off_turned", *patch, yes_or_no(!constant?(obj.scale, Build::SCALE_ONE)))
+            eval_call("rg_object_take_off_turned", sprite_number(obj), C::Int.new(image_number(obj.poses.first)),
+                      yes_or_no(!constant?(obj.scale, Build::SCALE_ONE)))
           end
 
           # Reference#objects_on_screen: a sprite is drawn when it is switched on and its pose

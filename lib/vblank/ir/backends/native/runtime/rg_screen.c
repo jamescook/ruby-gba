@@ -1625,13 +1625,12 @@ static const drawn_place *forget_drawn_place(int32_t sprite) {
   return place;
 }
 
-/* Reference#restore_scene_rect: the scenery put back where this sprite was last drawn. All of a
- * sprite's pictures are one size, so any of them says how big the patch is. */
-void rg_object_take_off(int32_t sprite, int32_t image) {
+/* Reference#restore_scene_rect: the scenery put back where this sprite was last drawn, over the
+ * box every one of its pictures fits in, +width+ by +height+ (SpriteCut.canvas_of). */
+void rg_object_take_off(int32_t sprite, int32_t width, int32_t height) {
   const drawn_place *place = forget_drawn_place(sprite);
   if (!place) return;
-  picture art = picture_of(image);
-  restore_patch(place->x, place->y, art.width, art.height);
+  restore_patch(place->x, place->y, width, height);
 }
 
 /* The whole number whose square is the largest not over +value+ (Ruby's Integer.sqrt). */

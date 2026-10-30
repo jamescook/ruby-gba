@@ -87,7 +87,7 @@ module VBlank
                                   transparent: frame.transparent, colors: colors)
           img
         end
-        _poses, width, height = same_size_images!(name, "Aseprite frame", poses)
+        _poses, width, height = pose_images!(name, "Aseprite frame", poses)
 
         tags = [Graphics::Aseprite::Tag.new(:all, 0, frames.length - 1)] if tags.empty?
         clips = tags.to_h { |tag| [tag.name, { off: tag.from, len: (tag.to - tag.from) + 1 }] }

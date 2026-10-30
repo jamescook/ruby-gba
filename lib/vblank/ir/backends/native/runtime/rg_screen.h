@@ -172,7 +172,7 @@ void rg_scene_redraw_sprites(int32_t brings_scenery);
  * own diagonal when it only turns. Adding one says +resizes+ too, because the rows of that box a
  * picture that only turns can reach decide whether it is on the screen at all. */
 void rg_objects_begin(void);
-void rg_object_take_off(int32_t sprite, int32_t image);
+void rg_object_take_off(int32_t sprite, int32_t width, int32_t height);
 void rg_object_take_off_turned(int32_t sprite, int32_t image, int32_t resizes);
 void rg_objects_add(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t level);
 void rg_objects_add_turned(int32_t sprite, int32_t image, int32_t x, int32_t y, int32_t level, int32_t angle,

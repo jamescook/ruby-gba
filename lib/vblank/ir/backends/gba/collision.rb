@@ -68,21 +68,28 @@ module VBlank
           # poses themselves, so sprites sharing art share the table.
           def register_pixel_mask(poses)
             @pixel_masks[poses] ||= begin
-              first = @bitmaps.fetch(poses.first)
-              bytes = poses.each_with_object(+"".b) { |image, acc| acc << mask_bytes(@bitmaps.fetch(image)) }
+              # Poses of different sizes each fill the box they all fit in, see-through
+              # past their own edges, so every slice is one size.
+              width, height = SpriteCut.canvas_of(@bitmaps, poses)
+              bytes = poses.each_with_object(+"".b) { |image, acc| acc << mask_bytes(@bitmaps.fetch(image), width, height) }
               blob = :"__pixmask_#{@pixel_masks.size}"
               @emitter.data_blobs[blob] = bytes
-              { blob: blob, w: first.width, h: first.height }
+              { blob: blob, w: width, h: height }
             end
           end
 
-          # One byte per pixel of an image: 1 where it's drawn, 0 where it's the
-          # see-through colour (an opaque image, with no transparent colour, is solid
-          # everywhere). Same "is this pixel drawn?" test the blit uses to skip
-          # transparent pixels.
-          def mask_bytes(bmp)
+          # One byte per pixel of a +width+ by +height+ box with an image at its corner: 1
+          # where it's drawn, 0 where it's the see-through colour or past the image's edge (an
+          # opaque image, with no transparent colour, is solid everywhere inside it). Same "is
+          # this pixel drawn?" test the blit uses to skip transparent pixels.
+          def mask_bytes(bmp, width, height)
             out = (+"".b)
-            (bmp.width * bmp.height).times { |i| out << (bmp.drawn_at?(i) ? 1 : 0).chr }
+            height.times do |y|
+              width.times do |x|
+                drawn = x < bmp.width && y < bmp.height && bmp.drawn_at?((y * bmp.width) + x)
+                out << (drawn ? 1 : 0).chr
+              end
+            end
             out
           end
 

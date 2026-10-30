@@ -33,7 +33,7 @@ module VBlank
       #   end
       #
       # Give a sprite POSES so it can face the way it moves: pass +facing:+ a map of
-      # direction to image (all the same size). The sprite then draws whichever pose
+      # direction to image (each at its top-left corner). The sprite then draws whichever pose
       # it's facing, and `move(:left)` (or `face(:left)`) turns it — the frame-swap
       # way 2D games face a character, done in bitmap mode:
       #
@@ -199,6 +199,8 @@ module VBlank
       def make_object_rotatable(object_node, angle_var)
         return unless object_node.angle.kind == :int # already turning (a variable angle)
 
+        refuse_poses_of_many_sizes!(object_node, "turn")
+
         at_boot(Build.set(angle_var, Build.int(0)))
         ensure_var(angle_var)
         object_node.angle = Build.var_ref(angle_var)
@@ -211,6 +213,8 @@ module VBlank
       # keeps the constant and pays nothing. Called by the HardwareSprite handle.
       def make_object_scalable(object_node, scale_var)
         return unless object_node.scale.kind == :int # already resizing (a variable size)
+
+        refuse_poses_of_many_sizes!(object_node, "change size")
 
         # Declared with a Float, which is how a program says "this holds a fraction" —
         # so the size variable carries its scale like any other, and 1.0 boots it to
@@ -306,6 +310,20 @@ module VBlank
       end
 
       private
+
+      # A sprite turns and resizes about the middle of its picture, and poses of different
+      # sizes each have a middle of their own, so one that turned would swing about another
+      # point every time it changed pose. Refused, naming the sizes.
+      def refuse_poses_of_many_sizes!(object_node, doing)
+        sizes = object_node.poses.map { |pose| @images.fetch(pose) }.uniq
+        return if sizes.size == 1
+
+        raise ArgumentError,
+              "The sprite :#{object_node.declared || object_node.poses.first} cannot #{doing}, because its poses " \
+              "are of different sizes (#{sizes.map { |w, h| "#{w}x#{h}" }.join(', ')}). A sprite turns and " \
+              "changes size about the middle of its picture. So each of these poses has a different middle. " \
+              "To fix this, draw every pose at one size."
+      end
 
       # +step+ is a read of a table every entry of which is from 0 to +count+ - 1, so whatever it
       # reads names one of +count+ choices, and needs no asking as the game runs: a pose stepped
@@ -502,7 +520,7 @@ module VBlank
       # "pool" where a pool asks the same question of the same art (Composition#pool_art!).
       def resolve_sprite_art(name, facing, frames = nil, subject: "sprite")
         if frames
-          poses, width, height = same_size_images!(name, "animation frame", frames, subject)
+          poses, width, height = pose_images!(name, "animation frame", frames, subject)
           return [poses, {}, width, height, 1]
         end
         unless facing
@@ -512,7 +530,7 @@ module VBlank
         end
         return resolve_directional_frames(name, facing, subject) if facing.values.any? { |v| v.is_a?(Array) }
 
-        poses, width, height = same_size_images!(name, "facing image", facing.values, subject)
+        poses, width, height = pose_images!(name, "facing image", facing.values, subject)
         [poses, facing.keys.each_with_index.to_h, width, height, 1]
       end
 
@@ -538,24 +556,25 @@ module VBlank
                 "For a still pose per direction, give a single image: facing: { left: :img_l, right: :img_r }."
         end
 
-        poses, width, height = same_size_images!(name, "facing frame", facing.values.flatten, subject)
+        poses, width, height = pose_images!(name, "facing frame", facing.values.flatten, subject)
         [poses, facing.keys.each_with_index.to_h, width, height, per_dir.first]
       end
 
       # Resolve a list of image names to [names, width, height], insisting each is
-      # defined and they all share one size (poses swap in place — a facing pose or an
-      # animation frame). +kind+ names them in the error. Shared by facing: and frames:.
-      def same_size_images!(name, kind, images, subject = "sprite")
+      # defined (poses swap in place — a facing pose or an animation frame). +kind+ names
+      # them in the error. Shared by facing: and frames:.
+      #
+      # The poses need not be one size. Every pose's top-left corner sits at the sprite's
+      # place, so a pose larger than another reaches further right and down, and art cut
+      # to what each frame draws (a picture of pieces, each at its offset from one corner)
+      # keeps its own sizes rather than being padded to the largest. The size returned is
+      # the box every pose fits in.
+      def pose_images!(name, kind, images, subject = "sprite")
         sizes = images.map do |img|
           @images[img] || raise(ArgumentError,
                 "#{subject} :#{name} #{kind} :#{img} is not defined. Define the image first with `image :#{img}, ...`.")
         end
-        unless sizes.uniq.size == 1
-          raise ArgumentError,
-                "#{subject} :#{name} #{kind}s must all be the same size. " \
-                "Got #{sizes.uniq.map { |w, h| "#{w}x#{h}" }.join(', ')}."
-        end
-        [images, *sizes.first]
+        [images, sizes.map(&:first).max, sizes.map(&:last).max]
       end
 
       # Guard the animation options up front: a sprite's pose comes from exactly one

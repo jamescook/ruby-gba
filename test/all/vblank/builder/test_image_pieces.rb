@@ -107,6 +107,104 @@ class TestImagePieces < Minitest::Test
     assert_equal BLUE, screen.pixel(110, 40), "...and its lower"
   end
 
+  # A sprite whose poses are pictures of pieces reaching different sizes: two pieces in a row, three
+  # reaching further down and across, and one alone. Each pose's pieces sit at their offsets from the
+  # sprite's place, and a pose of fewer pieces shows none of a larger one's.
+  private def changing_shape(from, to)
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image :medium, colors: %i[transparent red blue],
+                     pieces: [[0, 0, TestImagePieces.solid(1)], [8, 0, TestImagePieces.solid(1)]]
+      image :large, colors: %i[transparent red blue],
+                    pieces: [[0, 0, TestImagePieces.solid(2)], [8, 0, TestImagePieces.solid(2)], [16, 8, TestImagePieces.solid(2)]]
+      image :small, colors: %i[transparent red blue], pieces: [[0, 0, TestImagePieces.solid(1)]]
+      shape = sprite :shape, at: [40, 40], facing: { medium: :medium, large: :large, small: :small }
+      ticks = var :ticks, 0
+      pick = var :pick, from
+      game_loop do
+        ticks.add! 1
+        (ticks == 3).then { pick.set! to }
+        shape.face %i[medium large small], showing: pick
+      end
+    end
+    b.finalize_program
+    b.program
+  end
+
+  private def shown_after_change(program) = game_player.run(program, frames: 8).screen
+
+  def test_the_advance_shows_a_sprite_changing_shape_the_same
+    assert_backends_agree(changing_shape(1, 2), frames: 8, name: "SHAPES")
+  end
+
+  def test_a_sprite_shrinking_to_a_smaller_pose_shows_only_its_pieces
+    screen = shown_after_change(changing_shape(1, 2))
+    empty = screen.pixel(150, 130)
+
+    assert_equal RED, screen.pixel(43, 43), "the small pose's one piece"
+    assert_equal empty, screen.pixel(51, 43), "the large pose's second piece is gone"
+    assert_equal empty, screen.pixel(59, 51), "...and its third"
+  end
+
+  def test_a_sprite_growing_to_a_larger_pose_shows_all_its_pieces
+    screen = shown_after_change(changing_shape(2, 1))
+
+    assert_equal BLUE, screen.pixel(43, 43), "the large pose's first piece"
+    assert_equal BLUE, screen.pixel(51, 43), "...its second"
+    assert_equal BLUE, screen.pixel(59, 51), "...and its third, reaching past the others"
+  end
+
+  def test_a_sprite_shows_the_pose_of_two_pieces_it_starts_with
+    screen = shown_after_change(changing_shape(0, 0))
+    empty = screen.pixel(150, 130)
+
+    assert_equal RED, screen.pixel(51, 43), "the medium pose's second piece"
+    assert_equal empty, screen.pixel(59, 51), "nothing of the large pose"
+  end
+
+  # A block standing on the large pose's third piece, and nowhere the small pose reaches: the two
+  # touch while the sprite is large, and not once it has shrunk.
+  def test_a_sprite_touches_only_with_the_pose_it_shows
+    b = Builder.new
+    b.instance_eval do
+      screen :tiled
+      image :large, colors: %i[transparent red blue],
+                    pieces: [[0, 0, TestImagePieces.solid(2)], [8, 0, TestImagePieces.solid(2)], [16, 8, TestImagePieces.solid(2)]]
+      image :small, colors: %i[transparent red blue], pieces: [[0, 0, TestImagePieces.solid(1)]]
+      image :block, colors: %i[transparent red blue], pieces: [[0, 0, TestImagePieces.solid(1)]]
+      shape = sprite :shape, at: [40, 40], facing: { large: :large, small: :small }
+      block = sprite :block, at: [58, 50]
+      ticks = var :ticks, 0
+      touched_large = var :touched_large, 0
+      touched_small = var :touched_small, 0
+      game_loop do
+        ticks.add! 1
+        (ticks == 2).then { shape.overlaps?(block).then { touched_large.set! 1 } }
+        (ticks == 3).then { shape.face :small }
+        (ticks == 5).then { shape.overlaps?(block).then { touched_small.set! 1 } }
+      end
+    end
+    b.finalize_program
+    run = game_player.run(b.program, frames: 8)
+
+    assert_equal 1, run[:touched_large], "the large pose's third piece is under the block"
+    assert_equal 0, run[:touched_small], "the small pose reaches nowhere near it"
+  end
+
+  def test_turning_a_sprite_with_poses_of_different_sizes_is_a_friendly_error
+    error = assert_raises(ArgumentError) do
+      Builder.new.instance_eval do
+        screen :tiled
+        image :wide, colors: %i[transparent red], pieces: [[0, 0, TestImagePieces.solid(1)], [8, 0, TestImagePieces.solid(1)]]
+        image :narrow, colors: %i[transparent red], pieces: [[0, 0, TestImagePieces.solid(1)]]
+        sprite(:spinner, at: [40, 40], facing: { wide: :wide, narrow: :narrow }).turn(5)
+      end
+    end
+
+    assert_match(/poses are of different sizes \(16x8, 8x8\)/, error.message)
+  end
+
   def test_a_piece_of_the_wrong_size_is_a_friendly_error
     error = assert_raises(ArgumentError) { built([[0, 0, Array.new(60, 1)]]) }
 

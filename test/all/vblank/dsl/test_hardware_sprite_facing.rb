@@ -72,16 +72,25 @@ class TestHardwareSpriteFacing < Minitest::Test
     assert_match(/cannot face/, err.message)
   end
 
-  def test_poses_of_different_sizes_are_a_friendly_error
+  # Poses of different sizes each stand with their top-left corner at the sprite's place, and
+  # facing the smaller leaves nothing of the larger behind.
+  def test_poses_of_different_sizes_share_their_top_left_corner
     b = Builder.new
     b.instance_eval do
       screen :tiled
       image(:small, "#" => :red)  { SOLID_TILE }                 # 8x8
       image(:big,   "#" => :blue) { (["################"] * 16).join("\n") } # 16x16
+      pac = sprite :pac, at: [40, 40], facing: { left: :big, right: :small }
+      ticks = var :ticks, 0
+      game_loop do
+        ticks.add! 1
+        (ticks == 3).then { pac.face :right }
+      end
     end
-    err = assert_raises(ArgumentError) do
-      b.instance_eval { sprite :pac, at: [0, 0], facing: { right: :small, left: :big } }
-    end
-    assert_match(/same size/, err.message)
+    b.finalize_program
+    screen = game_player.run(b.program, frames: 8).screen
+
+    assert_equal Color.resolve(:red), screen.pixel(41, 41), "the small pose stands at the sprite's place"
+    assert_equal screen.pixel(150, 130), screen.pixel(52, 52), "nothing of the big pose is left"
   end
 end

@@ -2553,9 +2553,9 @@ module VBlank
         def object_boxes(obj)
           @object_boxes ||= {}
           @object_boxes[obj.name] ||= begin
-            canvas = @bitmaps.fetch(obj.poses.first)
+            width, height = SpriteCut.canvas_of(@bitmaps, obj.poses)
             whole = object_transformed?(obj) || obj.poses.any? { |pose| painted_picture?(pose) }
-            SpriteCut.new(@bitmaps).cut(obj.poses, width: canvas.width, height: canvas.height, whole: whole)[:boxes]
+            SpriteCut.new(@bitmaps).cut(obj.poses, width: width, height: height, whole: whole)[:boxes]
           end
         end
 
@@ -2815,9 +2815,9 @@ module VBlank
         # the bigger square a turning object can cover at any angle.
         def restore_scene_rect(scene, name, (x, y))
           obj = @objects.fetch(name)
-          bmp = @bitmaps.fetch(obj.poses.first)
+          width, height = SpriteCut.canvas_of(@bitmaps, obj.poses)
           if object_transformed?(obj)
-            rx, ry, w, h = transformed_footprint(obj, x, y, bmp.width, bmp.height)
+            rx, ry, w, h = transformed_footprint(obj, x, y, width, height)
             restore_patch(scene, rx, ry, w, h)
             # ...and where a tall patch came round onto the other end of the screen (see
             # TurnedBox), which is the same patch a whole count of lines up or down.
@@ -2825,7 +2825,7 @@ module VBlank
               restore_patch(scene, rx, ry + round, w, h) if ry + round < @screen.height && ry + round + h > 0
             end
           else
-            restore_patch(scene, x, y, bmp.width, bmp.height)
+            restore_patch(scene, x, y, width, height)
           end
         end
 

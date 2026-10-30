@@ -53,6 +53,15 @@ module VBlank
           @bitmaps = bitmaps
         end
 
+        # THE CANVAS A SPRITE'S POSES ARE DRAWN ON: [width, height], the box every one of them
+        # fits in. Poses need not be one size. Each has its top-left corner at the sprite's
+        # place, so the canvas is as wide as the widest and as tall as the tallest, and a
+        # smaller pose leaves the rest of it see-through.
+        def self.canvas_of(bitmaps, poses)
+          sizes = poses.map { |pose| bitmaps.fetch(pose).then { |bmp| [bmp.width, bmp.height] } }
+          [sizes.map(&:first).max, sizes.map(&:last).max]
+        end
+
         # The boxes each of +poses+ is drawn from, and which poses are another pose
         # mirrored: `{ boxes:, mirrors: }`, a list for each pose. A box is
         # [left, top, width, height] inside the canvas, +width+ by +height+, that every
@@ -67,7 +76,7 @@ module VBlank
             whole ? [[0, 0, width, height]] : pieces_of(@bitmaps.fetch(image))
           end
           mirrors = whole ? Array.new(poses.length) : mirrors_of(poses)
-          { boxes: boxes, mirrors: reflect_mirrored_poses(mirrors, boxes, width, height) }
+          { boxes: boxes, mirrors: reflect_mirrored_poses(poses, mirrors, boxes) }
         end
 
         private
@@ -81,11 +90,14 @@ module VBlank
         # reflection would have to be drawn eight pixels to the left of the canvas, which
         # the pose table has no way to say. Rare, and costs only the memory the sharing
         # would have saved.
-        def reflect_mirrored_poses(mirrors, boxes, width, height)
+        def reflect_mirrored_poses(poses, mirrors, boxes)
           mirrors.each_with_index.map do |mirror, k|
             next nil if mirror.nil?
 
-            reflected = boxes[mirror.source].map { |box| mirrored_box(box, mirror, width, height) }
+            # Reflected in the picture it was drawn from, which is the canvas unless its poses
+            # are of different sizes.
+            source = @bitmaps.fetch(poses[mirror.source])
+            reflected = boxes[mirror.source].map { |box| mirrored_box(box, mirror, source.width, source.height) }
             next nil if reflected.any? { |(x0, y0, _w, _h)| x0.negative? || y0.negative? }
 
             boxes[k] = reflected
@@ -151,8 +163,9 @@ module VBlank
 
         # WHAT TWO POSES HAVE TO MATCH IN to be stored once. The pixels, and — for art
         # given as places — the places too: two pictures can draw the same colors out of
-        # different places of one list, and the console stores the places.
-        def pose_identity(bmp) = bmp.places ? [bmp.pixels, bmp.places] : bmp.pixels
+        # different places of one list, and the console stores the places. And the width,
+        # since poses of different sizes can hold the same pixels laid out in other rows.
+        def pose_identity(bmp) = [bmp.width, bmp.pixels, bmp.places]
 
         # Where a mirrored pose's box sits: the source's box reflected in the canvas it
         # was drawn on. Taken from the source rather than worked out from the mirrored
