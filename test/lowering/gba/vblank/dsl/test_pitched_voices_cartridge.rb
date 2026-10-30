@@ -3,8 +3,8 @@
 require "test_helper"
 
 # Pitched voices on the Advance's cartridge: the voice's play position and its fixed-point
-# step, read off the console in the emulator. A higher note playing out sooner is in
-# test/console/gba/vblank/dsl/test_pitched_voices_on_the_advance.rb, and the friendly error in
+# step, read off the console in the emulator. A higher note playing out sooner, and the
+# friendly error, are in
 # test/all/vblank/dsl/test_pitched_voices.rb.
 class TestPitchedVoicesCartridge < Minitest::Test
   # --- hardware: the console reads a pitched voice faster ---

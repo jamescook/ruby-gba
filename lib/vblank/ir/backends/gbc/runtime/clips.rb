@@ -54,6 +54,18 @@ module VBlank
             # screen is off for, the timer counts those until the first frame (Frame#emit_dark_start),
             # and a clip played while the game sets up waits for it.
             PLAYING = "rt clip playing"
+            # WHAT SOUNDS AS THE INTERPRETER COUNTS IT, beside the samples themselves: the frames the
+            # recording sounding has left (0 for none, ALWAYS for one that loops) and its number, both
+            # moved only at a frame's music (#emit_frame), as the interpreter's mix moves its voices at
+            # the frame boundary; and what the game said since — the frames and number of a clip it
+            # played, and 1 where it stopped the one sounding — which that frame takes up first. A run
+            # of the cartridge reads which recording sounds from these (GBC::HeadlessRun#active_samples).
+            SOUNDING = "rt clip sounding"
+            SOUNDING_AS = "rt clip sounding as"
+            STARTING = "rt clip starting"
+            STARTING_AS = "rt clip starting as"
+            STOP_ASKED = "rt clip stop asked"
+            ALWAYS = 0xFFFF
             # In a game that loops one: 1 while the clip playing loops, where it goes back to (its
             # place, then how many bytes are left from there), and its laps' three numbers, five
             # bytes each, as the table lays them out.
@@ -91,6 +103,11 @@ module VBlank
                 [TO_END, A_FRAME, BACK].each { |name| memory.reserve(name, GBC::Clips::LAP_BYTES) }
               end
               memory.reserve(NUMBER, 1)
+              memory.reserve(SOUNDING, 2)
+              memory.reserve(SOUNDING_AS, 1)
+              memory.reserve(STARTING, 2)
+              memory.reserve(STARTING_AS, 1)
+              memory.reserve(STOP_ASKED, 1)
               memory.reserve(HELD_INTERRUPTS, 1)
               memory.reserve(PART_WAY, 1)
               memory.reserve(LEFT, 2)
@@ -116,6 +133,7 @@ module VBlank
               emit_stop(asm, memory)
               emit_timer_let_in(asm, memory)
               emit_tick(asm, memory, lines)
+              emit_frame(asm, memory)
               emit_lap(asm, memory) if laps?(memory)
             end
 
@@ -160,9 +178,25 @@ module VBlank
               asm.ret
               asm.label("rt_clip_play_held")
               asm.load(:c, :a)
+              # One is sounding, as the interpreter counts it — played this pass, or sounding at the
+              # last frame and not stopped since: this one is not heard.
+              emit_word_test(asm, memory[STARTING])
+              asm.ret(:nz)
+              asm.load(:a, [memory[STOP_ASKED]])
+              asm.and_a(:a)
+              asm.jump_relative(:nz, "rt_clip_play_free")
+              emit_word_test(asm, memory[SOUNDING])
+              asm.ret(:nz)
+              asm.label("rt_clip_play_free")
+              # The samples of the one before can run a little past the frame its count ended on:
+              # they are cut, and the voice is this one's.
               asm.load_high(:a, memory[PLAYING])
               asm.and_a(:a)
-              asm.ret(:nz) # one is playing: this one is not heard
+              asm.jump_relative(:z, "rt_clip_play_quiet")
+              asm.xor_a(:a)
+              asm.load_high(memory[PLAYING], :a)
+              asm.load_high(h::TAC, :a) unless shares_timer?(memory)
+              asm.label("rt_clip_play_quiet")
               if laps?(memory)
                 asm.load(:a, :d)
                 asm.load([memory[LOOPING]], :a)
@@ -182,7 +216,7 @@ module VBlank
               asm.load(:de, GBC::Clips::TABLE)
               asm.add_hl(:de)
               places = [memory[PLACE], memory[PLACE] + 1, memory[BANK], memory[LEFT], memory[LEFT] + 1, memory[NUMBER],
-                        memory[PART_WAY]]
+                        memory[PART_WAY], memory[STARTING], memory[STARTING] + 1]
               if laps?(memory)
                 places += [memory[HOLD_PLACE], memory[HOLD_PLACE] + 1, memory[HOLD_LEFT], memory[HOLD_LEFT] + 1]
                 places += [TO_END, A_FRAME, BACK].flat_map { |name| Array.new(GBC::Clips::LAP_BYTES) { |k| memory[name] + k } }
@@ -190,6 +224,17 @@ module VBlank
               places.each do |place|
                 asm.load(:a, [:hli])
                 asm.load([place], :a)
+              end
+              asm.load(:a, [memory[NUMBER]])
+              asm.load([memory[STARTING_AS]], :a)
+              if laps?(memory) # one that loops sounds until it is stopped
+                asm.load(:a, [memory[LOOPING]])
+                asm.and_a(:a)
+                asm.jump_relative(:z, "rt_clip_play_once")
+                asm.load(:a, ALWAYS & 0xFF)
+                asm.load([memory[STARTING]], :a)
+                asm.load([memory[STARTING] + 1], :a)
+                asm.label("rt_clip_play_once")
               end
               # Nothing left to play of the byte before the first, so the first sample reads one.
               asm.load(:a, 0x80)
@@ -273,6 +318,30 @@ module VBlank
               h = Console::GBCHardware
               asm.label("rt_clip_stop")
               asm.load(:c, :a)
+              # As the interpreter counts it: a clip played this pass is not started, and the one
+              # sounding stops at the next frame — whichever the game named, or both.
+              asm.cp_a(ALL)
+              asm.jump_relative(:z, "rt_clip_stop_counted_all")
+              asm.load(:a, [memory[STARTING_AS]])
+              asm.cp_a(:c)
+              asm.jump_relative(:nz, "rt_clip_stop_not_starting")
+              asm.xor_a(:a)
+              asm.load([memory[STARTING]], :a)
+              asm.load([memory[STARTING] + 1], :a)
+              asm.label("rt_clip_stop_not_starting")
+              asm.load(:a, [memory[SOUNDING_AS]])
+              asm.cp_a(:c)
+              asm.jump_relative(:nz, "rt_clip_stop_counted")
+              asm.load(:a, 1)
+              asm.load([memory[STOP_ASKED]], :a)
+              asm.jump_relative("rt_clip_stop_counted")
+              asm.label("rt_clip_stop_counted_all")
+              asm.xor_a(:a)
+              asm.load([memory[STARTING]], :a)
+              asm.load([memory[STARTING] + 1], :a)
+              asm.inc(:a)
+              asm.load([memory[STOP_ASKED]], :a)
+              asm.label("rt_clip_stop_counted")
               asm.load_high(:a, memory[PLAYING])
               asm.and_a(:a)
               asm.ret(:z) # none is playing
@@ -429,6 +498,59 @@ module VBlank
               end
               asm.pop(:af)
               asm.reti
+            end
+
+            # Z set where the two bytes at +place+ are both nought. A is spent.
+            def emit_word_test(asm, place)
+              asm.load(:a, [place])
+              asm.load(:l, :a)
+              asm.load(:a, [place + 1])
+              asm.or_a(:l)
+            end
+
+            # A FRAME OF WHAT SOUNDS (SOUNDING), called with the music's frame and before it, as the
+            # interpreter's mix moves its voices before its tune: a stop the game said, then a clip it
+            # played, then a frame off the count of the one sounding — which a loop's never runs down.
+            # Then, in a game that loops one, its laps. Every register is spent.
+            def emit_frame(asm, memory)
+              asm.label("rt_clip_frame")
+              asm.load(:a, [memory[STOP_ASKED]])
+              asm.and_a(:a)
+              asm.jump_relative(:z, "rt_clip_frame_started")
+              asm.xor_a(:a)
+              asm.load([memory[STOP_ASKED]], :a)
+              asm.load([memory[SOUNDING]], :a)
+              asm.load([memory[SOUNDING] + 1], :a)
+              asm.label("rt_clip_frame_started")
+              emit_word_test(asm, memory[STARTING])
+              asm.jump_relative(:z, "rt_clip_frame_count")
+              asm.load(:a, [memory[STARTING]])
+              asm.load([memory[SOUNDING]], :a)
+              asm.load(:a, [memory[STARTING] + 1])
+              asm.load([memory[SOUNDING] + 1], :a)
+              asm.load(:a, [memory[STARTING_AS]])
+              asm.load([memory[SOUNDING_AS]], :a)
+              asm.xor_a(:a)
+              asm.load([memory[STARTING]], :a)
+              asm.load([memory[STARTING] + 1], :a)
+              asm.label("rt_clip_frame_count")
+              asm.load(:a, [memory[SOUNDING]])
+              asm.load(:l, :a)
+              asm.load(:a, [memory[SOUNDING] + 1])
+              asm.load(:h, :a)
+              asm.or_a(:l)
+              asm.jump_relative(:z, "rt_clip_frame_counted")
+              asm.load(:a, :h)
+              asm.and_a(:l)
+              asm.inc(:a)
+              asm.jump_relative(:z, "rt_clip_frame_counted") # ALWAYS
+              asm.dec(:hl)
+              asm.load(:a, :l)
+              asm.load([memory[SOUNDING]], :a)
+              asm.load(:a, :h)
+              asm.load([memory[SOUNDING] + 1], :a)
+              asm.label("rt_clip_frame_counted")
+              laps?(memory) ? asm.jump("rt_clip_lap") : asm.ret
             end
 
             # A FRAME OF A LOOPING CLIP'S LAPS, called with the music's frame and before it, as the

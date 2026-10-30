@@ -137,7 +137,8 @@ module VBlank
           def moment_of(interpreter, frame, width, height)
             Moment.new(frame: frame, variables: interpreter.vars.dup, picture: picture_check(interpreter.screen, width, height),
                        sounds: interpreter.audio.size, sprites: interpreter.sprites,
-                       collections: interpreter.game_state.except(:vars), sounding: [], motor: interpreter.motor_on?)
+                       collections: interpreter.game_state.except(:vars), sounding: interpreter.active_samples.dup,
+                       motor: interpreter.motor_on?)
           end
 
           # The interpreter's picture over the cartridge's screen.

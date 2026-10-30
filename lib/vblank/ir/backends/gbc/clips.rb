@@ -44,11 +44,12 @@ module VBlank
                                          fix: "make its recordings shorter, or use fewer of them")
 
           # The table's label, and how many bytes an entry takes: the address, the bank, the count,
-          # the recording and whether its last byte is part full (#packed); and in a game that loops
-          # one, the place it goes back to, the count from there and its laps.
+          # the recording, whether its last byte is part full (#packed) and the frames it sounds for
+          # (Clip#frames); and in a game that loops one, the place it goes back to, the count from
+          # there and its laps.
           TABLE = "clips"
-          ENTRY_BYTES = 7
-          LOOPING_ENTRY_BYTES = 7 + 4 + (3 * 5)
+          ENTRY_BYTES = 9
+          LOOPING_ENTRY_BYTES = 9 + 4 + (3 * 5)
 
           # A LAP'S THREE NUMBERS, each five bytes, low byte first, in 65536ths of a sample of the
           # recording, as the interpreter's walk counts where it is (Sound::STEP_SHIFT): how far it
@@ -63,7 +64,12 @@ module VBlank
           # One recording at one note the game plays it at: the number its entry in the table has,
           # the number of the recording, its section's label, its bits, the byte it goes back to
           # when it loops, and its laps.
-          Clip = Data.define(:name, :note, :number, :recording, :label, :bytes, :hold_byte, :laps, :part_way)
+          #
+          # +frames+ is how many of the interpreter's mixes it sounds through, the last the one that
+          # reads its last sample (Reference::Mixer#mix_voice): what a run of the cartridge says
+          # sounds is counted by them (Runtime::Clips#emit_frame), whenever the samples themselves
+          # end.
+          Clip = Data.define(:name, :note, :number, :recording, :label, :bytes, :hold_byte, :laps, :part_way, :frames)
 
           def initialize(program)
             declared = program.walk.select { |node| node.kind == :sample }.to_h { |node| [node.name, node] }
@@ -124,6 +130,7 @@ module VBlank
               table.data_words(clip.bytes.bytesize)
               table.data_bytes(clip.recording)
               table.data_bytes(clip.part_way ? 1 : 0)
+              table.data_words(clip.frames)
               next unless @loops
 
               table.data_words("#{clip.label}_hold")
@@ -185,7 +192,7 @@ module VBlank
             laps = Laps.new(to_end: (info.length << shift) - 1, a_frame: @clock.samples_a_frame * step, back: back << shift)
             Clip.new(name: sample.name, note: note, number: number, recording: @recordings.index(sample.name),
                      label: "clip_#{number}", bytes: self.class.packed(samples), hold_byte: hold / 8, laps: laps,
-                     part_way: self.class.ends_part_way?(samples))
+                     part_way: self.class.ends_part_way?(samples), frames: samples.length.ceildiv(@clock.samples_a_frame))
           end
 
           def refuse_too_long!(clip)

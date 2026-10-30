@@ -51,8 +51,13 @@ module VBlank
           # on after the last pass compared play the music on.
           def whole_audio = @sound_log.entries.dup
 
+          # The recordings sounding at the moment the run is read, as the interpreter says them
+          # (Reference#active_samples): the one the cartridge plays, a Color playing one at a time,
+          # by its count of frames (Runtime::Clips::SOUNDING).
+          def active_samples = @active_samples || []
+
           # The rest of what the interpreter answers, each refused by name.
-          refuses :mixed_sound, :active_samples
+          refuses :mixed_sound
 
           private
 
@@ -97,6 +102,16 @@ module VBlank
             @dark_frames = dark ? half(dark) : 0
           end
 
+          # The recording sounding by the frames the last frame boundary left it (Runtime::Clips
+          # SOUNDING), by its name, or none: read once the pass's picture shows, after that boundary
+          # and before the next.
+          def read_sounding
+            sounding = @places.runtime[Runtime::Clips::SOUNDING]
+            return [] unless sounding && half(sounding).positive?
+
+            [@places.recordings.fetch(byte(@places.runtime.fetch(Runtime::Clips::SOUNDING_AS)))]
+          end
+
           # How many entries the sound log held as the game was found waiting.
           def read_sounds = @sound_log.entries.size
 
@@ -112,9 +127,10 @@ module VBlank
             @screen = picture
             @sounds = sounds
             @motor = @core.motor_on? # as the frame the picture is was shown
+            @active_samples = read_sounding
             @moments << Moment.new(frame: frame, variables: variables, picture: RunComparison.picture_check(picture.shown),
                                    sounds: sounds, sprites: @sprites, collections: game_state.except(:vars),
-                                   sounding: [], motor: @motor)
+                                   sounding: @active_samples, motor: @motor)
             @on_vblank&.call(frame) unless frame == :end
           end
 

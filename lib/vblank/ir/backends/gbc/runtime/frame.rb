@@ -178,7 +178,7 @@ module VBlank
               asm.inc([:hl])
               asm.jump_relative("rt_vblank_music_done")
               asm.label("rt_vblank_music")
-              asm.call("rt_clip_lap") if Clips.laps?(memory) # the mix's frame before the tune's
+              asm.call("rt_clip_frame") if Clips.any?(memory) # the mix's frame before the tune's
               asm.call("rt_music_tick")
               asm.call("rt_rumble_tick") if rumble # the motor moves on with the music (Runtime::Rumble)
               asm.label("rt_vblank_music_done")
@@ -236,7 +236,7 @@ module VBlank
               asm.jump_relative(:z, "rt_wait_vblank_paid")
               asm.dec(:a)
               asm.load([memory[MUSIC_OWED]], :a)
-              asm.call("rt_clip_lap") if Clips.laps?(memory)
+              asm.call("rt_clip_frame") if Clips.any?(memory)
               asm.call("rt_music_tick")
               asm.call("rt_rumble_tick") if rumble
               asm.jump_relative("rt_wait_vblank_owed")
@@ -258,13 +258,19 @@ module VBlank
               asm.call("rt_display_on")
               asm.call("rt_sleep_until_vblank")
               emit_add_dark_frames(asm, memory, count_at) if dark?(memory)
+              asm.di
               asm.jump_relative("rt_wait_vblank_buttons")
               asm.label("rt_wait_vblank_sleep")
               asm.call("rt_sleep_until_vblank")
               asm.call("rt_upload_whole")
               asm.call("rt_shown_is_passes")
+              # The reader of a running cartridge takes each pass's sounds where the game reaches
+              # this label (GBC::SoundLog), so it is reached with interrupts held off: one taken just
+              # as the processor reaches it comes back to it, and the pass would be counted twice.
+              asm.di
               asm.label("rt_wait_vblank_buttons")
               asm.load(:a, [memory[HOLD]])
+              asm.ei
               asm.and_a(:a)
               asm.jump(:nz, "rt_stopped")
               asm.call("rt_read_buttons")
