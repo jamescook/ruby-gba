@@ -112,6 +112,11 @@ module VBlank
       # game is built; a cartridge's run plays its own console's cartridge and nothing else.
       CONSOLE_SETTING = "CONSOLE"
 
+      # The console a run's test processes play as, which TestTask hands them. CONSOLE is the
+      # person's choice of which runs to play, so it is not handed on: a test that starts a rake
+      # of its own would have that rake leave out every run but one.
+      PLAYED_AS_SETTING = "VBLANK_CONSOLE"
+
       # The console CONSOLE names in +env+, as its Symbol, or nil when it is unset or empty. A name
       # no console has is refused.
       def named_console(env)
@@ -119,9 +124,11 @@ module VBlank
         Console.named(named) unless named.nil? || named.empty?
       end
 
-      # The console +run+ plays a game as, given +env+: the run's own, or the one CONSOLE names.
+      # The console +run+ plays a game as, given +env+: the run's own, or the one VBLANK_CONSOLE
+      # names, or CONSOLE for a test file played without the rake tasks.
       def console_from(env, run)
-        console = named_console(env)
+        played_as = env[PLAYED_AS_SETTING]
+        console = played_as.nil? || played_as.empty? ? named_console(env) : Console.named(played_as)
         return run.console if console.nil?
         return console if console == run.console || run.plays_any_console?
 

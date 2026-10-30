@@ -16,7 +16,7 @@
 # runs may belong in a console's folder those runs share.
 #
 # A runtime's run (native, js, ruby) is tried as every console, since the suite plays it as each.
-# Each file is played in a process of its own, a run's settings given as VBLANK_LOWERING and CONSOLE, as many
+# Each file is played in a process of its own, a run's settings given as VBLANK_LOWERING and VBLANK_CONSOLE, as many
 # at once as the computer has cores. It is slow, which is why it is a tool and not part of the
 # suite.
 require "etc"
@@ -55,7 +55,7 @@ Array.new(Etc.nprocessors) do
       nil
     end)
       lowering, console, path = job
-      out, = Open3.capture2e({ "VBLANK_LOWERING" => lowering.to_s, "CONSOLE" => console.to_s },
+      out, = Open3.capture2e({ "VBLANK_LOWERING" => lowering.to_s, "VBLANK_CONSOLE" => console.to_s, "CONSOLE" => nil },
                              "bundle", "exec", "ruby", "-Ilib", "-Itest", "-r#{PLAYED}", path, chdir: ROOT)
       played = out.lines.filter_map { |line| line[/\APLAYED (\S+)/, 1] }
       lock.synchronize { played.each { |test| found["#{path}  #{test}"] << "#{lowering} as #{console}" } }

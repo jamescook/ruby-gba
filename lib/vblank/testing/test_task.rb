@@ -130,10 +130,11 @@ module VBlank
 
       # What the run is handed. A checked run's own copy of TESTOPTS loses --ractor
       # too, since a test that starts a run of its own hands that copy on. YJIT as #yjit? says.
-      # The console is always said, so a CONSOLE the rake call was started with reaches only the
-      # runs it chose (RakeTasks), never one playing another.
+      # The console is always said, as VBLANK_CONSOLE, and CONSOLE is not handed on
+      # (Lowering::PLAYED_AS_SETTING says why).
       def run_settings
-        shared = { "RUBY_YJIT_ENABLE" => yjit? ? "1" : nil, Lowering::CONSOLE_SETTING => console.to_s }
+        shared = { "RUBY_YJIT_ENABLE" => yjit? ? "1" : nil, Lowering::PLAYED_AS_SETTING => console.to_s,
+                   Lowering::CONSOLE_SETTING => nil }
         return { Lowering::SETTING => "gba", **shared } unless checked?
 
         { Lowering::SETTING => lowering.to_s, "MT_RACTOR" => nil, "MT_CPU" => "1", **shared,

@@ -34,7 +34,7 @@ class TestGameSuite < Minitest::Test
   # take itself for one of those, and wait for tests from a parent it does not have.
   private def rake(*tasks, env: {}, game: GAME)
     Dir.mktmpdir do |played|
-      plain = { "RUBYLIB" => LIB, "GAME_SUITE_PLAYED" => played, "VBLANK_LOWERING" => nil,
+      plain = { "RUBYLIB" => LIB, "GAME_SUITE_PLAYED" => played, "VBLANK_LOWERING" => nil, "VBLANK_CONSOLE" => nil,
                 "TESTOPTS" => nil, "TEST" => nil, "MT_CPU" => nil, "MT_RACTOR" => nil, "TEST_PROCESSES" => nil,
                 "MT_RACTOR_WORKERS" => nil, "TEST_PROCESS_CHILD" => nil }
       out, status = Bundler.with_unbundled_env do

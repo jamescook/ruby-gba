@@ -44,7 +44,7 @@ module VBlank
     def self.gbc? = LOWERING == :gbc
 
     # The console this run plays a game built for (Lowering::Run#console): the Game Boy Color on
-    # its run, the Advance on the native, JavaScript and Ruby ones unless CONSOLE names another
+    # its run, the Advance on the native, JavaScript and Ruby ones unless their task names another
     # (Lowering.console_from). A game for both builds its tree for the run's
     # (`game.program(console: game_console)`), so its tests play on the Color too.
     CONSOLE = Lowering.console_from(ENV, RUN)
