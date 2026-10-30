@@ -235,6 +235,40 @@ class TestBackgroundDrawsWith < Minitest::Test
     said.first(4).each.with_index(1) { |(color, why), frames| assert_equal Color.resolve(color), left.call(frames), why }
   end
 
+  # Three scenes each declaring the layer, and each telling it which of 52 lists to draw with: the
+  # choice is made once for each scene's layer, one after the other, with a jump for every list.
+  # So many jumps that a build naming each by a word, a list's number and a count (the 11th list's
+  # 47th, the 1st list's 147th) would name two of them alike.
+  def test_three_scenes_choosing_among_fifty_two_lists_draw_with_the_one_named
+    lists = (0...52).map { |n| :"shade#{n}" }
+    builder = Builder.new
+    builder.instance_eval do
+      screen :tiled
+      image :bar, width: 8, height: 8, data: BAR, colors: OWN
+      lists.each_with_index do |name, n|
+        colors name, [:transparent, Color.rgb(n % 32, 0, 31 - (n % 32)), Color.rgb(0, n % 32, n / 32)]
+      end
+      tiles :wall, "#" => :bar
+      step = var :step, 0
+      showing = var :showing, 0
+      3.times do |s|
+        scene :"room#{s}" do
+          rays = background :rays, tiles: :wall, map: Array.new(20) { "#" * 30 }
+          rays.draw_with lists, showing: step
+          showing.set!((s + 1) % 3)
+        end
+      end
+      game_loop do
+        case_var(:showing) { 3.times { |s| when_val s, :"room#{s}" } }
+        step.add! 1
+      end
+    end
+    builder.finalize_program
+    shown = game_player.run(builder.program, frames: 6).screen.pixel(1, 1)
+
+    assert_equal Color.rgb(5 - framework_drawing_lag, 0, 26 + framework_drawing_lag), shown
+  end
+
   def test_the_console_walks_the_lists_the_same_way
     assert_backends_agree(a_wall_that_walks_through_its_lists, frames: 4)
   end

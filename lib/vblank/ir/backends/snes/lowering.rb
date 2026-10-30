@@ -339,9 +339,10 @@ module VBlank
 
           def routine_said(name) = @plan.routine_said(name)
 
+          # A label no other in the routine has: +what+ and the count, apart, as GBC::Lowering#fresh.
           def fresh(what)
             @labels += 1
-            "#{@routine}.#{what}#{@labels}"
+            "#{@routine}.#{what}##{@labels}"
           end
 
           # A number of the routine's own, kept in work RAM, by a name of its own that a value can

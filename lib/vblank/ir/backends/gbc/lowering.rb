@@ -404,9 +404,12 @@ module VBlank
 
           def routine_said(name) = @plan.routine_said(name)
 
+          # A label no other in the routine has: +what+ and the count, apart. Run together, a +what+
+          # that ends in a number would make one label of two (not_colors_1 and 147, not_colors_11
+          # and 47).
           def fresh(what)
             @labels += 1
-            "#{@routine}.#{what}#{@labels}"
+            "#{@routine}.#{what}##{@labels}"
           end
 
           # A number of the routine's own, kept in work memory, by a name of its own that a value
