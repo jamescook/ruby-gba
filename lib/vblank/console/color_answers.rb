@@ -129,7 +129,11 @@ module VBlank
                       "named, every piece is 8×16: two 8×8 squares one above the other are one of the forty, " \
                       "and a square with none under it is one too, with an empty lower half. " \
                       "`scale`, `face_angle` and `turn` are refused: a Game Boy " \
-                      "Color cannot turn or resize a sprite. Draw the turns as poses."),
+                      "Color cannot turn or resize a sprite. Draw the turns as poses. The console holds " \
+                      "256 tiles of sprite pictures at once. When a game needs more, the pictures that " \
+                      "only one scene's sprites show come in as that scene takes over, with its " \
+                      "background tiles. The display is off for that one frame. A scene that needs more " \
+                      "than 256 tiles, with the pictures that every scene shows, is refused."),
         draw_in_order: works,
         hide_sprites: works("on the next frame, no sprite shows. On the frame after, every sprite shows where it is."),
         picture_groups: works("the Color copies a group's pictures into its sprite memory when the group comes " \

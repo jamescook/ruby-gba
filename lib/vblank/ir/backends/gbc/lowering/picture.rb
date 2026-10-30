@@ -132,7 +132,8 @@ module VBlank
               @art = Art.new(square_colors: @square_colors&.refusal ? nil : @square_colors, lends: @lends_sprite_colors,
                              grouped: grouped_pictures, room_colors: @plans_room_colors,
                              first_cleared_to: @program.walk.find { |node| node.kind == :clear_screen }&.color,
-                             backdrop: color_backdrop, piece_height: piece_height)
+                             backdrop: color_backdrop, piece_height: piece_height,
+                             scene_pictures: (scene_pictures if @plans_scene_pictures))
               @grids = {} # a background declaration -> its grid's number
               @backgrounds = by_name(@program.walk, :background)
               @drawn_sprites = SpriteNames.new(@program) # the numbers a run says its sprites by
@@ -168,6 +169,7 @@ module VBlank
               @room_scenes = {} # a Room's id -> the scene it is brought in for, :every for every screen
               tiled_scenery.filter_map(&:scene).uniq.each { |scene| plan_scene_room(scene) }
               plan_rooms_for_bare_scenes
+              plan_rooms_for_scene_pictures
               walking = every.find(&:several_sets?)
               return unless walking
 
@@ -249,6 +251,36 @@ module VBlank
                 @room_scenes[room.id] = scene
                 @tile_rooms[[scene, nil]] = room
               end
+            end
+
+            # IN A GAME WHOSE SCENES BRING THEIR OWN SPRITE PICTURES IN: each such scene's room brings
+            # them, and a scene with no room yet has one of nothing but its pictures.
+            def plan_rooms_for_scene_pictures
+              @art.scenes_with_own_pictures.each do |scene|
+                room = @scene_rooms[scene] || begin
+                  made = @art.add_room(scene_words(scene))
+                  @scene_rooms[scene] = made
+                  @room_scenes[made.id] = scene
+                  @tile_rooms[[scene, nil]] = made
+                end
+                @art.bring_scene_pictures_in(room, scene)
+              end
+            end
+
+            # WHICH SPRITE PICTURES ARE ONE SCENE'S OWN, in a game whose scenes bring their own in
+            # (Art::TooManySpriteTiles): the picture's name to the scene, for a picture every sprite
+            # showing it is that scene's. One a sprite in no scene or of two scenes shows, one in a
+            # picture group, and one the game paints, is in sprite memory the whole time.
+            def scene_pictures
+              grouped = grouped_pictures
+              scenes = Hash.new { |all, picture| all[picture] = [] }
+              @objects.each_value { |obj| Array(obj.poses).each { |picture| scenes[picture] << obj.scene } }
+              scenes.filter_map do |picture, shown_in|
+                next if grouped.key?(picture) || picture_painting(picture)
+
+                only = shown_in.uniq
+                [picture, only.first] if only.length == 1 && only.first
+              end.to_h
             end
 
             # The scenes that show a screen drawn from tiles, or the one screen of a game with none.
@@ -368,7 +400,7 @@ module VBlank
             # Bring +room+ in, from the blank after this pass (Runtime::Picture#emit_rooms): its tiles,
             # and its colours where the screens bring theirs in.
             def emit_tile_room(room)
-              return unless room&.number && (room.brings_in? || @art.first_palette_per_room?)
+              return unless room&.number && (room.brings_in? || @art.brings_pictures_in?(room) || @art.first_palette_per_room?)
 
               runtime_call("rt_tiles_put_up", [Build.int(room.number)])
             end

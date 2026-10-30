@@ -152,10 +152,14 @@ module VBlank
           # and +bank_background_colors+ the tables of its backgrounds' colours (Picture#emit_background_colors_for_declaration).
           # +known+ holds what is worked out from +program+ alone, kept from one attempt at a build to
           # the next (GBC#build): nothing in it depends on how this one is built.
+          # +scene_pictures+ says each scene brings its own sprite pictures in (Art::TooManySpriteTiles),
+          # which takes rooms (+tile_rooms+).
           def initialize(program, memory:, lends_sprite_colors: false, tile_rooms: false, room_colors: false,
-                         banked_songs: false, bank_pose_tables: false, bank_background_colors: false, known: {})
+                         banked_songs: false, bank_pose_tables: false, bank_background_colors: false, known: {},
+                         scene_pictures: false)
             @program = program
             @known = known
+            @plans_scene_pictures = scene_pictures
             @memory = memory
             @lends_sprite_colors = lends_sprite_colors
             @banked_songs = banked_songs

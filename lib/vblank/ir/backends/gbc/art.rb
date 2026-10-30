@@ -94,6 +94,15 @@ module VBlank
           # build is made again with rooms (GBC#build).
           class TooManyBackgroundTiles < LoweringError; end
 
+          # MORE SPRITE TILES THAN THE COLOR HOLDS AT ONCE. A game whose sprite pictures between them
+          # need more tiles than its 256 still fits when no one scene's need more: a picture only one
+          # scene's sprites show is then numbered among that scene's own, past the tiles every screen
+          # keeps, and comes in with the scene's room as it takes over (#scene_tile, Room). A game is
+          # first built with every picture in memory from power-on, which costs nothing as it runs;
+          # this is raised when that runs out, and the build is made again with each scene's own
+          # (GBC#build).
+          class TooManySpriteTiles < LoweringError; end
+
           # MORE BACKGROUND LISTS OF COLOURS THAN THE COLOR HOLDS AT ONCE. A game whose backgrounds
           # between them draw from more than eight lists still fits when no one screen draws from
           # more: each screen then brings its own palettes in with its tiles (a Room's +palettes+). A
@@ -147,6 +156,11 @@ module VBlank
           # known once every picture is (#group_rooms).
           GroupedTile = Data.define(:picture, :index)
 
+          # ...and a tile of a picture only +scene+'s sprites show, in a game whose scenes bring their
+          # own in (#scene_tile): the +index+th of the scene's own, numbered past every screen's and
+          # the groups' rooms once every picture is known (#scene_tiles_base).
+          SceneTile = Data.define(:scene, :index)
+
           # A set of picture groups' room in sprite memory: its first tile, where each of its
           # pictures goes in it (IR::PictureGroupPlaces), and the pictures, in the order their tiles
           # are kept in the cartridge.
@@ -159,7 +173,10 @@ module VBlank
           # picture is copied in by, by the picture's name (Lowering::Picture#grouped_pictures).
           # +room_colors+ says each screen brings its own palettes in with its tiles
           # (TooManyBackgroundLists). +first_cleared_to+ is the colour the game's first
-          # `clear_screen` names, nil for none (#first_screen_backdrop).
+          # `clear_screen` names, nil for none (#first_screen_backdrop). +scene_pictures+ is the
+          # scene whose own each picture is, by its name, in a game whose scenes bring their own
+          # sprite pictures in (TooManySpriteTiles), and nil for a game whose pictures are all in
+          # memory from power-on.
           #
           # +backdrop+ is the colour the game shows wherever nothing is drawn (`screen ... backdrop:`):
           # the first colour of every background palette an empty cell or a see-through pixel shows,
@@ -172,8 +189,12 @@ module VBlank
           # a pair of the console's tiles at an even number, cut 8 wide and 16 tall, and turned upside
           # down whole, which is how the console turns a tall piece: the two halves change places.
           def initialize(square_colors: nil, lends: false, grouped: {}, room_colors: false, first_cleared_to: nil,
-                         backdrop: BACKDROP, piece_height: SpritePieces::SIZE)
+                         backdrop: BACKDROP, piece_height: SpritePieces::SIZE, scene_pictures: nil)
             @piece_height = piece_height
+            @scene_pictures = scene_pictures
+            @scene_tiles = Hash.new { |all, scene| all[scene] = [] } # a scene -> its own tiles, 16 bytes each
+            @scene_tile_numbers = Hash.new { |all, scene| all[scene] = {} } # ...and the index of each, by its bytes
+            @room_scenes = {} # a Room's id -> the scene whose own sprite pictures it brings in
             @backdrop = backdrop
             @square_colors = square_colors
             @first_cleared_to = first_cleared_to
@@ -321,13 +342,42 @@ module VBlank
             end
           end
 
-          # The number of a sprite's tile in sprite memory, a grouped picture's in its set's room.
+          # The number of a sprite's tile in sprite memory, a grouped picture's in its set's room, and a
+          # scene's own past every screen's and the groups'.
           def tile_number(tile)
+            return scene_tiles_base + tile.index if tile.is_a?(SceneTile)
             return tile unless tile.is_a?(GroupedTile)
 
             room = group_rooms.fetch(@grouped.fetch(tile.picture).name)
             room.first_tile + room.places.offset(tile.picture) + tile.index
           end
+
+          # --- the sprite pictures each scene brings in ---
+
+          # Do the scenes bring their own sprite pictures in (TooManySpriteTiles)?
+          def scene_pictures? = !@scene_pictures.nil?
+
+          # The scenes that have sprite pictures of their own.
+          def scenes_with_own_pictures = scene_pictures? ? @scene_pictures.values.uniq : []
+
+          # Say +room+ brings +scene+'s own sprite pictures in as it comes up.
+          def bring_scene_pictures_in(room, scene) = @room_scenes[room.id] = scene
+
+          # Whether +room+, or a room it carries, brings sprite pictures in.
+          def brings_pictures_in?(room) = room.chain.any? { |link| @room_scenes.key?(link.id) }
+
+          # THE FIRST TILE EVERY SCENE'S OWN ARE NUMBERED FROM: past the tiles every screen keeps and
+          # the groups' rooms, once every picture is known, at an even number where pieces are tall.
+          # Every scene's own start here, so they take turns with the same sprite memory.
+          def scene_tiles_base
+            @scene_tiles_base ||= begin
+              base = @sprite_tiles.length + group_rooms.each_value.sum { |room| room.places.units }
+              tall_pieces? ? base + (base % 2) : base
+            end
+          end
+
+          # How many sprite tiles the scene whose own need most needs, and which scene that is.
+          def most_scene_tiles = @scene_tiles.max_by { |_, tiles| tiles.length }&.then { |scene, tiles| [tiles.length, scene] }
 
           # The palettes the game can show, by the console's numbers: the backgrounds' from 0 — the
           # first always, since its first colour is the backdrop — the painted screen's, and the
@@ -413,7 +463,7 @@ module VBlank
                 places[(y * image.width) + x]
               end
               pieces = squares.map do |x0, y0, piece|
-                tile, flips = @grouped.key?(name) ? grouped_tile(name, piece) : sprite_tile(piece)
+                tile, flips = picture_tile(name, piece)
                 Piece.new(dx: x0, dy: y0, tile: tile, flips: flips)
               end
               mask = Array.new(image.width * image.height) { |i| image.drawn_at?(i) }
@@ -440,7 +490,7 @@ module VBlank
             pieces = drawn.filter_map do |dx, dy, piece|
               next if piece.all?(&:zero?)
 
-              tile, flips = @grouped.key?(name) ? grouped_tile(name, piece) : sprite_tile(piece)
+              tile, flips = picture_tile(name, piece)
               Piece.new(dx: dx, dy: dy, tile: tile, flips: flips)
             end
             mask = Array.new(image.width * image.height) { |i| image.drawn_at?(i) }
@@ -1147,6 +1197,7 @@ module VBlank
           end
 
           def refuse_too_many_tiles!
+            refuse_scene_pictures_past_most!
             rooms = group_rooms.each_value.sum { |room| room.places.units }
             if @sprite_tiles.length + rooms > MOST_SPRITE_TILES
               grouped = if rooms.zero? then ""
@@ -1154,9 +1205,12 @@ module VBlank
                           " The pictures in no group need #{@sprite_tiles.length} of them. The groups that can be " \
                             "up together need #{rooms}."
                         end
-              raise LoweringError, "this game's sprites need #{@sprite_tiles.length + rooms} tiles of 8×8, and a Game " \
-                                   "Boy Color has room for #{MOST_SPRITE_TILES}.#{grouped} To fix this, give it fewer " \
-                                   "or smaller pictures."
+              # Every picture in memory at once does not fit; each scene's own brought in as it takes
+              # over may.
+              error = scene_pictures? ? LoweringError : TooManySpriteTiles
+              raise error, "this game's sprites need #{@sprite_tiles.length + rooms} tiles of 8×8, and a Game " \
+                           "Boy Color has room for #{MOST_SPRITE_TILES}.#{grouped} To fix this, give it fewer " \
+                           "or smaller pictures."
             end
             most = painting? ? PAINTING_BACKGROUND_TILES : MOST_BACKGROUND_TILES
             beside = painting? ? " beside a painted screen" : ""
@@ -1173,6 +1227,18 @@ module VBlank
             raise error, "this game's backgrounds need #{@background_tiles.length} different tiles, and a Game " \
                          "Boy Color has room for #{most}#{beside} at one time. To fix this, use fewer different tiles. " \
                          "Or declare each background in the scene that shows it. Then each scene brings its own tiles in."
+          end
+
+          # One scene's own sprite pictures with every screen's: more than the Color holds is refused,
+          # naming the scene.
+          def refuse_scene_pictures_past_most!
+            most, scene = most_scene_tiles
+            return unless most && scene_tiles_base + most > MOST_SPRITE_TILES
+
+            raise LoweringError, "the sprites of the scene :#{Modes.strip_scene_prefix(scene)} need " \
+                                 "#{scene_tiles_base + most} tiles of 8×8, with the pictures that every scene shows. A " \
+                                 "Game Boy Color has room for #{MOST_SPRITE_TILES} at one time. To fix this, give " \
+                                 "that scene fewer or smaller pictures."
           end
 
           # A run of a room's tiles as the runtime copies it in (Runtime::Picture#emit_rooms): its label
@@ -1196,8 +1262,25 @@ module VBlank
                                         bank: half / 2, to: (half.even? ? 0x9000 : 0x8800) + ((tile % 128) * 16))
                 at += count
               end
-              chunks
+              chunks + room_picture_chunks(room)
             end
+          end
+
+          # ...and the scene's own sprite pictures +room+ brings in, where it brings some: a tile
+          # numbered +n+ is in bank n / 128 of picture memory, from 0x8000, as a sprite's entry names
+          # it (#piece_entry).
+          def room_picture_chunks(room)
+            tiles = @room_scenes.key?(room.id) ? @scene_tiles[@room_scenes[room.id]] : []
+            chunks = []
+            at = 0
+            while at < tiles.length
+              tile = scene_tiles_base + at
+              count = [tiles.length - at, 128 - (tile % 128)].min
+              chunks << RoomChunk.new(label: "art_room_#{room.id}_pictures_#{chunks.length}", tiles: tiles[at, count],
+                                      bank: tile / 128, to: Console::GBCHardware::VRAM + ((tile % 128) * 16))
+              at += count
+            end
+            chunks
           end
 
           # The place each pixel of a sprite's picture is drawn from: its own list's, where it came
@@ -1251,6 +1334,34 @@ module VBlank
             @sprite_tile_numbers[bytes] = @sprite_tiles.length
             @sprite_tiles.concat(bytes.each_slice(16).to_a)
             [@sprite_tile_numbers[bytes], 0]
+          end
+
+          # The tile a piece of picture +name+ is drawn from: its group's, its scene's own, or one
+          # every screen keeps.
+          def picture_tile(name, places)
+            return grouped_tile(name, places) if @grouped.key?(name)
+
+            scene = @scene_pictures&.[](name)
+            scene ? scene_tile(scene, places) : sprite_tile(places)
+          end
+
+          # A tile of a picture only +scene+'s sprites show: one every screen keeps already, or one of
+          # the scene's own already kept, drawn as it is or turned, or a new one of the scene's own.
+          def scene_tile(scene, places)
+            own = @scene_tiles[scene]
+            numbers = @scene_tile_numbers[scene]
+            turnings(places).each do |flips, version|
+              bytes = encode(version)
+              kept = @sprite_tile_numbers[bytes]
+              return [kept, flips] if kept
+
+              index = numbers[bytes]
+              return [SceneTile.new(scene: scene, index: index), flips] if index
+            end
+            bytes = encode(places)
+            numbers[bytes] = own.length
+            own.concat(bytes.each_slice(16).to_a)
+            [SceneTile.new(scene: scene, index: numbers[bytes]), 0]
           end
 
           # A tile of the grouped picture +name+: one of the picture's own already kept, drawn as it

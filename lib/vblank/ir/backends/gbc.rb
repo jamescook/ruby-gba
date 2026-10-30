@@ -127,14 +127,25 @@ module VBlank
         #
         # What a lowering works out from the program alone, and not from how this attempt is built,
         # is kept from one attempt to the next (Lowering's +known+).
+        #
+        # A game whose sprite pictures between them need more tiles than the console holds is built
+        # again with each scene bringing its own pictures in, as its own tiles (Art::TooManySpriteTiles).
         def build(program, title: "RUBYGBA")
           @known = {}
+          @scene_pictures = false
+          build_in_rooms_if_needed(program, title)
+        rescue Art::TooManySpriteTiles
+          @scene_pictures = true
+          build_in_rooms_if_needed(program, title)
+        end
+
+        private
+
+        def build_in_rooms_if_needed(program, title)
           build_with_rooms_if_needed(program, title)
         rescue Art::TooManyBackgroundLists
           build_lending_if_needed(program, title, tile_rooms: true, room_colors: true)
         end
-
-        private
 
         def build_with_rooms_if_needed(program, title)
           build_lending_if_needed(program, title, tile_rooms: false)
@@ -155,7 +166,8 @@ module VBlank
         def build_cartridge(program, title, lends:, tile_rooms:, room_colors:, banked_songs: false, bank_pose_tables: false,
                             bank_background_colors: false)
           memory = Memory.new
-          lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends, tile_rooms: tile_rooms,
+          lowering = Lowering.new(program, memory: memory, lends_sprite_colors: lends, tile_rooms: tile_rooms || @scene_pictures,
+                                           scene_pictures: @scene_pictures,
                                            room_colors: room_colors, banked_songs: banked_songs, bank_pose_tables: bank_pose_tables,
                                            bank_background_colors: bank_background_colors, known: @known)
           # The runtime's places first, so they are in the half of work memory always in view.

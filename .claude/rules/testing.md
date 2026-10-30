@@ -95,7 +95,8 @@ rows), `many_rooms_game.rb` (a scene of many rooms with sprite pictures grouped 
 records first),
 `speakers.rb` (which speaker a cartridge's voice is heard from),
 `many_tiles.rb` (backgrounds of many different tiles, for what a console does when they are too many to
-hold at once), and the
+hold at once), `scene_sprite_pictures.rb` (scenes whose sprite pictures together are more than a console
+holds at once), and the
 helpers a test file shares with its `_on_the_advance.rb` twin (`fade_watch.rb`,
 `tinted_handover.rb`) — and are loaded by bare name (`require "differential"`), never
 `require_relative`.
