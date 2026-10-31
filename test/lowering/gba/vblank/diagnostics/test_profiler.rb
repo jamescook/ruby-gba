@@ -175,6 +175,19 @@ class TestProfiler < Minitest::Test
     refute_empty JSON.parse(out.string)["late_passes"]
   end
 
+  # THE RATE IS PICTURES MADE, one a pass of the game loop, not frames the console slept in. A
+  # pass that ends just after a break sleeps until the break after, and where the measured frames
+  # do not start at a break that sleep falls in two of them. Read off a real game held in a scene:
+  # 157 passes in 240 frames, with a sleep in 223 of them, which read 55.8.
+  def test_the_rate_counts_passes_not_frames_with_a_sleep_in_them
+    pass = RubyGBAEmulator::Probe::Pass.new(missed: 0, ended_before: 1)
+    profile = RubyGBAEmulator::Probe::Profile.new(frames: 240, samples: 0, halted: 0, elsewhere: 0, finished: 223,
+                                                 pc: {}, cycles: {}, late: [], cycles_per_frame: 280_896,
+                                                 passes: [pass] * 157)
+
+    assert_in_delta 39.3, VBlank::Diagnostics::Profiler.pictures_per_second(profile, 0), 0.05
+  end
+
   def test_a_pass_that_ends_before_the_break_is_not_late
     in_time = game_ending_on_line(150).profile(out: StringIO.new, frames: 10)
 

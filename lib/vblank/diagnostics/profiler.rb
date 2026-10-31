@@ -239,10 +239,18 @@ module VBlank
       # whether it went to sleep in them, since a game that keeps up sleeps once a frame until
       # the screen comes round. A page shown at once although it was late is a new picture shown
       # without that sleep, so those count as well — at most one picture a frame, which is sixty.
+      #
+      # COUNTED BY PASSES, NOT BY FRAMES THE CONSOLE SLEPT IN. Each pass of the game loop ends in a
+      # sleep and makes one picture, and the emulator lists the passes (leaving out a wake that ran
+      # only an interrupt's handler). Counting frames with a sleep in them counts a pass twice
+      # wherever its sleep crosses from one measured frame into the next, which is what a pass that
+      # ends just after a break does — it sleeps until the break after — whenever the measured
+      # frames do not start at a break. A game making thirty pictures a second then read sixty, and
+      # how far off it read moved with a few hundred cycles of the pass, wherever its ends fell.
       def self.pictures_per_second(profile, shown_at_once)
-        return profile.frames_per_second if shown_at_once.zero? || profile.frames.zero?
+        return 0.0 if profile.frames.zero?
 
-        [(60.0 * (profile.finished + shown_at_once) / profile.frames).round(1), 60.0].min
+        [(60.0 * (profile.passes.size + shown_at_once) / profile.frames).round(1), 60.0].min
       end
 
       # How many times the run went through any of +sites+ — each an instruction the build says
@@ -698,7 +706,7 @@ module VBlank
                    share: share(seen, total), time_share: share(time_outside[region], awake), where: region)
         end
 
-        Result.new(frames: profile.frames, samples: total, fps: profile.frames_per_second,
+        Result.new(frames: profile.frames, samples: total, fps: pictures_per_second(profile, 0),
                    idle_share: profile.idle_share.round(4), lines: lines,
                    unattributed: share(outside.sum { |_, seen| seen }, total), keys: held,
                    reached: reached, tearing: tearing, flicker: flicker, tick_rates: tick_rates,
