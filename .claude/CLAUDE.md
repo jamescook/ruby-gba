@@ -397,6 +397,9 @@ GOOD  finalize_program
   `emit_x_now`, must say in the name what differs.
 - **Check before you rename.** Builder and `IR::Backends::GBA` are many modules mixed into one class,
   so a name that already exists in any of them silently overrides it: grep `def new_name` first.
+- **Matching the code around it does not excuse a bad name.** Where the surrounding names break
+  this, name the new thing properly and rename the old ones the change touches. A one-word name
+  that reads only at its call site (`Events.of(part)`) names nothing where it is defined.
 
 `test/all/vblank/test_method_names.rb` fails the build on the mechanical half of this — articles,
 vague-verb prefixes, two-letter abbreviations, and names of seven words or more. It cannot judge the rest, so a
