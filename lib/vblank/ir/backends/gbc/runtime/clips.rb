@@ -559,7 +559,6 @@ module VBlank
             # byte first, with the carry between: nothing on the way changes it but the sum itself.
             # Every register is spent.
             def emit_lap(asm, memory)
-              h = Console::GBCHardware
               asm.label("rt_clip_lap")
               asm.load(:a, [memory[LOOPING]])
               asm.and_a(:a)

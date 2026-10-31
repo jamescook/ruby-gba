@@ -42,6 +42,13 @@ module VBlank
       end
       private_class_method :checked_amount
 
+      # The frequency a voice of +kind+ (:square or :wave) plays its pitch number +number+ at: the
+      # one its own ticks (Sound.square_wave_ticks, Sound.wave_voice_ticks) turn back into +number+.
+      def self.frequency_of(number, kind)
+        clock, longest = VOICE_CLOCKS.fetch(kind)
+        clock.to_f / (longest - number)
+      end
+
       def moves? = transpose != 0 || pitch_offset != 0
 
       # +events+ with every note's pitch shifted, for a part playing +kind+ of voice (Music.kind_played).

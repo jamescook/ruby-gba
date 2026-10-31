@@ -138,7 +138,7 @@ module VBlank
         def to_voice(frames, total, who)
           drum = plays == :noise
           one, duties = Duty.of_part(duty, where: who)
-          Music::Part.playing(plays, who: who, events: Events.of(self, frames, total, who), duty: one, duties: duties,
+          Music::Part.playing(plays, who: who, events: Events.for_part(self, frames, total, who), duty: one, duties: duties,
                                      shift: PitchShift.said(transpose: transpose, pitch_offset: pitch_offset, where: who),
                                      volume: volume, decay: (drum && decay) || :fast, metallic: metallic,
                                      envelope: Envelope.of(envelope, "a part"),
@@ -154,9 +154,14 @@ module VBlank
       # +slide_down+ how it slides its pitch, +vibrato+ how it wobbles, +pan+ the speaker it plays
       # from, and +duty+ its shape or the shapes it steps through (see Part).
       Note = Data.define(:at, :key, :length, :instrument, :volume, :envelope, :hz, :decay, :swell, :slide_up,
-                         :slide_down, :vibrato, :pan, :duty)
+                         :slide_down, :vibrato, :pan, :duty, :pitch_number)
 
       class Note
+        # A NOTE ON A SQUARE VOICE OR THE WAVE VOICE CAN GIVE +pitch_number+ IN PLACE OF A KEY: the
+        # number the voice itself is tuned by, 0 to 2047, where each step up makes a wave a tick of
+        # the voice's clock shorter (the same steps a part's `pitch_offset` counts). Another Game Boy
+        # game's music engine keeps a table of these, and its notes are often a step away from the
+        # pitch a key comes to, so a song converted from it says the number to sound the same.
         # A NOTE ON THE NOISE VOICE CAN GIVE +hz+ IN PLACE OF A KEY: how many times a second its
         # hiss steps. A key cannot say most of them. The voice steps up to 524,288 times a second,
         # and the highest MIDI key is 12,543 Hz — so a drum that wants a thin, fast hiss, which is
@@ -164,7 +169,8 @@ module VBlank
         # still plays the rung of its ladder nearest the rate (Sound.noise_rung), as it does for a
         # key.
         def initialize(at:, key: nil, length: nil, instrument: nil, volume: nil, envelope: nil, hz: nil,
-                       decay: nil, swell: nil, slide_up: nil, slide_down: nil, vibrato: nil, pan: nil, duty: nil)
+                       decay: nil, swell: nil, slide_up: nil, slide_down: nil, vibrato: nil, pan: nil, duty: nil,
+                       pitch_number: nil)
           super
         end
 
@@ -187,9 +193,12 @@ module VBlank
         def shape(part) = Duty.said(duty, where: "The note at tick #{at} of #{part.downcase}")
 
         # How high the note is, in Hz — 0 for a rest. A note that gives +hz+ is that; a MIDI note
-        # number is tuned the usual way, from A above middle C (number 69) at 440 Hz.
-        def frequency
+        # number is tuned the usual way, from A above middle C (number 69) at 440 Hz. A pitch number
+        # is the frequency the voice of +kind+ plays it at, which every backend turns back into
+        # exactly that number.
+        def frequency(kind = :square)
           return hz if hz
+          return PitchShift.frequency_of(pitch_number, kind) if pitch_number
 
           case key
           when nil then 0
@@ -235,12 +244,13 @@ module VBlank
       module Events
         module_function
 
-        def of(part, frames, total, who)
+        def for_part(part, frames, total, who)
           notes = part.notes.sort_by(&:at)
+          kind = Music.kind_played(Music.resolve_plays(part.plays))
           events = notes.each_with_index.flat_map do |note, n|
             said = Music.without_trailing_nils([note.fade(who), note.slide(who), note.wobble(who), note.side(who),
                                                 note.shape(who)])
-            on = [frames.at(note.at), note.frequency, note.instrument_name, note.volume,
+            on = [frames.at(note.at), note.frequency(kind), note.instrument_name, note.volume,
                   Envelope.of(note.envelope, "a note"), *said]
             next [on] unless note.length
 
@@ -361,6 +371,7 @@ module VBlank
           end
           key!(note.key, where)
           noise_rate!(note, where, voice) if note.hz
+          pitch_number!(note, where, voice) unless note.pitch_number.nil?
           volume!(note.volume, where, recording?(voice)) if note.volume
         end
 
@@ -390,6 +401,23 @@ module VBlank
           raise ArgumentError, "#{where} has `hz: #{note.hz.inspect}`. On the noise voice, `hz:` is how many " \
                                "times a second the hiss steps: a number more than 0, and #{NOISE_CLOCK_HZ_TEXT} " \
                                "or less. Give a number in that range."
+        end
+
+        # A note that gives +pitch_number+ plays a square part or the wave part, gives no key as
+        # well, and names a number the voice is tuned by.
+        def pitch_number!(note, where, voice)
+          if recording?(voice) || noise?(voice)
+            raise ArgumentError, "#{where} gives a `pitch_number`, but its part plays " \
+                                 "#{noise?(voice) ? 'the noise voice' : 'a recording'}. Only a square part or the wave " \
+                                 "part is tuned by a pitch number. Give the note a `key:` instead."
+          end
+          if note.key || note.hz
+            raise ArgumentError, "#{where} has both a `pitch_number` and a key. A note has one pitch. Remove one of them."
+          end
+          return if note.pitch_number.is_a?(Integer) && note.pitch_number.between?(0, Sound::SQUARE_LONGEST_WAVE - 1)
+
+          raise ArgumentError, "#{where} has `pitch_number: #{note.pitch_number.inspect}`. A pitch number is a whole " \
+                               "number from 0 to #{Sound::SQUARE_LONGEST_WAVE - 1}. Give a number in that range."
         end
 
         # A loudness is 0 (silent) to 15 (the loudest), the same scale a song block's `volume` is.

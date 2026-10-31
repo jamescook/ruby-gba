@@ -84,6 +84,52 @@ class TestSongPitchShifts < Minitest::Test
     assert_equal Sound.square_wave_ticks(880) - 1, Sound.square_wave_ticks(pitches_on(b.program, 1).first)
   end
 
+  # A NOTE AT THE VOICE'S OWN PITCH NUMBER, as another Game Boy game's music engine says it: 1601 is
+  # D#3 in one such game's table, a step away from the 1602 the key's own pitch comes to.
+  private def pitch_number_game(plays)
+    score = VBlank::Audio::Score
+    part = score::Part.new(plays: plays, pitch_offset: 2, notes: [score::Note.new(at: 0, pitch_number: 1601, length: 24)])
+    b = Builder.new
+    b.instance_eval do
+      screen :bitmap
+      clear_screen :black
+      enable_sound
+      songs(:music, [score.new(parts: [part], tempo: 150)]).play 0
+      game_loop { wait_vblank }
+    end
+    b.finalize_program
+    b.program
+  end
+
+  def test_a_note_plays_at_the_square_voices_own_pitch_number
+    played = pitches_on(pitch_number_game(nil), 1).first
+
+    assert_equal 2048 - 1603, Sound.square_wave_ticks(played), "1601, and the part's two steps up"
+  end
+
+  def test_a_note_plays_at_the_wave_voices_own_pitch_number
+    played = pitches_on(pitch_number_game(:wave), 3).first
+
+    assert_equal 2048 - 1603, Sound.wave_voice_ticks(played)
+  end
+
+  def test_a_drum_has_no_pitch_number
+    score = VBlank::Audio::Score
+    part = score::Part.new(plays: :noise, notes: [score::Note.new(at: 0, pitch_number: 1601)])
+    error = assert_raises(ArgumentError) { score.new(parts: [part]).to_song }
+
+    assert_match(/pitch_number/, error.message)
+    assert_match(/square part or the wave part/, error.message)
+  end
+
+  def test_a_pitch_number_is_0_to_2047
+    score = VBlank::Audio::Score
+    part = score::Part.new(notes: [score::Note.new(at: 0, pitch_number: 2048)])
+    error = assert_raises(ArgumentError) { score.new(parts: [part]).to_song }
+
+    assert_match(/0 to 2047/, error.message)
+  end
+
   # --- what a shift cannot be ---
 
   def test_the_drums_have_no_pitch_steps_to_offset
